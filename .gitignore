@@ -1,0 +1,18 @@
+# user score library and source material — never committed
+# (may contain copyrighted scores; the app regenerates workspace/ on first use)
+workspace/
+intake/
+
+# python
+engine/.venv/
+engine/**/__pycache__/
+engine/*.egg-info/
+engine/scoranger_engine.egg-info/
+
+# node
+viewer/node_modules/
+viewer/dist/
+
+# misc
+.DS_Store
+*.log
