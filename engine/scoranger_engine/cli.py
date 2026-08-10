@@ -158,6 +158,12 @@ def cmd_strip_notes(a):
     _mutate(a.score, score, "strip-notes", {"part": a.part}, details)
 
 
+def cmd_simplify_repeats(a):
+    score = _load(a.score, None)
+    details = ops.simplify_repeats(score, a.part, a.note_length)
+    _mutate(a.score, score, "simplify-repeats", {"part": a.part}, details)
+
+
 def cmd_octave_shift(a):
     score = _load(a.score, None)
     details = ops.octave_shift(score, a.part, a.octaves, a.from_measure, a.to_measure)
@@ -332,6 +338,12 @@ def main() -> None:
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.set_defaults(fn=cmd_strip_notes)
+
+    s = sub.add_parser("simplify-repeats", help="Collapse single-pitch-class measures (octave jumps/repeats) to downbeat note + rests")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--note-length", type=float, default=1.0)
+    s.set_defaults(fn=cmd_simplify_repeats)
 
     s = sub.add_parser("octave-shift", help="Shift a part by octaves within a measure range")
     s.add_argument("score")

@@ -659,6 +659,43 @@ def rebuild_part(score, target_name: str, src_score, base_name: str,
             "rules": rules, "overlay_runs_kept": runs_kept, "overlay_notes": overlay_notes}
 
 
+def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:
+    """Collapse measures that only restate one pitch class (octave jumps,
+    repeated notes, ties) into a single downbeat note plus rests.
+
+    The kept note is the lowest pitch in the measure (bass function). Measures
+    with more than one pitch class — an actual line — are left alone, as are
+    measures already holding a single note.
+    """
+    part = find_parts(score, [name])[0]
+    simplified = []
+    for m in part.getElementsByClass(stream.Measure):
+        events = [el for el in _sounding(m) if not el.isRest]
+        if len(events) < 2:
+            continue
+        pcs = {p.pitchClass for el in events for p in el.pitches}
+        if len(pcs) != 1:
+            continue
+        lowest = min((p for el in events for p in el.pitches), key=lambda p: p.ps)
+        bar_len = m.barDuration.quarterLength
+        for cont in list(m.voices) or [m]:
+            for el in list(_sounding(cont)):
+                cont.remove(el)
+        for v in list(m.voices):
+            m.remove(v)
+        n = m21note.Note(copy.deepcopy(lowest))
+        n.quarterLength = min(note_length, bar_len)
+        m.insert(0.0, n)
+        pos = n.quarterLength
+        while pos < bar_len - 1e-6:
+            r = m21note.Rest(quarterLength=min(1.0, bar_len - pos))
+            m.insert(pos, r)
+            pos += r.quarterLength
+        simplified.append(m.number)
+    return {"part": part_label(part), "measures_simplified": len(simplified),
+            "measures": simplified}
+
+
 def _set_part_order(score, ordered_parts) -> None:
     """Rebuild the score's part list in the given order (music21's replace()
     appends same-offset inserts, losing position)."""

@@ -36,6 +36,9 @@ scor limit-part <score> --part "Acc. Bass" --max-pitch C4 --monophonic
 scor absorb-part <score> --source X --target Y [--rules '{...}'] [--from-version vNNN]
   # rule-governed voice-2 merge; default rules: below_melody, drop_doubling, min_pitch G3, max_span 12
 scor strip-notes <score> --part X         # empty a staff of notes, keep chord symbols (names-only staff)
+scor octave-shift <score> --part X --octaves -1 --from-measure 55 --to-measure 69
+scor rebuild-part <score> --part X --source-version vNNN --base "Violin II" [--overlay Viola] [--rules ...]
+scor simplify-repeats <score> --part "Acc. Bass"   # 1-pitch-class measures -> downbeat quarter + rests
 scor analyze <score> [--parts ...]        # per-bar harmony candidates (read-only) — agent adjudicates
 scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"Fm"},...] -> <harmony> symbols
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
