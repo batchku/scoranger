@@ -158,6 +158,18 @@ def cmd_strip_notes(a):
     _mutate(a.score, score, "strip-notes", {"part": a.part}, details)
 
 
+def cmd_flatten_voices(a):
+    score = _load(a.score, a.from_version)
+    details = ops.flatten_voices(score, a.part)
+    _mutate(a.score, score, "flatten-voices", {"part": a.part}, details)
+
+
+def cmd_chart_style(a):
+    score = _load(a.score, None)
+    details = ops.chart_style(score, a.part, a.symbol_y)
+    _mutate(a.score, score, "chart-style", {"part": a.part}, details)
+
+
 def cmd_analyze(a):
     score = _load(a.score, a.version)
     names = _split_parts(a.parts) if a.parts else None
@@ -303,6 +315,18 @@ def main() -> None:
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.set_defaults(fn=cmd_strip_notes)
+
+    s = sub.add_parser("flatten-voices", help="Collapse a multi-voice staff into one voice of chords (piano-RH style)")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--from-version", help="Apply to this version instead of latest")
+    s.set_defaults(fn=cmd_flatten_voices)
+
+    s = sub.add_parser("chart-style", help="Real Book styling for a chord staff: hide rests, names on the staff")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--symbol-y", type=float, default=-25.0, help="Vertical position in tenths (-20 = middle line)")
+    s.set_defaults(fn=cmd_chart_style)
 
     s = sub.add_parser("analyze", help="Per-measure harmony analysis with ranked chord candidates (read-only)")
     s.add_argument("score")

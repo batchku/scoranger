@@ -172,9 +172,9 @@ def merge_parts(score, names: list[str], new_name: str, clef_name: str = "treble
         merged.append(m_new)
 
     labels = [part_label(p) for p in sources]
-    score.replace(sources[0], merged)
-    for p in sources[1:]:
-        score.remove(p, recurse=True)
+    order = [p for p in score.parts if p not in sources[1:]]
+    order[order.index(sources[0])] = merged
+    _set_part_order(score, order)
 
     merged_total = sum(1 for n in merged.recurse().notes for _ in n.pitches)
     if merged_total != note_total:
@@ -253,8 +253,11 @@ def split_bass(score, name: str, bass_name: str, chords_name: str,
             p.insert(0.0, m21instrument.fromString(instrument_name))
 
     old_label = part_label(src)
-    score.replace(src, chords_part)
-    score.insert(0.0, bass_part)  # same offset, inserted last -> bottom staff
+    order = list(score.parts)
+    idx = order.index(src)
+    order[idx] = chords_part
+    order.insert(idx + 1, bass_part)
+    _set_part_order(score, order)
 
     return {"split": old_label, "chords_staff": chords_name, "bass_staff": bass_name,
             "slices": bass_notes, "bass_notes": bass_notes, "chord_notes": chord_notes,
@@ -542,6 +545,81 @@ def strip_notes(score, name: str) -> dict:
             m.remove(el)
         m.insert(0.0, m21note.Rest(quarterLength=m.barDuration.quarterLength))
     return {"part": part_label(part), "notes_removed": removed}
+
+
+def _set_part_order(score, ordered_parts) -> None:
+    """Rebuild the score's part list in the given order (music21's replace()
+    appends same-offset inserts, losing position)."""
+    for p in list(score.parts):
+        score.remove(p, recurse=True)
+    for p in ordered_parts:
+        score.insert(0.0, p)
+
+
+def flatten_voices(score, name: str) -> dict:
+    """Collapse a multi-voice staff into a single voice of chords (piano-RH style).
+
+    Simultaneous notes across voices merge into chords; sustained tones are
+    tied through the other layer's attacks, then identical runs consolidated.
+    Stemming is left to normal engraving rules (single voice = no forced stems).
+    """
+    part = find_parts(score, [name])[0]
+    work = copy.deepcopy(part)
+    for h in list(work.recurse().getElementsByClass("Harmony")):
+        work.remove(h, recurse=True)
+    sliced = work.chordify(addTies=True)
+    try:
+        sliced.stripTies(inPlace=True, matchByPitch=True)
+    except Exception:
+        pass
+
+    new_part = stream.Part()
+    new_part.partName = part.partName
+    new_part.partAbbreviation = part.partAbbreviation
+    instr = part.getInstrument(returnDefault=False)
+    if instr is not None:
+        new_part.insert(0.0, copy.deepcopy(instr))
+    old_clef = part.recurse().getElementsByClass(m21clef.Clef).first()
+    for i, m in enumerate(sliced.getElementsByClass(stream.Measure)):
+        nm = stream.Measure(number=m.number)
+        if i == 0:
+            nm.insert(0.0, copy.deepcopy(old_clef) if old_clef else m21clef.TrebleClef())
+        for kind in ("TimeSignature", "KeySignature"):
+            for el in m.getElementsByClass(kind):
+                nm.insert(el.offset, copy.deepcopy(el))
+        bar_len = m.barDuration.quarterLength
+        for el in m.notesAndRests:
+            if el.offset >= bar_len - 1e-6:
+                continue  # voice-padding artifacts from MusicXML round-trips
+            nm.insert(el.offset, copy.deepcopy(el))
+        new_part.append(nm)
+
+    before = sum(len(e.pitches) for e in part.recurse().notes if "Harmony" not in e.classes)
+    after = sum(len(e.pitches) for e in new_part.recurse().notes)
+    order = list(score.parts)
+    order[order.index(part)] = new_part
+    _set_part_order(score, order)
+    return {"part": new_part.partName, "voices": "flattened to 1",
+            "pitch_events_before": before, "pitch_events_after": after}
+
+
+def chart_style(score, name: str, symbol_y: float = -25.0) -> dict:
+    """Real Book chart styling for a chord-symbol staff.
+
+    Hides all rests (print-object="no") and drops the chord names onto the
+    staff itself (default-y in tenths; -20 is the middle line).
+    """
+    part = find_parts(score, [name])[0]
+    rests_hidden = symbols_moved = 0
+    for m in part.getElementsByClass(stream.Measure):
+        for r in m.recurse().getElementsByClass(m21note.Rest):
+            r.style.hideObjectOnPrint = True
+            rests_hidden += 1
+        for cs in m.recurse().getElementsByClass("ChordSymbol"):
+            cs.style.absoluteY = symbol_y
+            symbols_moved += 1
+    return {"part": part_label(part), "rests_hidden": rests_hidden,
+            "symbols_placed": symbols_moved, "symbol_y": symbol_y}
 
 
 FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
