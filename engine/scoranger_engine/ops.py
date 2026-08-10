@@ -547,6 +547,118 @@ def strip_notes(score, name: str) -> dict:
     return {"part": part_label(part), "notes_removed": removed}
 
 
+def octave_shift(score, name: str, octaves: int, from_measure: int, to_measure: int) -> dict:
+    """Shift a part's notes by whole octaves within a measure range (inclusive)."""
+    part = find_parts(score, [name])[0]
+    itv = m21interval.Interval(12 * octaves)
+    shifted = 0
+    for m in part.getElementsByClass(stream.Measure):
+        if from_measure <= m.number <= to_measure:
+            m.transpose(itv, inPlace=True)
+            shifted += 1
+    if shifted == 0:
+        raise ValueError(f"No measures in range {from_measure}-{to_measure}")
+    return {"part": part_label(part), "octaves": octaves,
+            "measures": f"{from_measure}-{to_measure}", "measures_shifted": shifted}
+
+
+REBUILD_DEFAULT_RULES = {
+    "hold_min": 2.0,    # a base note at least this long (quarterLengths) is a "held note"
+    "move_max": 1.0,    # overlay notes at most this long count as "moving"
+    "min_run": 2,       # a phrase needs at least this many consecutive moving notes
+    "min_pitch": "G3",  # fold overlay material up to this register floor
+}
+
+
+def rebuild_part(score, target_name: str, src_score, base_name: str,
+                 overlay_name: str | None = None, rules: dict | None = None) -> dict:
+    """Replace a part's content with a base part from another version, plus
+    rule-selected moving lines from an overlay part.
+
+    Overlay runs (consecutive short notes) are kept only where they overlap a
+    held note in the base — "when the 2nd violin holds, the viola's moving
+    phrase continues in the right hand."
+    """
+    rules = {**REBUILD_DEFAULT_RULES, **(rules or {})}
+    target = find_parts(score, [target_name])[0]
+    base = find_parts(src_score, [base_name])[0]
+    overlay = find_parts(src_score, [overlay_name])[0] if overlay_name else None
+    floor_ps = m21pitch.Pitch(rules["min_pitch"]).ps
+
+    new_part = stream.Part()
+    new_part.partName = target.partName
+    new_part.partAbbreviation = target.partAbbreviation
+    instr = target.getInstrument(returnDefault=False)
+    if instr is not None:
+        new_part.insert(0.0, copy.deepcopy(instr))
+    old_clef = target.recurse().getElementsByClass(m21clef.Clef).first()
+
+    ov_measures = {m.number: m for m in overlay.getElementsByClass(stream.Measure)} if overlay else {}
+    runs_kept = overlay_notes = 0
+
+    for i, bm in enumerate(base.getElementsByClass(stream.Measure)):
+        nm = stream.Measure(number=bm.number)
+        if i == 0:
+            nm.insert(0.0, copy.deepcopy(old_clef) if old_clef else m21clef.TrebleClef())
+        for kind in ("TimeSignature", "KeySignature"):
+            for el in bm.getElementsByClass(kind):
+                nm.insert(el.offset, copy.deepcopy(el))
+        bar_len = bm.barDuration.quarterLength
+        base_events = [el for el in _sounding(bm) if el.offset < bar_len - 1e-6]
+        holds = [(el.offset, el.offset + el.quarterLength) for el in base_events
+                 if not el.isRest and el.quarterLength >= rules["hold_min"]]
+
+        chosen = []
+        om = ov_measures.get(bm.number)
+        if om is not None and holds:
+            moving = [el for el in _sounding(om)
+                      if not el.isRest and el.quarterLength <= rules["move_max"]
+                      and el.offset < bar_len - 1e-6]
+            runs, cur = [], []
+            for el in moving:
+                if cur and abs(cur[-1].offset + cur[-1].quarterLength - el.offset) > 1e-3:
+                    runs.append(cur)
+                    cur = []
+                cur.append(el)
+            if cur:
+                runs.append(cur)
+            for run in runs:
+                if len(run) < rules["min_run"]:
+                    continue
+                r0, r1 = run[0].offset, run[-1].offset + run[-1].quarterLength
+                if any(h0 < r1 and h1 > r0 for h0, h1 in holds):
+                    chosen.extend(run)
+                    runs_kept += 1
+
+        if chosen:
+            v1 = stream.Voice(id="1")
+            v2 = stream.Voice(id="2")
+            for el in base_events:
+                v1.insert(el.offset, copy.deepcopy(el))
+            for el in chosen:
+                ne = copy.deepcopy(el)
+                for p in ne.pitches:
+                    while p.ps < floor_ps:
+                        p.octave += 1
+                v2.insert(el.offset, ne)
+                overlay_notes += len(ne.pitches)
+            nm.insert(0.0, v1)
+            nm.insert(0.0, v2)
+        else:
+            for el in base_events:
+                nm.insert(el.offset, copy.deepcopy(el))
+        new_part.append(nm)
+
+    flat = _flatten_copy(new_part) if runs_kept else new_part
+    flat.partName = target.partName
+    flat.partAbbreviation = target.partAbbreviation
+    order = list(score.parts)
+    order[order.index(target)] = flat
+    _set_part_order(score, order)
+    return {"target": part_label(flat), "base": base_name, "overlay": overlay_name,
+            "rules": rules, "overlay_runs_kept": runs_kept, "overlay_notes": overlay_notes}
+
+
 def _set_part_order(score, ordered_parts) -> None:
     """Rebuild the score's part list in the given order (music21's replace()
     appends same-offset inserts, losing position)."""
@@ -556,14 +668,9 @@ def _set_part_order(score, ordered_parts) -> None:
         score.insert(0.0, p)
 
 
-def flatten_voices(score, name: str) -> dict:
-    """Collapse a multi-voice staff into a single voice of chords (piano-RH style).
-
-    Simultaneous notes across voices merge into chords; sustained tones are
-    tied through the other layer's attacks, then identical runs consolidated.
-    Stemming is left to normal engraving rules (single voice = no forced stems).
-    """
-    part = find_parts(score, [name])[0]
+def _flatten_copy(part) -> stream.Part:
+    """A single-voice copy of a part: voices chordified into one layer,
+    tied runs consolidated, voice-padding artifacts trimmed."""
     work = copy.deepcopy(part)
     for h in list(work.recurse().getElementsByClass("Harmony")):
         work.remove(h, recurse=True)
@@ -593,6 +700,18 @@ def flatten_voices(score, name: str) -> dict:
                 continue  # voice-padding artifacts from MusicXML round-trips
             nm.insert(el.offset, copy.deepcopy(el))
         new_part.append(nm)
+    return new_part
+
+
+def flatten_voices(score, name: str) -> dict:
+    """Collapse a multi-voice staff into a single voice of chords (piano-RH style).
+
+    Simultaneous notes across voices merge into chords; sustained tones are
+    tied through the other layer's attacks, then identical runs consolidated.
+    Stemming is left to normal engraving rules (single voice = no forced stems).
+    """
+    part = find_parts(score, [name])[0]
+    new_part = _flatten_copy(part)
 
     before = sum(len(e.pitches) for e in part.recurse().notes if "Harmony" not in e.classes)
     after = sum(len(e.pitches) for e in new_part.recurse().notes)

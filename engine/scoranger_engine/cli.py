@@ -158,6 +158,23 @@ def cmd_strip_notes(a):
     _mutate(a.score, score, "strip-notes", {"part": a.part}, details)
 
 
+def cmd_octave_shift(a):
+    score = _load(a.score, None)
+    details = ops.octave_shift(score, a.part, a.octaves, a.from_measure, a.to_measure)
+    _mutate(a.score, score, "octave-shift",
+            {"part": a.part, "octaves": a.octaves, "measures": f"{a.from_measure}-{a.to_measure}"}, details)
+
+
+def cmd_rebuild_part(a):
+    score = _load(a.score, None)
+    src = _load(a.score, a.source_version)
+    rules = json.loads(a.rules) if a.rules else None
+    details = ops.rebuild_part(score, a.part, src, a.base, a.overlay, rules)
+    _mutate(a.score, score, "rebuild-part",
+            {"part": a.part, "source_version": a.source_version,
+             "base": a.base, "overlay": a.overlay}, details)
+
+
 def cmd_flatten_voices(a):
     score = _load(a.score, a.from_version)
     details = ops.flatten_voices(score, a.part)
@@ -315,6 +332,23 @@ def main() -> None:
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.set_defaults(fn=cmd_strip_notes)
+
+    s = sub.add_parser("octave-shift", help="Shift a part by octaves within a measure range")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--octaves", type=int, required=True, help="e.g. -1 for down an octave")
+    s.add_argument("--from-measure", type=int, required=True)
+    s.add_argument("--to-measure", type=int, required=True)
+    s.set_defaults(fn=cmd_octave_shift)
+
+    s = sub.add_parser("rebuild-part", help="Replace a part with a base part from history + rule-kept overlay runs")
+    s.add_argument("score")
+    s.add_argument("--part", required=True, help="Target part in the current version")
+    s.add_argument("--source-version", required=True, help="Version to take base/overlay parts from")
+    s.add_argument("--base", required=True)
+    s.add_argument("--overlay")
+    s.add_argument("--rules", help=f"JSON overrides of {ops.REBUILD_DEFAULT_RULES}")
+    s.set_defaults(fn=cmd_rebuild_part)
 
     s = sub.add_parser("flatten-voices", help="Collapse a multi-voice staff into one voice of chords (piano-RH style)")
     s.add_argument("score")
