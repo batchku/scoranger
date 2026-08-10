@@ -34,6 +34,21 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quiet request log to stderr, one line
         print(f"[serve] {self.address_string()} {fmt % args}")
 
+    def _transpose(self, url):
+        try:
+            q = parse_qs(url.query)
+            slug = (q.get("score") or [None])[0]
+            semitones = int((q.get("semitones") or ["0"])[0])
+            if not slug or not -24 <= semitones <= 24 or semitones == 0:
+                raise ValueError("need ?score=<slug>&semitones=<-24..24, nonzero>")
+            from music21 import converter
+            score = converter.parse(str(workspace.resolve_path(slug)), forceSource=True)
+            details = ops.transpose(score, str(semitones))
+            entry = workspace.add_version(slug, score, "transpose", {"semitones": semitones})
+            self._json(200, {"score": slug, "new_version": entry["id"], "details": details})
+        except Exception as e:
+            self._json(400, {"error": f"{type(e).__name__}: {e}"})
+
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/scores":
@@ -90,6 +105,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if url.path == "/api/transpose":
+            self._transpose(url)
+            return
         if url.path != "/api/import":
             self._json(404, {"error": f"no route {url.path}"})
             return

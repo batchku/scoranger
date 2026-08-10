@@ -52,6 +52,19 @@ body {
 }
 .parts .pclef { color: #8a91a3; font-size: 11px; }
 
+.transpose-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; }
+.transpose-btn {
+  width: auto !important;
+  background: #2b3242 !important;
+  border: 1px solid #4a5268 !important;
+  border-radius: 8px !important;
+  padding: 4px 12px !important;
+  font-size: 13px !important;
+}
+.transpose-btn:hover { background: #39415a !important; }
+.transpose-btn:disabled { opacity: 0.5; }
+.transpose-note { font-size: 11px; color: #8a91a3; }
+
 .export-box { margin-top: 4px; }
 .export-check {
   display: block;

@@ -10,6 +10,7 @@ export default function App() {
   const [pinnedVersion, setPinnedVersion] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState(null)
+  const [transposing, setTransposing] = useState(false)
   // part names UNchecked for export (default: none, i.e. export everything)
   const [excludedParts, setExcludedParts] = useState(() => new Set())
   const fileInputRef = useRef(null)
@@ -116,6 +117,34 @@ export default function App() {
             ) : (
               <p className="empty">No parts snapshot for this version.</p>
             )}
+
+            <h2>Transpose</h2>
+            <div className="transpose-row">
+              {[-1, 1].map(n => (
+                <button key={n} className="transpose-btn" disabled={transposing}
+                        title={`Transpose whole score by ${n} semitone${Math.abs(n) > 1 ? 's' : ''} (new version)`}
+                        onClick={async () => {
+                          setTransposing(true)
+                          setImportError(null)
+                          try {
+                            const res = await fetch(`/api/transpose?score=${score.slug}&semitones=${n}`, { method: 'POST' })
+                            const data = await res.json()
+                            if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+                            setPinnedVersion(null) // follow the new latest
+                          } catch (e) {
+                            const msg = String(e?.message ?? e)
+                            setImportError(msg.includes('Failed to fetch')
+                              ? 'Engine API not running — start it with: engine/.venv/bin/scor serve'
+                              : msg)
+                          } finally {
+                            setTransposing(false)
+                          }
+                        }}>
+                  {n > 0 ? `♯ +${n}` : `♭ ${n}`}
+                </button>
+              ))}
+              <span className="transpose-note">{transposing ? 'transposing…' : 'semitone'}</span>
+            </div>
 
             {version?.parts && (
               <div className="export-box">
