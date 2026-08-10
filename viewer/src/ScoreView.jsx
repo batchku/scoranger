@@ -23,6 +23,10 @@ export default function ScoreView({ url, label }) {
             drawTitle: true,
             drawComposer: true,
           })
+          // Chord symbols with placement="below" land at StaffHeight (4) +
+          // this offset — negative pulls them up ONTO the staff (Real Book
+          // chord-lane style; only chart-styled staves use below-placement).
+          osmdRef.current.EngravingRules.ChordSymbolYOffset = -2.5
         }
         await osmdRef.current.load(xml)
         if (cancelled) return

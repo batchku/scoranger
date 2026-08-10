@@ -616,6 +616,11 @@ def chart_style(score, name: str, symbol_y: float = -25.0) -> dict:
             r.style.hideObjectOnPrint = True
             rests_hidden += 1
         for cs in m.recurse().getElementsByClass("ChordSymbol"):
+            # placement="below" makes OSMD position deterministically at
+            # StaffHeight + ChordSymbolYOffset (the viewer sets a negative
+            # offset to land the name ON the staff); Verovio gets place="within"
+            # stamped at render time.
+            cs.placement = "below"
             cs.style.absoluteY = symbol_y
             symbols_moved += 1
     return {"part": part_label(part), "rests_hidden": rests_hidden,

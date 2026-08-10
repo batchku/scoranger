@@ -86,6 +86,13 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         tk = _toolkit()
         if not tk.loadFile(src):
             raise RuntimeError(f"Verovio could not load {src}")
+        mei = tk.getMEI()
+        if "<harm" in mei:
+            # Real Book style: chord names ON the staff (Verovio MEI extension)
+            mei = re.sub(r'(<harm\b[^>]*?)\s+place="[^"]*"', r"\1", mei)
+            mei = re.sub(r"<harm\b", '<harm place="within"', mei)
+            if not tk.loadData(mei):
+                raise RuntimeError("Verovio could not reload MEI with harm placement")
         n_pages = tk.getPageCount()
         svgs = [_sanitize_svg(tk.renderToSVG(p)) for p in range(1, n_pages + 1)]
     for svg in svgs:
