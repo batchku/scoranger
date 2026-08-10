@@ -132,6 +132,13 @@ class Handler(BaseHTTPRequestHandler):
             m21_score = converter.parse(tmp_path, forceSource=True)
             if m21_score.metadata is not None and not m21_score.metadata.title:
                 m21_score.metadata.title = name
+            source_of = (q.get("source_of") or [None])[0]
+            if source_of:
+                doc = workspace.add_source(source_of, m21_score, name,
+                                           origin=f"upload:{filename}")
+                self._json(200, {"score": source_of, "source": doc["id"], "name": name,
+                                 "parts": doc.get("parts")})
+                return
             slug, entry = workspace.create_score(name, m21_score, op="import",
                                                  args={"source": f"upload:{filename}"})
             self._json(200, {"score": slug, "name": name, "version": entry["id"],

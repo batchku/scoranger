@@ -159,6 +159,30 @@ def add_version(slug: str, m21_score, op: str, args: dict) -> dict:
     return _write_version(slug, m21_score, op, args, parent=parent)
 
 
+def add_source(slug: str, m21_score, name: str, origin: str) -> dict:
+    """Attach another found edition/tab of the piece as a reference source."""
+    repo = _repo()
+    load_meta(slug)  # validates the score exists
+    sid = f"s{len(repo.list_sources(slug)) + 1:02d}"
+    src_dir = score_dir(slug) / "sources"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{sid}.musicxml"
+    m21_score.write("musicxml", fp=str(src_dir / fname))
+    doc = {"id": sid, "name": name, "origin": origin, "file": f"sources/{fname}",
+           "time": _now(), "parts": _parts_snapshot(m21_score)}
+    repo.add_source(slug, sid, doc)
+    rebuild_manifest()
+    return doc
+
+
+def source_path(slug: str, source_id: str) -> Path:
+    doc = _repo().get_source(slug, source_id)
+    if doc is None:
+        have = [s["id"] for s in _repo().list_sources(slug)]
+        raise FileNotFoundError(f"No source '{source_id}' of '{slug}'. Have: {have}")
+    return score_dir(slug) / doc["file"]
+
+
 def delete_score(slug: str) -> None:
     import shutil
     load_meta(slug)  # raises with available slugs if missing
@@ -178,6 +202,7 @@ def rebuild_manifest() -> dict:
             "slug": doc["slug"], "name": doc["name"],
             "title": doc.get("title"), "composer": doc.get("composer"),
             "latest": doc.get("latest"), "versions": versions,
+            "sources": repo.list_sources(doc["slug"]),
         })
     manifest = {"generated": _now(), "scores": scores}
     WORKSPACE.mkdir(parents=True, exist_ok=True)

@@ -29,6 +29,10 @@ class SqliteRepository:
                 "CREATE TABLE IF NOT EXISTS versions ("
                 " score_id TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL,"
                 " doc TEXT NOT NULL, PRIMARY KEY (score_id, id))")
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS sources ("
+                " score_id TEXT NOT NULL, id TEXT NOT NULL,"
+                " doc TEXT NOT NULL, PRIMARY KEY (score_id, id))")
             self._conn.commit()
 
     # -- scores collection ------------------------------------------------
@@ -55,8 +59,29 @@ class SqliteRepository:
     def delete_score(self, score_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM versions WHERE score_id = ?", (score_id,))
+            self._conn.execute("DELETE FROM sources WHERE score_id = ?", (score_id,))
             self._conn.execute("DELETE FROM scores WHERE id = ?", (score_id,))
             self._conn.commit()
+
+    # -- sources subcollection (other found editions of the same piece) -----
+
+    def add_source(self, score_id: str, source_id: str, doc: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO sources (score_id, id, doc) VALUES (?, ?, ?)",
+                (score_id, source_id, json.dumps(doc)))
+            self._conn.commit()
+
+    def get_source(self, score_id: str, source_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT doc FROM sources WHERE score_id = ? AND id = ?",
+            (score_id, source_id)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def list_sources(self, score_id: str) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT doc FROM sources WHERE score_id = ? ORDER BY id", (score_id,)).fetchall()
+        return [json.loads(r[0]) for r in rows]
 
     # -- versions subcollection -------------------------------------------
 

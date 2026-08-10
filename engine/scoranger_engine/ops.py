@@ -662,6 +662,65 @@ def rebuild_part(score, target_name: str, src_score, base_name: str,
             "rules": rules, "overlay_runs_kept": runs_kept, "overlay_notes": overlay_notes}
 
 
+def pull_part(score, src_score, part_name: str, as_name: str | None = None,
+              replace: str | None = None, measures: tuple[int, int] | None = None) -> dict:
+    """Bring a part (or a measure range of it) from another document into this score.
+
+    - Whole part: added as a new staff, or swapped in for --replace.
+    - Measure range: requires --replace; only those measures of the target part
+      are overwritten with the source's content (clefs/keys/meters kept).
+    """
+    src_part = find_parts(src_score, [part_name])[0]
+
+    if measures is not None:
+        if not replace:
+            raise ValueError("A measure-range pull needs --replace (which part to pull into)")
+        m0, m1 = measures
+        target = find_parts(score, [replace])[0]
+        tgt = {m.number: m for m in target.getElementsByClass(stream.Measure)}
+        src = {m.number: m for m in src_part.getElementsByClass(stream.Measure)}
+        for n in range(m0, m1 + 1):
+            if n not in tgt or n not in src:
+                raise ValueError(f"Measure {n} missing in {'target' if n not in tgt else 'source'}")
+        replaced = 0
+        for n in range(m0, m1 + 1):
+            tm, sm = tgt[n], src[n]
+            for v in list(tm.voices):
+                tm.remove(v, recurse=True)
+            for el in list(tm.notesAndRests):
+                if "Harmony" not in el.classes:
+                    tm.remove(el)
+            bar_len = tm.barDuration.quarterLength
+            for v in sm.voices:
+                nv = stream.Voice(id=v.id)
+                for el in v.notesAndRests:
+                    if el.offset < bar_len - 1e-6:
+                        nv.insert(el.offset, copy.deepcopy(el))
+                tm.insert(0.0, nv)
+            for el in sm.notesAndRests:
+                if "Harmony" in el.classes or el.offset >= bar_len - 1e-6:
+                    continue
+                tm.insert(el.offset, copy.deepcopy(el))
+            replaced += 1
+        return {"pulled": part_name, "into": part_label(target),
+                "measures": f"{m0}-{m1}", "measures_replaced": replaced}
+
+    new_part = copy.deepcopy(src_part)
+    if as_name:
+        new_part.partName = as_name
+        new_part.partAbbreviation = as_name
+    if replace:
+        target = find_parts(score, [replace])[0]
+        order = list(score.parts)
+        order[order.index(target)] = new_part
+        _set_part_order(score, order)
+        return {"pulled": part_name, "replaced": replace, "as": part_label(new_part)}
+    order = list(score.parts) + [new_part]
+    _set_part_order(score, order)
+    return {"pulled": part_name, "added_as": part_label(new_part),
+            "position": len(order) - 1}
+
+
 def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:
     """Collapse measures that only restate one pitch class (octave jumps,
     repeated notes, ties) into a single downbeat note plus rests.

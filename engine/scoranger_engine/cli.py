@@ -18,6 +18,16 @@ def _load(slug: str, version: str | None):
     return converter.parse(str(path), forceSource=True)
 
 
+def _load_ref(slug: str, ref: str):
+    """Load a document by reference: 'vNNN' (version) or 'src:sNN' (source)."""
+    from music21 import converter
+    if ref.startswith("src:"):
+        path = workspace.source_path(slug, ref[4:])
+    else:
+        path = workspace.resolve_path(slug, ref)
+    return converter.parse(str(path), forceSource=True)
+
+
 def _split_parts(s: str) -> list[str]:
     parts = [x.strip() for x in s.split(",") if x.strip()]
     if not parts:
@@ -156,6 +166,31 @@ def cmd_strip_notes(a):
     score = _load(a.score, None)
     details = ops.strip_notes(score, a.part)
     _mutate(a.score, score, "strip-notes", {"part": a.part}, details)
+
+
+def cmd_add_source(a):
+    from music21 import converter
+    src = Path(a.file).expanduser()
+    if not src.exists():
+        raise FileNotFoundError(f"No such file: {src}")
+    m21_score = converter.parse(str(src), forceSource=True)
+    name = a.name or src.stem
+    doc = workspace.add_source(a.score, m21_score, name, origin=str(src))
+    _emit({"score": a.score, "source": doc["id"], "name": name,
+           "parts": [p["name"] for p in (doc.get("parts") or [])]})
+
+
+def cmd_pull_part(a):
+    score = _load(a.score, None)
+    src_score = _load_ref(a.score, getattr(a, "from"))
+    measures = None
+    if a.measures:
+        m0, m1 = a.measures.split("-")
+        measures = (int(m0), int(m1))
+    details = ops.pull_part(score, src_score, a.part, a.as_name, a.replace, measures)
+    _mutate(a.score, score, "pull-part",
+            {"from": getattr(a, "from"), "part": a.part, "replace": a.replace,
+             "measures": a.measures}, details)
 
 
 def cmd_simplify_repeats(a):
@@ -338,6 +373,22 @@ def main() -> None:
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.set_defaults(fn=cmd_strip_notes)
+
+    s = sub.add_parser("add-source", help="Attach another found edition/tab of the piece as a reference source")
+    s.add_argument("score")
+    s.add_argument("file")
+    s.add_argument("--name", help="Label for this source, e.g. 'MuseScore tab version'")
+    s.set_defaults(fn=cmd_add_source)
+
+    s = sub.add_parser("pull-part", help="Bring a part (or measure range) from a source or old version into the score")
+    s.add_argument("score")
+    s.add_argument("--from", required=True, dest="from", metavar="REF",
+                   help="Where to pull from: 'vNNN' (history) or 'src:sNN' (source)")
+    s.add_argument("--part", required=True, help="Part name in the source document")
+    s.add_argument("--as", dest="as_name", help="Rename the pulled part")
+    s.add_argument("--replace", help="Existing part to replace (required with --measures)")
+    s.add_argument("--measures", help="Only this range, e.g. 21-36")
+    s.set_defaults(fn=cmd_pull_part)
 
     s = sub.add_parser("simplify-repeats", help="Collapse single-pitch-class measures (octave jumps/repeats) to downbeat note + rests")
     s.add_argument("score")

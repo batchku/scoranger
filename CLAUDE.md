@@ -54,6 +54,27 @@ Part names match case-insensitively, exact first then substring; `#N` targets a
 part by index (essential when OMR leaves several parts with the same name). On a
 bad name the error lists the available parts — read it and retry.
 
+## Sources (other found editions of a piece)
+
+A score owns *versions* (its arrangement history) and *sources* (other editions/
+tabs of the same piece, imported for reference and cherry-picking):
+
+```
+scor add-source <score> <file> --name "MuseScore tab version"
+scor info <score>                       # the arrangement
+scor pull-part <score> --from src:s01 --part "Violin II" [--as NAME]      # add as new staff
+scor pull-part <score> --from src:s01 --part X --replace Y                # swap a whole part
+scor pull-part <score> --from src:s01 --part X --replace Y --measures 21-36  # just a passage
+scor pull-part <score> --from v007 --part Piano                           # history works too
+```
+
+When the user says "bring X from that other score in": add it as a source if it
+isn't one, inspect it (parse `workspace/<slug>/sources/sNN.musicxml` or read its
+parts snapshot in the manifest), compare against the arrangement, then pull.
+Watch for key mismatches — sources may be in a different key than the
+arrangement; transpose the pulled material to match (pull, then transpose the
+target part/measures). Sources are read-only; pulls only mutate the arrangement.
+
 ## PDF ingestion (OMR)
 
 Audiveris 5.11 is installed at `~/Applications/Audiveris.app`. Pipeline for a PDF:

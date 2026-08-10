@@ -13,7 +13,10 @@ export default function App() {
   const [transposing, setTransposing] = useState(false)
   // part names UNchecked for export (default: none, i.e. export everything)
   const [excludedParts, setExcludedParts] = useState(() => new Set())
+  // when set, the main pane shows this source document instead of a version
+  const [viewingSource, setViewingSource] = useState(null)
   const fileInputRef = useRef(null)
+  const sourceInputRef = useRef(null)
 
   useEffect(() => {
     let alive = true
@@ -30,19 +33,19 @@ export default function App() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  async function importFile(file) {
+  async function importFile(file, sourceOf = null) {
     setImporting(true)
     setImportError(null)
     try {
       const name = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')
-      const res = await fetch(
-        `/api/import?filename=${encodeURIComponent(file.name)}&name=${encodeURIComponent(name)}`,
-        { method: 'POST', body: file },
-      )
+      const params = new URLSearchParams({ filename: file.name, name })
+      if (sourceOf) params.set('source_of', sourceOf)
+      const res = await fetch(`/api/import?${params}`, { method: 'POST', body: file })
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
       setSelectedSlug(data.score)
-      setPinnedVersion(null)
+      if (sourceOf && data.source) setViewingSource(data.source)
+      else setPinnedVersion(null)
     } catch (e) {
       const msg = String(e?.message ?? e)
       setImportError(msg.includes('Failed to fetch')
@@ -67,7 +70,13 @@ export default function App() {
     ? pinnedVersion
     : score?.latest
   const version = score?.versions.find(v => v.id === versionId)
-  const url = score && version ? `/${score.slug}/${version.file}` : null
+  const source = viewingSource ? (score?.sources ?? []).find(s => s.id === viewingSource) : null
+  const url = source
+    ? `/${score.slug}/${source.file}`
+    : (score && version ? `/${score.slug}/${version.file}` : null)
+  const viewLabel = source
+    ? `${score.name} — source ${source.id}: ${source.name}`
+    : (score && version ? `${score.name} — ${versionId}` : '')
 
   return (
     <div className="app">
@@ -94,7 +103,7 @@ export default function App() {
             <li key={s.slug}>
               <button
                 className={score?.slug === s.slug ? 'active' : ''}
-                onClick={() => { setSelectedSlug(s.slug); setPinnedVersion(null) }}
+                onClick={() => { setSelectedSlug(s.slug); setPinnedVersion(null); setViewingSource(null) }}
               >
                 {s.name}
               </button>
@@ -116,6 +125,37 @@ export default function App() {
               </ul>
             ) : (
               <p className="empty">No parts snapshot for this version.</p>
+            )}
+
+            <div className="section-head">
+              <h2>Sources</h2>
+              <button className="new-btn" disabled={importing}
+                      onClick={() => sourceInputRef.current?.click()}>
+                Add…
+              </button>
+              <input ref={sourceInputRef} type="file" hidden
+                     accept=".musicxml,.xml,.mxl,.mid,.midi"
+                     onChange={e => { const f = e.target.files?.[0]; if (f) importFile(f, score.slug); e.target.value = '' }} />
+            </div>
+            {(score.sources ?? []).length === 0 && (
+              <p className="empty">Other editions/tabs of this piece, for pulling ideas from.</p>
+            )}
+            <ul className="scores">
+              {(score.sources ?? []).map(src => (
+                <li key={src.id}>
+                  <button className={viewingSource === src.id ? 'active' : ''}
+                          title={(src.parts ?? []).map(p => p.name).join(', ')}
+                          onClick={() => setViewingSource(viewingSource === src.id ? null : src.id)}>
+                    <span className="vid">{src.id}</span> {src.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {viewingSource && (
+              <p className="pin-note">
+                Viewing a source (read-only).{' '}
+                <a href="#" onClick={e => { e.preventDefault(); setViewingSource(null) }}>Back to arrangement</a>
+              </p>
             )}
 
             <h2>Transpose</h2>
@@ -183,8 +223,8 @@ export default function App() {
               {[...score.versions].reverse().map(v => (
                 <li key={v.id}>
                   <button
-                    className={v.id === versionId ? 'active' : ''}
-                    onClick={() => setPinnedVersion(v.id === score.latest ? null : v.id)}
+                    className={!viewingSource && v.id === versionId ? 'active' : ''}
+                    onClick={() => { setViewingSource(null); setPinnedVersion(v.id === score.latest ? null : v.id) }}
                     title={JSON.stringify(v.args)}
                   >
                     <span className="vid">{v.id}</span>
@@ -206,7 +246,7 @@ export default function App() {
 
       <main className="main">
         {url
-          ? <ScoreView url={url} label={`${score.name} — ${versionId}`} />
+          ? <ScoreView url={url} label={viewLabel} />
           : <div className="placeholder">Import a score (New… or the engine CLI) and it appears here.</div>}
       </main>
     </div>
