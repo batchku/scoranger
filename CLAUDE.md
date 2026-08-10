@@ -33,6 +33,9 @@ scor merge-parts <score> --parts "Viola,Violoncello" --name "Accordion L.H." --c
 scor split-bass <score> --part "Accordion L.H." --bass-name "Acc. Bass" --chords-name "Acc. Chords" [--instrument Accordion]
 scor consolidate-ties <score> --parts "Acc. Bass,Acc. Chords"
 scor limit-part <score> --part "Acc. Bass" --max-pitch C4 --monophonic
+scor absorb-part <score> --source X --target Y [--rules '{...}'] [--from-version vNNN]
+  # rule-governed voice-2 merge; default rules: below_melody, drop_doubling, min_pitch G3, max_span 12
+scor strip-notes <score> --part X         # empty a staff of notes, keep chord symbols (names-only staff)
 scor analyze <score> [--parts ...]        # per-bar harmony candidates (read-only) — agent adjudicates
 scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"Fm"},...] -> <harmony> symbols
 scor change-clef <score> --part Viola --clef alto [--from-measure N]

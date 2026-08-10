@@ -144,6 +144,20 @@ def cmd_check_range(a):
            "violations": ops.range_violations(part, cls)})
 
 
+def cmd_absorb_part(a):
+    score = _load(a.score, a.from_version)
+    rules = json.loads(a.rules) if a.rules else None
+    details = ops.absorb_part(score, a.source, a.target, rules)
+    _mutate(a.score, score, "absorb-part",
+            {"source": a.source, "target": a.target, "rules": rules}, details)
+
+
+def cmd_strip_notes(a):
+    score = _load(a.score, None)
+    details = ops.strip_notes(score, a.part)
+    _mutate(a.score, score, "strip-notes", {"part": a.part}, details)
+
+
 def cmd_analyze(a):
     score = _load(a.score, a.version)
     names = _split_parts(a.parts) if a.parts else None
@@ -276,6 +290,19 @@ def main() -> None:
     s.add_argument("--instrument", help="Check against this instrument instead of the part's own")
     s.add_argument("--version")
     s.set_defaults(fn=cmd_check_range)
+
+    s = sub.add_parser("absorb-part", help="Fold a chordal part into a melodic part as voice 2, rule-governed")
+    s.add_argument("score")
+    s.add_argument("--source", required=True)
+    s.add_argument("--target", required=True)
+    s.add_argument("--rules", help=f"JSON overrides of {ops.ABSORB_DEFAULT_RULES}")
+    s.add_argument("--from-version", help="Apply to this version instead of latest (branch from history)")
+    s.set_defaults(fn=cmd_absorb_part)
+
+    s = sub.add_parser("strip-notes", help="Empty a part of notes, keeping chord symbols (names-only staff)")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.set_defaults(fn=cmd_strip_notes)
 
     s = sub.add_parser("analyze", help="Per-measure harmony analysis with ranked chord candidates (read-only)")
     s.add_argument("score")

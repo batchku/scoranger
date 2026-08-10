@@ -432,6 +432,118 @@ def change_instrument(part, target_name: str) -> dict:
     return report
 
 
+def _sounding(container):
+    """Notes/chords in a container, excluding ChordSymbol/Harmony objects
+    (which subclass Chord but are annotations, not sounding notes)."""
+    return [el for el in container.notesAndRests if "Harmony" not in el.classes]
+
+
+ABSORB_DEFAULT_RULES = {
+    "below_melody": True,   # absorbed tones stay strictly below the concurrent melody note
+    "drop_doubling": True,  # drop tones the melody is already sounding
+    "min_pitch": "G3",      # register floor: fold up anything under this
+    "max_span": 12,         # max semitone span of the absorbed chord (drop lowest beyond it)
+}
+
+
+def absorb_part(score, source_name: str, target_name: str, rules: dict | None = None) -> dict:
+    """Fold a chordal part into a melodic part as a second voice, rule-governed.
+
+    The target keeps its existing line as voice 1 (the melody); the source's
+    notes become voice 2 underneath it, adjusted per the declarative rule set.
+    The source part itself is left untouched (strip or remove it separately).
+    """
+    rules = {**ABSORB_DEFAULT_RULES, **(rules or {})}
+    src = find_parts(score, [source_name])[0]
+    tgt = find_parts(score, [target_name])[0]
+    if src is tgt:
+        raise ValueError("source and target must differ")
+    floor_ps = m21pitch.Pitch(rules["min_pitch"]).ps
+    stats = {"added": 0, "folded_up": 0, "folded_down": 0,
+             "dropped_doubling": 0, "dropped_no_room": 0, "dropped_span": 0}
+
+    src_measures = {m.number: m for m in src.getElementsByClass(stream.Measure)}
+    for tm in tgt.getElementsByClass(stream.Measure):
+        sm = src_measures.get(tm.number)
+        if sm is None or not any(getattr(el, "pitches", None) for el in _sounding(sm)):
+            continue
+        melody = [(el.offset, el.offset + el.quarterLength, el) for el in _sounding(tm)
+                  if getattr(el, "pitches", None)]
+
+        v2 = stream.Voice(id="2")
+        for el in _sounding(sm):
+            off, dur = el.offset, el.quarterLength
+            if el.isRest or not el.pitches:
+                v2.insert(off, m21note.Rest(quarterLength=dur))
+                continue
+            concurrent = [p.ps for (mo, me, mel) in melody if mo < off + dur and me > off
+                          for p in mel.pitches]
+            ceiling = min(concurrent) if (concurrent and rules["below_melody"]) else None
+            kept: list = []  # Pitch objects, spelling preserved through octave folds
+            for p in sorted(el.pitches, key=lambda x: x.ps):
+                shift = 0
+                while p.ps + 12 * shift < floor_ps:
+                    shift += 1
+                    stats["folded_up"] += 1
+                if ceiling is not None:
+                    while p.ps + 12 * shift >= ceiling:
+                        shift -= 1
+                        stats["folded_down"] += 1
+                    if p.ps + 12 * shift < floor_ps:
+                        stats["dropped_no_room"] += 1
+                        continue
+                np = copy.deepcopy(p)
+                if shift:
+                    np.octave += shift
+                if rules["drop_doubling"] and any(abs(np.ps - c) < 0.5 for c in concurrent):
+                    stats["dropped_doubling"] += 1
+                    continue
+                if all(abs(np.ps - k.ps) > 0.5 for k in kept):
+                    kept.append(np)
+            while kept and max(k.ps for k in kept) - min(k.ps for k in kept) > rules["max_span"]:
+                kept.remove(min(kept, key=lambda k: k.ps))
+                stats["dropped_span"] += 1
+            if kept:
+                if len(kept) == 1:
+                    n = m21note.Note(kept[0])
+                else:
+                    n = m21chord.Chord(sorted(kept, key=lambda k: k.ps))
+                n.quarterLength = dur
+                v2.insert(off, n)
+                stats["added"] += len(kept)
+            else:
+                v2.insert(off, m21note.Rest(quarterLength=dur))
+
+        v1 = stream.Voice(id="1")
+        for el in list(tm.notesAndRests):
+            if "Harmony" in el.classes:
+                continue
+            tm.remove(el)
+            v1.insert(el.offset, el)
+        tm.insert(0.0, v1)
+        tm.insert(0.0, v2)
+
+    return {"source": part_label(src), "target": part_label(tgt), "rules": rules, **stats}
+
+
+def strip_notes(score, name: str) -> dict:
+    """Empty a part of sounding notes, keeping chord symbols (a names-only staff)."""
+    part = find_parts(score, [name])[0]
+    removed = 0
+    for m in part.getElementsByClass(stream.Measure):
+        for v in list(m.voices):
+            m.remove(v, recurse=True)
+            removed += sum(len(el.pitches) for el in _sounding(v) if not el.isRest)
+        for el in list(m.notesAndRests):
+            if "Harmony" in el.classes:
+                continue
+            if not el.isRest:
+                removed += len(el.pitches)
+            m.remove(el)
+        m.insert(0.0, m21note.Rest(quarterLength=m.barDuration.quarterLength))
+    return {"part": part_label(part), "notes_removed": removed}
+
+
 FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
 
 CHORD_TEMPLATES = [
@@ -549,7 +661,7 @@ def info(score) -> dict:
     parts = []
     for i, p in enumerate(score.parts):
         instr = p.getInstrument(returnDefault=False)
-        pitches = [pp for n in p.recurse().notes for pp in n.pitches]
+        pitches = [pp for n in p.recurse().notes if "Harmony" not in n.classes for pp in n.pitches]
         clefs = []
         for c in p.recurse().getElementsByClass(m21clef.Clef):
             label = type(c).__name__.replace("Clef", "").lower()
