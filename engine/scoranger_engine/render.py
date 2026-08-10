@@ -57,6 +57,34 @@ def _sanitize_svg(svg: str) -> str:
     return svg
 
 
+def _style_chart_svg(svg: str, harm_staves: set[int], grey: str = "#8f8f8f") -> str:
+    """Chart cosmetics Verovio can't express: sans-serif bold chord names and
+    grey staff furniture on chord-symbol staves.
+
+    Staff-line paths carry no explicit stroke/fill, so attributes set on the
+    n-th `g.staff` group of each measure inherit down; harm text lives in its
+    own groups and stays black.
+    """
+    svg = re.sub(r'(<g\b[^>]*class="harm"[^>]*)>',
+                 r'\1 font-family="Helvetica, Arial, sans-serif">', svg)
+    if not harm_staves:
+        return svg
+    out = []
+    pos = 0
+    staff_idx = 0
+    for m in re.finditer(r'<g\b[^>]*class="(measure|staff)"[^>]*>', svg):
+        if m.group(1) == "measure":
+            staff_idx = 0
+            continue
+        staff_idx += 1
+        if staff_idx in harm_staves:
+            out.append(svg[pos:m.start()])
+            out.append(m.group(0)[:-1] + f' stroke="{grey}" fill="{grey}" color="{grey}">')
+            pos = m.end()
+    out.append(svg[pos:])
+    return "".join(out)
+
+
 def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
                title: str | None = None) -> dict:
     import cairosvg
@@ -88,13 +116,29 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             raise RuntimeError(f"Verovio could not load {src}")
         mei = tk.getMEI()
         if "<harm" in mei:
-            # Real Book style: chord names ON the staff (Verovio MEI extension)
+            # Real Book chord-lane styling, applied semantically in MEI:
+            # names ON the staff, centered in the bar, Helvetica bold, and
+            # grey staff lines on any staff that carries chord symbols.
             mei = re.sub(r'(<harm\b[^>]*?)\s+place="[^"]*"', r"\1", mei)
             mei = re.sub(r"<harm\b", '<harm place="within"', mei)
+            meter = re.search(r'<meterSig[^>]*\bcount="(\d+)"', mei) or re.search(
+                r'meter\.count="(\d+)"', mei)
+            if meter:
+                mid = (int(meter.group(1)) + 1) / 2
+                mei = re.sub(r'(<harm\b[^>]*?)tstamp="[^"]*"',
+                             rf'\1tstamp="{mid:g}"', mei)
+            mei = re.sub(
+                r"(<harm\b[^>]*>)([^<]+)(</harm>)",
+                r'\1<rend fontweight="bold" fontsize="150%">\2</rend>\3',
+                mei)
+            harm_staves = {int(n) for n in re.findall(r'<harm\b[^>]*\bstaff="(\d+)"', mei)}
             if not tk.loadData(mei):
-                raise RuntimeError("Verovio could not reload MEI with harm placement")
+                raise RuntimeError("Verovio could not reload MEI with chart styling")
+        else:
+            harm_staves = set()
         n_pages = tk.getPageCount()
-        svgs = [_sanitize_svg(tk.renderToSVG(p)) for p in range(1, n_pages + 1)]
+        svgs = [_style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves)
+                for p in range(1, n_pages + 1)]
     for svg in svgs:
         pdf_page = cairosvg.svg2pdf(bytestring=svg.encode())
         writer.append(PdfReader(io.BytesIO(pdf_page)))
