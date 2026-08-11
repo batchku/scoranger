@@ -16,3 +16,6 @@ viewer/dist/
 # misc
 .DS_Store
 *.log
+
+# secrets
+.env

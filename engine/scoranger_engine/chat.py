@@ -264,9 +264,12 @@ def run_chat(slug: str, message: str, model: str | None = None,
                   tools=TOOLS, retries=2)
     history = ModelMessagesTypeAdapter.validate_json(history_json) if history_json else None
     result = agent.run_sync(message, deps=slug, message_history=history)
+    usage = result.usage if not callable(result.usage) else result.usage()
     return {
         "reply": result.output,
         "model": resolve_model(model),
+        "usage": {k: getattr(usage, k, None) for k in
+                  ("input_tokens", "output_tokens", "requests")},
         "history": result.all_messages_json().decode(),
         "latest": workspace.load_meta(slug).get("latest"),
     }
