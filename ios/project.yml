@@ -1,0 +1,32 @@
+name: Scoranger
+options:
+  bundleIdPrefix: com.batchku
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+targets:
+  Scoranger:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [Scoranger]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.batchku.scoranger
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+        SWIFT_VERSION: 5.10
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
+    info:
+      path: Scoranger/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."

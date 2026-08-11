@@ -175,7 +175,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": f"{type(e).__name__}: {e}"})
 
 
-def serve(port: int = 8765) -> None:
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"scoranger engine API on http://127.0.0.1:{port} (Ctrl-C to stop)")
+def serve(port: int = 8765, host: str = "127.0.0.1") -> None:
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    print(f"scoranger engine API on http://{host}:{port} (Ctrl-C to stop)")
+    if host != "127.0.0.1":
+        print("NOTE: listening on the network — any device on your LAN can use this "
+              "engine (including chat, which spends API tokens).")
     httpd.serve_forever()

@@ -248,7 +248,7 @@ def cmd_delete_score(a):
 
 def cmd_serve(a):
     from . import server
-    server.serve(a.port)
+    server.serve(a.port, a.host)
 
 
 def cmd_export(a):
@@ -441,8 +441,10 @@ def main() -> None:
     s.add_argument("score")
     s.set_defaults(fn=cmd_delete_score)
 
-    s = sub.add_parser("serve", help="Run the local engine API (used by the viewer's New... upload)")
+    s = sub.add_parser("serve", help="Run the local engine API (viewer uploads, exports, chat, iOS app)")
     s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--host", default="127.0.0.1",
+                   help="Bind address; use 0.0.0.0 to allow the iPad app on your LAN")
     s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser("export", help="Export a version to a file (optionally only some parts)")
