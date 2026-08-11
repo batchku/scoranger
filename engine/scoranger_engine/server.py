@@ -49,10 +49,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(400, {"error": f"{type(e).__name__}: {e}"})
 
+    def _chat(self):
+        """One chat turn with the arrangement agent. Body:
+        {"score": slug, "message": str, "model": alias?, "history": json?}"""
+        import os
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if length else {}
+            slug = body.get("score")
+            message = body.get("message", "").strip()
+            if not slug or not message:
+                raise ValueError('need {"score": ..., "message": ...}')
+            from . import chat
+            result = chat.run_chat(slug, message, body.get("model"), body.get("history"))
+            self._json(200, result)
+        except Exception as e:
+            self._json(400, {"error": f"{type(e).__name__}: {e}"})
+
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/scores":
             self._json(200, workspace.rebuild_manifest())
+        elif url.path == "/api/models":
+            import os
+
+            from . import chat
+            self._json(200, {"default": chat.DEFAULT_MODEL, "models": chat.MODELS,
+                             "keys_present": {"openrouter": bool(os.environ.get("OPENROUTER_API_KEY")),
+                                              "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                                              "gcp_adc": bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))}})
         elif url.path == "/api/health":
             self._json(200, {"ok": True})
         elif url.path == "/api/export":
@@ -105,6 +130,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if url.path == "/api/chat":
+            self._chat()
+            return
         if url.path == "/api/transpose":
             self._transpose(url)
             return
