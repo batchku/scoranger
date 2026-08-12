@@ -20,6 +20,8 @@
 	<string>1</string>
 	<key>EngineDefaultURL</key>
 	<string>http://MacBook-Pro.local:8765</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

@@ -33,3 +33,4 @@ targets:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
+        ITSAppUsesNonExemptEncryption: false
