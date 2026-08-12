@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0E8E98A29526F6CA499B9A1D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B094B448352E350FC79B404 /* Assets.xcassets */; };
 		3C3ADEE8C93FCB3081FC6EBC /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = EED83C1A543EFD0372561ED7 /* AppState.swift */; };
 		52648026EE8436A0062E4A95 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 676046D88FB1AE072BC677CB /* SettingsView.swift */; };
 		6CBF54C1A653B5B1261F4E22 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253A59915A5BED300ACBBF1B /* ChatView.swift */; };
@@ -23,6 +24,7 @@
 		26EAFF71224F01B7EC7F3602 /* EngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineClient.swift; sourceTree = "<group>"; };
 		29DF3649AC1FABB316209B53 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		2A85531E2DF87A5BA4DF4233 /* ScorePagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScorePagesView.swift; sourceTree = "<group>"; };
+		3B094B448352E350FC79B404 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		676046D88FB1AE072BC677CB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		789930DFF208593F2F1B4721 /* ScorangerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScorangerApp.swift; sourceTree = "<group>"; };
 		9989C4098BAF4B90EFAD5DB4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -51,6 +53,7 @@
 			isa = PBXGroup;
 			children = (
 				EED83C1A543EFD0372561ED7 /* AppState.swift */,
+				3B094B448352E350FC79B404 /* Assets.xcassets */,
 				253A59915A5BED300ACBBF1B /* ChatView.swift */,
 				9989C4098BAF4B90EFAD5DB4 /* ContentView.swift */,
 				26EAFF71224F01B7EC7F3602 /* EngineClient.swift */,
@@ -71,6 +74,7 @@
 			buildConfigurationList = D1041595B49FA0C88507A435 /* Build configuration list for PBXNativeTarget "Scoranger" */;
 			buildPhases = (
 				F57DB9FF23E6D5CDBF487D37 /* Sources */,
+				57734C91E6D351D3FD6053CD /* Resources */,
 			);
 			buildRules = (
 			);
@@ -93,6 +97,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					900D82F4EEFAAB2ED99BDADD = {
+						DevelopmentTeam = V9DBGV72NL;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -115,6 +120,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		57734C91E6D351D3FD6053CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0E8E98A29526F6CA499B9A1D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		F57DB9FF23E6D5CDBF487D37 /* Sources */ = {
@@ -198,6 +214,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V9DBGV72NL;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scoranger/Info.plist;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Scoranger talks to your score engine on the local network.";
@@ -210,7 +227,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.batchku.scoranger;
+				PRODUCT_BUNDLE_IDENTIFIER = com.irllabs.scoranger;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -224,6 +241,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = V9DBGV72NL;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Scoranger/Info.plist;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Scoranger talks to your score engine on the local network.";
@@ -236,7 +254,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.batchku.scoranger;
+				PRODUCT_BUNDLE_IDENTIFIER = com.irllabs.scoranger;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.1;
 				TARGETED_DEVICE_FAMILY = "1,2";

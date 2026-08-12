@@ -19,7 +19,16 @@ final class AppState: ObservableObject {
     @Published var chatBusy = false
     var chatHistory: [String: String] = [:]
 
-    @AppStorage("engineURL") var engineURLString = "http://localhost:8765"
+    static let defaultEngineURL: String = {
+        #if targetEnvironment(simulator)
+        return "http://localhost:8765"
+        #else
+        return (Bundle.main.object(forInfoDictionaryKey: "EngineDefaultURL") as? String)
+            ?? "http://localhost:8765"
+        #endif
+    }()
+
+    @AppStorage("engineURL") var engineURLString = AppState.defaultEngineURL
     @AppStorage("chatModel") var chatModel = ""
 
     private var pollTask: Task<Void, Never>?

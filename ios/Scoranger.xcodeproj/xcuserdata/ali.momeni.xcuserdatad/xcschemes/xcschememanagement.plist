@@ -2,9 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>LastAccessedDate</key>
-	<date>2026-08-12T00:17:25Z</date>
-	<key>WorkspacePath</key>
-	<string>/Users/ali.momeni/Documents/Code/scoranger/ios/Scoranger.xcodeproj</string>
+	<key>SchemeUserState</key>
+	<dict>
+		<key>Scoranger.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>0</integer>
+		</dict>
+	</dict>
 </dict>
 </plist>
