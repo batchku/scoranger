@@ -1,5 +1,15 @@
 # Backlog
 
+## In progress: standalone iPad (engine on-device)
+
+Decision 2026-08-15: eliminate the laptop dependency by embedding the engine in
+the iOS app. Verified: the engine is pure-Python end to end (numpy/matplotlib
+optional) → embed the official Python.xcframework + music21 + scoranger_engine
+behind a JSON bridge; Verovio-iOS for native rendering; Swift chat loop with
+the OpenRouter key in the Keychain; workspace in app Documents. OMR remains
+off-device (JVM). Cross-device library sync becomes a follow-up (iCloud or the
+Firebase backend).
+
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
 
