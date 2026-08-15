@@ -18,7 +18,9 @@ struct SettingsView: View {
                     SecureField("OpenRouter API key (sk-or-…)", text: $apiKeyDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .onSubmit { KeychainStore.openRouterKey = apiKeyDraft }
+                        .onChange(of: apiKeyDraft) { _, value in
+                            KeychainStore.openRouterKey = value
+                        }
                     Text("On: scores live on this iPad; no laptop needed. Off: connect to `scor serve` on your Mac (URL below).")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -53,27 +55,38 @@ struct SettingsView: View {
                             .foregroundStyle(selfTestResult.contains("failed") ? .red : .green)
                     }
                 }
-                Section("Engine") {
-                    TextField("http://your-mac.local:8765", text: $urlDraft)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    LabeledContent("Status") {
-                        Text(state.engineOK ? "Connected" : "Unreachable")
-                            .foregroundStyle(state.engineOK ? .green : .red)
+                if !state.useLocalEngine {
+                    Section("Remote engine") {
+                        TextField("http://your-mac.local:8765", text: $urlDraft)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .onChange(of: urlDraft) { _, value in
+                                state.engineURLString = value.trimmingCharacters(in: .whitespaces)
+                            }
+                        LabeledContent("Status") {
+                            Text(state.engineOK ? "Connected" : "Unreachable")
+                                .foregroundStyle(state.engineOK ? .green : .red)
+                        }
+                        Text("Run `engine/.venv/bin/scor serve` on your Mac. Use your Mac's hostname (e.g. http://alis-mac.local:8765) so the iPad can reach it over the local network.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    Text("Run `engine/.venv/bin/scor serve` on your Mac. Use your Mac's hostname (e.g. http://alis-mac.local:8765) so the iPad can reach it over the local network.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
                 Section("PDF conversion (OMR)") {
                     TextField("https://scoranger-omr-….run.app", text: $omrURLDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        .onChange(of: omrURLDraft) { _, value in
+                            state.omrURLString = value.trimmingCharacters(in: .whitespaces)
+                        }
                     SecureField("OMR service API key", text: $omrKeyDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .onChange(of: omrKeyDraft) { _, value in
+                            KeychainStore.omrKey = value
+                        }
                     Text("Share a PDF into Scoranger and it's converted to a score by Audiveris running in the cloud. Leave empty to just collect PDFs in Files → Scoranger → intake.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -96,10 +109,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
-                        state.engineURLString = urlDraft
-                        KeychainStore.openRouterKey = apiKeyDraft
-                        state.omrURLString = omrURLDraft.trimmingCharacters(in: .whitespaces)
-                        KeychainStore.omrKey = omrKeyDraft
+                        // fields already write through onChange; just refresh
                         Task { await state.refresh() }
                         dismiss()
                     }
