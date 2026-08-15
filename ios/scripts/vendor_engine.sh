@@ -30,6 +30,12 @@ find "$PKGS/music21/corpus" -type f ! -name "*.py" -delete
 find "$PKGS/music21/corpus" -type d -empty -delete
 rm -rf "$PKGS"/*.dist-info "$PKGS/bin"
 
+# drop compiled speedups (mypyc darwin .so in chardet/charset_normalizer wheels)
+# — wrong platform for iOS and App Store validation rejects them; the pure
+# Python fallbacks remain importable.
+find "$PKGS" -name "*.so" -delete
+find "$PKGS" -name "*.fwork" -delete
+
 # precompile (write_bytecode=0 at runtime, so ship .pyc)
 "$PY" -m compileall -q "$APP" "$PKGS"
 

@@ -43,6 +43,11 @@ PDF per voice (Verovio)                                          re-instrument, 
   auto-follows the latest version as the agent works
 - **Export PDF** — whole score or any subset of voices (checkboxes), engraved by
   [Verovio](https://www.verovio.org/) — no MuseScore dependency
+- **Standalone iPad app** (`ios/`) — the entire engine runs **on-device**:
+  embedded CPython 3.14 + music21 behind a JSON bridge, Verovio compiled in for
+  rendering, a native chat agent over OpenRouter, Apple Pencil markup per page.
+  No laptop or server required; a Settings toggle can still point it at a Mac
+  running `scor serve`.
 
 ## Quickstart
 

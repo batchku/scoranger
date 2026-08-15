@@ -1,45 +1,49 @@
 # Scoranger for iPad
 
-Native SwiftUI client of the Scoranger engine: score library, versions and
-sources, Verovio-engraved score pages, **Apple Pencil annotations** (pencil
-draws, fingers scroll; per page, per version), the arrangement **chat agent**
-with a model picker, and semitone transposition.
+Native SwiftUI app with the **entire Scoranger engine embedded on-device** —
+no laptop, no server:
 
-The app is a thin client — all musical intelligence stays in the engine.
+- **Embedded engine**: CPython 3.14 + music21 run inside the app
+  (`PythonApp/app/bridge.py` behind a C shim + Swift actor). Every arrangement
+  op, harmony analysis, and the versioned workspace (SQLite, in the app's
+  Documents) work offline.
+- **On-device engraving**: Verovio (compiled in via SPM) renders MusicXML to
+  SVG; a preprocessing pass adapts it for SwiftDraw, which produces the PDF
+  pages.
+- **Native chat agent**: a Swift tool loop over OpenRouter mirroring the
+  engine's 21 arrangement tools. Add your OpenRouter API key in Settings
+  (stored in the Keychain) and pick a model in the chat header.
+- **Apple Pencil annotations** (pencil draws, fingers scroll; per page, per
+  version), Files-app import (+), semitone transposition, version history.
+
+A Settings toggle can still point the app at a Mac running
+`scor serve --host 0.0.0.0` (remote mode, the original thin-client setup).
 
 ## Build & run
 
-The Xcode project is generated (not checked in):
+Two vendored pieces are gitignored and fetched by script; the Xcode project is
+generated (not checked in):
 
 ```sh
-brew install xcodegen        # once
-cd ios && xcodegen generate
+brew install xcodegen              # once
+cd ios
+scripts/fetch_python.sh            # BeeWare Python.xcframework + verovio clone into Vendor/
+scripts/vendor_engine.sh           # music21 + engine sources into PythonApp/
+xcodegen generate
 open Scoranger.xcodeproj
 ```
 
-In Xcode: select the **Scoranger** target → *Signing & Capabilities* → pick
-your team (personal Apple ID works for device installs), then choose your iPad
-in the run destination and hit Run. First install on-device requires trusting
-the developer profile in iPad Settings → General → VPN & Device Management.
-
-## Connect to the engine
-
-On the Mac, run the engine listening on the LAN:
-
-```sh
-engine/.venv/bin/scor serve --host 0.0.0.0
-```
-
-In the app, open **Settings (gear)** and set the engine URL to your Mac, e.g.
-`http://Alis-MacBook-Pro.local:8765` (hostname from macOS System Settings →
-General → Sharing). The status dot turns green when connected.
+Re-run `vendor_engine.sh` whenever engine Python changes. In Xcode: select the
+**Scoranger** target → *Signing & Capabilities* → pick your team, choose your
+iPad, Run. (TestFlight builds: `xcodebuild archive` + export with
+`build/ExportOptions.plist`.)
 
 ## Notes
 
 - Annotations are stored on-device (Documents/annotations) keyed by
-  score/version/page; server-side annotation sync is a planned feature.
-- Chat uses the engine's model catalog (`/api/models`); pick per-conversation
-  in the chat header or set the default in Settings.
-- The score view auto-follows the latest version as the agent works — from the
-  iPad, the web viewer, or a Claude Code session on the Mac; all clients share
-  the same live library.
+  score/version/page.
+- The on-device workspace lives in the app's Documents/workspace (visible in
+  the Files app); every mutation is an immutable version, same as the desktop
+  engine.
+- OMR (PDF → MusicXML) stays off-device — run Audiveris on a Mac and import
+  the resulting `.mxl` via the Files picker.
