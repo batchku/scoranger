@@ -9,8 +9,10 @@ Auth: set the OMR_API_KEY env var; requests must send it as X-API-Key.
 import json
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AUDIVERIS = os.environ.get("AUDIVERIS_BIN", "/opt/audiveris/bin/Audiveris")
@@ -94,4 +96,14 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"omr-service on :{port} (audiveris={AUDIVERIS}, auth={'on' if API_KEY else 'OFF'})")
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+
+    # Cloud Run sends SIGTERM on scale-down (10s grace): stop accepting new
+    # connections but let in-flight conversions finish instead of 502ing them.
+    def drain(_sig, _frame):
+        print("SIGTERM: draining in-flight requests")
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, drain)
+    server.serve_forever()
+    print("drained; exiting")

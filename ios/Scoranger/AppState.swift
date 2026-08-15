@@ -172,10 +172,28 @@ final class AppState: ObservableObject {
                 request.timeoutInterval = 600
                 request.setValue(KeychainStore.omrKey, forHTTPHeaderField: "X-API-Key")
                 request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
-                let (data, response) = try await URLSession.shared.upload(for: request, from: pdfData)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                    let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-                    throw LocalEngineError.engine(detail ?? "OMR service error (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))")
+
+                // Cloud Run can kill an idle instance right as a request lands
+                // (502, ~2s). Retry transient failures; give up on 4xx.
+                var data = Data()
+                var attempt = 0
+                while true {
+                    attempt += 1
+                    do {
+                        let (d, response) = try await URLSession.shared.upload(for: request, from: pdfData)
+                        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        if code == 200 { data = d; break }
+                        let detail = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String
+                        if code >= 500, attempt < 3 {
+                            try await Task.sleep(for: .seconds(3))
+                            continue
+                        }
+                        throw LocalEngineError.engine(detail ?? "OMR service error (HTTP \(code))")
+                    } catch let e as LocalEngineError {
+                        throw e
+                    } catch where attempt < 3 {
+                        try await Task.sleep(for: .seconds(3))
+                    }
                 }
                 let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
