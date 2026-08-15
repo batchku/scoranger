@@ -83,6 +83,16 @@ def _dispatch(op, a):
         return workspace.add_source(a["score"], score, a.get("name") or "source", a["path"])
     if op == "analyze":
         return ops.analyze_harmony(_load(a["score"], a.get("version")), a.get("parts"))
+    if op == "check-range":
+        from music21 import instrument as m21instrument
+        score = _load(a["score"])
+        p = _part(score, a["part"])
+        cls = (type(m21instrument.fromString(a["instrument"])).__name__ if a.get("instrument")
+               else type(p.getInstrument(returnDefault=False)).__name__)
+        if cls not in ops.RANGES:
+            raise ValueError(f"No range data for '{cls}'. Known: {sorted(ops.RANGES)}")
+        return {"part": ops.part_label(p), "instrument": cls,
+                "violations": ops.range_violations(p, cls)}
     if op == "version-file":
         return {"path": str(workspace.resolve_path(a["score"], a.get("version")))}
     if op == "source-file":

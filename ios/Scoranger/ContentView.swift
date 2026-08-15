@@ -1,9 +1,20 @@
 import SwiftUI
 
+import UniformTypeIdentifiers
+
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @State private var showChat = true
     @State private var showSettings = false
+    @State private var showImporter = false
+
+    private static let scoreTypes: [UTType] = [
+        UTType(filenameExtension: "musicxml"),
+        UTType(filenameExtension: "mxl"),
+        UTType(filenameExtension: "xml"),
+        UTType(filenameExtension: "mid"),
+        UTType(filenameExtension: "midi"),
+    ].compactMap { $0 }
 
     var body: some View {
         NavigationSplitView {
@@ -63,11 +74,19 @@ struct ContentView: View {
                     .frame(width: 10, height: 10)
                     .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if state.useLocalEngine {
+                    Button { showImporter = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Import score")
+                }
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: Self.scoreTypes) { result in
+            if case .success(let url) = result { state.importScore(from: url) }
+        }
     }
 
     private func sourceCountLabel(_ score: ScoreDoc) -> String {
@@ -95,9 +114,9 @@ struct ContentView: View {
             ContentUnavailableView(
                 "No score selected",
                 systemImage: "music.quarternote.3",
-                description: Text(state.engineOK
-                    ? "Pick a score in the sidebar."
-                    : "Engine unreachable — check the URL in Settings and that `scor serve` is running on your Mac."))
+                description: Text(!state.engineOK && !state.useLocalEngine
+                    ? "Engine unreachable — check the URL in Settings and that `scor serve` is running on your Mac."
+                    : "Tap + to import a MusicXML or MIDI file."))
         }
     }
 

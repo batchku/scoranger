@@ -5,6 +5,15 @@ options:
     iOS: "17.0"
   createIntermediateGroups: true
 
+packages:
+  # local shallow clone (scripts/fetch_python.sh) — verovio's Package.swift uses
+  # unsafeFlags, which SPM only allows for local path packages
+  Verovio:
+    path: Vendor/verovio
+  SwiftDraw:
+    url: https://github.com/swhitty/SwiftDraw
+    from: 0.18.0
+
 targets:
   Scoranger:
     type: application
@@ -24,6 +33,10 @@ targets:
       - framework: Vendor/Python.xcframework
         embed: true
         codeSign: true
+      - package: Verovio
+        product: VerovioToolkit
+      - package: SwiftDraw
+        product: SwiftDraw
     postBuildScripts:
       - name: Install Python stdlib
         script: |

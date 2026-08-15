@@ -30,11 +30,15 @@ final class AppState: ObservableObject {
 
     @AppStorage("engineURL") var engineURLString = AppState.defaultEngineURL
     @AppStorage("chatModel") var chatModel = ""
+    /// true = embedded Python engine + Verovio (no laptop needed);
+    /// false = remote `scor serve` over the network.
+    @AppStorage("useLocalEngine") var useLocalEngine = true
 
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?
 
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
+    let local = LocalEngine()
 
     var selectedScore: ScoreDoc? {
         guard let scores = manifest?.scores else { return nil }
@@ -69,16 +73,22 @@ final class AppState: ObservableObject {
 
     func refresh() async {
         do {
-            let m = try await client.manifest()
+            let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
             manifest = m
             engineOK = true
             if modelCatalog == nil {
-                modelCatalog = try? await client.models()
+                if useLocalEngine {
+                    modelCatalog = ModelCatalog(default: LocalChat.defaultModel,
+                                                models: LocalChat.models)
+                } else {
+                    modelCatalog = try? await client.models()
+                }
                 if chatModel.isEmpty, let def = modelCatalog?.default { chatModel = def }
             }
             await renderIfNeeded()
         } catch {
             engineOK = false
+            if useLocalEngine { lastError = error.localizedDescription }
         }
     }
 
@@ -91,7 +101,13 @@ final class AppState: ObservableObject {
         loadingPDF = true
         defer { loadingPDF = false }
         do {
-            let data = try await client.exportPDF(score: score.slug, version: vid)
+            let data: Data
+            if useLocalEngine {
+                let path = try await local.versionFilePath(score: score.slug, version: vid)
+                data = try await VerovioRenderer.shared.renderPDF(musicXMLPath: path)
+            } else {
+                data = try await client.exportPDF(score: score.slug, version: vid)
+            }
             if renderedKey == key {  // selection may have moved while fetching
                 pdfDocument = PDFDocument(data: data)
                 lastError = nil
@@ -100,6 +116,28 @@ final class AppState: ObservableObject {
             lastError = e.error
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    /// Import a MusicXML/MXL/MIDI file picked in the Files UI (local engine only).
+    func importScore(from url: URL) {
+        Task {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let tmp = FileManager.default.temporaryDirectory
+                    .appending(path: url.lastPathComponent)
+                try? FileManager.default.removeItem(at: tmp)
+                try FileManager.default.copyItem(at: url, to: tmp)
+                let name = url.deletingPathExtension().lastPathComponent
+                let slug = try await local.importScore(fileURL: tmp, name: name)
+                try? FileManager.default.removeItem(at: tmp)
+                selectedSlug = slug
+                pinnedVersion = nil
+                await refresh()
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
     }
 
@@ -113,7 +151,11 @@ final class AppState: ObservableObject {
         guard let slug = selectedScore?.slug else { return }
         Task {
             do {
-                try await client.transpose(score: slug, semitones: semitones)
+                if useLocalEngine {
+                    try await local.transpose(score: slug, semitones: semitones)
+                } else {
+                    try await client.transpose(score: slug, semitones: semitones)
+                }
                 pinnedVersion = nil
                 await refresh()
             } catch let e as EngineError {
@@ -133,11 +175,21 @@ final class AppState: ObservableObject {
         Task {
             defer { chatBusy = false }
             do {
-                let resp = try await client.chat(score: slug, message: message,
-                                                 model: chatModel.isEmpty ? nil : chatModel,
-                                                 history: chatHistory[slug])
-                chatHistory[slug] = resp.history
-                chatMessages[slug, default: []].append(.init(role: .agent, text: resp.reply))
+                if useLocalEngine {
+                    let turn = try await LocalChat().run(
+                        slug: slug, message: message,
+                        modelAlias: chatModel.isEmpty ? nil : chatModel,
+                        historyJSON: chatHistory[slug],
+                        apiKey: KeychainStore.openRouterKey)
+                    chatHistory[slug] = turn.historyJSON
+                    chatMessages[slug, default: []].append(.init(role: .agent, text: turn.reply))
+                } else {
+                    let resp = try await client.chat(score: slug, message: message,
+                                                     model: chatModel.isEmpty ? nil : chatModel,
+                                                     history: chatHistory[slug])
+                    chatHistory[slug] = resp.history
+                    chatMessages[slug, default: []].append(.init(role: .agent, text: resp.reply))
+                }
                 pinnedVersion = nil
                 await refresh()
             } catch let e as EngineError {

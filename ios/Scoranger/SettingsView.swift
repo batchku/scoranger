@@ -6,11 +6,20 @@ struct SettingsView: View {
     @State private var urlDraft = ""
     @State private var selfTestResult = ""
     @State private var selfTestRunning = false
+    @State private var apiKeyDraft = ""
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("On-device engine") {
+                    Toggle("Use on-device engine", isOn: $state.useLocalEngine)
+                    SecureField("OpenRouter API key (sk-or-…)", text: $apiKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit { KeychainStore.openRouterKey = apiKeyDraft }
+                    Text("On: scores live on this iPad; no laptop needed. Off: connect to `scor serve` on your Mac (URL below).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     Button(selfTestRunning ? "Running…" : "Run engine self-test") {
                         selfTestRunning = true
                         selfTestResult = ""
@@ -74,12 +83,16 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         state.engineURLString = urlDraft
+                        KeychainStore.openRouterKey = apiKeyDraft
                         Task { await state.refresh() }
                         dismiss()
                     }
                 }
             }
-            .onAppear { urlDraft = state.engineURLString }
+            .onAppear {
+                urlDraft = state.engineURLString
+                apiKeyDraft = KeychainStore.openRouterKey
+            }
         }
     }
 }

@@ -15,3 +15,19 @@ mkdir -p Vendor
 echo "Fetching $URL"
 curl -L --fail "$URL" | tar -xz -C Vendor
 echo "done: $(du -sh Vendor/Python.xcframework | cut -f1)"
+
+# Verovio as a local SPM package (its Package.swift uses unsafeFlags, which
+# SPM rejects in version-pinned remote dependencies)
+if [ ! -d Vendor/verovio ]; then
+  git clone --depth 1 --branch version-6.2.1 https://github.com/rism-digital/verovio Vendor/verovio
+  # drop the test target — its default path overlaps VerovioCore's sources
+  /usr/bin/python3 -c "
+p = 'Vendor/verovio/Package.swift'
+src = open(p).read()
+open(p, 'w').write(src.replace(''',
+        .testTarget(
+            name: \"VerovioToolkitTests\",
+            dependencies: [\"VerovioToolkit\"]
+        )''', ''))
+"
+fi
