@@ -71,6 +71,7 @@ targets:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
+        OMRDefaultURL: "https://scoranger-omr-789974749678.us-central1.run.app"
         ITSAppUsesNonExemptEncryption: false
         # receive scores from the share sheet / "Open in" (Files, Chrome, Mail…)
         LSSupportsOpeningDocumentsInPlace: true

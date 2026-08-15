@@ -37,7 +37,8 @@ final class AppState: ObservableObject {
     /// false = remote `scor serve` over the network.
     @AppStorage("useLocalEngine") var useLocalEngine = true
     /// Cloud OMR service base URL (Audiveris on Cloud Run); empty = disabled.
-    @AppStorage("omrURL") var omrURLString = ""
+    @AppStorage("omrURL") var omrURLString =
+        (Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String) ?? ""
 
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?

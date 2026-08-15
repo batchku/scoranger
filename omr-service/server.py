@@ -65,7 +65,9 @@ class Handler(BaseHTTPRequestHandler):
                         mxl = os.path.join(root, name)
                         break
             if mxl is None:
-                tail = (proc.stdout + "\n" + proc.stderr)[-2000:]
+                print("=== audiveris stdout ===\n", proc.stdout, flush=True)
+                print("=== audiveris stderr ===\n", proc.stderr, flush=True)
+                tail = (proc.stdout + "\n" + proc.stderr)[-8000:]
                 self._json(422, {"ok": False,
                                  "error": "audiveris produced no .mxl",
                                  "log": tail})

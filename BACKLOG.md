@@ -1,14 +1,27 @@
 # Backlog
 
-## In progress: standalone iPad (engine on-device)
+## Shipped 2026-08-15: standalone iPad (engine on-device)
 
-Decision 2026-08-15: eliminate the laptop dependency by embedding the engine in
-the iOS app. Verified: the engine is pure-Python end to end (numpy/matplotlib
-optional) → embed the official Python.xcframework + music21 + scoranger_engine
-behind a JSON bridge; Verovio-iOS for native rendering; Swift chat loop with
-the OpenRouter key in the Keychain; workspace in app Documents. OMR remains
-off-device (JVM). Cross-device library sync becomes a follow-up (iCloud or the
+The laptop dependency is gone: CPython 3.14 + music21 embedded in the iOS app
+(JSON bridge, workspace in app Documents), Verovio compiled in for rendering
+(SVG preprocessed for SwiftDraw), native Swift chat loop over OpenRouter,
+share-sheet import, and a Cloud Run Audiveris service for PDF→MusicXML
+(`omr-service/`). Cross-device library sync remains a follow-up (iCloud or the
 Firebase backend).
+
+## Candidate: portable score-ops kernel (Rust → iOS/Android/WASM)
+
+Idea (2026-08-15): replace the embedded-Python slice of music21 with a small
+Rust kernel implementing just our ~20 deterministic ops + MusicXML I/O,
+compiled for iOS, Android, and WASM (browser viewer loses its server too).
+The de-risking recipe that makes this trustworthy: **differential testing
+against music21 as the oracle** — agentically generate thousands of scores,
+run both engines, diff canonicalized MusicXML. Coverage alone is not the bar;
+music21's 20 years of MusicXML edge-case semantics are (our real bugs were all
+spec bugs: voice-padding phantom rests, enharmonic respelling, part ordering).
+Sequence after product validation. Do NOT rewrite OMR this way — neural models
+(Legato-class) are obsoleting rules-based OMR; portable OMR = shipped weights,
+not transpiled Java.
 
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
