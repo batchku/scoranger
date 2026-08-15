@@ -87,6 +87,14 @@ struct ContentView: View {
                       allowedContentTypes: Self.scoreTypes) { result in
             if case .success(let url) = result { state.importScore(from: url) }
         }
+        .alert("Scoranger", isPresented: Binding(
+            get: { state.notice != nil },
+            set: { if !$0 { state.notice = nil } }
+        )) {
+            Button("OK", role: .cancel) { state.notice = nil }
+        } message: {
+            Text(state.notice ?? "")
+        }
     }
 
     private func sourceCountLabel(_ score: ScoreDoc) -> String {

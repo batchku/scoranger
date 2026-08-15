@@ -72,3 +72,29 @@ targets:
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         ITSAppUsesNonExemptEncryption: false
+        # receive scores from the share sheet / "Open in" (Files, Chrome, Mail…)
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: "MusicXML score"
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.scoranger.musicxml, com.scoranger.mxl]
+          - CFBundleTypeName: "XML score"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.xml]
+          - CFBundleTypeName: "MIDI file"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.midi-audio]
+          - CFBundleTypeName: "PDF score"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.scoranger.musicxml
+            UTTypeDescription: "MusicXML score"
+            UTTypeConformsTo: [public.xml]
+            UTTypeTagSpecification:
+              public.filename-extension: [musicxml]
+          - UTTypeIdentifier: com.scoranger.mxl
+            UTTypeDescription: "Compressed MusicXML score"
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [mxl]

@@ -8,6 +8,9 @@ struct ScorangerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(state)
+                .onOpenURL { url in
+                    state.receiveFile(at: url)
+                }
                 .task {
                     // warm up the interpreter so first render doesn't pay import cost
                     let started = await PythonEngine.shared.start()

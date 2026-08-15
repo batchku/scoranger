@@ -12,6 +12,8 @@ final class AppState: ObservableObject {
     @Published var loadingPDF = false
     @Published var engineOK = false
     @Published var lastError: String?
+    /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
+    @Published var notice: String?
     @Published var modelCatalog: ModelCatalog?
 
     // chat, kept per score slug
@@ -116,6 +118,30 @@ final class AppState: ObservableObject {
             lastError = e.error
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    /// A file handed to us by the system (share sheet / "Open in").
+    func receiveFile(at url: URL) {
+        if url.pathExtension.lowercased() == "pdf" {
+            // OMR runs on the Mac (Audiveris); keep the PDF for later.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let intake = FileManager.default
+                .urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appending(path: "intake")
+            try? FileManager.default.createDirectory(at: intake,
+                                                     withIntermediateDirectories: true)
+            let dest = intake.appending(path: url.lastPathComponent)
+            try? FileManager.default.removeItem(at: dest)
+            do {
+                try FileManager.default.copyItem(at: url, to: dest)
+                notice = "PDF saved to Files → Scoranger → intake. PDF-to-score conversion (OMR) currently runs on a Mac with Audiveris — convert there and share the .mxl back to Scoranger."
+            } catch {
+                notice = "Couldn't save the PDF: \(error.localizedDescription)"
+            }
+        } else {
+            importScore(from: url)
         }
     }
 
