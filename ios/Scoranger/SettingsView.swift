@@ -9,6 +9,31 @@ struct SettingsView: View {
     @State private var apiKeyDraft = ""
     @State private var omrURLDraft = ""
     @State private var omrKeyDraft = ""
+    @State private var omrTestResult = ""
+    @State private var omrTestRunning = false
+
+    /// Send a tiny non-PDF body: 415 back = URL and key both good
+    /// (the request passed auth and reached content validation).
+    static func testOMR(urlString: String, key: String) async -> String {
+        guard let url = URL(string: urlString), !urlString.isEmpty else {
+            return "✗ enter the service URL first"
+        }
+        var req = URLRequest(url: url.appending(path: "omr"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue(key, forHTTPHeaderField: "X-API-Key")
+        do {
+            let (_, resp) = try await URLSession(configuration: .ephemeral)
+                .upload(for: req, from: Data("ping".utf8))
+            switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
+            case 415: return "✓ service reachable, key accepted"
+            case 401: return "✗ service reachable but the key is wrong"
+            case let code: return "✗ unexpected response (HTTP \(code))"
+            }
+        } catch {
+            return "✗ can't reach the service: \(error.localizedDescription)"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -87,6 +112,22 @@ struct SettingsView: View {
                         .onChange(of: omrKeyDraft) { _, value in
                             KeychainStore.omrKey = value
                         }
+                    Button(omrTestRunning ? "Testing…" : "Test connection & key") {
+                        omrTestRunning = true
+                        omrTestResult = ""
+                        Task {
+                            omrTestResult = await Self.testOMR(
+                                urlString: omrURLDraft.trimmingCharacters(in: .whitespaces),
+                                key: omrKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+                            omrTestRunning = false
+                        }
+                    }
+                    .disabled(omrTestRunning)
+                    if !omrTestResult.isEmpty {
+                        Text(omrTestResult)
+                            .font(.footnote)
+                            .foregroundStyle(omrTestResult.hasPrefix("✓") ? .green : .red)
+                    }
                     Text("Share a PDF into Scoranger and it's converted to a score by Audiveris running in the cloud. Leave empty to just collect PDFs in Files → Scoranger → intake.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

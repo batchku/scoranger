@@ -319,7 +319,9 @@ enum KeychainStore {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private static func write(_ account: String, _ value: String) {
+    private static func write(_ account: String, _ rawValue: String) {
+        // API keys never legitimately contain whitespace; pasted keys often do
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

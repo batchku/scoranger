@@ -16,7 +16,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AUDIVERIS = os.environ.get("AUDIVERIS_BIN", "/opt/audiveris/bin/Audiveris")
-API_KEY = os.environ.get("OMR_API_KEY", "")
+API_KEY = os.environ.get("OMR_API_KEY", "").strip()
 MAX_BYTES = 50 * 1024 * 1024
 TIMEOUT_S = 480
 
@@ -40,7 +40,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/omr":
             self._json(404, {"ok": False, "error": "not found"})
             return
-        if API_KEY and self.headers.get("X-API-Key", "") != API_KEY:
+        if API_KEY and self.headers.get("X-API-Key", "").strip() != API_KEY:
             self._json(401, {"ok": False, "error": "bad api key"})
             return
         length = int(self.headers.get("Content-Length", 0))
