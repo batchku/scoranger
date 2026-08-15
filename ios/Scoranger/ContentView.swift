@@ -35,6 +35,19 @@ struct ContentView: View {
             set: { if let slug = $0 { state.select(slug: slug) } }
         )) {
             Section("Scores") {
+                ForEach(state.pendingImports) { pending in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(pending.name)
+                            Text("reading the score (OMR)…")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
                 ForEach(state.manifest?.scores ?? []) { score in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(score.name)

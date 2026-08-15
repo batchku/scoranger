@@ -15,6 +15,14 @@ final class AppState: ObservableObject {
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
     @Published var omrBusy = false
+
+    /// PDFs currently being converted in the cloud — shown greyed out in the
+    /// scores list until they become real scores (or fail).
+    struct PendingImport: Identifiable, Equatable {
+        let id = UUID()
+        let name: String
+    }
+    @Published var pendingImports: [PendingImport] = []
     @Published var modelCatalog: ModelCatalog?
 
     // chat, kept per score slug
@@ -151,9 +159,13 @@ final class AppState: ObservableObject {
             return
         }
         omrBusy = true
-        notice = "Reading the score with Audiveris in the cloud — this can take a minute for a long piece…"
+        let pending = PendingImport(name: name)
+        pendingImports.append(pending)
         Task {
-            defer { omrBusy = false }
+            defer {
+                omrBusy = false
+                pendingImports.removeAll { $0.id == pending.id }
+            }
             do {
                 var request = URLRequest(url: endpoint.appending(path: "omr"))
                 request.httpMethod = "POST"
@@ -172,10 +184,9 @@ final class AppState: ObservableObject {
                 try? FileManager.default.removeItem(at: tmp)
                 selectedSlug = slug
                 pinnedVersion = nil
-                notice = nil
                 await refresh()
             } catch {
-                notice = "PDF conversion failed: \(error.localizedDescription)"
+                notice = "PDF conversion of “\(name)” failed: \(error.localizedDescription)"
             }
         }
     }
