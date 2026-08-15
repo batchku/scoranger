@@ -83,6 +83,68 @@ agent loop later.
 
 For PDF (OMR) ingestion, install Audiveris and see `CLAUDE.md` → *PDF ingestion*.
 
+## How a score flows through the system
+
+```mermaid
+flowchart LR
+    subgraph sources["Score sources"]
+        PDF["PDF<br/><i>engraved score</i>"]
+        MXML["MusicXML / MXL"]
+        MIDI["MIDI"]
+    end
+
+    subgraph omr["OMR &nbsp;·&nbsp; PDF → notation"]
+        AUD["<b>Audiveris</b> 5.11<br/>Java · AGPL-3.0<br/><i>unmodified subprocess</i>"]
+        RUN["omr-service/<br/>Cloud Run container<br/><i>or Mac desktop</i>"]
+        AUD --- RUN
+    end
+
+    subgraph engine["Score engine — the only thing that touches notation"]
+        M21["<b>music21</b><br/>Python · BSD<br/>parse · transpose · merge<br/>split · analyze · 20+ ops"]
+        WS[("Versioned workspace<br/><b>SQLite</b> + vNNN.musicxml<br/><i>every op = new immutable version</i>")]
+        M21 --> WS
+        WS --> M21
+    end
+
+    subgraph agent["Arrangement agent — plans, never writes notation"]
+        LLM["LLM via <b>OpenRouter</b><br/>gemini-flash · kimi · qwen · claude"]
+        TOOLS["21 tool calls<br/>Pydantic AI on desktop<br/>native Swift loop on iPad"]
+        LLM --> TOOLS
+    end
+
+    subgraph rendering["Rendering"]
+        VRV["<b>Verovio</b><br/>C++ · LGPL-3.0<br/>MusicXML → SVG"]
+        OSMD["<b>OSMD</b><br/>TypeScript · BSD-3"]
+        SD["<b>SwiftDraw</b> · zlib<br/>SVG → PDF pages"]
+        CAIRO["cairosvg + pypdf<br/>SVG → PDF export"]
+    end
+
+    subgraph clients["Clients"]
+        WEB["React viewer<br/><i>Vite · localhost:5173</i>"]
+        IPAD["iPad app<br/>embedded <b>CPython 3.14</b><br/>PDFKit + PencilKit markup"]
+    end
+
+    PDF -->|"upload"| RUN
+    RUN -->|".mxl"| M21
+    MXML --> M21
+    MIDI --> M21
+
+    TOOLS -->|"deterministic ops"| M21
+
+    WS -->|"musicxml"| OSMD --> WEB
+    WS -->|"musicxml"| VRV
+    VRV --> CAIRO --> WEB
+    VRV --> SD --> IPAD
+```
+
+External dependencies at a glance: **Audiveris** (AGPL, isolated as an
+unmodified subprocess in its own container), **music21** (BSD, the only code
+allowed to mutate notation), **Verovio** (LGPL, engraving), **OSMD** (BSD-3,
+web rendering), **SwiftDraw** (zlib, iOS rendering), **CPython** via BeeWare's
+iOS build (PSF), and **OpenRouter** as the model gateway (the LLM is a config
+choice, not an architecture choice). The iPad app runs the entire engine
+on-device; only OMR (and the LLM) are network calls.
+
 ## Design
 
 - **`engine/`** — Python. `ops.py` holds the deterministic score operations
