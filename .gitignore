@@ -19,3 +19,7 @@ viewer/dist/
 
 # secrets
 .env
+ios/Vendor/
+ios/PythonApp/app_packages/
+ios/PythonApp/app/scoranger_engine/
+__pycache__/
