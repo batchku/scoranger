@@ -8,12 +8,12 @@ struct LocalChat {
     /// Friendly alias -> OpenRouter model slug (mirror of chat.py MODELS,
     /// OpenRouter routes only — the iPad always goes through the gateway).
     static let models: [String: String] = [
-        "gemini-flash": "google/gemini-3.6-flash",
+        "gemini-flash": "google/gemini-3.7-flash",
         "kimi": "moonshotai/kimi-k3:exacto",
         "qwen": "qwen/qwen3.8-max",
         "claude": "anthropic/claude-sonnet-5",
         "claude-opus": "anthropic/claude-opus-5",
-        "qwen-cheap": "qwen/qwen3.7-plus",
+        "deepseek": "deepseek/deepseek-v4-flash",
     ]
     static let defaultModel = "gemini-flash"
 

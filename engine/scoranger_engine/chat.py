@@ -19,14 +19,14 @@ from . import ops, workspace
 
 # Friendly alias -> pydantic-ai model string. Update slugs freely; nothing
 # else in the system knows or cares which model is running.
-# (IDs verified 2026-08-10; all tool-calling capable through OpenRouter.)
+# (IDs verified 2026-08-15; all tool-calling capable through OpenRouter.)
 MODELS = {
-    "gemini-flash": "openrouter:google/gemini-3.6-flash",        # $1.50/$7.50 per 1M
-    "kimi": "openrouter:moonshotai/kimi-k3:exacto",              # $2.80/$14 — :exacto = curated tool-call routing
+    "gemini-flash": "openrouter:google/gemini-3.7-flash",        # $0.38/$1.88 per 1M
+    "kimi": "openrouter:moonshotai/kimi-k3:exacto",              # $3.00/$15 — :exacto = curated tool-call routing
     "qwen": "openrouter:qwen/qwen3.8-max",                       # $2.00/$6.00
-    "claude": "openrouter:anthropic/claude-sonnet-5",            # $2.00/$10
+    "claude": "openrouter:anthropic/claude-sonnet-5",            # $2.00/$10 — best judgment in our bake-off
     "claude-opus": "openrouter:anthropic/claude-opus-5",         # $5.00/$25
-    "qwen-cheap": "openrouter:qwen/qwen3.7-plus",                # $0.32/$1.28
+    "deepseek": "openrouter:deepseek/deepseek-v4-flash",         # $0.06/$0.13 — untested, absurdly cheap
     # Direct-provider routes (no OpenRouter fee) for models that graduate:
     "gemini-direct": "google-cloud:gemini-3.6-flash",
     "claude-direct": "anthropic:claude-sonnet-5",
