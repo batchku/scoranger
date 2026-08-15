@@ -292,35 +292,43 @@ struct LocalChat {
     }
 }
 
-/// Minimal Keychain wrapper for the OpenRouter API key.
+/// Minimal Keychain wrapper for API keys.
 enum KeychainStore {
     private static let service = "com.irllabs.scoranger"
-    private static let account = "openrouter-api-key"
 
     static var openRouterKey: String {
-        get {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecReturnData as String: true,
-            ]
-            var item: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-                  let data = item as? Data else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
-        }
-        set {
-            let base: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-            ]
-            SecItemDelete(base as CFDictionary)
-            guard !newValue.isEmpty else { return }
-            var add = base
-            add[kSecValueData as String] = Data(newValue.utf8)
-            SecItemAdd(add as CFDictionary, nil)
-        }
+        get { read("openrouter-api-key") }
+        set { write("openrouter-api-key", newValue) }
+    }
+
+    static var omrKey: String {
+        get { read("omr-api-key") }
+        set { write("omr-api-key", newValue) }
+    }
+
+    private static func read(_ account: String) -> String {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static func write(_ account: String, _ value: String) {
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
+        guard !value.isEmpty else { return }
+        var add = base
+        add[kSecValueData as String] = Data(value.utf8)
+        SecItemAdd(add as CFDictionary, nil)
     }
 }

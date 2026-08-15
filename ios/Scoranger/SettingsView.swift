@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var selfTestResult = ""
     @State private var selfTestRunning = false
     @State private var apiKeyDraft = ""
+    @State private var omrURLDraft = ""
+    @State private var omrKeyDraft = ""
 
     var body: some View {
         NavigationStack {
@@ -64,6 +66,18 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                Section("PDF conversion (OMR)") {
+                    TextField("https://scoranger-omr-….run.app", text: $omrURLDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    SecureField("OMR service API key", text: $omrKeyDraft)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("Share a PDF into Scoranger and it's converted to a score by Audiveris running in the cloud. Leave empty to just collect PDFs in Files → Scoranger → intake.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Section("Chat model") {
                     if let catalog = state.modelCatalog {
                         Picker("Model", selection: $state.chatModel) {
@@ -84,6 +98,8 @@ struct SettingsView: View {
                     Button("Done") {
                         state.engineURLString = urlDraft
                         KeychainStore.openRouterKey = apiKeyDraft
+                        state.omrURLString = omrURLDraft.trimmingCharacters(in: .whitespaces)
+                        KeychainStore.omrKey = omrKeyDraft
                         Task { await state.refresh() }
                         dismiss()
                     }
@@ -92,6 +108,8 @@ struct SettingsView: View {
             .onAppear {
                 urlDraft = state.engineURLString
                 apiKeyDraft = KeychainStore.openRouterKey
+                omrURLDraft = state.omrURLString
+                omrKeyDraft = KeychainStore.omrKey
             }
         }
     }

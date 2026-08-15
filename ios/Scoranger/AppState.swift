@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
+    @Published var omrBusy = false
     @Published var modelCatalog: ModelCatalog?
 
     // chat, kept per score slug
@@ -35,6 +36,8 @@ final class AppState: ObservableObject {
     /// true = embedded Python engine + Verovio (no laptop needed);
     /// false = remote `scor serve` over the network.
     @AppStorage("useLocalEngine") var useLocalEngine = true
+    /// Cloud OMR service base URL (Audiveris on Cloud Run); empty = disabled.
+    @AppStorage("omrURL") var omrURLString = ""
 
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?
@@ -124,24 +127,68 @@ final class AppState: ObservableObject {
     /// A file handed to us by the system (share sheet / "Open in").
     func receiveFile(at url: URL) {
         if url.pathExtension.lowercased() == "pdf" {
-            // OMR runs on the Mac (Audiveris); keep the PDF for later.
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            let intake = FileManager.default
-                .urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appending(path: "intake")
-            try? FileManager.default.createDirectory(at: intake,
-                                                     withIntermediateDirectories: true)
-            let dest = intake.appending(path: url.lastPathComponent)
-            try? FileManager.default.removeItem(at: dest)
-            do {
-                try FileManager.default.copyItem(at: url, to: dest)
-                notice = "PDF saved to Files → Scoranger → intake. PDF-to-score conversion (OMR) currently runs on a Mac with Audiveris — convert there and share the .mxl back to Scoranger."
-            } catch {
-                notice = "Couldn't save the PDF: \(error.localizedDescription)"
-            }
+            convertPDF(at: url)
         } else {
             importScore(from: url)
+        }
+    }
+
+    /// PDF -> MusicXML via the cloud OMR service (Audiveris on Cloud Run),
+    /// then import. Falls back to saving into Documents/intake when no
+    /// service is configured.
+    private func convertPDF(at url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        let pdfData = try? Data(contentsOf: url)
+        let name = url.deletingPathExtension().lastPathComponent
+        if scoped { url.stopAccessingSecurityScopedResource() }
+        guard let pdfData else {
+            notice = "Couldn't read the PDF."
+            return
+        }
+        guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
+            saveToIntake(pdfData, filename: url.lastPathComponent)
+            return
+        }
+        omrBusy = true
+        notice = "Reading the score with Audiveris in the cloud — this can take a minute for a long piece…"
+        Task {
+            defer { omrBusy = false }
+            do {
+                var request = URLRequest(url: endpoint.appending(path: "omr"))
+                request.httpMethod = "POST"
+                request.timeoutInterval = 600
+                request.setValue(KeychainStore.omrKey, forHTTPHeaderField: "X-API-Key")
+                request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
+                let (data, response) = try await URLSession.shared.upload(for: request, from: pdfData)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                    throw LocalEngineError.engine(detail ?? "OMR service error (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0))")
+                }
+                let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
+                try? FileManager.default.removeItem(at: tmp)
+                try data.write(to: tmp)
+                let slug = try await local.importScore(fileURL: tmp, name: name)
+                try? FileManager.default.removeItem(at: tmp)
+                selectedSlug = slug
+                pinnedVersion = nil
+                notice = nil
+                await refresh()
+            } catch {
+                notice = "PDF conversion failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func saveToIntake(_ data: Data, filename: String) {
+        let intake = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appending(path: "intake")
+        try? FileManager.default.createDirectory(at: intake, withIntermediateDirectories: true)
+        do {
+            try data.write(to: intake.appending(path: filename))
+            notice = "No OMR service configured (Settings) — PDF saved to Files → Scoranger → intake."
+        } catch {
+            notice = "Couldn't save the PDF: \(error.localizedDescription)"
         }
     }
 
