@@ -22,6 +22,8 @@ TIMEOUT_S = 480
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # keep-alive; plays nicer with the gateway
+
     def _json(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code)
@@ -37,19 +39,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        # ALWAYS read the request body before responding — answering early and
+        # closing makes the Cloud Run gateway report a 502 "truncated response"
+        # instead of delivering our error to the client.
+        length = int(self.headers.get("Content-Length", 0))
+        pdf = self.rfile.read(min(length, MAX_BYTES)) if length > 0 else b""
+        print(f"omr request: {length} bytes, ua={self.headers.get('User-Agent','?')}, "
+              f"magic={pdf[:8]!r}", flush=True)
+
         if self.path != "/omr":
             self._json(404, {"ok": False, "error": "not found"})
             return
         if API_KEY and self.headers.get("X-API-Key", "").strip() != API_KEY:
             self._json(401, {"ok": False, "error": "bad api key"})
             return
-        length = int(self.headers.get("Content-Length", 0))
         if not 0 < length <= MAX_BYTES:
             self._json(413, {"ok": False, "error": f"body must be 1..{MAX_BYTES} bytes"})
             return
-        print(f"omr request: {length} bytes, ua={self.headers.get('User-Agent','?')}", flush=True)
-        pdf = self.rfile.read(length)
-        print(f"omr body read: {len(pdf)} bytes, magic={pdf[:8]!r}", flush=True)
         if not pdf.startswith(b"%PDF"):
             self._json(415, {"ok": False,
                              "error": f"not a PDF (starts with {pdf[:8]!r})"})

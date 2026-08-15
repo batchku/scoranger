@@ -9,6 +9,21 @@ KEY=$(cat .omr-api-key)
 mkdir -p /tmp/omr-test-results
 
 pass=0; fail=0
+
+# misconfiguration matrix: every auth failure must surface as a clean 401 —
+# never a 502 (the server must drain large bodies before answering)
+BIGPDF=$(ls testdata/pdfs/*.pdf | head -1)
+for label in "wrong-key" "empty-key"; do
+  k=""; [ "$label" = "wrong-key" ] && k="not-the-key"
+  code=$(curl -s -X POST --data-binary @"$BIGPDF" -H "X-API-Key: $k" \
+       "$URL/omr" -o /dev/null -w "%{http_code}" --max-time 60)
+  if [ "$code" = "401" ]; then
+    pass=$((pass+1)); printf "PASS auth: %-12s -> clean 401\n" "$label"
+  else
+    fail=$((fail+1)); printf "FAIL auth: %-12s -> HTTP %s (expected 401)\n" "$label" "$code"
+  fi
+done
+
 for pdf in testdata/pdfs/*.pdf; do
   name=$(basename "$pdf")
   out="/tmp/omr-test-results/${name%.pdf}.mxl"
