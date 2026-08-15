@@ -76,7 +76,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scoranger talks to your score engine on the local network.</string>
 	<key>OMRDefaultURL</key>
-	<string>https://scoranger-omr-789974749678.us-central1.run.app</string>
+	<string>https://scoranger-omr-37kxlg2dpa-uc.a.run.app</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

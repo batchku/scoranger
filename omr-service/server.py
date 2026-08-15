@@ -47,7 +47,13 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_BYTES:
             self._json(413, {"ok": False, "error": f"body must be 1..{MAX_BYTES} bytes"})
             return
+        print(f"omr request: {length} bytes, ua={self.headers.get('User-Agent','?')}", flush=True)
         pdf = self.rfile.read(length)
+        print(f"omr body read: {len(pdf)} bytes, magic={pdf[:8]!r}", flush=True)
+        if not pdf.startswith(b"%PDF"):
+            self._json(415, {"ok": False,
+                             "error": f"not a PDF (starts with {pdf[:8]!r})"})
+            return
 
         workdir = tempfile.mkdtemp(prefix="omr-")
         try:
@@ -56,10 +62,12 @@ class Handler(BaseHTTPRequestHandler):
                 f.write(pdf)
             out_dir = os.path.join(workdir, "out")
             os.makedirs(out_dir)
+            print(f"audiveris start: {pdf_path}", flush=True)
             proc = subprocess.run(
                 [AUDIVERIS, "-batch", "-export", "-output", out_dir, pdf_path],
                 capture_output=True, text=True, timeout=TIMEOUT_S,
             )
+            print(f"audiveris done: rc={proc.returncode}", flush=True)
             mxl = None
             for root, _dirs, files in os.walk(out_dir):
                 for name in files:

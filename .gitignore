@@ -24,3 +24,4 @@ ios/PythonApp/app_packages/
 ios/PythonApp/app/scoranger_engine/
 __pycache__/
 .omr-api-key
+testdata/

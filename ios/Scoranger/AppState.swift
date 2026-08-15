@@ -48,6 +48,16 @@ final class AppState: ObservableObject {
     @AppStorage("omrURL") var omrURLString =
         (Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String) ?? ""
 
+    /// Builds 4-5 shipped Cloud Run's "deterministic" hostname, which Google's
+    /// edge routes unreliably (the PDF-conversion 502s). Rewrite it to the
+    /// canonical a.run.app URL.
+    func migrateStaleOMRURL() {
+        if omrURLString.contains("789974749678.us-central1.run.app"),
+           let canonical = Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String {
+            omrURLString = canonical
+        }
+    }
+
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?
 
@@ -175,12 +185,16 @@ final class AppState: ObservableObject {
 
                 // Cloud Run can kill an idle instance right as a request lands
                 // (502, ~2s). Retry transient failures; give up on 4xx.
+                // Each attempt gets a FRESH session: retrying on the pooled
+                // HTTP/2 connection re-hits the same dead backend forever.
                 var data = Data()
                 var attempt = 0
                 while true {
                     attempt += 1
                     do {
-                        let (d, response) = try await URLSession.shared.upload(for: request, from: pdfData)
+                        let session = URLSession(configuration: .ephemeral)
+                        defer { session.finishTasksAndInvalidate() }
+                        let (d, response) = try await session.upload(for: request, from: pdfData)
                         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                         if code == 200 { data = d; break }
                         let detail = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String

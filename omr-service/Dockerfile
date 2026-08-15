@@ -29,4 +29,5 @@ ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
     AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris \
     PORT=8080
 COPY server.py /app/server.py
-CMD ["python3", "/app/server.py"]
+# -u unbuffered, faulthandler: if python ever dies silently, get a stack
+CMD ["python3", "-u", "-X", "faulthandler", "/app/server.py"]
