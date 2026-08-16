@@ -17,12 +17,22 @@ final class AppState: ObservableObject {
     @Published var omrBusy = false
 
     /// PDFs currently being converted in the cloud — shown greyed out in the
-    /// scores list until they become real scores (or fail).
+    /// scores list with a live stage until they become real scores (or fail).
     struct PendingImport: Identifiable, Equatable {
         let id = UUID()
         let name: String
+        var stage: String = "uploading…"
+        /// nil = indeterminate (spinner); 0…1 = determinate bar
+        var fraction: Double? = nil
     }
     @Published var pendingImports: [PendingImport] = []
+
+    private func updatePending(_ id: UUID, stage: String, fraction: Double?) {
+        if let i = pendingImports.firstIndex(where: { $0.id == id }) {
+            pendingImports[i].stage = stage
+            pendingImports[i].fraction = fraction
+        }
+    }
     @Published var modelCatalog: ModelCatalog?
 
     // chat, kept per score slug
@@ -123,10 +133,14 @@ final class AppState: ObservableObject {
                                                  withIntermediateDirectories: true)
         let samples = docs.appending(path: "samples")
         try? FileManager.default.createDirectory(at: samples, withIntermediateDirectories: true)
-        if let bundled = Bundle.main.url(forResource: "sample-quartet", withExtension: "pdf") {
-            let dest = samples.appending(path: "sous-le-ciel-de-paris-quartet.pdf")
-            if !FileManager.default.fileExists(atPath: dest.path) {
-                try? FileManager.default.copyItem(at: bundled, to: dest)
+        if let seed = Bundle.main.resourceURL?.appending(path: "samples-seed"),
+           let files = try? FileManager.default.contentsOfDirectory(
+               at: seed, includingPropertiesForKeys: nil) {
+            for f in files {
+                let dest = samples.appending(path: f.lastPathComponent)
+                if !FileManager.default.fileExists(atPath: dest.path) {
+                    try? FileManager.default.copyItem(at: f, to: dest)
+                }
             }
         }
     }
@@ -221,27 +235,33 @@ final class AppState: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 var apiKey = KeychainStore.omrKey.isEmpty ? bakedKey : KeychainStore.omrKey
 
-                var request = URLRequest(url: endpoint.appending(path: "omr"))
+                // -- 1. submit the job (upload with byte progress) ------------
+                var request = URLRequest(url: endpoint.appending(path: "jobs"))
                 request.httpMethod = "POST"
-                request.timeoutInterval = 600
+                request.timeoutInterval = 120
                 request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
                 request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
 
-                // Cloud Run can kill an idle instance right as a request lands
-                // (502, ~2s). Retry transient failures; give up on 4xx.
-                // Each attempt gets a FRESH session: retrying on the pooled
-                // HTTP/2 connection re-hits the same dead backend forever.
-                var data = Data()
+                let progressDelegate = UploadProgressDelegate { [weak self] sent in
+                    Task { @MainActor in
+                        self?.updatePending(pending.id, stage: "uploading…", fraction: sent)
+                    }
+                }
+
+                // Retry transient failures on a FRESH session each attempt:
+                // a pooled HTTP/2 connection re-hits the same dead backend.
+                var submitted: [String: Any] = [:]
                 var attempt = 0
                 while true {
                     attempt += 1
                     do {
                         let session = URLSession(configuration: .ephemeral)
                         defer { session.finishTasksAndInvalidate() }
-                        let (d, response) = try await session.upload(for: request, from: pdfData)
+                        let (d, response) = try await session.upload(
+                            for: request, from: pdfData, delegate: progressDelegate)
                         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        if code == 200 { data = d; break }
-                        let detail = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String
+                        let body = (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
+                        if code == 202 { submitted = body; break }
                         if code == 401, !bakedKey.isEmpty, apiKey != bakedKey {
                             // stored key is wrong — self-heal with the baked one
                             apiKey = bakedKey
@@ -249,17 +269,84 @@ final class AppState: ObservableObject {
                             request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
                             continue
                         }
-                        if code >= 500, attempt < 3 {
-                            try await Task.sleep(for: .seconds(3))
+                        // 429 = single-instance service momentarily saturated
+                        if code >= 500 || code == 429, attempt < 4 {
+                            try await Task.sleep(for: .seconds(code == 429 ? 15 : 3))
                             continue
                         }
-                        throw LocalEngineError.engine(detail ?? "OMR service error (HTTP \(code))")
+                        throw LocalEngineError.engine(
+                            body["error"] as? String ?? "OMR service error (HTTP \(code))")
                     } catch let e as LocalEngineError {
                         throw e
                     } catch where attempt < 3 {
                         try await Task.sleep(for: .seconds(3))
                     }
                 }
+                guard let jobID = submitted["job"] as? String else {
+                    throw LocalEngineError.engine("OMR service returned no job id")
+                }
+
+                // -- 2. poll for progress ------------------------------------
+                let statusURL = endpoint.appending(path: "jobs/\(jobID)")
+                var pollFailures = 0
+                let pollDeadline = Date().addingTimeInterval(900)
+                poll: while Date() < pollDeadline {
+                    try await Task.sleep(for: .seconds(2))
+                    var statusReq = URLRequest(url: statusURL)
+                    statusReq.timeoutInterval = 15
+                    statusReq.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+                    do {
+                        let (d, _) = try await URLSession.shared.data(for: statusReq)
+                        guard let s = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                              let state = s["state"] as? String else {
+                            pollFailures += 1
+                            if pollFailures > 10 { throw LocalEngineError.engine("lost contact with the OMR service") }
+                            continue
+                        }
+                        pollFailures = 0
+                        let page = s["page"] as? Int ?? 0
+                        let pages = s["pages"] as? Int ?? 0
+                        switch state {
+                        case "queued":
+                            let queue = s["queue"] as? Int ?? 0
+                            updatePending(pending.id,
+                                          stage: queue > 0 ? "waiting (\(queue) ahead)…" : "waiting for converter…",
+                                          fraction: nil)
+                        case "converting":
+                            if pages > 0 {
+                                updatePending(pending.id,
+                                              stage: "reading page \(min(page + 1, pages)) of \(pages)",
+                                              fraction: max(0.02, Double(page) / Double(pages)))
+                            } else {
+                                updatePending(pending.id, stage: "reading the score…", fraction: nil)
+                            }
+                        case "done":
+                            break poll
+                        case "failed":
+                            throw LocalEngineError.engine(s["error"] as? String ?? "conversion failed")
+                        default:
+                            break
+                        }
+                    } catch let e as LocalEngineError {
+                        throw e
+                    } catch {
+                        pollFailures += 1
+                        if pollFailures > 10 { throw LocalEngineError.engine("lost contact with the OMR service") }
+                    }
+                }
+
+                // -- 3. fetch result, import ---------------------------------
+                updatePending(pending.id, stage: "downloading…", fraction: nil)
+                var resultReq = URLRequest(url: endpoint.appending(path: "jobs/\(jobID)/result"))
+                resultReq.timeoutInterval = 60
+                resultReq.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+                let (data, resultResp) = try await URLSession.shared.data(for: resultReq)
+                guard (resultResp as? HTTPURLResponse)?.statusCode == 200 else {
+                    let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                    throw LocalEngineError.engine(detail ?? "couldn't fetch the converted score")
+                }
+
+                updatePending(pending.id, stage: "importing…", fraction: nil)
                 let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
                 try data.write(to: tmp)
@@ -271,6 +358,18 @@ final class AppState: ObservableObject {
             } catch {
                 notice = "PDF conversion of “\(name)” failed: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// Reports upload byte progress for the OMR job submission.
+    final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+        let onProgress: (Double) -> Void
+        init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        didSendBodyData bytesSent: Int64,
+                        totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+            guard totalBytesExpectedToSend > 0 else { return }
+            onProgress(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
         }
     }
 

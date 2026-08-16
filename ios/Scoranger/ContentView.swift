@@ -4,9 +4,11 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var showChat = true
     @State private var showSettings = false
     @State private var showImporter = false
+    @State private var didSetInitialChat = false
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -36,24 +38,37 @@ struct ContentView: View {
         )) {
             Section("Scores") {
                 ForEach(state.pendingImports) { pending in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
                             Text(pending.name)
-                            Text("reading the score (OMR)…")
-                                .font(.caption2)
+                            Spacer()
+                            if pending.fraction == nil {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
                         }
-                        .foregroundStyle(.secondary)
-                        Spacer()
-                        ProgressView()
-                            .controlSize(.small)
+                        if let fraction = pending.fraction {
+                            ProgressView(value: fraction)
+                                .controlSize(.small)
+                        }
+                        Text(pending.stage)
+                            .font(.caption2)
                     }
+                    .foregroundStyle(.secondary)
                 }
                 ForEach(state.manifest?.scores ?? []) { score in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(score.name)
-                        Text("\(score.versions.count) versions\(sourceCountLabel(score))")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    // Button, not bare List selection: selection-only rows
+                    // ignore taps in compact width (iPhone)
+                    Button {
+                        state.select(slug: score.slug)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(score.name)
+                                .foregroundStyle(.primary)
+                            Text("\(score.versions.count) versions\(sourceCountLabel(score))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .tag(score.slug)
                 }
@@ -121,12 +136,25 @@ struct ContentView: View {
     @ViewBuilder
     private var detail: some View {
         if let score = state.selectedScore {
-            HStack(spacing: 0) {
-                scorePane(score)
-                if showChat {
-                    Divider()
-                    ChatView()
-                        .frame(width: 360)
+            Group {
+                if hSize == .compact {
+                    // iPhone: chat replaces the score pane instead of squeezing it
+                    if showChat { ChatView() } else { scorePane(score) }
+                } else {
+                    HStack(spacing: 0) {
+                        scorePane(score)
+                        if showChat {
+                            Divider()
+                            ChatView()
+                                .frame(width: 360)
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                if !didSetInitialChat {
+                    didSetInitialChat = true
+                    if hSize == .compact { showChat = false }
                 }
             }
             .navigationTitle(score.name)

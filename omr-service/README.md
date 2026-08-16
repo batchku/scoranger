@@ -16,7 +16,8 @@ gcloud run deploy scoranger-omr \
   --source omr-service \
   --region us-central1 \
   --memory 4Gi --cpu 2 \
-  --timeout 600 --concurrency 1 --max-instances 3 \
+  --timeout 600 --concurrency 8 --max-instances 1 \
+  --no-cpu-throttling \
   --allow-unauthenticated \
   --set-env-vars OMR_API_KEY=<random-secret>
 ```
@@ -24,7 +25,13 @@ gcloud run deploy scoranger-omr \
 Notes:
 - `--allow-unauthenticated` + the `OMR_API_KEY` header keeps the client simple
   (no Google auth on-device) while still gating access.
-- `--concurrency 1` because each conversion runs a JVM at full tilt.
+- `--concurrency 8` so progress polls can land while a conversion runs; an
+  internal lock still serializes Audiveris itself.
+- `--max-instances 1` because job state lives in process memory (polls must
+  reach the instance that owns the job).
+- `--no-cpu-throttling` is REQUIRED: jobs run in a background thread between
+  polls, and Cloud Run's default throttling freezes background work when no
+  request is in flight (a 40s conversion becomes 3.5 minutes).
 - First deploy compiles Audiveris from source in Cloud Build (~10 min).
 
 ## Local smoke test (needs Docker)
