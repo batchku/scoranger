@@ -95,7 +95,44 @@ final class AppState: ObservableObject {
         pollTask?.cancel()
     }
 
+    /// Files -> On My iPad -> Scoranger -> inbox: anything dropped there is
+    /// ingested automatically (scores import, PDFs convert via cloud OMR).
+    func scanInbox() {
+        guard useLocalEngine else { return }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let inbox = docs.appending(path: "inbox")
+        let staging = docs.appending(path: ".ingesting")
+        try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let supported = ["musicxml", "mxl", "xml", "mid", "midi", "pdf"]
+        for f in (try? FileManager.default.contentsOfDirectory(
+            at: inbox, includingPropertiesForKeys: nil)) ?? []
+        where supported.contains(f.pathExtension.lowercased()) {
+            let staged = staging.appending(path: f.lastPathComponent)
+            try? FileManager.default.removeItem(at: staged)
+            // atomic move claims the file; skip if Files is still copying it
+            guard (try? FileManager.default.moveItem(at: f, to: staged)) != nil else { continue }
+            receiveFile(at: staged)
+        }
+    }
+
+    /// One-time Documents layout: inbox/ for auto-ingest, samples/ seeded from
+    /// the bundle for quick testing.
+    func prepareDocumentsFolders() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: docs.appending(path: "inbox"),
+                                                 withIntermediateDirectories: true)
+        let samples = docs.appending(path: "samples")
+        try? FileManager.default.createDirectory(at: samples, withIntermediateDirectories: true)
+        if let bundled = Bundle.main.url(forResource: "sample-quartet", withExtension: "pdf") {
+            let dest = samples.appending(path: "sous-le-ciel-de-paris-quartet.pdf")
+            if !FileManager.default.fileExists(atPath: dest.path) {
+                try? FileManager.default.copyItem(at: bundled, to: dest)
+            }
+        }
+    }
+
     func refresh() async {
+        scanInbox()
         do {
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
             manifest = m

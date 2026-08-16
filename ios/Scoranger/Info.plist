@@ -77,6 +77,8 @@
 	<string>Scoranger talks to your score engine on the local network.</string>
 	<key>OMRDefaultURL</key>
 	<string>https://scoranger-omr-37kxlg2dpa-uc.a.run.app</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

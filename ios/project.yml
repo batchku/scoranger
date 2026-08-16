@@ -52,6 +52,15 @@ targets:
             cp "$PROJECT_DIR/../.omr-api-key" "$CODESIGNING_FOLDER_PATH/omr-default-key.txt"
           fi
         basedOnDependencyAnalysis: false
+      - name: Bake sample PDF
+        script: |
+          # sample score for quick testing, seeded into Documents/samples on
+          # first launch; lives in gitignored testdata (copyrighted material)
+          SAMPLE="$PROJECT_DIR/../testdata/pdfs/sous-le-ciel-de-paris-arr-gheorghe-branici-hubert-giraud-string-quartet.pdf"
+          if [ -f "$SAMPLE" ]; then
+            cp "$SAMPLE" "$CODESIGNING_FOLDER_PATH/sample-quartet.pdf"
+          fi
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger
@@ -83,6 +92,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # receive scores from the share sheet / "Open in" (Files, Chrome, Mail…)
         LSSupportsOpeningDocumentsInPlace: true
+        # expose the app's Documents as Files -> On My iPad -> Scoranger
+        UIFileSharingEnabled: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: "MusicXML score"
             LSHandlerRank: Owner
