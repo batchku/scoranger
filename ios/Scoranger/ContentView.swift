@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showImporter = false
     @State private var didSetInitialChat = false
+    @State private var pendingDelete: ScoreDoc?
+    @State private var infoScore: ScoreDoc?
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -32,9 +34,12 @@ struct ContentView: View {
     // MARK: sidebar
 
     private var sidebar: some View {
+        // The selection binding stays so NavigationSplitView pushes the detail
+        // on compact when `select(slug:)` runs — but rows are borderless
+        // buttons, so a plain tap only previews (sets previewedSlug).
         List(selection: Binding(
-            get: { state.selectedScore?.slug },
-            set: { if let slug = $0 { state.select(slug: slug) } }
+            get: { state.selectedSlug },
+            set: { if let slug = $0 { state.selectedSlug = slug } }
         )) {
             Section("Scores") {
                 if state.manifest == nil {
@@ -66,37 +71,24 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                 }
                 ForEach(state.manifest?.scores ?? []) { score in
-                    // Button, not bare List selection: selection-only rows
-                    // ignore taps in compact width (iPhone)
-                    Button {
-                        state.select(slug: score.slug)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(score.name)
-                                .foregroundStyle(.primary)
-                            Text("\(score.versions.count) versions\(sourceCountLabel(score))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .tag(score.slug)
+                    scoreRow(score)
                 }
             }
-            if let score = state.selectedScore {
+            // Versions of the previewed score (falls back to the open one);
+            // tapping a version opens the score pinned to it.
+            if let score = state.previewedScore {
                 Section("Versions") {
                     ForEach(score.versions.reversed()) { v in
                         Button {
-                            state.pinnedVersion = (v.id == score.latest) ? nil : v.id
-                            Task { await state.renderIfNeeded() }
+                            state.select(slug: score.slug,
+                                         version: v.id == score.latest ? nil : v.id)
                         } label: {
                             HStack {
                                 Text(v.id).font(.system(.caption, design: .monospaced))
                                 Text(v.op).font(.caption).foregroundStyle(.secondary)
                                 Spacer()
-                                if v.id == state.displayedVersionID {
+                                if score.slug == state.selectedScore?.slug,
+                                   v.id == state.displayedVersionID {
                                     Image(systemName: "eye").font(.caption2)
                                 }
                             }
@@ -123,6 +115,22 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(item: $infoScore) { ScoreInfoView(score: $0) }
+        .alert(
+            "Delete \(pendingDelete?.name ?? "score")?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                if let score = pendingDelete { state.deleteScore(slug: score.slug) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("This removes the score and all its versions.")
+        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
             // receiveFile routes by type: PDFs -> cloud OMR, scores -> direct import
@@ -136,6 +144,59 @@ struct ContentView: View {
         } message: {
             Text(state.notice ?? "")
         }
+    }
+
+    /// A score row: tap previews (versions in the sidebar), the trailing icons
+    /// show metadata, duplicate, or open the score in the detail pane.
+    private func scoreRow(_ score: ScoreDoc) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                state.previewedSlug = score.slug
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(score.name)
+                        .foregroundStyle(.primary)
+                    Text("\(score.versions.count) versions\(sourceCountLabel(score))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            rowIcon("eye", label: "Score details") { infoScore = score }
+            rowIcon("plus.square.on.square", label: "Duplicate score") {
+                state.duplicateScore(slug: score.slug)
+            }
+            rowIcon("chevron.right.circle", label: "Open score") {
+                state.select(slug: score.slug)
+            }
+        }
+        .listRowBackground(
+            state.previewedSlug == score.slug ? Color.accentColor.opacity(0.15) : nil)
+        .swipeActions(edge: .trailing) {
+            // non-destructive role: the row shouldn't vanish before the
+            // confirmation alert is answered
+            Button { pendingDelete = score } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .tint(.red)
+        }
+        .tag(score.slug)
+    }
+
+    /// Trailing per-row icon button; borderless so it doesn't hijack the row
+    /// tap, sized for a comfortable finger target.
+    private func rowIcon(_ systemName: String, label: String,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 32, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(label)
     }
 
     private func sourceCountLabel(_ score: ScoreDoc) -> String {

@@ -6,6 +6,9 @@ import SwiftUI
 final class AppState: ObservableObject {
     @Published var manifest: Manifest?
     @Published var selectedSlug: String?
+    /// Sidebar preview: the score whose versions the sidebar shows. Set by a
+    /// plain row tap; does NOT navigate (that's `select(slug:)`).
+    @Published var previewedSlug: String?
     /// nil = follow the score's latest version
     @Published var pinnedVersion: String?
     @Published var pdfDocument: PDFDocument?
@@ -83,6 +86,14 @@ final class AppState: ObservableObject {
         if let slug = selectedSlug, let s = scores.first(where: { $0.slug == slug }) { return s }
         // default: most recently updated
         return scores.max { ($0.versions.last?.time ?? "") < ($1.versions.last?.time ?? "") }
+    }
+
+    /// The score the sidebar's Versions section describes: the previewed one,
+    /// falling back to whatever is open in the detail pane.
+    var previewedScore: ScoreDoc? {
+        guard let scores = manifest?.scores else { return nil }
+        if let slug = previewedSlug, let s = scores.first(where: { $0.slug == slug }) { return s }
+        return selectedScore
     }
 
     var displayedVersionID: String? {
@@ -476,7 +487,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    func select(slug: String) {
+    /// Open a score in the detail pane, optionally pinned to a version
+    /// (nil = follow latest).
+    func select(slug: String, version: String? = nil) {
         if slug == selectedSlug {
             // Re-selecting the same score is a no-op to SwiftUI, so
             // NavigationSplitView (compact) won't re-push the detail.
@@ -484,14 +497,47 @@ final class AppState: ObservableObject {
             selectedSlug = nil
             Task { @MainActor in
                 selectedSlug = slug
-                pinnedVersion = nil
+                pinnedVersion = version
                 await renderIfNeeded()
             }
             return
         }
         selectedSlug = slug
-        pinnedVersion = nil
+        pinnedVersion = version
         Task { await renderIfNeeded() }
+    }
+
+    /// Duplicate a score into a new independent copy (new slug, full history).
+    func duplicateScore(slug: String) {
+        Task {
+            do {
+                _ = try await local.call(op: "duplicate", args: ["score": slug])
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Irreversibly delete a score and all its versions.
+    func deleteScore(slug: String) {
+        Task {
+            do {
+                try await local.deleteScore(slug)
+                if previewedSlug == slug { previewedSlug = nil }
+                if selectedSlug == slug {
+                    selectedSlug = nil
+                    pinnedVersion = nil
+                }
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
     }
 
     func transpose(semitones: Int) {

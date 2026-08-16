@@ -92,6 +92,13 @@ def cmd_transpose(a):
     _mutate(a.score, score, "transpose", {"interval": a.interval, "parts": a.parts}, details)
 
 
+def cmd_duplicate(a):
+    score = _load(a.score, None)
+    name = a.name or f"{a.score} copy"
+    slug, entry = workspace.create_score(name, score, op="duplicate", args={"source": a.score})
+    _emit({"score": slug, "version": entry["id"]})
+
+
 def cmd_respell(a):
     score = _load(a.score, None)
     names = _split_parts(a.parts) if a.parts else None
@@ -313,6 +320,11 @@ def main() -> None:
     s.add_argument("--interval", required=True, help="e.g. M2, m3, P4, -M2, P8")
     s.add_argument("--parts")
     s.set_defaults(fn=cmd_transpose)
+
+    s = sub.add_parser("duplicate", help="Copy a score (its latest version becomes the copy's v001)")
+    s.add_argument("score")
+    s.add_argument("--name")
+    s.set_defaults(fn=cmd_duplicate)
 
     s = sub.add_parser("respell", help="Respell accidentals enharmonically (flats <-> sharps)")
     s.add_argument("score")

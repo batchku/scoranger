@@ -77,6 +77,12 @@ def _dispatch(op, a):
     if op == "delete-score":
         workspace.delete_score(a["score"])
         return {"deleted": a["score"]}
+    if op == "duplicate":
+        src = _load(a["score"])  # latest version becomes the copy's v001
+        name = a.get("name") or f"{a['score']} copy"
+        slug, entry = workspace.create_score(name, src, op="duplicate",
+                                             args={"source": a["score"]})
+        return {"score": slug, "version": entry["id"]}
     if op == "add-source":
         from music21 import converter
         score = converter.parse(a["path"], forceSource=True)

@@ -230,13 +230,17 @@ struct LocalChat {
         messages.append(["role": "user", "content": message])
 
         var finalReply = ""
+        var rounds = 0
         for _ in 0..<20 {
+            rounds += 1
             let assistant = try await complete(model: model, messages: messages)
             messages.append(assistant)
             guard let calls = assistant["tool_calls"] as? [[String: Any]], !calls.isEmpty else {
-                finalReply = assistant["content"] as? String ?? ""
+                finalReply = (assistant["content"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             }
+            print("SCORANGER-CHAT-LOOP round \(rounds): \(calls.count) tool call(s)")
             for call in calls {
                 let id = call["id"] as? String ?? UUID().uuidString
                 let fn = call["function"] as? [String: Any]
@@ -247,8 +251,22 @@ struct LocalChat {
             }
         }
 
+        // A turn must never end silent: if the model finished on a tool round
+        // (empty content) or hit the round cap, force a text-only summary.
+        if finalReply.isEmpty {
+            print("SCORANGER-CHAT-LOOP empty reply after \(rounds) rounds; forcing summary")
+            messages.append(["role": "user", "content":
+                "Summarize for the user what you just did to the score (or explain what you need from them). Text only."])
+            let summary = try await complete(model: model, messages: messages, allowTools: false)
+            messages.append(summary)
+            finalReply = (summary["content"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
         let historyData = try JSONSerialization.data(withJSONObject: messages)
-        return Turn(reply: finalReply.isEmpty ? "(no reply)" : finalReply,
+        return Turn(reply: finalReply.isEmpty
+                        ? "Something went wrong: the model returned no text (after \(rounds) rounds). Check the score's version list — operations may still have been applied."
+                        : finalReply,
                     historyJSON: String(data: historyData, encoding: .utf8) ?? "")
     }
 
@@ -274,7 +292,8 @@ struct LocalChat {
         }
     }
 
-    private func complete(model: String, messages: [[String: Any]]) async throws -> [String: Any] {
+    private func complete(model: String, messages: [[String: Any]],
+                          allowTools: Bool = true) async throws -> [String: Any] {
         // stored key if present, baked-in default otherwise; a 401 self-heals
         // below by falling back to the baked key
         let storedKey = KeychainStore.openRouterKey
@@ -287,9 +306,11 @@ struct LocalChat {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("https://github.com/batchku/scoranger", forHTTPHeaderField: "HTTP-Referer")
         request.setValue("Scoranger", forHTTPHeaderField: "X-Title")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": model, "messages": messages, "tools": Self.toolsJSON,
-        ])
+        var payload: [String: Any] = ["model": model, "messages": messages]
+        if allowTools {
+            payload["tools"] = Self.toolsJSON
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         var data: Data
         var code: Int
