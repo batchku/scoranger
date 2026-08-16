@@ -8,13 +8,13 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showImporter = false
 
-    private static let scoreTypes: [UTType] = [
+    private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
         UTType(filenameExtension: "mxl"),
         UTType(filenameExtension: "xml"),
         UTType(filenameExtension: "mid"),
         UTType(filenameExtension: "midi"),
-    ].compactMap { $0 }
+    ].compactMap { $0 }) + [.pdf]
 
     var body: some View {
         NavigationSplitView {
@@ -98,7 +98,8 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
-            if case .success(let url) = result { state.importScore(from: url) }
+            // receiveFile routes by type: PDFs -> cloud OMR, scores -> direct import
+            if case .success(let url) = result { state.receiveFile(at: url) }
         }
         .alert("Scoranger", isPresented: Binding(
             get: { state.notice != nil },
