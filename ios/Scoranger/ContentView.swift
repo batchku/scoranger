@@ -164,7 +164,7 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            rowIcon("eye", label: "Score details") { infoScore = score }
+            rowIcon("info.circle", label: "Score details") { infoScore = score }
             rowIcon("plus.square.on.square", label: "Duplicate score") {
                 state.duplicateScore(slug: score.slug)
             }
