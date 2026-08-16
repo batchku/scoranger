@@ -92,6 +92,13 @@ def cmd_transpose(a):
     _mutate(a.score, score, "transpose", {"interval": a.interval, "parts": a.parts}, details)
 
 
+def cmd_respell(a):
+    score = _load(a.score, None)
+    names = _split_parts(a.parts) if a.parts else None
+    details = ops.respell(score, a.prefer, names)
+    _mutate(a.score, score, "respell", {"prefer": a.prefer, "parts": a.parts}, details)
+
+
 def cmd_change_clef(a):
     score = _load(a.score, None)
     part = ops.find_parts(score, [a.part])[0]
@@ -306,6 +313,12 @@ def main() -> None:
     s.add_argument("--interval", required=True, help="e.g. M2, m3, P4, -M2, P8")
     s.add_argument("--parts")
     s.set_defaults(fn=cmd_transpose)
+
+    s = sub.add_parser("respell", help="Respell accidentals enharmonically (flats <-> sharps)")
+    s.add_argument("score")
+    s.add_argument("--prefer", choices=["flats", "sharps"], default="flats")
+    s.add_argument("--parts")
+    s.set_defaults(fn=cmd_respell)
 
     s = sub.add_parser("change-clef", help="Set a part's clef")
     s.add_argument("score")

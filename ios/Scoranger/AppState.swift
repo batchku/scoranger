@@ -15,6 +15,9 @@ final class AppState: ObservableObject {
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
     @Published var omrBusy = false
+    /// Per-score enharmonic preference backing the gear menu's "Use flats"
+    /// toggle; flipping it applies a respell op. Defaults to flats.
+    @Published var useFlats: [String: Bool] = [:]
 
     /// PDFs currently being converted in the cloud — shown greyed out in the
     /// scores list with a live stage until they become real scores (or fail).
@@ -474,6 +477,18 @@ final class AppState: ObservableObject {
     }
 
     func select(slug: String) {
+        if slug == selectedSlug {
+            // Re-selecting the same score is a no-op to SwiftUI, so
+            // NavigationSplitView (compact) won't re-push the detail.
+            // Bounce the selection through nil so it sees a change.
+            selectedSlug = nil
+            Task { @MainActor in
+                selectedSlug = slug
+                pinnedVersion = nil
+                await renderIfNeeded()
+            }
+            return
+        }
         selectedSlug = slug
         pinnedVersion = nil
         Task { await renderIfNeeded() }
@@ -488,6 +503,25 @@ final class AppState: ObservableObject {
                 } else {
                     try await client.transpose(score: slug, semitones: semitones)
                 }
+                pinnedVersion = nil
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Respell the whole score enharmonically (flats vs sharps). Creates a
+    /// new version, like any other op.
+    func respell(preferFlats: Bool) {
+        guard let slug = selectedScore?.slug else { return }
+        Task {
+            do {
+                _ = try await local.call(op: "respell",
+                                         args: ["score": slug,
+                                                "prefer": preferFlats ? "flats" : "sharps"])
                 pinnedVersion = nil
                 await refresh()
             } catch let e as EngineError {

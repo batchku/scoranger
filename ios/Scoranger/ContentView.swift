@@ -37,6 +37,15 @@ struct ContentView: View {
             set: { if let slug = $0 { state.select(slug: slug) } }
         )) {
             Section("Scores") {
+                if state.manifest == nil {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("starting engine…")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                }
                 ForEach(state.pendingImports) { pending in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
@@ -69,7 +78,10 @@ struct ContentView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.borderless)
                     .tag(score.slug)
                 }
             }
@@ -195,12 +207,57 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button { state.transpose(semitones: -1) } label: {
-                Label("Down a semitone", systemImage: "arrow.down")
+            versionsMenu
+            gearMenu
+            Button { showChat.toggle() } label: {
+                Label("Chat", systemImage: showChat ? "sidebar.trailing" : "bubble.left.and.text.bubble.right")
             }
+        }
+    }
+
+    /// Version picker mirroring the sidebar's Versions section, so version
+    /// hopping works without opening the sidebar (essential on iPhone).
+    @ViewBuilder
+    private var versionsMenu: some View {
+        if let score = state.selectedScore {
+            Menu {
+                ForEach(score.versions.reversed()) { v in
+                    Button {
+                        state.pinnedVersion = (v.id == score.latest) ? nil : v.id
+                        Task { await state.renderIfNeeded() }
+                    } label: {
+                        if v.id == state.displayedVersionID {
+                            Label("\(v.id) · \(v.op)", systemImage: "checkmark")
+                        } else {
+                            Text("\(v.id) · \(v.op)")
+                        }
+                    }
+                }
+            } label: {
+                Text(state.displayedVersionID ?? "")
+                    .font(.system(.caption, design: .monospaced))
+            }
+            .accessibilityLabel("Versions")
+        }
+    }
+
+    private var gearMenu: some View {
+        Menu {
             Button { state.transpose(semitones: 1) } label: {
-                Label("Up a semitone", systemImage: "arrow.up")
+                Label("Transpose up a semitone", systemImage: "arrow.up")
             }
+            Button { state.transpose(semitones: -1) } label: {
+                Label("Transpose down a semitone", systemImage: "arrow.down")
+            }
+            Toggle("Use flats", isOn: Binding(
+                get: { state.useFlats[state.selectedScore?.slug ?? "", default: true] },
+                set: { newValue in
+                    if let slug = state.selectedScore?.slug {
+                        state.useFlats[slug] = newValue
+                    }
+                    state.respell(preferFlats: newValue)
+                }
+            ))
             if hSize != .compact {
                 Button {
                     if let score = state.selectedScore, let vid = state.displayedVersionID {
@@ -212,9 +269,8 @@ struct ContentView: View {
                     Label("Clear markup", systemImage: "pencil.slash")
                 }
             }
-            Button { showChat.toggle() } label: {
-                Label("Chat", systemImage: showChat ? "sidebar.trailing" : "bubble.left.and.text.bubble.right")
-            }
+        } label: {
+            Label("Score options", systemImage: "gearshape")
         }
     }
 }

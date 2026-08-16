@@ -357,6 +357,34 @@ def transpose(score, interval_str: str, names: list[str] | None = None) -> dict:
     return {"interval": itv.niceName, "direction": itv.direction.name.lower(), "scope": scope}
 
 
+def respell(score, prefer: str = "flats", names: list[str] | None = None) -> dict:
+    """Respell accidentals enharmonically: prefer 'flats' (G#->Ab) or 'sharps' (Ab->G#).
+
+    Pitch-by-pitch enharmonic swap; leaves naturals alone and skips swaps that
+    would produce a double accidental. Key signatures are untouched (OMR/MIDI
+    imports usually carry the right signature but wrong accidental spellings).
+    """
+    if prefer not in ("flats", "sharps"):
+        raise ValueError("prefer must be 'flats' or 'sharps'")
+    targets = find_parts(score, names) if names else list(score.parts)
+    changed = 0
+    for part in targets:
+        for p in part.recurse().stream().pitches:
+            acc = p.accidental
+            if acc is None or acc.alter == 0:
+                continue
+            if (prefer == "flats" and acc.alter > 0) or (prefer == "sharps" and acc.alter < 0):
+                e = p.getEnharmonic()
+                if e.accidental is not None and abs(e.accidental.alter) > 1:
+                    continue  # would need a double accidental; keep original
+                p.step = e.step
+                p.octave = e.octave
+                p.accidental = e.accidental
+                changed += 1
+    return {"prefer": prefer, "changed_notes": changed,
+            "scope": [part_label(p) for p in targets] if names else "all parts"}
+
+
 def change_clef(part, clef_name: str, from_measure: int = 1) -> dict:
     if clef_name not in CLEFS:
         raise ValueError(f"Unknown clef '{clef_name}'. Choose from: {sorted(CLEFS)}")

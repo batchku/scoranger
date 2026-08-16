@@ -105,6 +105,8 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: {"removed": ops.remove_parts(sc, a["parts"])})
     if op == "transpose":
         return _mutate(s, op, a, lambda sc: ops.transpose(sc, str(a["interval"]), a.get("parts")))
+    if op == "respell":
+        return _mutate(s, op, a, lambda sc: ops.respell(sc, a.get("prefer", "flats"), a.get("parts")))
     if op == "change-clef":
         return _mutate(s, op, a, lambda sc: ops.change_clef(_part(sc, a["part"]), a["clef"], a.get("from_measure", 1)))
     if op == "change-instrument":

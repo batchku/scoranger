@@ -111,6 +111,13 @@ def transpose(ctx: RunContext[str], interval: str, parts: list[str] | None = Non
                   lambda s: ops.transpose(s, interval, parts))
 
 
+def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None = None) -> dict:
+    """Respell accidentals enharmonically: prefer='flats' turns G# into Ab (right for flat keys
+    like F minor); prefer='sharps' does the reverse. Key signatures are untouched."""
+    return _apply(ctx.deps, "respell", {"prefer": prefer, "parts": parts},
+                  lambda s: ops.respell(s, prefer, parts))
+
+
 def change_clef(ctx: RunContext[str], part: str, clef: str, from_measure: int = 1) -> dict:
     """Set a part's clef (treble, bass, alto, tenor, treble8vb, bass8vb) from a given measure."""
     return _apply(ctx.deps, "change-clef", {"part": part, "clef": clef},
@@ -242,7 +249,7 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
 
 
 TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
-         change_clef, change_instrument, rename_part, check_range, octave_shift,
+         respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
          pull_part]
