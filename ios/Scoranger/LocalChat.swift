@@ -17,6 +17,13 @@ struct LocalChat {
     ]
     static let defaultModel = "gemini-flash"
 
+    /// Build-time default key (postBuild "Bake OpenRouter key" bakes it from
+    /// the repo's gitignored .env); empty when the build had no .env.
+    static let bakedKey: String =
+        (Bundle.main.url(forResource: "openrouter-default-key", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
     static let instructions = """
     You are Scoranger's arrangement agent. You manipulate a musical score ONLY \
     through the provided tools — deterministic operations that each create a new \
@@ -40,7 +47,7 @@ struct LocalChat {
         case badResponse(String)
         var errorDescription: String? {
             switch self {
-            case .missingKey: return "No OpenRouter API key — add one in Settings."
+            case .missingKey: return "No OpenRouter API key — none baked into this build; add one in Settings."
             case .http(let code, let body): return "OpenRouter HTTP \(code): \(body.prefix(300))"
             case .badResponse(let why): return "Unexpected OpenRouter response: \(why)"
             }
@@ -203,7 +210,7 @@ struct LocalChat {
     /// One chat turn against the on-device engine. `historyJSON` is the JSON
     /// message array from the previous Turn (OpenAI wire format).
     func run(slug: String, message: String, modelAlias: String?,
-             historyJSON: String?, apiKey: String) async throws -> Turn {
+             historyJSON: String?) async throws -> Turn {
         let model = Self.models[modelAlias ?? Self.defaultModel]
             ?? modelAlias ?? Self.models[Self.defaultModel]!
 
@@ -262,13 +269,15 @@ struct LocalChat {
     }
 
     private func complete(model: String, messages: [[String: Any]]) async throws -> [String: Any] {
-        let key = KeychainStore.openRouterKey
+        // stored key if present, baked-in default otherwise; a 401 self-heals
+        // below by falling back to the baked key
+        let storedKey = KeychainStore.openRouterKey
+        var key = storedKey.isEmpty ? Self.bakedKey : storedKey
         guard !key.isEmpty else { throw ChatError.missingKey }
 
         var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.timeoutInterval = 180
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("https://github.com/batchku/scoranger", forHTTPHeaderField: "HTTP-Referer")
         request.setValue("Scoranger", forHTTPHeaderField: "X-Title")
@@ -276,8 +285,21 @@ struct LocalChat {
             "model": model, "messages": messages, "tools": Self.toolsJSON,
         ])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var data: Data
+        var code: Int
+        while true {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            let (d, response) = try await URLSession.shared.data(for: request)
+            data = d
+            code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if code == 401, !Self.bakedKey.isEmpty, key != Self.bakedKey {
+                // stored key is wrong — self-heal with the baked one, retry once
+                key = Self.bakedKey
+                KeychainStore.openRouterKey = Self.bakedKey
+                continue
+            }
+            break
+        }
         guard code == 200 else {
             throw ChatError.http(code, String(data: data, encoding: .utf8) ?? "")
         }

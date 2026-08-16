@@ -174,7 +174,12 @@ struct ContentView: View {
     private func scorePane(_ score: ScoreDoc) -> some View {
         ZStack {
             if let doc = state.pdfDocument, let vid = state.displayedVersionID {
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
+                if hSize == .compact {
+                    // iPhone: zoomable read-only view; pencil markup is iPad-only
+                    ScoreZoomView(document: doc)
+                } else {
+                    ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
+                }
             } else if state.loadingPDF {
                 ProgressView("Engraving…")
             } else if let err = state.lastError {
@@ -196,14 +201,16 @@ struct ContentView: View {
             Button { state.transpose(semitones: 1) } label: {
                 Label("Up a semitone", systemImage: "arrow.up")
             }
-            Button {
-                if let score = state.selectedScore, let vid = state.displayedVersionID {
-                    DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
-                    // force page reload to drop canvases' in-memory drawings
-                    Task { await state.renderIfNeeded(force: true) }
+            if hSize != .compact {
+                Button {
+                    if let score = state.selectedScore, let vid = state.displayedVersionID {
+                        DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
+                        // force page reload to drop canvases' in-memory drawings
+                        Task { await state.renderIfNeeded(force: true) }
+                    }
+                } label: {
+                    Label("Clear markup", systemImage: "pencil.slash")
                 }
-            } label: {
-                Label("Clear markup", systemImage: "pencil.slash")
             }
             Button { showChat.toggle() } label: {
                 Label("Chat", systemImage: showChat ? "sidebar.trailing" : "bubble.left.and.text.bubble.right")

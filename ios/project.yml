@@ -52,6 +52,16 @@ targets:
             cp "$PROJECT_DIR/../.omr-api-key" "$CODESIGNING_FOLDER_PATH/omr-default-key.txt"
           fi
         basedOnDependencyAnalysis: false
+      - name: Bake OpenRouter key
+        script: |
+          # repo is public: the key lives in the gitignored .env, injected into
+          # the app bundle at build time (zero-config chat)
+          if [ -f "$PROJECT_DIR/../.env" ]; then
+            key=$(grep '^OPENROUTER_API_KEY=' "$PROJECT_DIR/../.env" | head -n1 | cut -d= -f2-)
+            key=$(printf '%s' "$key" | tr -d '"' | tr -d "'" | tr -d '[:space:]')
+            printf '%s' "$key" > "$CODESIGNING_FOLDER_PATH/openrouter-default-key.txt"
+          fi
+        basedOnDependencyAnalysis: false
       - name: Bake samples
         script: |
           # sample scores for quick testing, seeded into Documents/samples on

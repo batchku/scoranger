@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     @Published var pendingImports: [PendingImport] = []
 
     private func updatePending(_ id: UUID, stage: String, fraction: Double?) {
+        print("SCORANGER-OMR \(stage)")
         if let i = pendingImports.firstIndex(where: { $0.id == id }) {
             pendingImports[i].stage = stage
             pendingImports[i].fraction = fraction
@@ -131,6 +132,10 @@ final class AppState: ObservableObject {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: docs.appending(path: "inbox"),
                                                  withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: docs.appending(path: "inbox-chat"),
+                                                 withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: docs.appending(path: "outbox-chat"),
+                                                 withIntermediateDirectories: true)
         let samples = docs.appending(path: "samples")
         try? FileManager.default.createDirectory(at: samples, withIntermediateDirectories: true)
         if let seed = Bundle.main.resourceURL?.appending(path: "samples-seed"),
@@ -145,8 +150,68 @@ final class AppState: ObservableObject {
         }
     }
 
+    #if DEBUG
+    /// Headless chat hook for automated testing: drop {"score", "message",
+    /// "model"?} JSON into Documents/inbox-chat; the reply lands in
+    /// Documents/outbox-chat/<name>.result.json and the console logs
+    /// SCORANGER-CHAT begin/done lines.
+    private var chatHookBusy = false
+    private func scanChatInbox() {
+        guard !chatHookBusy else { return }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let inbox = docs.appending(path: "inbox-chat")
+        let outbox = docs.appending(path: "outbox-chat")
+        let staging = docs.appending(path: ".ingesting")
+        try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        for f in (try? FileManager.default.contentsOfDirectory(
+            at: inbox, includingPropertiesForKeys: nil)) ?? []
+        where f.pathExtension.lowercased() == "json" {
+            let staged = staging.appending(path: f.lastPathComponent)
+            try? FileManager.default.removeItem(at: staged)
+            // atomic move claims the file; skip if it's still being copied
+            guard (try? FileManager.default.moveItem(at: f, to: staged)) != nil else { continue }
+            guard let data = try? Data(contentsOf: staged),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let slug = obj["score"] as? String,
+                  let message = obj["message"] as? String else {
+                try? FileManager.default.removeItem(at: staged)
+                continue
+            }
+            let model = obj["model"] as? String
+            let name = f.lastPathComponent
+            let result = outbox.appending(
+                path: "\(f.deletingPathExtension().lastPathComponent).result.json")
+            chatHookBusy = true
+            print("SCORANGER-CHAT begin \(name)")
+            Task {
+                defer { chatHookBusy = false }
+                var payload: [String: Any]
+                var okText = "ok=true"
+                do {
+                    let turn = try await LocalChat().run(
+                        slug: slug, message: message, modelAlias: model, historyJSON: nil)
+                    payload = ["ok": true, "reply": turn.reply]
+                } catch {
+                    payload = ["ok": false, "error": error.localizedDescription]
+                    okText = "ok=false \(error.localizedDescription)"
+                }
+                if let d = try? JSONSerialization.data(withJSONObject: payload) {
+                    try? d.write(to: result)
+                }
+                try? FileManager.default.removeItem(at: staged)
+                print("SCORANGER-CHAT done \(okText)")
+                await refresh()
+            }
+            break  // one request at a time
+        }
+    }
+    #endif
+
     func refresh() async {
         scanInbox()
+        #if DEBUG
+        scanChatInbox()
+        #endif
         do {
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
             manifest = m
@@ -446,8 +511,7 @@ final class AppState: ObservableObject {
                     let turn = try await LocalChat().run(
                         slug: slug, message: message,
                         modelAlias: chatModel.isEmpty ? nil : chatModel,
-                        historyJSON: chatHistory[slug],
-                        apiKey: KeychainStore.openRouterKey)
+                        historyJSON: chatHistory[slug])
                     chatHistory[slug] = turn.historyJSON
                     chatMessages[slug, default: []].append(.init(role: .agent, text: turn.reply))
                 } else {
