@@ -255,6 +255,23 @@ def cmd_set_chords(a):
     _mutate(a.score, score, "set-chords", {"part": a.part, "count": len(chords)}, details)
 
 
+def cmd_piece_create(a):
+    _emit(workspace.create_piece(a.name))
+
+
+def cmd_piece_assign(a):
+    if a.unassign:
+        _emit(workspace.assign_score_to_piece(a.score, None))
+    else:
+        if not a.piece:
+            raise ValueError("Pass --piece NAME (or --unassign)")
+        _emit(workspace.assign_score_to_piece(a.score, a.piece, create_if_missing=True))
+
+
+def cmd_piece_rename(a):
+    _emit(workspace.rename_piece(a.piece, a.name))
+
+
 def cmd_delete_score(a):
     workspace.delete_score(a.score)
     _emit({"deleted": a.score})
@@ -461,6 +478,21 @@ def main() -> None:
     s.add_argument("--part", required=True)
     s.add_argument("--json", required=True, help='Path to [{"measure":1,"symbol":"Fm"},...]')
     s.set_defaults(fn=cmd_set_chords)
+
+    s = sub.add_parser("piece-create", help="Create a piece (a work that groups arrangements)")
+    s.add_argument("name")
+    s.set_defaults(fn=cmd_piece_create)
+
+    s = sub.add_parser("piece-assign", help="File an arrangement under a piece (created if missing)")
+    s.add_argument("score")
+    s.add_argument("--piece", help="Piece name or slug")
+    s.add_argument("--unassign", action="store_true", help="Remove the score from its piece")
+    s.set_defaults(fn=cmd_piece_assign)
+
+    s = sub.add_parser("piece-rename", help="Rename a piece (slug stays the same)")
+    s.add_argument("piece", help="Piece name or slug")
+    s.add_argument("--name", required=True)
+    s.set_defaults(fn=cmd_piece_rename)
 
     s = sub.add_parser("delete-score", help="Delete a score, its versions, and its files (irreversible)")
     s.add_argument("score")

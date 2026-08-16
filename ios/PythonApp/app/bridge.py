@@ -69,7 +69,10 @@ def _dispatch(op, a):
         if score.metadata is not None and not score.metadata.title:
             score.metadata.title = name
         slug, entry = workspace.create_score(name, score, op="import", args={"source": a["path"]})
-        return {"score": slug, "version": entry["id"]}
+        piece = None
+        if a.get("piece"):
+            piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+        return {"score": slug, "version": entry["id"], "piece": piece}
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))
     if op == "versions":
@@ -82,7 +85,20 @@ def _dispatch(op, a):
         name = a.get("name") or f"{a['score']} copy"
         slug, entry = workspace.create_score(name, src, op="duplicate",
                                              args={"source": a["score"]})
+        # the copy stays filed with its source's piece
+        piece = (workspace._repo().get_score(a["score"]) or {}).get("piece")
+        if piece:
+            workspace.assign_score_to_piece(slug, piece)
         return {"score": slug, "version": entry["id"]}
+    if op == "create-piece":
+        return workspace.create_piece(a["name"])
+    if op == "assign-piece":
+        return workspace.assign_score_to_piece(a["score"], a["piece"],
+                                               create_if_missing=True)
+    if op == "unassign-piece":
+        return workspace.assign_score_to_piece(a["score"], None)
+    if op == "rename-piece":
+        return workspace.rename_piece(a["piece"], a["name"])
     if op == "add-source":
         from music21 import converter
         score = converter.parse(a["path"], forceSource=True)

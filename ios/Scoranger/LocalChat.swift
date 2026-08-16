@@ -197,6 +197,11 @@ struct LocalChat {
                                      "measures": str("optional 'A-B' inclusive range")],
                                     required: ["from_ref", "part"]),
                  op: "pull-part", rename: ["from_ref": "from", "as_name": "as"]),
+        ToolSpec(name: "assign_to_piece",
+                 description: "File this arrangement under a piece, creating it if needed.",
+                 parameters: params(["piece_name": str("name of the piece to file under")],
+                                    required: ["piece_name"]),
+                 op: "assign-piece", rename: ["piece_name": "piece"]),
     ]
 
     private static var toolsJSON: [[String: Any]] {

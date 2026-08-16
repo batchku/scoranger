@@ -11,6 +11,9 @@ struct ContentView: View {
     @State private var didSetInitialChat = false
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
+    /// Score awaiting a "New piece…" name (drives the naming alert).
+    @State private var newPieceTarget: ScoreDoc?
+    @State private var newPieceName = ""
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -46,7 +49,7 @@ struct ContentView: View {
         // the per-row buttons (eaten taps, three competing highlight colors).
         // Preview highlight is ours alone; navigation goes through openScore.
         List {
-            Section("Scores") {
+            Section {
                 if state.manifest == nil {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -75,7 +78,17 @@ struct ContentView: View {
                     }
                     .foregroundStyle(.secondary)
                 }
-                ForEach(state.manifest?.scores ?? []) { score in
+            }
+            // Arrangements grouped by piece, then everything unfiled.
+            ForEach(state.pieceSections, id: \.piece.slug) { section in
+                Section(section.piece.name) {
+                    ForEach(section.arrangements) { score in
+                        scoreRow(score)
+                    }
+                }
+            }
+            Section((state.manifest?.pieces ?? []).isEmpty ? "Scores" : "Unfiled") {
+                ForEach(state.unfiledScores) { score in
                     scoreRow(score)
                 }
             }
@@ -136,6 +149,22 @@ struct ContentView: View {
         } message: {
             Text("This removes the score and all its versions.")
         }
+        .alert("New piece", isPresented: Binding(
+            get: { newPieceTarget != nil },
+            set: { if !$0 { newPieceTarget = nil } }
+        )) {
+            TextField("Piece name", text: $newPieceName)
+            Button("OK") {
+                let name = newPieceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let score = newPieceTarget, !name.isEmpty {
+                    state.createPieceAndAssign(name: name, scoreSlug: score.slug)
+                }
+                newPieceTarget = nil
+            }
+            Button("Cancel", role: .cancel) { newPieceTarget = nil }
+        } message: {
+            Text("File “\(newPieceTarget?.name ?? "score")” under a new piece.")
+        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
             // receiveFile routes by type: PDFs -> cloud OMR, scores -> direct import
@@ -180,6 +209,32 @@ struct ContentView: View {
         // one highlight system only: warm attention color on the previewed row
         .listRowBackground(
             state.previewedSlug == score.slug ? Color.orange.opacity(0.22) : nil)
+        .contextMenu {
+            Menu("Move to piece") {
+                // full manifest list, including pieces with no arrangements yet
+                ForEach(state.manifest?.pieces ?? []) { piece in
+                    Button {
+                        state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
+                    } label: {
+                        if score.piece == piece.slug {
+                            Label(piece.name, systemImage: "checkmark")
+                        } else {
+                            Text(piece.name)
+                        }
+                    }
+                }
+                Divider()
+                Button("New piece…") {
+                    newPieceName = ""
+                    newPieceTarget = score
+                }
+            }
+            if score.piece != nil {
+                Button("Remove from piece") {
+                    state.assignToPiece(scoreSlug: score.slug, piece: nil)
+                }
+            }
+        }
         .swipeActions(edge: .trailing) {
             // non-destructive role: the row shouldn't vanish before the
             // confirmation alert is answered

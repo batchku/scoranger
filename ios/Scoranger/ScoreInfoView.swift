@@ -1,11 +1,25 @@
 import SwiftUI
 
-/// Read-only metadata sheet for a score: overview, the latest version's
-/// parts, the version history, and any attached sources. Everything shown
-/// comes from the manifest's ScoreDoc — no engine calls.
+/// Metadata sheet for a score: overview (including its piece, editable via a
+/// menu), the latest version's parts, the version history, and any attached
+/// sources. Everything shown comes from the manifest's ScoreDoc.
 struct ScoreInfoView: View {
     let score: ScoreDoc
+    @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    /// Local override so the Piece label updates immediately after a pick —
+    /// the sheet's `score` is a snapshot and won't see the refreshed manifest.
+    @State private var pieceOverride: String??
+
+    private var currentPieceSlug: String? {
+        if let pieceOverride { return pieceOverride }
+        return score.piece
+    }
+
+    private func pieceName(_ slug: String?) -> String {
+        guard let slug else { return "None" }
+        return state.manifest?.pieces?.first { $0.slug == slug }?.name ?? slug
+    }
 
     private var latestParts: [PartDoc] {
         score.versions.first { $0.id == score.latest }?.parts
@@ -23,6 +37,34 @@ struct ScoreInfoView: View {
                     }
                     if let composer = score.composer, !composer.isEmpty {
                         LabeledContent("Composer", value: composer)
+                    }
+                    LabeledContent("Piece") {
+                        Menu {
+                            Button {
+                                state.assignToPiece(scoreSlug: score.slug, piece: nil)
+                                pieceOverride = .some(nil)
+                            } label: {
+                                if currentPieceSlug == nil {
+                                    Label("None", systemImage: "checkmark")
+                                } else {
+                                    Text("None")
+                                }
+                            }
+                            ForEach(state.manifest?.pieces ?? []) { piece in
+                                Button {
+                                    state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
+                                    pieceOverride = .some(piece.slug)
+                                } label: {
+                                    if currentPieceSlug == piece.slug {
+                                        Label(piece.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(piece.name)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text(pieceName(currentPieceSlug))
+                        }
                     }
                     LabeledContent("Slug") {
                         Text(score.slug).font(.system(.caption, design: .monospaced))

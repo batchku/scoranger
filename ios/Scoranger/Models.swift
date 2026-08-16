@@ -5,6 +5,7 @@ import Foundation
 struct Manifest: Codable {
     var generated: String?
     var scores: [ScoreDoc]
+    var pieces: [PieceDoc]?
 }
 
 struct ScoreDoc: Codable, Identifiable, Hashable {
@@ -15,10 +16,22 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
     var latest: String?
     var versions: [VersionDoc]
     var sources: [SourceDoc]?
+    var piece: String?
 
     var id: String { slug }
 
     static func == (lhs: ScoreDoc, rhs: ScoreDoc) -> Bool { lhs.slug == rhs.slug }
+    func hash(into hasher: inout Hasher) { hasher.combine(slug) }
+}
+
+struct PieceDoc: Codable, Identifiable, Hashable {
+    var slug: String
+    var name: String
+    var arrangements: [String]
+
+    var id: String { slug }
+
+    static func == (lhs: PieceDoc, rhs: PieceDoc) -> Bool { lhs.slug == rhs.slug }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 

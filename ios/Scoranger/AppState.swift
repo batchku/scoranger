@@ -83,6 +83,26 @@ final class AppState: ObservableObject {
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
 
+    /// Sidebar grouping: each piece with its arrangements resolved to ScoreDocs
+    /// (pieces with no resolvable arrangements are dropped here — the full list,
+    /// including empty pieces, stays available via manifest.pieces).
+    var pieceSections: [(piece: PieceDoc, arrangements: [ScoreDoc])] {
+        guard let m = manifest, let pieces = m.pieces else { return [] }
+        return pieces.compactMap { piece in
+            let scores = piece.arrangements.compactMap { slug in
+                m.scores.first { $0.slug == slug }
+            }
+            return scores.isEmpty ? nil : (piece: piece, arrangements: scores)
+        }
+    }
+
+    /// Scores not filed under any piece.
+    var unfiledScores: [ScoreDoc] {
+        guard let m = manifest else { return [] }
+        let filed = Set((m.pieces ?? []).flatMap(\.arrangements))
+        return m.scores.filter { !filed.contains($0.slug) }
+    }
+
     var selectedScore: ScoreDoc? {
         guard let scores = manifest?.scores else { return nil }
         if let slug = selectedSlug, let s = scores.first(where: { $0.slug == slug }) { return s }
@@ -505,6 +525,42 @@ final class AppState: ObservableObject {
         Task {
             do {
                 _ = try await local.call(op: "duplicate", args: ["score": slug])
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// File a score under a piece (nil = remove from its piece). The piece is
+    /// created on the engine side if it doesn't exist yet.
+    func assignToPiece(scoreSlug: String, piece: String?) {
+        Task {
+            do {
+                if let piece {
+                    _ = try await local.call(op: "assign-piece",
+                                             args: ["score": scoreSlug, "piece": piece])
+                } else {
+                    _ = try await local.call(op: "unassign-piece", args: ["score": scoreSlug])
+                }
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Create a new piece by name and file the score under it (assign-piece
+    /// creates missing pieces).
+    func createPieceAndAssign(name: String, scoreSlug: String) {
+        Task {
+            do {
+                _ = try await local.call(op: "assign-piece",
+                                         args: ["score": scoreSlug, "piece": name])
                 await refresh()
             } catch let e as EngineError {
                 lastError = e.error

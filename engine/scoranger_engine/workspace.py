@@ -183,6 +183,71 @@ def source_path(slug: str, source_id: str) -> Path:
     return score_dir(slug) / doc["file"]
 
 
+def create_piece(name: str) -> dict:
+    """Create a piece document (a work that groups arrangements). Returns the doc."""
+    repo = _repo()
+    base = slugify(name)
+    slug, n = base, 2
+    while repo.get_piece(slug) is not None:
+        slug = f"{base}-{n}"
+        n += 1
+    doc = {"id": slug, "slug": slug, "name": name, "created": _now()}
+    repo.set_piece(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def resolve_piece(name_or_slug: str, create_if_missing: bool = False) -> dict:
+    """Find a piece by slug, then by case-insensitive name; optionally create it."""
+    repo = _repo()
+    doc = repo.get_piece(name_or_slug)
+    if doc is not None:
+        return doc
+    for p in repo.list_pieces():
+        if p["name"].lower() == name_or_slug.lower():
+            return p
+    if create_if_missing:
+        return create_piece(name_or_slug)
+    available = [p["slug"] for p in repo.list_pieces()]
+    raise FileNotFoundError(f"No piece '{name_or_slug}'. Available: {available}")
+
+
+def assign_score_to_piece(slug: str, piece: str | None,
+                          create_if_missing: bool = True) -> dict:
+    """File an arrangement under a piece (None = unfile). The link lives on the score doc."""
+    repo = _repo()
+    doc = repo.get_score(slug)
+    if doc is None:
+        available = [s["slug"] for s in repo.list_scores()]
+        raise FileNotFoundError(f"No score '{slug}'. Available: {available}")
+    if piece is None:
+        doc.pop("piece", None)
+        piece_slug = None
+    else:
+        piece_slug = resolve_piece(piece, create_if_missing=create_if_missing)["slug"]
+        doc["piece"] = piece_slug
+    repo.set_score(slug, doc)
+    rebuild_manifest()
+    return {"score": slug, "piece": piece_slug}
+
+
+def rename_piece(name_or_slug: str, new_name: str) -> dict:
+    """Rename a piece (the slug is immutable; only the display name changes)."""
+    repo = _repo()
+    doc = resolve_piece(name_or_slug)
+    doc["name"] = new_name
+    repo.set_piece(doc["slug"], doc)
+    rebuild_manifest()
+    return doc
+
+
+def delete_piece(name_or_slug: str) -> None:
+    """Delete a piece document (scores keep their 'piece' key; not exposed in UI)."""
+    doc = resolve_piece(name_or_slug)
+    _repo().delete_piece(doc["slug"])
+    rebuild_manifest()
+
+
 def delete_score(slug: str) -> None:
     import shutil
     load_meta(slug)  # raises with available slugs if missing
@@ -196,15 +261,23 @@ def rebuild_manifest() -> dict:
     """Project the DB into workspace/manifest.json for the viewer."""
     repo = _repo()
     scores = []
-    for doc in repo.list_scores():
+    score_docs = repo.list_scores()
+    for doc in score_docs:
         versions = repo.list_versions(doc["slug"])
         scores.append({
             "slug": doc["slug"], "name": doc["name"],
             "title": doc.get("title"), "composer": doc.get("composer"),
             "latest": doc.get("latest"), "versions": versions,
             "sources": repo.list_sources(doc["slug"]),
+            "piece": doc.get("piece"),
         })
-    manifest = {"generated": _now(), "scores": scores}
+    pieces = []
+    for p in sorted(repo.list_pieces(), key=lambda x: x["name"].lower()):
+        members = [d for d in score_docs if d.get("piece") == p["slug"]]
+        members.sort(key=lambda d: d.get("created") or "")
+        pieces.append({"slug": p["slug"], "name": p["name"],
+                       "arrangements": [d["slug"] for d in members]})
+    manifest = {"generated": _now(), "scores": scores, "pieces": pieces}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
