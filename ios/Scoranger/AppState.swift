@@ -489,20 +489,11 @@ final class AppState: ObservableObject {
 
     /// Open a score in the detail pane, optionally pinned to a version
     /// (nil = follow latest).
+    // Navigation on compact is driven explicitly by ContentView's
+    // preferredCompactColumn — no List-selection tricks needed here.
     func select(slug: String, version: String? = nil) {
-        if slug == selectedSlug {
-            // Re-selecting the same score is a no-op to SwiftUI, so
-            // NavigationSplitView (compact) won't re-push the detail.
-            // Bounce the selection through nil so it sees a change.
-            selectedSlug = nil
-            Task { @MainActor in
-                selectedSlug = slug
-                pinnedVersion = version
-                await renderIfNeeded()
-            }
-            return
-        }
         selectedSlug = slug
+        previewedSlug = slug
         pinnedVersion = version
         Task { await renderIfNeeded() }
     }

@@ -20,8 +20,11 @@ struct ContentView: View {
         UTType(filenameExtension: "midi"),
     ].compactMap { $0 }) + [.pdf]
 
+    /// Which column shows in compact width — set to .detail to open a score.
+    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
+
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: $compactColumn) {
             sidebar
         } detail: {
             detail
@@ -31,16 +34,18 @@ struct ContentView: View {
         }
     }
 
+    private func openScore(_ slug: String, version: String? = nil) {
+        state.select(slug: slug, version: version)
+        compactColumn = .detail
+    }
+
     // MARK: sidebar
 
     private var sidebar: some View {
-        // The selection binding stays so NavigationSplitView pushes the detail
-        // on compact when `select(slug:)` runs — but rows are borderless
-        // buttons, so a plain tap only previews (sets previewedSlug).
-        List(selection: Binding(
-            get: { state.selectedSlug },
-            set: { if let slug = $0 { state.selectedSlug = slug } }
-        )) {
+        // Plain List — no selection binding: the system's row selection fought
+        // the per-row buttons (eaten taps, three competing highlight colors).
+        // Preview highlight is ours alone; navigation goes through openScore.
+        List {
             Section("Scores") {
                 if state.manifest == nil {
                     HStack(spacing: 8) {
@@ -80,8 +85,8 @@ struct ContentView: View {
                 Section("Versions") {
                     ForEach(score.versions.reversed()) { v in
                         Button {
-                            state.select(slug: score.slug,
-                                         version: v.id == score.latest ? nil : v.id)
+                            openScore(score.slug,
+                                      version: v.id == score.latest ? nil : v.id)
                         } label: {
                             HStack {
                                 Text(v.id).font(.system(.caption, design: .monospaced))
@@ -169,11 +174,12 @@ struct ContentView: View {
                 state.duplicateScore(slug: score.slug)
             }
             rowIcon("chevron.right.circle", label: "Open score") {
-                state.select(slug: score.slug)
+                openScore(score.slug)
             }
         }
+        // one highlight system only: warm attention color on the previewed row
         .listRowBackground(
-            state.previewedSlug == score.slug ? Color.accentColor.opacity(0.15) : nil)
+            state.previewedSlug == score.slug ? Color.orange.opacity(0.22) : nil)
         .swipeActions(edge: .trailing) {
             // non-destructive role: the row shouldn't vanish before the
             // confirmation alert is answered
@@ -182,7 +188,6 @@ struct ContentView: View {
             }
             .tint(.red)
         }
-        .tag(score.slug)
     }
 
     /// Trailing per-row icon button; borderless so it doesn't hijack the row
