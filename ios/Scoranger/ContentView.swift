@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showImporter = false
     @State private var didSetInitialChat = false
+    /// Piece rows are expanded by default; track only the collapsed ones.
+    @State private var collapsedPieces: Set<String> = []
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
     /// Score awaiting a "New piece…" name (drives the naming alert).
@@ -79,11 +81,25 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            // Arrangements grouped by piece, then everything unfiled.
-            ForEach(state.pieceSections, id: \.piece.slug) { section in
-                Section(section.piece.name) {
-                    ForEach(section.arrangements) { score in
-                        scoreRow(score)
+            // One "Pieces" section; each piece is an expandable row whose
+            // children are its arrangements. Unfiled follows.
+            if !state.pieceSections.isEmpty {
+                Section("Pieces") {
+                    ForEach(state.pieceSections, id: \.piece.slug) { section in
+                        DisclosureGroup(isExpanded: Binding(
+                            get: { !collapsedPieces.contains(section.piece.slug) },
+                            set: { open in
+                                if open { collapsedPieces.remove(section.piece.slug) }
+                                else { collapsedPieces.insert(section.piece.slug) }
+                            }
+                        )) {
+                            ForEach(section.arrangements) { score in
+                                scoreRow(score)
+                            }
+                        } label: {
+                            Text(section.piece.name)
+                                .font(.subheadline.weight(.medium))
+                        }
                     }
                 }
             }
