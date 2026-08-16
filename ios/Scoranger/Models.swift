@@ -70,11 +70,21 @@ struct ChatResponse: Codable {
     var latest: String?
 }
 
+/// One row in the live "what the agent is doing" checklist.
+struct ChatStep: Identifiable, Hashable {
+    let id = UUID()
+    var title: String
+    var detail: String?
+    var done: Bool
+}
+
 struct ChatDisplayMessage: Identifiable, Hashable {
     enum Role { case user, agent, error }
     let id = UUID()
     let role: Role
     let text: String
+    /// The operations performed during this turn (kept in the transcript).
+    var steps: [ChatStep]? = nil
 }
 
 struct EngineError: Codable, Error {

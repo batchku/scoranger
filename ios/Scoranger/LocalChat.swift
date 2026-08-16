@@ -213,10 +213,51 @@ struct LocalChat {
         var historyJSON: String
     }
 
+    /// Live progress events for the UI checklist.
+    enum Event {
+        case toolStarted(title: String)
+        case toolFinished(detail: String?)   // e.g. "→ v005"
+    }
+
+    /// Friendly checklist titles for tool calls.
+    static func stepTitle(name: String, argsJSON: String) -> String {
+        let args = (try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8)) as? [String: Any]) ?? [:]
+        func s(_ key: String) -> String? { args[key] as? String }
+        switch name {
+        case "get_score_info": return "Reading the score"
+        case "list_versions": return "Checking version history"
+        case "analyze_harmony": return "Analyzing the harmony"
+        case "transpose": return "Transposing \(s("interval") ?? "")"
+        case "respell": return "Respelling with \(s("prefer") ?? "flats")"
+        case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
+        case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        case "change_clef": return "Setting \(s("part") ?? "part") to \(s("clef") ?? "") clef"
+        case "keep_parts", "remove_parts":
+            let parts = (args["parts"] as? [String])?.joined(separator: ", ") ?? ""
+            return name == "keep_parts" ? "Keeping only \(parts)" : "Removing \(parts)"
+        case "merge_parts": return "Merging into \(s("new_name") ?? "one staff")"
+        case "split_bass": return "Splitting bass and chords"
+        case "octave_shift": return "Octave shift: \(s("part") ?? "part")"
+        case "check_range": return "Checking range of \(s("part") ?? "part")"
+        case "set_chords": return "Writing chord symbols"
+        case "chart_style": return "Applying chart styling"
+        case "pull_part": return "Pulling \(s("part") ?? "part") from \(s("from_ref") ?? "source")"
+        case "absorb_part": return "Folding \(s("source") ?? "part") into \(s("target") ?? "part")"
+        case "flatten_voices": return "Flattening voices in \(s("part") ?? "part")"
+        case "consolidate_ties": return "Cleaning up ties"
+        case "limit_part": return "Limiting \(s("part") ?? "part") for playability"
+        case "simplify_repeats": return "Simplifying repeated bass notes"
+        default:
+            return name.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
     /// One chat turn against the on-device engine. `historyJSON` is the JSON
     /// message array from the previous Turn (OpenAI wire format).
+    /// `onEvent` streams checklist progress to the UI as tools run.
     func run(slug: String, message: String, modelAlias: String?,
-             historyJSON: String?) async throws -> Turn {
+             historyJSON: String?,
+             onEvent: (@MainActor (Event) -> Void)? = nil) async throws -> Turn {
         let model = Self.models[modelAlias ?? Self.defaultModel]
             ?? modelAlias ?? Self.models[Self.defaultModel]!
 
@@ -246,7 +287,26 @@ struct LocalChat {
                 let fn = call["function"] as? [String: Any]
                 let name = fn?["name"] as? String ?? ""
                 let argsRaw = fn?["arguments"] as? String ?? "{}"
+                if let onEvent {
+                    let title = Self.stepTitle(name: name, argsJSON: argsRaw)
+                    await MainActor.run { onEvent(.toolStarted(title: title)) }
+                }
                 let resultText = await dispatch(slug: slug, name: name, argsJSON: argsRaw)
+                if let onEvent {
+                    // surface the created version (or an error) on the step
+                    let parsed = (try? JSONSerialization.jsonObject(
+                        with: Data(resultText.utf8)) as? [String: Any]) ?? [:]
+                    let detail: String?
+                    if let result = parsed["result"] as? [String: Any],
+                       let v = result["new_version"] as? String {
+                        detail = "→ \(v)"
+                    } else if parsed["ok"] as? Bool == false {
+                        detail = "⚠︎ \((parsed["error"] as? String ?? "error").prefix(60))"
+                    } else {
+                        detail = nil
+                    }
+                    await MainActor.run { onEvent(.toolFinished(detail: detail)) }
+                }
                 messages.append(["role": "tool", "tool_call_id": id, "content": resultText])
             }
         }

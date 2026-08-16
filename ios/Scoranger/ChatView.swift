@@ -28,17 +28,17 @@ struct ChatView: View {
                                 .id(msg.id)
                         }
                         if state.chatBusy {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("arranging…").font(.footnote).foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal)
+                            liveProgressCard
+                                .id("live-progress")
                         }
                     }
                     .padding(.vertical, 10)
                 }
                 .onChange(of: messages.count) {
                     if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+                .onChange(of: liveSteps.count) {
+                    proxy.scrollTo("live-progress", anchor: .bottom)
                 }
             }
             Divider()
@@ -64,16 +64,67 @@ struct ChatView: View {
         .padding(.vertical, 8)
     }
 
+    private var liveSteps: [ChatStep] {
+        slug.flatMap { state.activeChatSteps[$0] } ?? []
+    }
+
+    /// The growing checklist shown while the agent works: every operation
+    /// appended as a row, checked off as it completes, spinner on the tail.
+    private var liveProgressCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(liveSteps) { step in
+                stepRow(step)
+            }
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(liveSteps.isEmpty ? "planning…" : "thinking…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 10)
+    }
+
+    @ViewBuilder
+    private func stepRow(_ step: ChatStep) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: step.done ? "checkmark.circle.fill" : "circle")
+                .font(.footnote)
+                .foregroundStyle(step.done ? Color.green : Color.secondary)
+            Text(step.title)
+                .font(.footnote)
+            if let detail = step.detail {
+                Text(detail)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(detail.hasPrefix("⚠") ? Color.orange : Color.secondary)
+            }
+        }
+    }
+
     @ViewBuilder
     private func bubble(_ msg: ChatDisplayMessage) -> some View {
         HStack {
             if msg.role == .user { Spacer(minLength: 40) }
-            Text(msg.text)
-                .font(.callout)
-                .textSelection(.enabled)
-                .padding(10)
-                .background(background(for: msg.role))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 8) {
+                if let steps = msg.steps {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(steps) { step in
+                            stepRow(step)
+                        }
+                    }
+                    Divider()
+                }
+                Text(msg.text)
+                    .font(.callout)
+                    .textSelection(.enabled)
+            }
+            .padding(10)
+            .background(background(for: msg.role))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             if msg.role != .user { Spacer(minLength: 40) }
         }
         .padding(.horizontal, 10)

@@ -45,6 +45,8 @@ final class AppState: ObservableObject {
     // chat, kept per score slug
     @Published var chatMessages: [String: [ChatDisplayMessage]] = [:]
     @Published var chatBusy = false
+    /// Live checklist of tool calls for the in-flight chat turn, per slug.
+    @Published var activeChatSteps: [String: [ChatStep]] = [:]
     var chatHistory: [String: String] = [:]
 
     static let defaultEngineURL: String = {
@@ -575,16 +577,37 @@ final class AppState: ObservableObject {
         guard !message.isEmpty else { return }
         chatMessages[slug, default: []].append(.init(role: .user, text: message))
         chatBusy = true
+        activeChatSteps[slug] = []
         Task {
-            defer { chatBusy = false }
+            defer {
+                chatBusy = false
+                activeChatSteps[slug] = nil
+            }
             do {
                 if useLocalEngine {
                     let turn = try await LocalChat().run(
                         slug: slug, message: message,
                         modelAlias: chatModel.isEmpty ? nil : chatModel,
-                        historyJSON: chatHistory[slug])
+                        historyJSON: chatHistory[slug],
+                        onEvent: { [weak self] event in
+                            guard let self else { return }
+                            switch event {
+                            case .toolStarted(let title):
+                                self.activeChatSteps[slug, default: []]
+                                    .append(ChatStep(title: title, detail: nil, done: false))
+                            case .toolFinished(let detail):
+                                if let i = self.activeChatSteps[slug]?.lastIndex(where: { !$0.done }) {
+                                    self.activeChatSteps[slug]?[i].done = true
+                                    self.activeChatSteps[slug]?[i].detail = detail
+                                }
+                            }
+                        })
                     chatHistory[slug] = turn.historyJSON
-                    chatMessages[slug, default: []].append(.init(role: .agent, text: turn.reply))
+                    // keep the checklist in the transcript with the reply
+                    let steps = activeChatSteps[slug]
+                    chatMessages[slug, default: []].append(
+                        .init(role: .agent, text: turn.reply,
+                              steps: (steps?.isEmpty == false) ? steps : nil))
                 } else {
                     let resp = try await client.chat(score: slug, message: message,
                                                      model: chatModel.isEmpty ? nil : chatModel,
