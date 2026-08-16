@@ -177,10 +177,17 @@ final class AppState: ObservableObject {
                 pendingImports.removeAll { $0.id == pending.id }
             }
             do {
+                // stored key if present, baked-in default otherwise; a 401
+                // self-heals below by falling back to the baked key
+                let bakedKey = (Bundle.main.url(forResource: "omr-default-key", withExtension: "txt")
+                    .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                var apiKey = KeychainStore.omrKey.isEmpty ? bakedKey : KeychainStore.omrKey
+
                 var request = URLRequest(url: endpoint.appending(path: "omr"))
                 request.httpMethod = "POST"
                 request.timeoutInterval = 600
-                request.setValue(KeychainStore.omrKey, forHTTPHeaderField: "X-API-Key")
+                request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
                 request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
 
                 // Cloud Run can kill an idle instance right as a request lands
@@ -198,6 +205,13 @@ final class AppState: ObservableObject {
                         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                         if code == 200 { data = d; break }
                         let detail = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["error"] as? String
+                        if code == 401, !bakedKey.isEmpty, apiKey != bakedKey {
+                            // stored key is wrong — self-heal with the baked one
+                            apiKey = bakedKey
+                            KeychainStore.omrKey = bakedKey
+                            request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+                            continue
+                        }
                         if code >= 500, attempt < 3 {
                             try await Task.sleep(for: .seconds(3))
                             continue

@@ -44,6 +44,14 @@ targets:
           source "$PROJECT_DIR/Vendor/Python.xcframework/build/utils.sh"
           install_python Vendor/Python.xcframework app app_packages
         basedOnDependencyAnalysis: false
+      - name: Bake OMR key
+        script: |
+          # repo is public: the key lives in the gitignored .omr-api-key,
+          # injected into the app bundle at build time (zero-config conversion)
+          if [ -f "$PROJECT_DIR/../.omr-api-key" ]; then
+            cp "$PROJECT_DIR/../.omr-api-key" "$CODESIGNING_FOLDER_PATH/omr-default-key.txt"
+          fi
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger
