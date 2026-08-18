@@ -248,8 +248,35 @@ def assign_score_to_piece(slug: str, piece: str | None,
         piece_slug = resolve_piece(piece, create_if_missing=create_if_missing)["slug"]
         doc["piece"] = piece_slug
     repo.set_score(slug, doc)
+    # Maintain each piece's explicit arrangement order: drop the slug from
+    # every other piece's order, append it to the target's.
+    for p in repo.list_pieces():
+        order = p.get("order") or []
+        if p["slug"] == piece_slug:
+            if slug not in order:
+                order.append(slug)
+                p["order"] = order
+                repo.set_piece(p["slug"], p)
+        elif slug in order:
+            order.remove(slug)
+            p["order"] = order
+            repo.set_piece(p["slug"], p)
     rebuild_manifest()
     return {"score": slug, "piece": piece_slug}
+
+
+def set_piece_order(name_or_slug: str, order: list) -> dict:
+    """Set a piece's arrangement order. Every slug must belong to the piece."""
+    repo = _repo()
+    doc = resolve_piece(name_or_slug)
+    members = {s["slug"] for s in repo.list_scores() if s.get("piece") == doc["slug"]}
+    bad = [s for s in order if s not in members]
+    if bad:
+        raise ValueError(f"Not arrangements of '{doc['slug']}': {bad}. Members: {sorted(members)}")
+    doc["order"] = list(order)
+    repo.set_piece(doc["slug"], doc)
+    rebuild_manifest()
+    return doc
 
 
 def rename_piece(name_or_slug: str, new_name: str) -> dict:
@@ -294,10 +321,15 @@ def rebuild_manifest() -> dict:
         })
     pieces = []
     for p in sorted(repo.list_pieces(), key=lambda x: x["name"].lower()):
-        members = [d for d in score_docs if d.get("piece") == p["slug"]]
-        members.sort(key=lambda d: d.get("created") or "")
+        members = {d["slug"] for d in score_docs if d.get("piece") == p["slug"]}
+        # explicit order first (only slugs that still exist and point back),
+        # then any stragglers by creation time
+        ordered = [s for s in (p.get("order") or []) if s in members]
+        stragglers = sorted(members - set(ordered),
+                            key=lambda s: next(d.get("created") or ""
+                                               for d in score_docs if d["slug"] == s))
         pieces.append({"slug": p["slug"], "name": p["name"],
-                       "arrangements": [d["slug"] for d in members]})
+                       "arrangements": ordered + stragglers})
     manifest = {"generated": _now(), "scores": scores, "pieces": pieces}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))

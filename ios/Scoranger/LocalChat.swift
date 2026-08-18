@@ -190,8 +190,8 @@ struct LocalChat {
                  parameters: params(["part": str("part name")], required: ["part"]),
                  op: "chart-style", rename: [:]),
         ToolSpec(name: "pull_part",
-                 description: "Bring a part (or 'A-B' measure range, requires replace) from a source ('src:s01') or a historical version ('v007') into the arrangement.",
-                 parameters: params(["from_ref": str("'src:sNN' or 'vNNN'"), "part": str("part in the source"),
+                 description: "Bring a part (or 'A-B' measure range, requires replace) from a source ('src:s01'), a historical version ('v007'), or a sibling arrangement ('arr:<slug>') into the arrangement.",
+                 parameters: params(["from_ref": str("'src:sNN', 'vNNN', or 'arr:<slug>' (another arrangement of the same piece — see the numbered list in context)"), "part": str("part in the source"),
                                      "as_name": str("optional name for the added part"),
                                      "replace": str("optional part in the arrangement to replace"),
                                      "measures": str("optional 'A-B' inclusive range")],
@@ -259,9 +259,11 @@ struct LocalChat {
 
     /// One chat turn against the on-device engine. `historyJSON` is the JSON
     /// message array from the previous Turn (OpenAI wire format).
-    /// `onEvent` streams checklist progress to the UI as tools run.
+    /// `context` is extra situational info (e.g. the score's piece and sibling
+    /// arrangements) appended to the system message. `onEvent` streams
+    /// checklist progress to the UI as tools run.
     func run(slug: String, message: String, modelAlias: String?,
-             historyJSON: String?,
+             historyJSON: String?, context: String? = nil,
              onEvent: (@MainActor (Event) -> Void)? = nil) async throws -> Turn {
         let model = Self.models[modelAlias ?? Self.defaultModel]
             ?? modelAlias ?? Self.models[Self.defaultModel]!
@@ -271,7 +273,8 @@ struct LocalChat {
         _ = try? await engine.call(op: "begin-turn", args: ["score": slug, "prompt": message])
         do {
             let turn = try await runLoop(slug: slug, message: message, model: model,
-                                         historyJSON: historyJSON, onEvent: onEvent)
+                                         historyJSON: historyJSON, context: context,
+                                         onEvent: onEvent)
             _ = try? await engine.call(op: "end-turn", args: [:])
             return turn
         } catch {
@@ -282,14 +285,19 @@ struct LocalChat {
 
     /// The tool loop itself (wrapped by run() in begin-turn/end-turn stamping).
     private func runLoop(slug: String, message: String, model: String,
-                         historyJSON: String?,
+                         historyJSON: String?, context: String? = nil,
                          onEvent: (@MainActor (Event) -> Void)? = nil) async throws -> Turn {
+        let system = Self.instructions + (context.map { "\n\n" + $0 } ?? "")
         var messages: [[String: Any]]
         if let historyJSON, let data = historyJSON.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
             messages = parsed
+            // keep the system context current (siblings may have changed)
+            if messages.first?["role"] as? String == "system" {
+                messages[0]["content"] = system
+            }
         } else {
-            messages = [["role": "system", "content": Self.instructions]]
+            messages = [["role": "system", "content": system]]
         }
         messages.append(["role": "user", "content": message])
 

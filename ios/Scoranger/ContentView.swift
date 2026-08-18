@@ -98,8 +98,12 @@ struct ContentView: View {
                                 else { collapsedPieces.insert(section.piece.slug) }
                             }
                         )) {
-                            ForEach(section.arrangements) { score in
-                                scoreRow(score)
+                            // .onMove would fight the rows' onDrag (used for
+                            // filing onto pieces), so reordering is offered
+                            // via the rows' context menu instead.
+                            ForEach(Array(section.arrangements.enumerated()),
+                                    id: \.element.slug) { index, score in
+                                scoreRow(score, index: index, inPiece: section)
                             }
                         } label: {
                             pieceDropLabel(section.piece)
@@ -214,12 +218,30 @@ struct ContentView: View {
     /// show metadata, duplicate, or open the score in the detail pane.
     @State private var dropTargetPiece: String?
 
-    /// Piece title row: the drop zone for filing dragged arrangements.
+    /// Piece title row: the drop zone for filing dragged arrangements, plus a
+    /// button that starts a new blank arrangement of the piece.
     /// Highlights while a drag hovers over it.
     private func pieceDropLabel(_ piece: PieceDoc) -> some View {
-        Text(piece.name)
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 4) {
+            Text(piece.name)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                Task {
+                    if let slug = await state.createArrangement(pieceSlug: piece.slug) {
+                        openScore(slug)
+                        showChat = true
+                    }
+                }
+            } label: {
+                Image(systemName: "plus.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 28, minHeight: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("New arrangement of \(piece.name)")
+        }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
             .background(dropTargetPiece == piece.slug
@@ -240,14 +262,24 @@ struct ContentView: View {
             }
     }
 
-    private func scoreRow(_ score: ScoreDoc) -> some View {
+    /// `index`/`inPiece` are set for rows inside a piece: the index shows as a
+    /// "1." prefix and the piece enables Move up/down in the context menu.
+    private func scoreRow(_ score: ScoreDoc, index: Int? = nil,
+                          inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
         HStack(spacing: 4) {
             Button {
                 state.previewedSlug = score.slug
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(score.name)
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        if let index {
+                            Text("\(index + 1).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(score.name)
+                            .foregroundStyle(.primary)
+                    }
                     Text("\(score.versions.count) versions\(sourceCountLabel(score))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -271,6 +303,27 @@ struct ContentView: View {
         // (NSItemProvider pairs with the onDrop handler on piece rows)
         .onDrag { NSItemProvider(object: score.slug as NSString) }
         .contextMenu {
+            if let section, let index {
+                let slugs = section.arrangements.map(\.slug)
+                if index > 0 {
+                    Button {
+                        var order = slugs
+                        order.swapAt(index, index - 1)
+                        state.reorderPiece(piece: section.piece.slug, order: order)
+                    } label: {
+                        Label("Move up", systemImage: "arrow.up")
+                    }
+                }
+                if index < slugs.count - 1 {
+                    Button {
+                        var order = slugs
+                        order.swapAt(index, index + 1)
+                        state.reorderPiece(piece: section.piece.slug, order: order)
+                    } label: {
+                        Label("Move down", systemImage: "arrow.down")
+                    }
+                }
+            }
             Menu("Move to piece") {
                 // full manifest list, including pieces with no arrangements yet
                 ForEach(state.manifest?.pieces ?? []) { piece in

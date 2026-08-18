@@ -99,6 +99,26 @@ def _dispatch(op, a):
         return workspace.assign_score_to_piece(a["score"], None)
     if op == "rename-piece":
         return workspace.rename_piece(a["piece"], a["name"])
+    if op == "reorder-piece":
+        return workspace.set_piece_order(a["piece"], a["order"])
+    if op == "create-arrangement":
+        # a minimal valid score: one part, one 4/4 measure with a whole rest
+        from music21 import clef, meter, metadata, note, stream
+        s = stream.Score()
+        name = a.get("name") or "Arrangement"
+        s.metadata = metadata.Metadata(title=name)
+        p = stream.Part()
+        p.partName = "Part 1"
+        m = stream.Measure(number=1)
+        m.append(clef.TrebleClef())
+        m.append(meter.TimeSignature("4/4"))
+        m.append(note.Rest(quarterLength=4.0))
+        p.append(m)
+        s.append(p)
+        slug, entry = workspace.create_score(name, s, op="create-arrangement",
+                                             args={"piece": a["piece"]})
+        workspace.assign_score_to_piece(slug, a["piece"])
+        return {"score": slug, "version": entry["id"]}
     if op == "add-source":
         from music21 import converter
         score = converter.parse(a["path"], forceSource=True)
@@ -163,8 +183,13 @@ def _dispatch(op, a):
         def fn(sc):
             from music21 import converter
             ref = a["from"]
-            path = (workspace.source_path(s, ref[4:]) if ref.startswith("src:")
-                    else workspace.resolve_path(s, ref))
+            if ref.startswith("src:"):
+                path = workspace.source_path(s, ref[4:])
+            elif ref.startswith("arr:"):
+                # sibling arrangement of the same piece — latest version
+                path = workspace.resolve_path(ref[4:])
+            else:
+                path = workspace.resolve_path(s, ref)
             src_score = converter.parse(str(path), forceSource=True)
             rng = None
             if a.get("measures"):

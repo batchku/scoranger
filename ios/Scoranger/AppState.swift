@@ -254,7 +254,8 @@ final class AppState: ObservableObject {
                 var okText = "ok=true"
                 do {
                     let turn = try await LocalChat().run(
-                        slug: slug, message: message, modelAlias: model, historyJSON: nil)
+                        slug: slug, message: message, modelAlias: model, historyJSON: nil,
+                        context: chatContext(for: slug))
                     payload = ["ok": true, "reply": turn.reply]
                 } catch {
                     payload = ["ok": false, "error": error.localizedDescription]
@@ -583,6 +584,54 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Create a blank arrangement (one part, one empty 4/4 bar) filed under a
+    /// piece. Returns the new score's slug so the caller can open it.
+    func createArrangement(pieceSlug: String) async -> String? {
+        do {
+            let r = try await local.call(op: "create-arrangement",
+                                         args: ["piece": pieceSlug])
+            await refresh()
+            return r["score"] as? String
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return nil
+    }
+
+    /// Persist a piece's arrangement order (the sidebar numbering).
+    func reorderPiece(piece: String, order: [String]) {
+        Task {
+            do {
+                _ = try await local.call(op: "reorder-piece",
+                                         args: ["piece": piece, "order": order])
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Piece context handed to the chat agent: which piece this arrangement
+    /// belongs to and its numbered siblings (pullable via 'arr:<slug>').
+    func chatContext(for slug: String) -> String? {
+        guard let m = manifest,
+              let score = m.scores.first(where: { $0.slug == slug }),
+              let pieceSlug = score.piece,
+              let piece = (m.pieces ?? []).first(where: { $0.slug == pieceSlug }),
+              !piece.arrangements.isEmpty else { return nil }
+        let numbered = piece.arrangements.enumerated().map { i, s -> String in
+            let name = m.scores.first { $0.slug == s }?.name ?? s
+            let marker = s == slug ? " (this one)" : ""
+            return "\(i + 1). \(name) (ref arr:\(s))\(marker)"
+        }
+        return "This arrangement belongs to the piece '\(piece.name)'. "
+            + "Sibling arrangements by number: " + numbered.joined(separator: ", ")
+    }
+
     /// Create a new piece by name and file the score under it (assign-piece
     /// creates missing pieces).
     func createPieceAndAssign(name: String, scoreSlug: String) {
@@ -674,6 +723,7 @@ final class AppState: ObservableObject {
                         slug: slug, message: message,
                         modelAlias: chatModel.isEmpty ? nil : chatModel,
                         historyJSON: chatHistory[slug],
+                        context: chatContext(for: slug),
                         onEvent: { [weak self] event in
                             guard let self else { return }
                             switch event {
