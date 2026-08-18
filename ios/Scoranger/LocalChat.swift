@@ -266,6 +266,24 @@ struct LocalChat {
         let model = Self.models[modelAlias ?? Self.defaultModel]
             ?? modelAlias ?? Self.models[Self.defaultModel]!
 
+        // Stamp every version this turn creates with a shared turn id so the
+        // UI can group them under the prompt. Best-effort; closed on all exits.
+        _ = try? await engine.call(op: "begin-turn", args: ["score": slug, "prompt": message])
+        do {
+            let turn = try await runLoop(slug: slug, message: message, model: model,
+                                         historyJSON: historyJSON, onEvent: onEvent)
+            _ = try? await engine.call(op: "end-turn", args: [:])
+            return turn
+        } catch {
+            _ = try? await engine.call(op: "end-turn", args: [:])
+            throw error
+        }
+    }
+
+    /// The tool loop itself (wrapped by run() in begin-turn/end-turn stamping).
+    private func runLoop(slug: String, message: String, model: String,
+                         historyJSON: String?,
+                         onEvent: (@MainActor (Event) -> Void)? = nil) async throws -> Turn {
         var messages: [[String: Any]]
         if let historyJSON, let data = historyJSON.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {

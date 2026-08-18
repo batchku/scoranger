@@ -12,6 +12,7 @@ that produced it and a snapshot of the resulting parts.
 import json
 import os
 import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,24 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = Path(os.environ.get("SCORANGER_WORKSPACE", REPO_ROOT / "workspace"))
 
 _repo_singleton: SqliteRepository | None = None
+
+# The chat turn in progress, if any: versions created while it's open are
+# stamped with it so the UI can group one prompt's operations together.
+_current_turn: dict | None = None
+
+
+def begin_turn(slug: str, prompt: str) -> dict:
+    """Open a chat turn: subsequent versions of `slug` carry a shared turn id."""
+    global _current_turn
+    _current_turn = {"id": uuid.uuid4().hex[:8], "prompt": prompt[:200], "slug": slug}
+    return {"turn": _current_turn["id"]}
+
+
+def end_turn() -> dict:
+    """Close the current chat turn (safe to call when none is open)."""
+    global _current_turn
+    _current_turn = None
+    return {"ended": True}
 
 
 def _now() -> str:
@@ -126,6 +145,8 @@ def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None
     m21_score.write("musicxml", fp=str(score_dir(slug) / fname))
     doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": _parts_snapshot(m21_score)}
+    if _current_turn is not None and _current_turn["slug"] == slug:
+        doc["turn"] = {"id": _current_turn["id"], "prompt": _current_turn["prompt"]}
     repo.add_version(slug, vid, seq, doc)
     score_doc = repo.get_score(slug)
     score_doc["latest"] = vid

@@ -128,6 +128,35 @@ final class AppState: ObservableObject {
         selectedScore?.versions.first { $0.id == displayedVersionID }
     }
 
+    /// One sidebar/menu row of version history: either a single version, or
+    /// the run of versions one chat prompt produced (face = its final state).
+    struct VersionGroup: Identifiable {
+        var id: String
+        var title: String
+        var face: VersionDoc
+        var subs: [VersionDoc]
+    }
+
+    /// Consecutive versions stamped with the same turn id collapse into one
+    /// group titled by the prompt; unstamped versions stand alone. Newest first.
+    func versionGroups(for score: ScoreDoc) -> [VersionGroup] {
+        var groups: [VersionGroup] = []
+        for v in score.versions {
+            if let turn = v.turn,
+               var last = groups.last, last.face.turn?.id == turn.id {
+                last.subs.append(v)
+                last.face = v
+                groups[groups.count - 1] = last
+            } else {
+                groups.append(VersionGroup(id: v.id,
+                                           title: v.turn?.prompt ?? v.op,
+                                           face: v,
+                                           subs: v.turn != nil ? [v] : []))
+            }
+        }
+        return groups.reversed()
+    }
+
     func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in

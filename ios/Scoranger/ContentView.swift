@@ -28,6 +28,11 @@ struct ContentView: View {
     /// Which column shows in compact width — set to .detail to open a score.
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
 
+    /// Baked at build time (version · local build number · git sha).
+    static let buildStamp: String =
+        (Bundle.main.url(forResource: "build-stamp", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }) ?? "dev"
+
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $compactColumn) {
             sidebar
@@ -99,6 +104,15 @@ struct ContentView: View {
                         } label: {
                             Text(section.piece.name)
                                 .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                // drop target: file a dragged arrangement here
+                                .dropDestination(for: String.self) { slugs, _ in
+                                    guard let slug = slugs.first else { return false }
+                                    state.assignToPiece(scoreSlug: slug,
+                                                        piece: section.piece.slug)
+                                    return true
+                                }
                         }
                     }
                 }
@@ -109,25 +123,23 @@ struct ContentView: View {
                 }
             }
             // Versions of the previewed score (falls back to the open one);
-            // tapping a version opens the score pinned to it.
+            // tapping a version opens the score pinned to it. Versions made by
+            // one chat prompt collapse into an expandable group faced by the
+            // prompt's final state.
             if let score = state.previewedScore {
                 Section("Versions") {
-                    ForEach(score.versions.reversed()) { v in
-                        Button {
-                            openScore(score.slug,
-                                      version: v.id == score.latest ? nil : v.id)
-                        } label: {
-                            HStack {
-                                Text(v.id).font(.system(.caption, design: .monospaced))
-                                Text(v.op).font(.caption).foregroundStyle(.secondary)
-                                Spacer()
-                                if score.slug == state.selectedScore?.slug,
-                                   v.id == state.displayedVersionID {
-                                    Image(systemName: "eye").font(.caption2)
+                    ForEach(state.versionGroups(for: score)) { group in
+                        if group.subs.isEmpty {
+                            versionRow(score, group.face)
+                        } else {
+                            DisclosureGroup {
+                                ForEach(group.subs.reversed()) { v in
+                                    versionRow(score, v)
                                 }
+                            } label: {
+                                versionGroupLabel(score, group)
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -135,10 +147,15 @@ struct ContentView: View {
         .navigationTitle("Scoranger")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Circle()
-                    .fill(state.engineOK ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                    .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(state.engineOK ? Color.green : Color.red)
+                        .frame(width: 10, height: 10)
+                        .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
+                    Text(Self.buildStamp)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if state.useLocalEngine {
@@ -225,6 +242,8 @@ struct ContentView: View {
         // one highlight system only: warm attention color on the previewed row
         .listRowBackground(
             state.previewedSlug == score.slug ? Color.orange.opacity(0.22) : nil)
+        // long-press-drag an arrangement onto a piece row to file it
+        .draggable(score.slug)
         .contextMenu {
             Menu("Move to piece") {
                 // full manifest list, including pieces with no arrangements yet
@@ -278,6 +297,47 @@ struct ContentView: View {
     private func sourceCountLabel(_ score: ScoreDoc) -> String {
         let n = score.sources?.count ?? 0
         return n > 0 ? " · \(n) source\(n == 1 ? "" : "s")" : ""
+    }
+
+    /// A single version row: id + op, eye on the displayed version.
+    private func versionRow(_ score: ScoreDoc, _ v: VersionDoc) -> some View {
+        Button {
+            openScore(score.slug, version: v.id == score.latest ? nil : v.id)
+        } label: {
+            HStack {
+                Text(v.id).font(.system(.caption, design: .monospaced))
+                Text(v.op).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if score.slug == state.selectedScore?.slug,
+                   v.id == state.displayedVersionID {
+                    Image(systemName: "eye").font(.caption2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The face row of a prompt group: tap opens the score at the group's
+    /// final version; the eye shows when any of its versions is displayed.
+    private func versionGroupLabel(_ score: ScoreDoc, _ group: AppState.VersionGroup) -> some View {
+        Button {
+            openScore(score.slug,
+                      version: group.face.id == score.latest ? nil : group.face.id)
+        } label: {
+            HStack {
+                Text(group.face.id).font(.system(.caption, design: .monospaced))
+                Text(group.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                if score.slug == state.selectedScore?.slug,
+                   group.subs.contains(where: { $0.id == state.displayedVersionID }) {
+                    Image(systemName: "eye").font(.caption2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: detail
@@ -354,19 +414,29 @@ struct ContentView: View {
 
     /// Version picker mirroring the sidebar's Versions section, so version
     /// hopping works without opening the sidebar (essential on iPhone).
+    /// Prompt groups appear as one entry (tap = the group's final version)
+    /// with a nested menu of the step versions.
     @ViewBuilder
     private var versionsMenu: some View {
         if let score = state.selectedScore {
             Menu {
-                ForEach(score.versions.reversed()) { v in
-                    Button {
-                        state.pinnedVersion = (v.id == score.latest) ? nil : v.id
-                        Task { await state.renderIfNeeded() }
-                    } label: {
-                        if v.id == state.displayedVersionID {
-                            Label("\(v.id) · \(v.op)", systemImage: "checkmark")
-                        } else {
-                            Text("\(v.id) · \(v.op)")
+                ForEach(state.versionGroups(for: score)) { group in
+                    if group.subs.isEmpty {
+                        versionMenuButton(score, group.face, title: group.title)
+                    } else {
+                        Menu {
+                            ForEach(group.subs.reversed()) { v in
+                                versionMenuButton(score, v, title: v.op)
+                            }
+                        } label: {
+                            if group.subs.contains(where: { $0.id == state.displayedVersionID }) {
+                                Label("\(group.face.id) · \(shortTitle(group.title))",
+                                      systemImage: "checkmark")
+                            } else {
+                                Text("\(group.face.id) · \(shortTitle(group.title))")
+                            }
+                        } primaryAction: {
+                            pinVersion(group.face, in: score)
                         }
                     }
                 }
@@ -376,6 +446,28 @@ struct ContentView: View {
             }
             .accessibilityLabel("Versions")
         }
+    }
+
+    private func versionMenuButton(_ score: ScoreDoc, _ v: VersionDoc,
+                                   title: String) -> some View {
+        Button {
+            pinVersion(v, in: score)
+        } label: {
+            if v.id == state.displayedVersionID {
+                Label("\(v.id) · \(shortTitle(title))", systemImage: "checkmark")
+            } else {
+                Text("\(v.id) · \(shortTitle(title))")
+            }
+        }
+    }
+
+    private func pinVersion(_ v: VersionDoc, in score: ScoreDoc) {
+        state.pinnedVersion = (v.id == score.latest) ? nil : v.id
+        Task { await state.renderIfNeeded() }
+    }
+
+    private func shortTitle(_ title: String) -> String {
+        title.count > 40 ? title.prefix(40).trimmingCharacters(in: .whitespaces) + "…" : title
     }
 
     private var gearMenu: some View {

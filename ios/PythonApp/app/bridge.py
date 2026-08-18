@@ -115,6 +115,10 @@ def _dispatch(op, a):
             raise ValueError(f"No range data for '{cls}'. Known: {sorted(ops.RANGES)}")
         return {"part": ops.part_label(p), "instrument": cls,
                 "violations": ops.range_violations(p, cls)}
+    if op == "begin-turn":
+        return workspace.begin_turn(a["score"], a.get("prompt") or "")
+    if op == "end-turn":
+        return workspace.end_turn()
     if op == "version-file":
         return {"path": str(workspace.resolve_path(a["score"], a.get("version")))}
     if op == "source-file":

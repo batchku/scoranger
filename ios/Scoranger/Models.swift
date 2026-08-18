@@ -41,9 +41,17 @@ struct VersionDoc: Codable, Identifiable, Hashable {
     var op: String
     var time: String?
     var parts: [PartDoc]?
+    /// The chat turn (prompt) this version was created during, if any.
+    var turn: TurnRef?
 
     static func == (lhs: VersionDoc, rhs: VersionDoc) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// Groups consecutive versions made by one chat prompt.
+struct TurnRef: Codable, Hashable {
+    var id: String
+    var prompt: String?
 }
 
 struct SourceDoc: Codable, Identifiable, Hashable {
