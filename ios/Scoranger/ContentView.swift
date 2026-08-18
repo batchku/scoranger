@@ -102,24 +102,7 @@ struct ContentView: View {
                                 scoreRow(score)
                             }
                         } label: {
-                            Text(section.piece.name)
-                                .font(.subheadline.weight(.medium))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        // drop target on the whole row: NSItemProvider-based
-                        // onDrop — dropDestination is unreliable inside List
-                        // DisclosureGroup labels
-                        .onDrop(of: [.plainText], isTargeted: nil) { providers in
-                            guard let provider = providers.first else { return false }
-                            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                                guard let slug = object as? String else { return }
-                                Task { @MainActor in
-                                    state.assignToPiece(scoreSlug: slug,
-                                                        piece: section.piece.slug)
-                                }
-                            }
-                            return true
+                            pieceDropLabel(section.piece)
                         }
                     }
                 }
@@ -133,7 +116,10 @@ struct ContentView: View {
             // tapping a version opens the score pinned to it. Versions made by
             // one chat prompt collapse into an expandable group faced by the
             // prompt's final state.
-            if let score = state.previewedScore {
+            // only for an explicitly previewed (orange) row — no fallback,
+            // otherwise the section shows a random score's history
+            if let slug = state.previewedSlug,
+               let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
                 Section("Versions") {
                     ForEach(state.versionGroups(for: score)) { group in
                         if group.subs.isEmpty {
@@ -226,6 +212,34 @@ struct ContentView: View {
 
     /// A score row: tap previews (versions in the sidebar), the trailing icons
     /// show metadata, duplicate, or open the score in the detail pane.
+    @State private var dropTargetPiece: String?
+
+    /// Piece title row: the drop zone for filing dragged arrangements.
+    /// Highlights while a drag hovers over it.
+    private func pieceDropLabel(_ piece: PieceDoc) -> some View {
+        Text(piece.name)
+            .font(.subheadline.weight(.medium))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .background(dropTargetPiece == piece.slug
+                        ? Color.orange.opacity(0.3) : Color.clear)
+            .onDrop(of: [.plainText],
+                    isTargeted: Binding(
+                        get: { dropTargetPiece == piece.slug },
+                        set: { dropTargetPiece = $0 ? piece.slug : nil }
+                    )) { providers in
+                guard let provider = providers.first else { return false }
+                _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                    guard let slug = object as? String else { return }
+                    Task { @MainActor in
+                        state.assignToPiece(scoreSlug: slug, piece: piece.slug)
+                    }
+                }
+                return true
+            }
+    }
+
     private func scoreRow(_ score: ScoreDoc) -> some View {
         HStack(spacing: 4) {
             Button {
