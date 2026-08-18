@@ -106,13 +106,20 @@ struct ContentView: View {
                                 .font(.subheadline.weight(.medium))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
-                                // drop target: file a dragged arrangement here
-                                .dropDestination(for: String.self) { slugs, _ in
-                                    guard let slug = slugs.first else { return false }
+                        }
+                        // drop target on the whole row: NSItemProvider-based
+                        // onDrop — dropDestination is unreliable inside List
+                        // DisclosureGroup labels
+                        .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                            guard let provider = providers.first else { return false }
+                            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                                guard let slug = object as? String else { return }
+                                Task { @MainActor in
                                     state.assignToPiece(scoreSlug: slug,
                                                         piece: section.piece.slug)
-                                    return true
                                 }
+                            }
+                            return true
                         }
                     }
                 }
@@ -145,17 +152,21 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Scoranger")
+        .safeAreaInset(edge: .bottom) {
+            // always-visible build identity (baked at build time)
+            Text(Self.buildStamp)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(.bar)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(state.engineOK ? Color.green : Color.red)
-                        .frame(width: 10, height: 10)
-                        .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
-                    Text(Self.buildStamp)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                Circle()
+                    .fill(state.engineOK ? Color.green : Color.red)
+                    .frame(width: 10, height: 10)
+                    .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if state.useLocalEngine {
@@ -243,7 +254,8 @@ struct ContentView: View {
         .listRowBackground(
             state.previewedSlug == score.slug ? Color.orange.opacity(0.22) : nil)
         // long-press-drag an arrangement onto a piece row to file it
-        .draggable(score.slug)
+        // (NSItemProvider pairs with the onDrop handler on piece rows)
+        .onDrag { NSItemProvider(object: score.slug as NSString) }
         .contextMenu {
             Menu("Move to piece") {
                 // full manifest list, including pieces with no arrangements yet
