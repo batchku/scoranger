@@ -4,28 +4,206 @@ import SwiftUI
 
 /// The score as a vertical stack of pages with a PencilKit canvas over each:
 /// the Apple Pencil draws, fingers scroll. Drawings persist per score+version+page.
+/// Two-finger pinch zooms the page width (0.5×–3×); scrolling pans.
+/// Highlight mode (toolbar highlighter) turns strokes on a page into an
+/// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
     let document: PDFDocument
     let annotationKey: String  // "<slug>/<version>"
 
+    @EnvironmentObject var state: AppState
+    /// Committed zoom factor applied to the base page width.
+    @State private var zoom: CGFloat = 1.0
+    /// Live pinch factor while a MagnifyGesture is in flight (resets to 1).
+    @GestureState private var pinch: CGFloat = 1.0
+    @State private var highlightMode = false
+    /// Chip expanded into steppers for adjusting the estimated range.
+    @State private var chipExpanded = false
+
+    private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
+
+    /// Measure count of the displayed version (falls back to the score's
+    /// latest version snapshot) — the basis of the linear bar estimate.
+    private var measureCount: Int {
+        let fromDisplayed = state.displayedVersion?.parts?.first?.measures
+        let fromLatest = state.selectedScore.flatMap { score in
+            score.versions.first { $0.id == score.latest }?.parts?.first?.measures
+        }
+        return max(fromDisplayed ?? fromLatest ?? 0, 1)
+    }
+
     var body: some View {
         GeometryReader { geo in
-            ScrollView {
+            let effectiveZoom = min(max(zoom * pinch, Self.zoomRange.lowerBound),
+                                    Self.zoomRange.upperBound)
+            let width = min(geo.size.width - 24, 1100) * effectiveZoom
+            ScrollView([.vertical, .horizontal]) {
                 LazyVStack(spacing: 12) {
                     ForEach(0..<document.pageCount, id: \.self) { index in
                         if let page = document.page(at: index) {
                             PageView(page: page,
-                                     width: min(geo.size.width - 24, 1100),
+                                     width: width,
                                      drawingStore: DrawingStore.shared,
                                      drawingKey: "\(annotationKey)/p\(index)")
+                                .overlay {
+                                    if highlightMode {
+                                        HighlightCaptureOverlay(
+                                            pageIndex: index,
+                                            pageCount: max(document.pageCount, 1),
+                                            measures: measureCount
+                                        ) { bars, note in
+                                            state.highlightedBars = bars
+                                            state.highlightNote = note
+                                            chipExpanded = false
+                                        }
+                                    }
+                                }
                                 .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .frame(minWidth: geo.size.width)
                 .padding(.vertical, 12)
+                .animation(nil, value: width)
             }
             .background(Color(white: 0.93))
+            .simultaneousGesture(
+                MagnifyGesture()
+                    .updating($pinch) { value, pinchState, _ in
+                        pinchState = value.magnification
+                    }
+                    .onEnded { value in
+                        zoom = min(max(zoom * value.magnification, Self.zoomRange.lowerBound),
+                                   Self.zoomRange.upperBound)
+                    }
+            )
+        }
+        .overlay(alignment: .top) { highlightChip }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    highlightMode.toggle()
+                } label: {
+                    Image(systemName: "highlighter")
+                        .foregroundStyle(highlightMode ? Color.orange : Color.accentColor)
+                }
+                .accessibilityLabel(highlightMode ? "Exit highlight mode" : "Highlight a passage")
+            }
+        }
+    }
+
+    // MARK: highlight chip
+
+    /// "≈ bars X–Y" pill: tap to fine-tune with steppers, x to clear.
+    @ViewBuilder
+    private var highlightChip: some View {
+        if let bars = state.highlightedBars {
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "highlighter")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Button {
+                        chipExpanded.toggle()
+                    } label: {
+                        Text("≈ bars \(bars.lowerBound)–\(bars.upperBound)")
+                            .font(.callout.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        state.highlightedBars = nil
+                        state.highlightNote = nil
+                        chipExpanded = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Clear highlight")
+                }
+                if chipExpanded {
+                    Stepper(value: chipLow, in: 1...bars.upperBound) {
+                        Text("from bar \(bars.lowerBound)").font(.footnote)
+                    }
+                    Stepper(value: chipHigh, in: bars.lowerBound...max(measureCount, bars.upperBound)) {
+                        Text("to bar \(bars.upperBound)").font(.footnote)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+            .padding(.top, 8)
+            .frame(maxWidth: 320)
+        }
+    }
+
+    private var chipLow: Binding<Int> {
+        Binding(
+            get: { state.highlightedBars?.lowerBound ?? 1 },
+            set: { new in
+                guard let bars = state.highlightedBars else { return }
+                state.highlightedBars = min(new, bars.upperBound)...bars.upperBound
+            })
+    }
+
+    private var chipHigh: Binding<Int> {
+        Binding(
+            get: { state.highlightedBars?.upperBound ?? 1 },
+            set: { new in
+                guard let bars = state.highlightedBars else { return }
+                state.highlightedBars = bars.lowerBound...max(new, bars.lowerBound)
+            })
+    }
+}
+
+/// Highlight-mode capture layer over one page: a stroke's horizontal span,
+/// combined with the page's position in the document, maps linearly onto the
+/// score's measure count — a deliberate v1 estimate (hence the "≈" chip).
+private struct HighlightCaptureOverlay: View {
+    let pageIndex: Int
+    let pageCount: Int
+    let measures: Int
+    let onHighlight: (ClosedRange<Int>, String) -> Void
+
+    @State private var dragStart: CGPoint?
+    @State private var dragCurrent: CGPoint?
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if let s = dragStart, let c = dragCurrent {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.yellow.opacity(0.3))
+                        .frame(width: max(abs(c.x - s.x), 8), height: 44)
+                        .position(x: (s.x + c.x) / 2, y: (s.y + c.y) / 2)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { value in
+                        if dragStart == nil { dragStart = value.startLocation }
+                        dragCurrent = value.location
+                    }
+                    .onEnded { value in
+                        defer {
+                            dragStart = nil
+                            dragCurrent = nil
+                        }
+                        guard let s = dragStart else { return }
+                        let pageWidth = max(geo.size.width, 1)
+                        let x0 = min(s.x, value.location.x) / pageWidth
+                        let x1 = max(s.x, value.location.x) / pageWidth
+                        // linear position across the whole document, 0…1
+                        let g0 = (Double(pageIndex) + Double(x0)) / Double(pageCount)
+                        let g1 = (Double(pageIndex) + Double(x1)) / Double(pageCount)
+                        let lo = max(1, min(measures, Int(g0 * Double(measures)) + 1))
+                        let hi = max(lo, min(measures, Int((g1 * Double(measures)).rounded(.up))))
+                        onHighlight(lo...hi, "pencil highlight on page \(pageIndex + 1)")
+                    }
+            )
         }
     }
 }

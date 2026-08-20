@@ -22,6 +22,13 @@ final class AppState: ObservableObject {
     /// toggle; flipping it applies a respell op. Defaults to flats.
     @Published var useFlats: [String: Bool] = [:]
 
+    /// Pencil-highlighted measure range on the displayed score (v1 estimate
+    /// from stroke geometry). Injected into chat context so "the highlighted
+    /// passage" resolves to these bars.
+    @Published var highlightedBars: ClosedRange<Int>?
+    /// Where the highlight came from (e.g. "pencil highlight on page 2").
+    @Published var highlightNote: String?
+
     /// PDFs currently being converted in the cloud — shown greyed out in the
     /// scores list with a live stage until they become real scores (or fail).
     struct PendingImport: Identifiable, Equatable {
@@ -544,6 +551,11 @@ final class AppState: ObservableObject {
     // Navigation on compact is driven explicitly by ContentView's
     // preferredCompactColumn — no List-selection tricks needed here.
     func select(slug: String, version: String? = nil) {
+        if slug != selectedSlug {
+            // a highlight describes bars of the previously shown score
+            highlightedBars = nil
+            highlightNote = nil
+        }
         selectedSlug = slug
         previewedSlug = slug
         pinnedVersion = version
@@ -630,6 +642,18 @@ final class AppState: ObservableObject {
         }
         return "This arrangement belongs to the piece '\(piece.name)'. "
             + "Sibling arrangements by number: " + numbered.joined(separator: ", ")
+    }
+
+    /// Chat context plus the active pencil highlight, if any, so prompts can
+    /// say "the highlighted passage" and mean those measures.
+    func chatContextWithHighlight(for slug: String) -> String? {
+        var pieces: [String] = []
+        if let base = chatContext(for: slug) { pieces.append(base) }
+        if let bars = highlightedBars {
+            pieces.append("The user has highlighted measures \(bars.lowerBound)–\(bars.upperBound); "
+                + "requests referring to 'the highlighted passage/selection' mean those measures.")
+        }
+        return pieces.isEmpty ? nil : pieces.joined(separator: " ")
     }
 
     /// Create a new piece by name and file the score under it (assign-piece
@@ -723,7 +747,7 @@ final class AppState: ObservableObject {
                         slug: slug, message: message,
                         modelAlias: chatModel.isEmpty ? nil : chatModel,
                         historyJSON: chatHistory[slug],
-                        context: chatContext(for: slug),
+                        context: chatContextWithHighlight(for: slug),
                         onEvent: { [weak self] event in
                             guard let self else { return }
                             switch event {

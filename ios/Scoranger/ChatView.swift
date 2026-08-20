@@ -4,6 +4,9 @@ struct ChatView: View {
     @EnvironmentObject var state: AppState
     @State private var draft = ""
     @FocusState private var inputFocused: Bool
+    @StateObject private var dictation = SpeechDictation()
+    /// Draft text at the moment dictation started; recognized speech appends to it.
+    @State private var dictationBase = ""
 
     private var slug: String? { state.selectedScore?.slug }
     private var messages: [ChatDisplayMessage] {
@@ -140,11 +143,30 @@ struct ChatView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("Arrange…", text: $draft, axis: .vertical)
+            TextField(dictation.errorText ?? "Arrange…", text: $draft, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.roundedBorder)
                 .focused($inputFocused)
                 .onSubmit(send)
+                .onChange(of: dictation.transcript) {
+                    guard !dictation.transcript.isEmpty else { return }
+                    let sep = dictationBase.isEmpty || dictationBase.hasSuffix(" ") ? "" : " "
+                    draft = dictationBase + sep + dictation.transcript
+                }
+            Button {
+                if dictation.isRecording {
+                    dictation.stop()
+                } else {
+                    dictationBase = draft
+                    dictation.start()
+                }
+            } label: {
+                Image(systemName: dictation.isRecording ? "mic.fill" : "mic")
+                    .font(.title2)
+                    .foregroundStyle(dictation.isRecording ? Color.red : Color.accentColor)
+                    .symbolEffect(.pulse, isActive: dictation.isRecording)
+            }
+            .accessibilityLabel(dictation.isRecording ? "Stop dictation" : "Start dictation")
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }
@@ -154,6 +176,7 @@ struct ChatView: View {
     }
 
     private func send() {
+        if dictation.isRecording { dictation.stop() }
         let text = draft
         draft = ""
         state.sendChat(text)

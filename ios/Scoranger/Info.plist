@@ -75,6 +75,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scoranger talks to your score engine on the local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictation input for chat</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Dictate arrangement requests</string>
 	<key>OMRDefaultURL</key>
 	<string>https://scoranger-omr-37kxlg2dpa-uc.a.run.app</string>
 	<key>UIFileSharingEnabled</key>
