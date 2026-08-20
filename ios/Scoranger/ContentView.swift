@@ -20,6 +20,9 @@ struct ContentView: View {
     /// Score awaiting a "New piece…" name (drives the naming alert).
     @State private var newPieceTarget: ScoreDoc?
     @State private var newPieceName = ""
+    /// Piece the file importer should file its result under (set by a piece's
+    /// "Import a file into this piece"); nil = the toolbar's unfiled import.
+    @State private var importTargetPiece: String?
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -32,10 +35,18 @@ struct ContentView: View {
     /// Which column shows in compact width — set to .detail to open a score.
     @State private var compactColumn: NavigationSplitViewColumn = .sidebar
 
-    /// Baked at build time (version · local build number · git sha).
-    static let buildStamp: String =
-        (Bundle.main.url(forResource: "build-stamp", withExtension: "txt")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }) ?? "dev"
+    /// Build identity, composed at runtime from the bundle so the number shown
+    /// here is exactly CFBundleVersion, i.e. the build number App Store Connect
+    /// records. Only the git sha is baked in (it isn't in Info.plist).
+    static let buildStamp: String = {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let sha = (Bundle.main.url(forResource: "build-sha", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) })?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return "v\(version) · b\(build)" + (sha.map { " · \($0)" } ?? "")
+    }()
 
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $compactColumn) {
@@ -55,108 +66,20 @@ struct ContentView: View {
 
     // MARK: sidebar
 
+    // The sidebar is the app's statement of the hierarchy: setlists hold
+    // pieces, pieces hold numbered arrangements, arrangements hold versions.
+    // Split into per-section builders — as one expression the SwiftUI type
+    // checker gives up on it.
     private var sidebar: some View {
         // Plain List — no selection binding: the system's row selection fought
         // the per-row buttons (eaten taps, three competing highlight colors).
-        // Preview highlight is ours alone; navigation goes through openScore.
+        // Highlight is ours alone; navigation goes through openScore.
         List {
-            Section {
-                if state.manifest == nil {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("starting engine…")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                ForEach(state.pendingImports) { pending in
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack {
-                            Text(pending.name)
-                            Spacer()
-                            if pending.fraction == nil {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                        }
-                        if let fraction = pending.fraction {
-                            ProgressView(value: fraction)
-                                .controlSize(.small)
-                        }
-                        Text(pending.stage)
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-            }
-            // Setlists: ordered groups of pieces; tapping a piece jumps to it
-            // (expands it in Pieces and previews its first arrangement).
-            if !state.setlistSections.isEmpty {
-                Section("Setlists") {
-                    ForEach(state.setlistSections, id: \.setlist.slug) { section in
-                        setlistRow(section.setlist)
-                        if !collapsedSetlists.contains(section.setlist.slug) {
-                            ForEach(section.pieces) { piece in
-                                setlistPieceRow(piece)
-                            }
-                        }
-                    }
-                }
-            }
-            // One "Pieces" section; each piece is an expandable row whose
-            // children are its arrangements. Unfiled follows.
-            // Plain rows with an explicit chevron button instead of
-            // DisclosureGroup: buttons inside DisclosureGroup labels get
-            // swallowed by the disclosure tap target on iPad sidebar lists.
-            if !state.pieceSections.isEmpty {
-                Section("Pieces") {
-                    ForEach(state.pieceSections, id: \.piece.slug) { section in
-                        pieceRow(section.piece)
-                        if !collapsedPieces.contains(section.piece.slug) {
-                            // .onMove would fight the rows' onDrag (used for
-                            // filing onto pieces), so reordering is offered
-                            // via the rows' context menu instead.
-                            ForEach(Array(section.arrangements.enumerated()),
-                                    id: \.element.slug) { index, score in
-                                scoreRow(score, index: index, inPiece: section)
-                                    .padding(.leading, 12)
-                            }
-                        }
-                    }
-                }
-            }
-            Section((state.manifest?.pieces ?? []).isEmpty ? "Scores" : "Unfiled") {
-                ForEach(state.unfiledScores) { score in
-                    scoreRow(score)
-                }
-            }
-            // Versions of the previewed score (falls back to the open one);
-            // tapping a version opens the score pinned to it. Versions made by
-            // one chat prompt collapse into an expandable group faced by the
-            // prompt's final state.
-            // only for an explicitly previewed (orange) row — no fallback,
-            // otherwise the section shows a random score's history
-            if let slug = state.previewedSlug,
-               let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
-                Section("Versions") {
-                    // explicit caret buttons (DisclosureGroup labels swallow
-                    // button taps on iPad sidebar lists)
-                    ForEach(state.versionGroups(for: score)) { group in
-                        if group.subs.isEmpty {
-                            versionRow(score, group.face)
-                        } else {
-                            versionGroupRow(score, group)
-                            if expandedVersionGroups.contains(group.id) {
-                                ForEach(group.subs.reversed()) { v in
-                                    versionRow(score, v)
-                                        .padding(.leading, 16)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            statusSection
+            setlistsSection
+            piecesSection
+            unfiledSection
+            versionsSection
         }
         .navigationTitle("Scoranger")
         .safeAreaInset(edge: .bottom) {
@@ -177,8 +100,11 @@ struct ContentView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if state.useLocalEngine {
-                    Button { showImporter = true } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("Import score")
+                    Button {
+                        importTargetPiece = nil
+                        showImporter = true
+                    } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Import an arrangement")
                 }
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
@@ -186,7 +112,7 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(item: $infoScore) { ScoreInfoView(score: $0) }
         .alert(
-            "Delete \(pendingDelete?.name ?? "score")?",
+            "Delete \(pendingDelete?.name ?? "arrangement")?",
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
@@ -198,7 +124,7 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
-            Text("This removes the score and all its versions.")
+            Text("This removes the arrangement and all its versions. The piece and its other arrangements are untouched.")
         }
         .alert("New piece", isPresented: Binding(
             get: { newPieceTarget != nil },
@@ -214,12 +140,16 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) { newPieceTarget = nil }
         } message: {
-            Text("File “\(newPieceTarget?.name ?? "score")” under a new piece.")
+            Text("File “\(newPieceTarget?.name ?? "this arrangement")” under a new piece.")
         }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
+            let piece = importTargetPiece
+            importTargetPiece = nil
             // receiveFile routes by type: PDFs -> cloud OMR, scores -> direct import
-            if case .success(let url) = result { state.receiveFile(at: url) }
+            if case .success(let url) = result {
+                state.receiveFile(at: url, intoPiece: piece)
+            }
         }
         .alert("Scoranger", isPresented: Binding(
             get: { state.notice != nil },
@@ -231,14 +161,143 @@ struct ContentView: View {
         }
     }
 
-    /// A score row: tap previews (versions in the sidebar), the trailing icons
-    /// show metadata, duplicate, or open the score in the detail pane.
+    /// Engine startup and in-flight PDF conversions.
+    @ViewBuilder
+    private var statusSection: some View {
+        Section {
+            if state.manifest == nil {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("starting engine…")
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+            ForEach(state.pendingImports) { pending in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(pending.name)
+                        Spacer()
+                        if pending.fraction == nil {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    if let fraction = pending.fraction {
+                        ProgressView(value: fraction)
+                            .controlSize(.small)
+                    }
+                    Text(pending.stage)
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Setlists: ordered groups of pieces; tapping a piece expands it under
+    /// Pieces and opens its first arrangement.
+    @ViewBuilder
+    private var setlistsSection: some View {
+        if !state.setlistSections.isEmpty {
+            Section("Setlists") {
+                ForEach(state.setlistSections, id: \.setlist.slug) { section in
+                    setlistRow(section.setlist)
+                    if !collapsedSetlists.contains(section.setlist.slug) {
+                        ForEach(section.pieces) { piece in
+                            setlistPieceRow(piece)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Each piece is an expandable row whose children are its numbered
+    /// arrangements. Plain rows with an explicit chevron button instead of
+    /// DisclosureGroup: buttons inside DisclosureGroup labels get swallowed by
+    /// the disclosure tap target on iPad sidebar lists.
+    @ViewBuilder
+    private var piecesSection: some View {
+        if !state.pieceSections.isEmpty {
+            Section("Pieces") {
+                ForEach(state.pieceSections, id: \.piece.slug) { section in
+                    pieceRow(section)
+                    if !collapsedPieces.contains(section.piece.slug) {
+                        // .onMove would fight the rows' onDrag (used for filing
+                        // onto pieces), so reordering is offered via the rows'
+                        // context menu instead.
+                        ForEach(Array(section.arrangements.enumerated()),
+                                id: \.element.slug) { index, score in
+                            arrangementRow(score, number: index + 1, inPiece: section)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Arrangements not filed under any piece. Same row design as filed ones,
+    /// but no number: "#N" is defined within a piece, and that is exactly what
+    /// chat prompts refer to.
+    @ViewBuilder
+    private var unfiledSection: some View {
+        if !state.unfiledScores.isEmpty {
+            Section((state.manifest?.pieces ?? []).isEmpty
+                    ? "Arrangements" : "Unfiled arrangements") {
+                ForEach(state.unfiledScores) { score in
+                    arrangementRow(score)
+                }
+            }
+        }
+    }
+
+    /// Version history of the open arrangement; tapping a version opens the
+    /// score pinned to it. Versions made by one chat prompt collapse into an
+    /// expandable group faced by the prompt's final state.
+    /// Follows whatever the score pane shows: now that a row tap opens the
+    /// arrangement, "previewed" and "open" are the same thing, so this can no
+    /// longer end up describing some unrelated arrangement's history.
+    @ViewBuilder
+    private var versionsSection: some View {
+        if let score = state.selectedScore {
+            let slug = score.slug
+            Section(versionsSectionTitle(slug: slug, name: score.name)) {
+                // explicit caret buttons (DisclosureGroup labels swallow button
+                // taps on iPad sidebar lists)
+                ForEach(state.versionGroups(for: score)) { group in
+                    if group.subs.isEmpty {
+                        versionRow(score, group.face)
+                    } else {
+                        versionGroupRow(score, group)
+                        if expandedVersionGroups.contains(group.id) {
+                            ForEach(group.subs.reversed()) { v in
+                                versionRow(score, v)
+                                    .padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func versionsSectionTitle(slug: String, name: String) -> String {
+        if let placement = state.placement(of: slug) {
+            return "Versions of #\(placement.number) \(name)"
+        }
+        return "Versions of \(name)"
+    }
+
+    /// Piece currently under a drag, for the drop highlight.
     @State private var dropTargetPiece: String?
 
     /// Piece title row: an explicit caret button (expand/collapse), the drop
-    /// zone for filing dragged arrangements, and a button that starts a new
-    /// blank arrangement of the piece. Highlights while a drag hovers over it.
-    private func pieceRow(_ piece: PieceDoc) -> some View {
+    /// zone for filing dragged arrangements, and a menu of ways to add an
+    /// arrangement to the piece. Highlights while a drag hovers over it.
+    private func pieceRow(_ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
+        let piece = section.piece
         let collapsed = collapsedPieces.contains(piece.slug)
         return HStack(spacing: 4) {
             Button {
@@ -252,23 +311,23 @@ struct ContentView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    Text(piece.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(piece.name)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text("\(section.arrangements.count) arrangement"
+                             + (section.arrangements.count == 1 ? "" : "s"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
+            .tint(.primary)
             .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(piece.name)")
-            rowIcon("plus.circle", label: "New arrangement of \(piece.name)") {
-                Task {
-                    if let slug = await state.createArrangement(pieceSlug: piece.slug) {
-                        openScore(slug)
-                        showChat = true
-                    }
-                }
-            }
+            addArrangementMenu(section)
         }
         .padding(.vertical, 4)
         .listRowBackground(dropTargetPiece == piece.slug
@@ -287,6 +346,57 @@ struct ContentView: View {
             }
             return true
         }
+    }
+
+    /// The three ways to add an arrangement to a piece. Blank-then-chat is the
+    /// core workflow; duplicating an existing arrangement is the usual starting
+    /// point in practice ("a string quartet version of #1").
+    private func addArrangementMenu(
+        _ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
+        Menu {
+            Button {
+                Task {
+                    if let slug = await state.createArrangement(pieceSlug: section.piece.slug,
+                                                                name: "New arrangement") {
+                        openScore(slug)
+                        showChat = true
+                    }
+                }
+            } label: {
+                Label("New blank arrangement", systemImage: "doc")
+            }
+            if !section.arrangements.isEmpty {
+                Menu {
+                    ForEach(Array(section.arrangements.enumerated()),
+                            id: \.element.slug) { index, score in
+                        Button("#\(index + 1)  \(score.name)") {
+                            Task {
+                                if let slug = await state.duplicateScore(
+                                    slug: score.slug, name: "\(score.name) copy") {
+                                    openScore(slug)
+                                    showChat = true
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Duplicate an arrangement", systemImage: "plus.square.on.square")
+                }
+            }
+            Button {
+                importTargetPiece = section.piece.slug
+                showImporter = true
+            } label: {
+                Label("Import a file into this piece", systemImage: "square.and.arrow.down")
+            }
+        } label: {
+            Image(systemName: "plus.circle")
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 32, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Add an arrangement to \(section.piece.name)")
     }
 
     /// Setlist title row: explicit caret, like pieces.
@@ -318,67 +428,87 @@ struct ContentView: View {
         .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
     }
 
-    /// A piece inside a setlist: tap expands the piece in Pieces and previews
-    /// its first arrangement (v1 navigation).
+    /// A piece inside a setlist: tap expands the piece in Pieces and opens its
+    /// first arrangement, matching tap-to-open everywhere else.
     private func setlistPieceRow(_ piece: PieceDoc) -> some View {
-        Button {
+        let arrangements = state.pieceSections
+            .first { $0.piece.slug == piece.slug }?.arrangements ?? []
+        return Button {
             collapsedPieces.remove(piece.slug)
-            if let first = state.pieceSections
-                .first(where: { $0.piece.slug == piece.slug })?.arrangements.first {
-                state.previewedSlug = first.slug
-            }
+            if let first = arrangements.first { openScore(first.slug) }
         } label: {
-            Text(piece.name)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .padding(.leading, 16)
+            HStack {
+                Text(piece.name)
+                Spacer()
+                Text("\(arrangements.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.leading, 16)
         }
         .buttonStyle(.borderless)
         .foregroundStyle(.primary)
     }
 
-    /// `index`/`inPiece` are set for rows inside a piece: the index shows as a
-    /// "1." prefix and the piece enables Move up/down in the context menu.
-    private func scoreRow(_ score: ScoreDoc, index: Int? = nil,
-                          inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
-        HStack(spacing: 4) {
+    /// An arrangement row. `number`/`inPiece` are set for rows inside a piece:
+    /// the number shows as the prominent "#N" badge chat prompts refer to, and
+    /// the piece enables Move up/down in the context menu.
+    /// Tapping anywhere on the row opens the arrangement in the score pane.
+    private func arrangementRow(_ score: ScoreDoc, number: Int? = nil,
+                                inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
+        HStack(spacing: 8) {
             Button {
-                state.previewedSlug = score.slug
+                openScore(score.slug)
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        if let index {
-                            Text("\(index + 1).")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                HStack(alignment: .center, spacing: 10) {
+                    if let number {
+                        // the handle the user types in chat ("from #3"): big,
+                        // accent-colored, and deliberately unlike the small
+                        // grey version/part counts underneath
+                        Text("#\(number)")
+                            .font(.title3.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.accentColor)
+                            .frame(minWidth: 38, alignment: .leading)
+                            .accessibilityLabel("Arrangement number \(number)")
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(score.name)
                             .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(arrangementSubtitle(score))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
-                    Text("\(score.versions.count) versions\(sourceCountLabel(score))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            rowIcon("info.circle", label: "Score details") { infoScore = score }
-            rowIcon("plus.square.on.square", label: "Duplicate score") {
-                state.duplicateScore(slug: score.slug)
-            }
-            rowIcon("chevron.right.circle", label: "Open score") {
-                openScore(score.slug)
-            }
+            // .borderless tints its whole label with the accent color, which
+            // would make the name compete with the #N badge; the badge sets its
+            // accent explicitly, so neutralise the inherited tint here.
+            .tint(.primary)
+            .accessibilityIdentifier("arrangement-\(score.slug)")
+            rowIcon("info.circle", label: "Arrangement details") { infoScore = score }
         }
-        // one highlight system only: warm attention color on the previewed row
+        // one highlight system only: warm attention color on the open row.
+        // selectedScore, not selectedSlug: at launch the detail pane falls back
+        // to the most recent arrangement without anything being tapped, and the
+        // sidebar has to agree with what the score pane is showing.
         .listRowBackground(
-            state.previewedSlug == score.slug ? Color.orange.opacity(0.22) : nil)
+            state.selectedScore?.slug == score.slug ? Color.orange.opacity(0.22) : nil)
         // long-press-drag an arrangement onto a piece row to file it
         // (NSItemProvider pairs with the onDrop handler on piece rows)
         .onDrag { NSItemProvider(object: score.slug as NSString) }
         .contextMenu {
-            if let section, let index {
+            // Move up/down renumbers the arrangement, i.e. changes the #N chat
+            // refers to, so it is worth the explicit labels.
+            if let section, let number {
+                let index = number - 1
                 let slugs = section.arrangements.map(\.slug)
                 if index > 0 {
                     Button {
@@ -386,7 +516,7 @@ struct ContentView: View {
                         order.swapAt(index, index - 1)
                         state.reorderPiece(piece: section.piece.slug, order: order)
                     } label: {
-                        Label("Move up", systemImage: "arrow.up")
+                        Label("Move up (become #\(number - 1))", systemImage: "arrow.up")
                     }
                 }
                 if index < slugs.count - 1 {
@@ -395,9 +525,15 @@ struct ContentView: View {
                         order.swapAt(index, index + 1)
                         state.reorderPiece(piece: section.piece.slug, order: order)
                     } label: {
-                        Label("Move down", systemImage: "arrow.down")
+                        Label("Move down (become #\(number + 1))", systemImage: "arrow.down")
                     }
                 }
+            }
+            Button {
+                Task { await state.duplicateScore(slug: score.slug,
+                                                  name: "\(score.name) copy") }
+            } label: {
+                Label("Duplicate arrangement", systemImage: "plus.square.on.square")
             }
             Menu("Move to piece") {
                 // full manifest list, including pieces with no arrangements yet
@@ -448,9 +584,24 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    private func sourceCountLabel(_ score: ScoreDoc) -> String {
-        let n = score.sources?.count ?? 0
-        return n > 0 ? " · \(n) source\(n == 1 ? "" : "s")" : ""
+    /// What distinguishes one arrangement of a piece from another: what it is
+    /// scored for, then how far it has been worked (versions) and what it has
+    /// to draw on (sources).
+    private func arrangementSubtitle(_ score: ScoreDoc) -> String {
+        var bits: [String] = []
+        let parts = (score.versions.first { $0.id == score.latest }
+                     ?? score.versions.last)?.parts ?? []
+        if !parts.isEmpty {
+            let names = parts.map(\.name)
+            bits.append(names.count <= 3
+                        ? names.joined(separator: ", ")
+                        : names.prefix(2).joined(separator: ", ") + " +\(names.count - 2) more")
+        }
+        bits.append("\(score.versions.count) version\(score.versions.count == 1 ? "" : "s")")
+        if let n = score.sources?.count, n > 0 {
+            bits.append("\(n) source\(n == 1 ? "" : "s")")
+        }
+        return bits.joined(separator: " · ")
     }
 
     /// A single version row: id + op, eye on the displayed version.
@@ -542,14 +693,45 @@ struct ContentView: View {
             }
             .navigationTitle(score.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar { detailTitle(score) }
             .toolbar { detailToolbar }
         } else {
             ContentUnavailableView(
-                "No score selected",
+                "No arrangement open",
                 systemImage: "music.quarternote.3",
                 description: Text(!state.engineOK && !state.useLocalEngine
                     ? "Engine unreachable — check the URL in Settings and that `scor serve` is running on your Mac."
-                    : "Tap + to import a MusicXML or MIDI file."))
+                    : "Pick an arrangement in the sidebar, or tap + to import a MusicXML, MIDI, or PDF file."))
+        }
+    }
+
+    /// The open arrangement's place in the hierarchy, carried into the title
+    /// bar: piece above, "#N name" below. Without this the detail pane gives no
+    /// clue which piece the score on screen belongs to.
+    @ToolbarContentBuilder
+    private func detailTitle(_ score: ScoreDoc) -> some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            let placement = state.placement(of: score.slug)
+            VStack(spacing: 0) {
+                if let placement {
+                    Text(placement.piece.name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 5) {
+                    if let placement {
+                        Text("#\(placement.number)")
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    Text(score.name)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 

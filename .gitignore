@@ -25,4 +25,3 @@ ios/PythonApp/app/scoranger_engine/
 __pycache__/
 .omr-api-key
 testdata/
-.build-number

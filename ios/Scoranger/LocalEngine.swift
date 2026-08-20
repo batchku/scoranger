@@ -36,11 +36,13 @@ struct LocalEngine {
                              args: ["score": score, "interval": String(semitones)])
     }
 
-    /// Import a MusicXML/MIDI file into the on-device workspace.
+    /// Import a MusicXML/MIDI file into the on-device workspace, optionally
+    /// filing the new arrangement under a piece.
     @discardableResult
-    func importScore(fileURL: URL, name: String?) async throws -> String {
+    func importScore(fileURL: URL, name: String?, piece: String? = nil) async throws -> String {
         var args: [String: Any] = ["path": fileURL.path]
         if let name { args["name"] = name }
+        if let piece { args["piece"] = piece }
         let r = try await result(op: "import", args: args)
         return (r["score"] as? String) ?? ""
     }

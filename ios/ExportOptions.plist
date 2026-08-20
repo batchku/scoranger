@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key><string>app-store-connect</string>
+    <key>destination</key><string>upload</string>
+    <key>teamID</key><string>V9DBGV72NL</string>
+    <!-- false: the build number comes from CURRENT_PROJECT_VERSION in
+         project.yml, so what the app displays and what App Store Connect
+         records are the same number. With this true, Xcode assigned its own
+         counter at upload and the two drifted apart (app b112 vs ASC 11). -->
+    <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>
