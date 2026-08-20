@@ -272,6 +272,10 @@ def cmd_piece_rename(a):
     _emit(workspace.rename_piece(a.piece, a.name))
 
 
+def cmd_rename_score(a):
+    _emit(workspace.rename_score(a.score, a.name))
+
+
 def cmd_delete_score(a):
     workspace.delete_score(a.score)
     _emit({"deleted": a.score})
@@ -493,6 +497,12 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("rename-score",
+                       help="Rename an arrangement (label only; slug and versions unchanged)")
+    s.add_argument("score")
+    s.add_argument("--name", required=True)
+    s.set_defaults(fn=cmd_rename_score)
 
     s = sub.add_parser("delete-score", help="Delete a score, its versions, and its files (irreversible)")
     s.add_argument("score")

@@ -19,6 +19,8 @@ struct ScorePagesView: View {
     @State private var highlightMode = false
     /// Chip expanded into steppers for adjusting the estimated range.
     @State private var chipExpanded = false
+    /// Pencil markup: off by default so the score reads as a document.
+    @StateObject private var annotation = AnnotationController()
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
 
@@ -44,7 +46,8 @@ struct ScorePagesView: View {
                             PageView(page: page,
                                      width: width,
                                      drawingStore: DrawingStore.shared,
-                                     drawingKey: "\(annotationKey)/p\(index)")
+                                     drawingKey: "\(annotationKey)/p\(index)",
+                                     annotation: annotation)
                                 .overlay {
                                     // the committed band stays visible (in unit
                                     // page coordinates, so it survives zoom)
@@ -99,10 +102,27 @@ struct ScorePagesView: View {
             )
         }
         .overlay(alignment: .top) { highlightChip }
+        .overlay(alignment: .bottom) {
+            if annotation.isOn { AnnotationBar(controller: annotation) }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
+                    annotation.isOn.toggle()
+                    // the two modes both want the Pencil; only one at a time
+                    if annotation.isOn { highlightMode = false }
+                } label: {
+                    Image(systemName: annotation.isOn
+                          ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                        .foregroundStyle(annotation.isOn ? Color.orange : Color.accentColor)
+                }
+                .accessibilityLabel(annotation.isOn
+                                    ? "Exit annotation mode" : "Annotate the score")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
                     highlightMode.toggle()
+                    if highlightMode { annotation.isOn = false }
                 } label: {
                     Image(systemName: "highlighter")
                         .foregroundStyle(highlightMode ? Color.orange : Color.accentColor)
@@ -241,13 +261,14 @@ private struct PageView: View {
     let width: CGFloat
     let drawingStore: DrawingStore
     let drawingKey: String
+    @ObservedObject var annotation: AnnotationController
 
     var body: some View {
         let bounds = page.bounds(for: .mediaBox)
         let height = width * bounds.height / max(bounds.width, 1)
         ZStack {
             PDFPageImage(page: page, size: CGSize(width: width, height: height))
-            PencilCanvas(store: drawingStore, key: drawingKey)
+            PencilCanvas(store: drawingStore, key: drawingKey, controller: annotation)
         }
         .frame(width: width, height: height)
         .background(Color.white)
@@ -273,18 +294,24 @@ private struct PDFPageImage: View {
 }
 
 /// PencilKit canvas: pencil-only input so fingers keep scrolling the score.
+/// Interactive only while annotation mode is on — with the mode off the canvas
+/// still renders existing marks but passes every touch through, so the score
+/// behaves like a plain document.
 private struct PencilCanvas: UIViewRepresentable {
     let store: DrawingStore
     let key: String
+    @ObservedObject var controller: AnnotationController
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.drawingPolicy = .pencilOnly
-        canvas.tool = PKInkingTool(.pen, color: .systemRed, width: 3)
+        canvas.tool = controller.pkTool
         canvas.delegate = context.coordinator
-        canvas.drawing = store.drawing(for: key)
+        let initial = store.drawing(for: key)
+        canvas.drawing = initial
+        canvas.isUserInteractionEnabled = controller.isOn
         // drawingPolicy .pencilOnly governs what draws, but the canvas's
         // gesture recognizers still claim finger touches — which ate the
         // two-finger pinch. Restrict every recognizer to pencil touches so
@@ -295,26 +322,63 @@ private struct PencilCanvas: UIViewRepresentable {
         for recognizer in canvas.gestureRecognizers ?? [] {
             recognizer.allowedTouchTypes = pencilOnly
         }
+
+        // Two-finger tap undoes, the way it does in Apple's own note apps.
+        // It is a finger gesture on purpose, and must not cancel the scroll
+        // view's own recognizers, hence the simultaneous delegate below.
+        let undoTap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleTwoFingerTap))
+        undoTap.numberOfTouchesRequired = 2
+        undoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        undoTap.delegate = context.coordinator
+        undoTap.cancelsTouchesInView = false
+        canvas.addGestureRecognizer(undoTap)
+
         context.coordinator.key = key
         context.coordinator.store = store
+        context.coordinator.controller = controller
+        controller.register(canvas, key: key, initial: initial)
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         if context.coordinator.key != key {
+            let previousKey = context.coordinator.key
             context.coordinator.key = key
-            canvas.drawing = store.drawing(for: key)
+            let drawing = store.drawing(for: key)
+            canvas.drawing = drawing
+            controller.rebind(canvas, from: previousKey, to: key, initial: drawing)
         }
+        context.coordinator.controller = controller
+        canvas.isUserInteractionEnabled = controller.isOn
+        canvas.tool = controller.pkTool
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator: NSObject, PKCanvasViewDelegate {
+    final class Coordinator: NSObject, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
         var key: String = ""
         var store: DrawingStore?
+        var controller: AnnotationController?
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             store?.save(canvasView.drawing, for: key)
+            MainActor.assumeIsolated {
+                controller?.recordChange(canvasView.drawing, key: key)
+            }
+        }
+
+        @objc func handleTwoFingerTap() {
+            MainActor.assumeIsolated {
+                controller?.undo(key: key)
+            }
+        }
+
+        // the score scrolls and pinches under the canvas; never block that
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }

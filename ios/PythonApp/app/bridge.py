@@ -97,6 +97,8 @@ def _dispatch(op, a):
                                                create_if_missing=True)
     if op == "unassign-piece":
         return workspace.assign_score_to_piece(a["score"], None)
+    if op == "rename-score":
+        return workspace.rename_score(a["score"], a["name"])
     if op == "rename-piece":
         return workspace.rename_piece(a["piece"], a["name"])
     if op == "reorder-piece":

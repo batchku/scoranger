@@ -131,6 +131,73 @@ final class ScorangerUITests: XCTestCase {
         shot("row-tap-opens")
     }
 
+    /// Arrangements can be renamed from the info sheet. The slug is unchanged
+    /// by a rename, so the row identifier stays valid and the new name shows.
+    func testRenameArrangement() {
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(row.exists)
+        app.buttons["Arrangement details"].firstMatch.tap()
+
+        let field = app.textFields["Arrangement name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "name field missing")
+        field.tap()
+        field.typeText(" Renamed")
+
+        let rename = app.buttons["Rename"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 5),
+                      "Rename button should appear once the name differs")
+        rename.tap()
+        // the button retires once the new name is the saved one
+        XCTAssertTrue(waitForDisappearance(of: rename, timeout: 20),
+                      "Rename button still offered after a successful rename")
+        app.buttons["Done"].firstMatch.tap()
+
+        XCTAssertTrue(element(labelStartingWith: "Arrangement number 1")
+                        .waitForExistence(timeout: 10))
+        XCTAssertTrue(row.exists, "the row identifier is the slug and must survive a rename")
+        shot("renamed-arrangement")
+    }
+
+    /// Annotation mode is off by default and exposes draw/erase/colour/undo.
+    func testAnnotationModeTools() {
+        let enter = app.buttons["Annotate the score"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 60),
+                      "annotation toggle missing from the score toolbar")
+        XCTAssertFalse(app.buttons["Draw"].exists,
+                       "annotation tools should be hidden until the mode is on")
+
+        enter.tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 5), "draw tool missing")
+        XCTAssertTrue(app.buttons["Erase"].exists, "erase tool missing")
+        XCTAssertTrue(app.buttons["Red pen"].exists, "colour swatches missing")
+        XCTAssertTrue(app.buttons["Blue pen"].exists)
+
+        let undo = app.buttons["Undo annotation"]
+        XCTAssertTrue(undo.exists, "undo missing")
+        XCTAssertFalse(undo.isEnabled, "undo should be disabled with nothing drawn")
+
+        app.buttons["Blue pen"].tap()
+        app.buttons["Erase"].tap()
+        shot("annotation-mode")
+
+        // Not covered here: drawing a stroke, and the two-finger-tap undo.
+        // The simulator has no Pencil, and XCUITest's twoFingerTap cannot
+        // resolve coordinates over the canvas overlay. Both need a device.
+
+        app.buttons["Finish annotating"].tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 5),
+                      "annotation bar should go away on Done")
+    }
+
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists { return true }
+            usleep(200_000)
+        }
+        return !element.exists
+    }
+
     /// Long-press on an arrangement row offers the filing context menu.
     func testContextMenu() {
         app.buttons["arrangement-\(firstArrangement)"].press(forDuration: 1.2)

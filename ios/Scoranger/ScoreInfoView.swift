@@ -10,6 +10,37 @@ struct ScoreInfoView: View {
     /// Local override so the Piece label updates immediately after a pick —
     /// the sheet's `score` is a snapshot and won't see the refreshed manifest.
     @State private var pieceOverride: String??
+    /// Editable arrangement name. Seeded from the snapshot on appear; committed
+    /// on submit or via the Rename button.
+    @State private var draftName = ""
+    /// The name as last persisted. `score` is a snapshot taken when the sheet
+    /// opened and never sees the refreshed manifest, so comparing against it
+    /// would leave the Rename button showing after a successful save.
+    @State private var savedName = ""
+    @State private var renaming = false
+    @FocusState private var nameFocused: Bool
+
+    private var trimmedDraft: String {
+        draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Only offer Rename when there is a real, different name to save.
+    private var canRename: Bool {
+        !trimmedDraft.isEmpty && trimmedDraft != savedName && !renaming
+    }
+
+    private func commitRename() {
+        guard canRename else { return }
+        let name = trimmedDraft
+        renaming = true
+        nameFocused = false
+        Task {
+            if await state.renameScore(slug: score.slug, name: name) {
+                savedName = name
+            }
+            renaming = false
+        }
+    }
 
     private var currentPieceSlug: String? {
         if let pieceOverride { return pieceOverride }
@@ -31,7 +62,21 @@ struct ScoreInfoView: View {
         NavigationStack {
             Form {
                 Section("Arrangement") {
-                    LabeledContent("Name", value: score.name)
+                    // editable: renaming is label-only, so it needs no version
+                    HStack {
+                        TextField("Name", text: $draftName)
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .onSubmit(commitRename)
+                            .accessibilityLabel("Arrangement name")
+                        if renaming {
+                            ProgressView().controlSize(.small)
+                        } else if canRename {
+                            Button("Rename", action: commitRename)
+                                .buttonStyle(.borderless)
+                                .font(.callout.weight(.semibold))
+                        }
+                    }
                     if let placement = state.placement(of: score.slug) {
                         LabeledContent("Number in piece") {
                             Text("#\(placement.number)")
@@ -114,8 +159,12 @@ struct ScoreInfoView: View {
                     }
                 }
             }
-            .navigationTitle(score.name)
+            .navigationTitle(savedName.isEmpty ? score.name : savedName)
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                draftName = score.name
+                savedName = score.name
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }

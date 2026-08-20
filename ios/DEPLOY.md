@@ -151,6 +151,7 @@ dependency on Apple's signing service at every build.
 | `scripts/lib/deploy_common.sh` | Shared config and preflight helpers |
 | `scripts/bump_build.sh` | Increments `CURRENT_PROJECT_VERSION` |
 | `ExportOptions.plist` | Manual signing, upload destination, no Xcode-managed build numbers |
+| `ExportOptions-cloud.plist` | Fallback: automatic (cloud) signing, **not headless** — see below |
 | `.deploy.env.example` | The credentials contract (real file is gitignored) |
 
 ### Credentials
@@ -186,6 +187,26 @@ and changes nothing.
 ios/scripts/deploy_testflight.sh --no-bump   # re-upload attempt, same number
 ios/scripts/deploy_testflight.sh --no-wait   # don't block on processing
 ```
+
+## Until the bootstrap has been run
+
+`bootstrap_signing.sh` has not been run yet, so there is still no local
+distribution identity and `deploy_testflight.sh` will refuse at preflight.
+Releases meanwhile go out the way builds 113 and 114 did — archive with
+automatic signing, then:
+
+```sh
+xcodebuild -exportArchive \
+  -archivePath build/Scoranger.xcarchive \
+  -exportOptionsPlist ExportOptions-cloud.plist \
+  -exportPath build/export
+```
+
+Note the absence of `-authenticationKey*`: passing the API key makes this fail
+with "Cloud signing permission error", because cloud signing is tied to the
+Mac's signed-in Apple ID rather than to the key. **This path is not headless.**
+It needs a logged-in Xcode account on the machine and cannot be driven from a
+phone. Running the bootstrap is what retires it.
 
 ## Known constraints
 

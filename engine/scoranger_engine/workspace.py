@@ -279,6 +279,27 @@ def set_piece_order(name_or_slug: str, order: list) -> dict:
     return doc
 
 
+def rename_score(slug: str, new_name: str) -> dict:
+    """Rename an arrangement (library label only).
+
+    The slug stays put: it is the identity every version artifact, piece order
+    and chat 'arr:' reference is keyed on, so renaming must not disturb it.
+    No new version is created either -- the notation is untouched.
+    """
+    repo = _repo()
+    doc = repo.get_score(slug)
+    if doc is None:
+        available = [s["slug"] for s in repo.list_scores()]
+        raise FileNotFoundError(f"No score '{slug}'. Available: {available}")
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("A name is required")
+    doc["name"] = new_name
+    repo.set_score(slug, doc)
+    rebuild_manifest()
+    return {"score": slug, "name": new_name}
+
+
 def rename_piece(name_or_slug: str, new_name: str) -> dict:
     """Rename a piece (the slug is immutable; only the display name changes)."""
     repo = _repo()

@@ -90,7 +90,7 @@ targets:
         # ships as CFBundleVersion, what App Store Connect records, and what the
         # app's footer shows. Bump with scripts/bump_build.sh (never by hand,
         # never by letting Xcode manage it at upload time).
-        CURRENT_PROJECT_VERSION: 113
+        CURRENT_PROJECT_VERSION: 114
         MARKETING_VERSION: 0.1.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key><string>app-store-connect</string>
+    <key>destination</key><string>upload</string>
+    <key>teamID</key><string>V9DBGV72NL</string>
+
+    <!-- Fallback export path, used until bootstrap_signing.sh has been run.
+         Automatic signing means Xcode's cloud-signing service does the work,
+         which needs the Mac's signed-in Apple ID: NOT headless. Builds 113 and
+         114 shipped this way. ExportOptions.plist is the headless one. -->
+    <key>signingStyle</key><string>automatic</string>
+
+    <key>manageAppVersionAndBuildNumber</key><false/>
+    <key>uploadSymbols</key><false/>
+</dict>
+</plist>

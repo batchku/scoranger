@@ -625,6 +625,26 @@ final class AppState: ObservableObject {
         Task { await renderIfNeeded() }
     }
 
+    /// Rename an arrangement. Label only: the slug stays, so version artifacts,
+    /// the piece's ordering and any 'arr:' chat references keep working, and no
+    /// new version is created because the notation is untouched.
+    @discardableResult
+    func renameScore(slug: String, name: String) async -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        do {
+            _ = try await local.call(op: "rename-score",
+                                     args: ["score": slug, "name": trimmed])
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
+    }
+
     /// Duplicate an arrangement into a new independent copy (new slug, its own
     /// history, filed under the same piece). Returns the copy's slug.
     @discardableResult
