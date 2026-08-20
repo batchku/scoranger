@@ -35,8 +35,20 @@ open Scoranger.xcodeproj
 
 Re-run `vendor_engine.sh` whenever engine Python changes. In Xcode: select the
 **Scoranger** target → *Signing & Capabilities* → pick your team, choose your
-iPad, Run. (TestFlight builds: `xcodebuild archive` + export with
-`build/ExportOptions.plist`.)
+iPad, Run.
+
+## TestFlight
+
+Deploys are headless — no Xcode Organizer, no signed-in Apple account:
+
+```sh
+scripts/bootstrap_signing.sh      # once, ever: certificate + keychain + profile
+scripts/deploy_testflight.sh      # every release: bump, archive, sign, upload
+scripts/deploy_testflight.sh --preflight   # check readiness, change nothing
+```
+
+See `DEPLOY.md` for how signing is set up and what to do when Apple needs a
+human.
 
 ## Notes
 

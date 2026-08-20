@@ -5,10 +5,27 @@
     <key>method</key><string>app-store-connect</string>
     <key>destination</key><string>upload</string>
     <key>teamID</key><string>V9DBGV72NL</string>
+
+    <!-- Manual signing with the identity and profile that
+         scripts/bootstrap_signing.sh created. Automatic signing would fall
+         back to Apple's cloud-signing service, which needs an Apple ID
+         session (or a key permission this team's key does not have) and so
+         cannot run unattended. -->
+    <key>signingStyle</key><string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.irllabs.scoranger</key>
+        <string>Scoranger App Store (headless)</string>
+    </dict>
+
     <!-- false: the build number comes from CURRENT_PROJECT_VERSION in
          project.yml, so what the app displays and what App Store Connect
          records are the same number. With this true, Xcode assigned its own
          counter at upload and the two drifted apart (app b112 vs ASC 11). -->
     <key>manageAppVersionAndBuildNumber</key><false/>
+
+    <!-- the Python.xcframework's many small binaries have no dSYMs; symbol
+         upload failures are noisy warnings, not build failures -->
+    <key>uploadSymbols</key><false/>
 </dict>
 </plist>

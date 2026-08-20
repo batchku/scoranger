@@ -25,3 +25,6 @@ ios/PythonApp/app/scoranger_engine/
 __pycache__/
 .omr-api-key
 testdata/
+
+# headless deploy credentials (see ios/.deploy.env.example)
+ios/.deploy.env
