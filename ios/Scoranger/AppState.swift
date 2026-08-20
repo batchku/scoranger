@@ -28,6 +28,17 @@ final class AppState: ObservableObject {
     @Published var highlightedBars: ClosedRange<Int>?
     /// Where the highlight came from (e.g. "pencil highlight on page 2").
     @Published var highlightNote: String?
+    /// The drawn highlight band per page index, in unit (0…1) page coordinates,
+    /// so the yellow band stays visible (across zoom levels) while a highlight
+    /// is active. Cleared together with `highlightedBars`.
+    @Published var highlightBands: [Int: CGRect] = [:]
+
+    /// Drop the active highlight and its drawn bands.
+    func clearHighlight() {
+        highlightedBars = nil
+        highlightNote = nil
+        highlightBands = [:]
+    }
 
     /// PDFs currently being converted in the cloud — shown greyed out in the
     /// scores list with a live stage until they become real scores (or fail).
@@ -100,6 +111,15 @@ final class AppState: ObservableObject {
                 m.scores.first { $0.slug == slug }
             }
             return scores.isEmpty ? nil : (piece: piece, arrangements: scores)
+        }
+    }
+
+    /// Sidebar setlists: each setlist with its pieces resolved to PieceDocs.
+    var setlistSections: [(setlist: SetlistDoc, pieces: [PieceDoc])] {
+        guard let m = manifest, let setlists = m.setlists else { return [] }
+        return setlists.map { s in
+            (setlist: s,
+             pieces: s.pieces.compactMap { slug in (m.pieces ?? []).first { $0.slug == slug } })
         }
     }
 
@@ -219,6 +239,36 @@ final class AppState: ObservableObject {
                     try? FileManager.default.copyItem(at: f, to: dest)
                 }
             }
+        }
+    }
+
+    /// First-launch seed: when the workspace has zero scores, import every
+    /// bundled samples-seed/*.mxl (no network — the files ship in the bundle),
+    /// file them under one piece, and create a "Samples" setlist containing it.
+    func seedLibraryIfEmpty() async {
+        guard useLocalEngine else { return }
+        do {
+            let m = try await local.manifest()
+            guard m.scores.isEmpty else { return }
+            guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed") else { return }
+            let files = ((try? FileManager.default.contentsOfDirectory(
+                at: seed, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension.lowercased() == "mxl" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            guard !files.isEmpty else { return }
+            let pieceName = "Sous le ciel de Paris"
+            for f in files {
+                _ = try await local.call(op: "import",
+                                         args: ["path": f.path,
+                                                "name": f.deletingPathExtension().lastPathComponent,
+                                                "piece": pieceName])
+            }
+            _ = try await local.call(op: "assign-setlist",
+                                     args: ["setlist": "Samples", "piece": pieceName])
+            print("SCORANGER-SEED imported \(files.count) sample score(s)")
+            await refresh()
+        } catch {
+            print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
     }
 
@@ -553,8 +603,7 @@ final class AppState: ObservableObject {
     func select(slug: String, version: String? = nil) {
         if slug != selectedSlug {
             // a highlight describes bars of the previously shown score
-            highlightedBars = nil
-            highlightNote = nil
+            clearHighlight()
         }
         selectedSlug = slug
         previewedSlug = slug
@@ -650,8 +699,12 @@ final class AppState: ObservableObject {
         var pieces: [String] = []
         if let base = chatContext(for: slug) { pieces.append(base) }
         if let bars = highlightedBars {
-            pieces.append("The user has highlighted measures \(bars.lowerBound)–\(bars.upperBound); "
-                + "requests referring to 'the highlighted passage/selection' mean those measures.")
+            pieces.append("A highlight is ACTIVE on measures \(bars.lowerBound)–\(bars.upperBound). "
+                + "Apply every operation ONLY to that range: pass "
+                + "from_measure=\(bars.lowerBound) and to_measure=\(bars.upperBound) to tools "
+                + "that accept them (transpose, respell, octave_shift), and refuse or ask "
+                + "before making whole-piece changes while the highlight is active. Requests "
+                + "referring to 'the highlighted passage/selection' mean exactly those measures.")
         }
         return pieces.isEmpty ? nil : pieces.joined(separator: " ")
     }

@@ -342,10 +342,42 @@ def limit_part(score, name: str, max_pitch: str | None = None, monophonic: bool 
     return stats
 
 
-def transpose(score, interval_str: str, names: list[str] | None = None) -> dict:
-    """Transpose by a named interval ('M2', 'm-3') or a semitone count ('-3', '5')."""
+def _measures_in_range(part, from_measure: int | None, to_measure: int | None) -> list:
+    """The part's Measure objects whose numbers fall in the inclusive range
+    (None = open end)."""
+    lo = from_measure if from_measure is not None else 1
+    out = []
+    for m in part.recurse().getElementsByClass(stream.Measure):
+        if m.number < lo:
+            continue
+        if to_measure is not None and m.number > to_measure:
+            continue
+        out.append(m)
+    return out
+
+
+def transpose(score, interval_str: str, names: list[str] | None = None,
+              from_measure: int | None = None, to_measure: int | None = None) -> dict:
+    """Transpose by a named interval ('M2', 'm-3') or a semitone count ('-3', '5').
+
+    With from_measure/to_measure set, only measures in that inclusive range are
+    transposed (in the named parts, or in every part).
+    """
     s = str(interval_str).strip()
     itv = m21interval.Interval(int(s)) if re.fullmatch(r"-?\d+", s) else m21interval.Interval(s)
+    ranged = from_measure is not None or to_measure is not None
+    if ranged:
+        targets = find_parts(score, names) if names else list(score.parts)
+        touched = 0
+        for p in targets:
+            for m in _measures_in_range(p, from_measure, to_measure):
+                m.transpose(itv, inPlace=True)
+                touched += 1
+        scope = [part_label(p) for p in targets] if names else "all parts"
+        return {"interval": itv.niceName, "direction": itv.direction.name.lower(),
+                "scope": scope,
+                "measures": f"{from_measure or 1}-{to_measure if to_measure is not None else 'end'}",
+                "measures_transposed": touched}
     if names:
         targets = find_parts(score, names)
         for p in targets:
@@ -357,19 +389,28 @@ def transpose(score, interval_str: str, names: list[str] | None = None) -> dict:
     return {"interval": itv.niceName, "direction": itv.direction.name.lower(), "scope": scope}
 
 
-def respell(score, prefer: str = "flats", names: list[str] | None = None) -> dict:
+def respell(score, prefer: str = "flats", names: list[str] | None = None,
+            from_measure: int | None = None, to_measure: int | None = None) -> dict:
     """Respell accidentals enharmonically: prefer 'flats' (G#->Ab) or 'sharps' (Ab->G#).
 
     Pitch-by-pitch enharmonic swap; leaves naturals alone and skips swaps that
     would produce a double accidental. Key signatures are untouched (OMR/MIDI
     imports usually carry the right signature but wrong accidental spellings).
+    With from_measure/to_measure set, only measures in that inclusive range are
+    respelled.
     """
     if prefer not in ("flats", "sharps"):
         raise ValueError("prefer must be 'flats' or 'sharps'")
     targets = find_parts(score, names) if names else list(score.parts)
+    ranged = from_measure is not None or to_measure is not None
     changed = 0
     for part in targets:
-        for p in part.recurse().stream().pitches:
+        if ranged:
+            pitches = [p for m in _measures_in_range(part, from_measure, to_measure)
+                       for p in m.recurse().stream().pitches]
+        else:
+            pitches = part.recurse().stream().pitches
+        for p in pitches:
             acc = p.accidental
             if acc is None or acc.alter == 0:
                 continue
@@ -381,8 +422,12 @@ def respell(score, prefer: str = "flats", names: list[str] | None = None) -> dic
                 p.octave = e.octave
                 p.accidental = e.accidental
                 changed += 1
-    return {"prefer": prefer, "changed_notes": changed,
-            "scope": [part_label(p) for p in targets] if names else "all parts"}
+    out = {"prefer": prefer, "changed_notes": changed,
+           "scope": [part_label(p) for p in targets] if names else "all parts"}
+    if ranged:
+        out["measures"] = (f"{from_measure or 1}-"
+                           f"{to_measure if to_measure is not None else 'end'}")
+    return out
 
 
 def change_clef(part, clef_name: str, from_measure: int = 1) -> dict:

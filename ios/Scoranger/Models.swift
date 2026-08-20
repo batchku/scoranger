@@ -6,6 +6,7 @@ struct Manifest: Codable {
     var generated: String?
     var scores: [ScoreDoc]
     var pieces: [PieceDoc]?
+    var setlists: [SetlistDoc]?
 }
 
 struct ScoreDoc: Codable, Identifiable, Hashable {
@@ -32,6 +33,18 @@ struct PieceDoc: Codable, Identifiable, Hashable {
     var id: String { slug }
 
     static func == (lhs: PieceDoc, rhs: PieceDoc) -> Bool { lhs.slug == rhs.slug }
+    func hash(into hasher: inout Hasher) { hasher.combine(slug) }
+}
+
+/// An ordered group of pieces (a gig's running order).
+struct SetlistDoc: Codable, Identifiable, Hashable {
+    var slug: String
+    var name: String
+    var pieces: [String]
+
+    var id: String { slug }
+
+    static func == (lhs: SetlistDoc, rhs: SetlistDoc) -> Bool { lhs.slug == rhs.slug }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 

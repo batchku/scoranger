@@ -46,14 +46,34 @@ struct ScorePagesView: View {
                                      drawingStore: DrawingStore.shared,
                                      drawingKey: "\(annotationKey)/p\(index)")
                                 .overlay {
+                                    // the committed band stays visible (in unit
+                                    // page coordinates, so it survives zoom)
+                                    // while a highlight is active
+                                    if state.highlightedBars != nil,
+                                       let band = state.highlightBands[index] {
+                                        GeometryReader { g in
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .fill(Color.yellow.opacity(0.3))
+                                                .frame(width: band.width * g.size.width,
+                                                       height: band.height * g.size.height)
+                                                .offset(x: band.minX * g.size.width,
+                                                        y: band.minY * g.size.height)
+                                        }
+                                        .allowsHitTesting(false)
+                                    }
+                                }
+                                .overlay {
                                     if highlightMode {
                                         HighlightCaptureOverlay(
                                             pageIndex: index,
                                             pageCount: max(document.pageCount, 1),
                                             measures: measureCount
-                                        ) { bars, note in
+                                        ) { bars, note, bandRect in
                                             state.highlightedBars = bars
                                             state.highlightNote = note
+                                            // one band at a time: a new stroke
+                                            // replaces the previous selection
+                                            state.highlightBands = [index: bandRect]
                                             chipExpanded = false
                                         }
                                     }
@@ -111,8 +131,7 @@ struct ScorePagesView: View {
                     }
                     .buttonStyle(.plain)
                     Button {
-                        state.highlightedBars = nil
-                        state.highlightNote = nil
+                        state.clearHighlight()
                         chipExpanded = false
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -164,7 +183,8 @@ private struct HighlightCaptureOverlay: View {
     let pageIndex: Int
     let pageCount: Int
     let measures: Int
-    let onHighlight: (ClosedRange<Int>, String) -> Void
+    /// (bar range, provenance note, committed band in unit page coordinates)
+    let onHighlight: (ClosedRange<Int>, String, CGRect) -> Void
 
     @State private var dragStart: CGPoint?
     @State private var dragCurrent: CGPoint?
@@ -194,6 +214,7 @@ private struct HighlightCaptureOverlay: View {
                         }
                         guard let s = dragStart else { return }
                         let pageWidth = max(geo.size.width, 1)
+                        let pageHeight = max(geo.size.height, 1)
                         let x0 = min(s.x, value.location.x) / pageWidth
                         let x1 = max(s.x, value.location.x) / pageWidth
                         // linear position across the whole document, 0…1
@@ -201,7 +222,14 @@ private struct HighlightCaptureOverlay: View {
                         let g1 = (Double(pageIndex) + Double(x1)) / Double(pageCount)
                         let lo = max(1, min(measures, Int(g0 * Double(measures)) + 1))
                         let hi = max(lo, min(measures, Int((g1 * Double(measures)).rounded(.up))))
-                        onHighlight(lo...hi, "pencil highlight on page \(pageIndex + 1)")
+                        // the drawn band, normalized so it can be re-rendered
+                        // at any zoom level
+                        let midY = (s.y + value.location.y) / 2
+                        let band = CGRect(x: x0,
+                                          y: max(0, (midY - 22) / pageHeight),
+                                          width: max(x1 - x0, 8 / pageWidth),
+                                          height: 44 / pageHeight)
+                        onHighlight(lo...hi, "pencil highlight on page \(pageIndex + 1)", band)
                     }
             )
         }
@@ -257,6 +285,16 @@ private struct PencilCanvas: UIViewRepresentable {
         canvas.tool = PKInkingTool(.pen, color: .systemRed, width: 3)
         canvas.delegate = context.coordinator
         canvas.drawing = store.drawing(for: key)
+        // drawingPolicy .pencilOnly governs what draws, but the canvas's
+        // gesture recognizers still claim finger touches — which ate the
+        // two-finger pinch. Restrict every recognizer to pencil touches so
+        // finger scrolls and pinches pass through to the SwiftUI ScrollView
+        // and MagnifyGesture.
+        let pencilOnly = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        canvas.drawingGestureRecognizer.allowedTouchTypes = pencilOnly
+        for recognizer in canvas.gestureRecognizers ?? [] {
+            recognizer.allowedTouchTypes = pencilOnly
+        }
         context.coordinator.key = key
         context.coordinator.store = store
         return canvas

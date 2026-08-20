@@ -35,6 +35,8 @@ class SqliteRepository:
                 " doc TEXT NOT NULL, PRIMARY KEY (score_id, id))")
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS pieces (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS setlists (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.commit()
 
     # -- scores collection ------------------------------------------------
@@ -86,6 +88,30 @@ class SqliteRepository:
     def delete_piece(self, piece_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM pieces WHERE id = ?", (piece_id,))
+            self._conn.commit()
+
+    # -- setlists collection (ordered groups of pieces) ----------------------
+
+    def set_setlist(self, setlist_id: str, doc: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO setlists (id, doc) VALUES (?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET doc = excluded.doc",
+                (setlist_id, json.dumps(doc)))
+            self._conn.commit()
+
+    def get_setlist(self, setlist_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT doc FROM setlists WHERE id = ?", (setlist_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def list_setlists(self) -> list[dict]:
+        rows = self._conn.execute("SELECT doc FROM setlists ORDER BY id").fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    def delete_setlist(self, setlist_id: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM setlists WHERE id = ?", (setlist_id,))
             self._conn.commit()
 
     # -- sources subcollection (other found editions of the same piece) -----

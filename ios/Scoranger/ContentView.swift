@@ -11,6 +11,10 @@ struct ContentView: View {
     @State private var didSetInitialChat = false
     /// Piece rows are expanded by default; track only the collapsed ones.
     @State private var collapsedPieces: Set<String> = []
+    /// Setlist rows are expanded by default; track only the collapsed ones.
+    @State private var collapsedSetlists: Set<String> = []
+    /// Version prompt-groups are collapsed by default; track the expanded ones.
+    @State private var expandedVersionGroups: Set<String> = []
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
     /// Score awaiting a "New piece…" name (drives the naming alert).
@@ -86,27 +90,38 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            // Setlists: ordered groups of pieces; tapping a piece jumps to it
+            // (expands it in Pieces and previews its first arrangement).
+            if !state.setlistSections.isEmpty {
+                Section("Setlists") {
+                    ForEach(state.setlistSections, id: \.setlist.slug) { section in
+                        setlistRow(section.setlist)
+                        if !collapsedSetlists.contains(section.setlist.slug) {
+                            ForEach(section.pieces) { piece in
+                                setlistPieceRow(piece)
+                            }
+                        }
+                    }
+                }
+            }
             // One "Pieces" section; each piece is an expandable row whose
             // children are its arrangements. Unfiled follows.
+            // Plain rows with an explicit chevron button instead of
+            // DisclosureGroup: buttons inside DisclosureGroup labels get
+            // swallowed by the disclosure tap target on iPad sidebar lists.
             if !state.pieceSections.isEmpty {
                 Section("Pieces") {
                     ForEach(state.pieceSections, id: \.piece.slug) { section in
-                        DisclosureGroup(isExpanded: Binding(
-                            get: { !collapsedPieces.contains(section.piece.slug) },
-                            set: { open in
-                                if open { collapsedPieces.remove(section.piece.slug) }
-                                else { collapsedPieces.insert(section.piece.slug) }
-                            }
-                        )) {
+                        pieceRow(section.piece)
+                        if !collapsedPieces.contains(section.piece.slug) {
                             // .onMove would fight the rows' onDrag (used for
                             // filing onto pieces), so reordering is offered
                             // via the rows' context menu instead.
                             ForEach(Array(section.arrangements.enumerated()),
                                     id: \.element.slug) { index, score in
                                 scoreRow(score, index: index, inPiece: section)
+                                    .padding(.leading, 12)
                             }
-                        } label: {
-                            pieceDropLabel(section.piece)
                         }
                     }
                 }
@@ -125,16 +140,18 @@ struct ContentView: View {
             if let slug = state.previewedSlug,
                let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
                 Section("Versions") {
+                    // explicit caret buttons (DisclosureGroup labels swallow
+                    // button taps on iPad sidebar lists)
                     ForEach(state.versionGroups(for: score)) { group in
                         if group.subs.isEmpty {
                             versionRow(score, group.face)
                         } else {
-                            DisclosureGroup {
+                            versionGroupRow(score, group)
+                            if expandedVersionGroups.contains(group.id) {
                                 ForEach(group.subs.reversed()) { v in
                                     versionRow(score, v)
+                                        .padding(.leading, 16)
                                 }
-                            } label: {
-                                versionGroupLabel(score, group)
                             }
                         }
                     }
@@ -218,48 +235,106 @@ struct ContentView: View {
     /// show metadata, duplicate, or open the score in the detail pane.
     @State private var dropTargetPiece: String?
 
-    /// Piece title row: the drop zone for filing dragged arrangements, plus a
-    /// button that starts a new blank arrangement of the piece.
-    /// Highlights while a drag hovers over it.
-    private func pieceDropLabel(_ piece: PieceDoc) -> some View {
-        HStack(spacing: 4) {
-            Text(piece.name)
-                .font(.subheadline.weight(.medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
+    /// Piece title row: an explicit caret button (expand/collapse), the drop
+    /// zone for filing dragged arrangements, and a button that starts a new
+    /// blank arrangement of the piece. Highlights while a drag hovers over it.
+    private func pieceRow(_ piece: PieceDoc) -> some View {
+        let collapsed = collapsedPieces.contains(piece.slug)
+        return HStack(spacing: 4) {
             Button {
+                withAnimation {
+                    if collapsed { collapsedPieces.remove(piece.slug) }
+                    else { collapsedPieces.insert(piece.slug) }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                    Text(piece.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(piece.name)")
+            rowIcon("plus.circle", label: "New arrangement of \(piece.name)") {
                 Task {
                     if let slug = await state.createArrangement(pieceSlug: piece.slug) {
                         openScore(slug)
                         showChat = true
                     }
                 }
-            } label: {
-                Image(systemName: "plus.circle")
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 28, minHeight: 28)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("New arrangement of \(piece.name)")
         }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-            .background(dropTargetPiece == piece.slug
-                        ? Color.orange.opacity(0.3) : Color.clear)
-            .onDrop(of: [.plainText],
-                    isTargeted: Binding(
-                        get: { dropTargetPiece == piece.slug },
-                        set: { dropTargetPiece = $0 ? piece.slug : nil }
-                    )) { providers in
-                guard let provider = providers.first else { return false }
-                _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                    guard let slug = object as? String else { return }
-                    Task { @MainActor in
-                        state.assignToPiece(scoreSlug: slug, piece: piece.slug)
-                    }
+        .padding(.vertical, 4)
+        .listRowBackground(dropTargetPiece == piece.slug
+                           ? Color.orange.opacity(0.3) : nil)
+        .onDrop(of: [.plainText],
+                isTargeted: Binding(
+                    get: { dropTargetPiece == piece.slug },
+                    set: { dropTargetPiece = $0 ? piece.slug : nil }
+                )) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let slug = object as? String else { return }
+                Task { @MainActor in
+                    state.assignToPiece(scoreSlug: slug, piece: piece.slug)
                 }
-                return true
             }
+            return true
+        }
+    }
+
+    /// Setlist title row: explicit caret, like pieces.
+    private func setlistRow(_ setlist: SetlistDoc) -> some View {
+        let collapsed = collapsedSetlists.contains(setlist.slug)
+        return Button {
+            withAnimation {
+                if collapsed { collapsedSetlists.remove(setlist.slug) }
+                else { collapsedSetlists.insert(setlist.slug) }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+                Image(systemName: "music.note.list")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(setlist.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
+    }
+
+    /// A piece inside a setlist: tap expands the piece in Pieces and previews
+    /// its first arrangement (v1 navigation).
+    private func setlistPieceRow(_ piece: PieceDoc) -> some View {
+        Button {
+            collapsedPieces.remove(piece.slug)
+            if let first = state.pieceSections
+                .first(where: { $0.piece.slug == piece.slug })?.arrangements.first {
+                state.previewedSlug = first.slug
+            }
+        } label: {
+            Text(piece.name)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.leading, 16)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.primary)
     }
 
     /// `index`/`inPiece` are set for rows inside a piece: the index shows as a
@@ -396,27 +471,47 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    /// The face row of a prompt group: tap opens the score at the group's
-    /// final version; the eye shows when any of its versions is displayed.
-    private func versionGroupLabel(_ score: ScoreDoc, _ group: AppState.VersionGroup) -> some View {
-        Button {
-            openScore(score.slug,
-                      version: group.face.id == score.latest ? nil : group.face.id)
-        } label: {
-            HStack {
-                Text(group.face.id).font(.system(.caption, design: .monospaced))
-                Text(group.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-                if score.slug == state.selectedScore?.slug,
-                   group.subs.contains(where: { $0.id == state.displayedVersionID }) {
-                    Image(systemName: "eye").font(.caption2)
+    /// The face row of a prompt group: an explicit caret button expands the
+    /// group's step versions; tapping the rest opens the score at the group's
+    /// final version. The eye shows when any of its versions is displayed.
+    private func versionGroupRow(_ score: ScoreDoc, _ group: AppState.VersionGroup) -> some View {
+        let expanded = expandedVersionGroups.contains(group.id)
+        return HStack(spacing: 4) {
+            Button {
+                withAnimation {
+                    if expanded { expandedVersionGroups.remove(group.id) }
+                    else { expandedVersionGroups.insert(group.id) }
                 }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(minWidth: 24, minHeight: 24)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("\(expanded ? "Collapse" : "Expand") versions of this prompt")
+            Button {
+                openScore(score.slug,
+                          version: group.face.id == score.latest ? nil : group.face.id)
+            } label: {
+                HStack {
+                    Text(group.face.id).font(.system(.caption, design: .monospaced))
+                    Text(group.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    if score.slug == state.selectedScore?.slug,
+                       group.subs.contains(where: { $0.id == state.displayedVersionID }) {
+                        Image(systemName: "eye").font(.caption2)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: detail

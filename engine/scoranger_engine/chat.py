@@ -105,17 +105,26 @@ def remove_parts(ctx: RunContext[str], parts: list[str]) -> dict:
                   lambda s: {"removed": ops.remove_parts(s, parts)})
 
 
-def transpose(ctx: RunContext[str], interval: str, parts: list[str] | None = None) -> dict:
-    """Transpose the whole score (or given parts) by a named interval ('M2', 'm-3', 'P8') or semitone count ('-3')."""
-    return _apply(ctx.deps, "transpose", {"interval": interval, "parts": parts},
-                  lambda s: ops.transpose(s, interval, parts))
+def transpose(ctx: RunContext[str], interval: str, parts: list[str] | None = None,
+              from_measure: int | None = None, to_measure: int | None = None) -> dict:
+    """Transpose the whole score (or given parts) by a named interval ('M2', 'm-3', 'P8') or
+    semitone count ('-3'). Set from_measure/to_measure (inclusive) to transpose only that
+    measure range — required when the user targets a highlighted passage."""
+    return _apply(ctx.deps, "transpose",
+                  {"interval": interval, "parts": parts,
+                   "from_measure": from_measure, "to_measure": to_measure},
+                  lambda s: ops.transpose(s, interval, parts, from_measure, to_measure))
 
 
-def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None = None) -> dict:
+def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None = None,
+            from_measure: int | None = None, to_measure: int | None = None) -> dict:
     """Respell accidentals enharmonically: prefer='flats' turns G# into Ab (right for flat keys
-    like F minor); prefer='sharps' does the reverse. Key signatures are untouched."""
-    return _apply(ctx.deps, "respell", {"prefer": prefer, "parts": parts},
-                  lambda s: ops.respell(s, prefer, parts))
+    like F minor); prefer='sharps' does the reverse. Key signatures are untouched. Set
+    from_measure/to_measure (inclusive) to respell only that measure range."""
+    return _apply(ctx.deps, "respell",
+                  {"prefer": prefer, "parts": parts,
+                   "from_measure": from_measure, "to_measure": to_measure},
+                  lambda s: ops.respell(s, prefer, parts, from_measure, to_measure))
 
 
 def change_clef(ctx: RunContext[str], part: str, clef: str, from_measure: int = 1) -> dict:

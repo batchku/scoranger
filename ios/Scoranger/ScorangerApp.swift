@@ -31,6 +31,7 @@ struct ScorangerApp: App {
                         print("SCORANGER-ENGINE omr key adopted")
                     }
                     #endif
+                    await state.seedLibraryIfEmpty()
                     await state.refresh()
                 }
         }

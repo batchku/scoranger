@@ -101,6 +101,11 @@ def _dispatch(op, a):
         return workspace.rename_piece(a["piece"], a["name"])
     if op == "reorder-piece":
         return workspace.set_piece_order(a["piece"], a["order"])
+    if op == "create-setlist":
+        return workspace.create_setlist(a["name"])
+    if op == "assign-setlist":
+        return workspace.add_piece_to_setlist(a["setlist"], a["piece"],
+                                              create_if_missing=True)
     if op == "create-arrangement":
         # a minimal valid score: one part, one 4/4 measure with a whole rest
         from music21 import clef, meter, metadata, note, stream
@@ -150,9 +155,13 @@ def _dispatch(op, a):
     if op == "remove-parts":
         return _mutate(s, op, a, lambda sc: {"removed": ops.remove_parts(sc, a["parts"])})
     if op == "transpose":
-        return _mutate(s, op, a, lambda sc: ops.transpose(sc, str(a["interval"]), a.get("parts")))
+        return _mutate(s, op, a, lambda sc: ops.transpose(
+            sc, str(a["interval"]), a.get("parts"),
+            a.get("from_measure"), a.get("to_measure")))
     if op == "respell":
-        return _mutate(s, op, a, lambda sc: ops.respell(sc, a.get("prefer", "flats"), a.get("parts")))
+        return _mutate(s, op, a, lambda sc: ops.respell(
+            sc, a.get("prefer", "flats"), a.get("parts"),
+            a.get("from_measure"), a.get("to_measure")))
     if op == "change-clef":
         return _mutate(s, op, a, lambda sc: ops.change_clef(_part(sc, a["part"]), a["clef"], a.get("from_measure", 1)))
     if op == "change-instrument":

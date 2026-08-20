@@ -296,6 +296,50 @@ def delete_piece(name_or_slug: str) -> None:
     rebuild_manifest()
 
 
+def create_setlist(name: str) -> dict:
+    """Create a setlist document (an ordered group of pieces). Returns the doc."""
+    repo = _repo()
+    base = slugify(name)
+    slug, n = base, 2
+    while repo.get_setlist(slug) is not None:
+        slug = f"{base}-{n}"
+        n += 1
+    doc = {"id": slug, "slug": slug, "name": name, "pieces": [], "created": _now()}
+    repo.set_setlist(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def resolve_setlist(name_or_slug: str, create_if_missing: bool = False) -> dict:
+    """Find a setlist by slug, then by case-insensitive name; optionally create it."""
+    repo = _repo()
+    doc = repo.get_setlist(name_or_slug)
+    if doc is not None:
+        return doc
+    for s in repo.list_setlists():
+        if s["name"].lower() == name_or_slug.lower():
+            return s
+    if create_if_missing:
+        return create_setlist(name_or_slug)
+    available = [s["slug"] for s in repo.list_setlists()]
+    raise FileNotFoundError(f"No setlist '{name_or_slug}'. Available: {available}")
+
+
+def add_piece_to_setlist(setlist: str, piece: str,
+                         create_if_missing: bool = True) -> dict:
+    """Append a piece to a setlist (no-op if already a member)."""
+    repo = _repo()
+    doc = resolve_setlist(setlist, create_if_missing=create_if_missing)
+    piece_slug = resolve_piece(piece)["slug"]
+    pieces = doc.get("pieces") or []
+    if piece_slug not in pieces:
+        pieces.append(piece_slug)
+        doc["pieces"] = pieces
+        repo.set_setlist(doc["slug"], doc)
+        rebuild_manifest()
+    return doc
+
+
 def delete_score(slug: str) -> None:
     import shutil
     load_meta(slug)  # raises with available slugs if missing
@@ -330,7 +374,12 @@ def rebuild_manifest() -> dict:
                                                for d in score_docs if d["slug"] == s))
         pieces.append({"slug": p["slug"], "name": p["name"],
                        "arrangements": ordered + stragglers})
-    manifest = {"generated": _now(), "scores": scores, "pieces": pieces}
+    piece_slugs = {p["slug"] for p in pieces}
+    setlists = [{"slug": s["slug"], "name": s["name"],
+                 "pieces": [q for q in (s.get("pieces") or []) if q in piece_slugs]}
+                for s in sorted(repo.list_setlists(), key=lambda x: x["name"].lower())]
+    manifest = {"generated": _now(), "scores": scores, "pieces": pieces,
+                "setlists": setlists}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
