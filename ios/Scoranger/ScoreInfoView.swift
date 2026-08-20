@@ -30,8 +30,16 @@ struct ScoreInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Overview") {
+                Section("Arrangement") {
                     LabeledContent("Name", value: score.name)
+                    if let placement = state.placement(of: score.slug) {
+                        LabeledContent("Number in piece") {
+                            Text("#\(placement.number)")
+                                .font(.body.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    }
                     if let title = score.title, !title.isEmpty {
                         LabeledContent("Title", value: title)
                     }
@@ -76,19 +84,19 @@ struct ScoreInfoView: View {
                     }
                 }
                 if !latestParts.isEmpty {
-                    Section("Parts (latest version)") {
+                    Section("Scored for (latest version)") {
                         ForEach(latestParts, id: \.index) { part in
                             partRow(part)
                         }
                     }
                 }
-                Section("Versions") {
+                Section("Versions (this arrangement's history)") {
                     ForEach(score.versions.reversed()) { v in
                         versionRow(v)
                     }
                 }
                 if let sources = score.sources, !sources.isEmpty {
-                    Section("Sources") {
+                    Section("Sources (other editions of the piece)") {
                         ForEach(sources) { source in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {

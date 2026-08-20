@@ -123,6 +123,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Where an arrangement sits in the hierarchy: the piece it is filed under
+    /// and its 1-based number within that piece. That number is what the UI
+    /// shows as "#N" and what chat prompts mean by "#3".
+    func placement(of slug: String) -> (piece: PieceDoc, number: Int)? {
+        guard let pieces = manifest?.pieces,
+              let piece = pieces.first(where: { $0.arrangements.contains(slug) }),
+              let index = piece.arrangements.firstIndex(of: slug) else { return nil }
+        return (piece, index + 1)
+    }
+
     /// Scores not filed under any piece.
     var unfiledScores: [ScoreDoc] {
         guard let m = manifest else { return [] }
@@ -383,18 +393,20 @@ final class AppState: ObservableObject {
     }
 
     /// A file handed to us by the system (share sheet / "Open in").
-    func receiveFile(at url: URL) {
+    /// `piece` files the resulting arrangement under that piece (the sidebar's
+    /// per-piece import); nil leaves it unfiled.
+    func receiveFile(at url: URL, intoPiece piece: String? = nil) {
         if url.pathExtension.lowercased() == "pdf" {
-            convertPDF(at: url)
+            convertPDF(at: url, intoPiece: piece)
         } else {
-            importScore(from: url)
+            importScore(from: url, intoPiece: piece)
         }
     }
 
     /// PDF -> MusicXML via the cloud OMR service (Audiveris on Cloud Run),
     /// then import. Falls back to saving into Documents/intake when no
     /// service is configured.
-    private func convertPDF(at url: URL) {
+    private func convertPDF(at url: URL, intoPiece piece: String? = nil) {
         let scoped = url.startAccessingSecurityScopedResource()
         let pdfData = try? Data(contentsOf: url)
         let name = url.deletingPathExtension().lastPathComponent
@@ -538,9 +550,10 @@ final class AppState: ObservableObject {
                 let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
                 try data.write(to: tmp)
-                let slug = try await local.importScore(fileURL: tmp, name: name)
+                let slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
                 try? FileManager.default.removeItem(at: tmp)
                 selectedSlug = slug
+                previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
             } catch {
@@ -575,7 +588,7 @@ final class AppState: ObservableObject {
     }
 
     /// Import a MusicXML/MXL/MIDI file picked in the Files UI (local engine only).
-    func importScore(from url: URL) {
+    func importScore(from url: URL, intoPiece piece: String? = nil) {
         Task {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -585,9 +598,10 @@ final class AppState: ObservableObject {
                 try? FileManager.default.removeItem(at: tmp)
                 try FileManager.default.copyItem(at: url, to: tmp)
                 let name = url.deletingPathExtension().lastPathComponent
-                let slug = try await local.importScore(fileURL: tmp, name: name)
+                let slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
                 try? FileManager.default.removeItem(at: tmp)
                 selectedSlug = slug
+                previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
             } catch {
@@ -611,18 +625,22 @@ final class AppState: ObservableObject {
         Task { await renderIfNeeded() }
     }
 
-    /// Duplicate a score into a new independent copy (new slug, full history).
-    func duplicateScore(slug: String) {
-        Task {
-            do {
-                _ = try await local.call(op: "duplicate", args: ["score": slug])
-                await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
-            } catch {
-                lastError = error.localizedDescription
-            }
+    /// Duplicate an arrangement into a new independent copy (new slug, its own
+    /// history, filed under the same piece). Returns the copy's slug.
+    @discardableResult
+    func duplicateScore(slug: String, name: String? = nil) async -> String? {
+        do {
+            var args: [String: Any] = ["score": slug]
+            if let name { args["name"] = name }
+            let r = try await local.call(op: "duplicate", args: args)
+            await refresh()
+            return r["score"] as? String
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
         }
+        return nil
     }
 
     /// File a score under a piece (nil = remove from its piece). The piece is
@@ -647,10 +665,11 @@ final class AppState: ObservableObject {
 
     /// Create a blank arrangement (one part, one empty 4/4 bar) filed under a
     /// piece. Returns the new score's slug so the caller can open it.
-    func createArrangement(pieceSlug: String) async -> String? {
+    func createArrangement(pieceSlug: String, name: String? = nil) async -> String? {
         do {
-            let r = try await local.call(op: "create-arrangement",
-                                         args: ["piece": pieceSlug])
+            var args: [String: Any] = ["piece": pieceSlug]
+            if let name { args["name"] = name }
+            let r = try await local.call(op: "create-arrangement", args: args)
             await refresh()
             return r["score"] as? String
         } catch let e as EngineError {
@@ -677,7 +696,9 @@ final class AppState: ObservableObject {
     }
 
     /// Piece context handed to the chat agent: which piece this arrangement
-    /// belongs to and its numbered siblings (pullable via 'arr:<slug>').
+    /// belongs to and its numbered siblings. The numbers are the "#N" the user
+    /// sees in the sidebar and types in prompts; each maps to an 'arr:<slug>'
+    /// ref that pull_part accepts.
     func chatContext(for slug: String) -> String? {
         guard let m = manifest,
               let score = m.scores.first(where: { $0.slug == slug }),
@@ -686,11 +707,15 @@ final class AppState: ObservableObject {
               !piece.arrangements.isEmpty else { return nil }
         let numbered = piece.arrangements.enumerated().map { i, s -> String in
             let name = m.scores.first { $0.slug == s }?.name ?? s
-            let marker = s == slug ? " (this one)" : ""
-            return "\(i + 1). \(name) (ref arr:\(s))\(marker)"
+            let marker = s == slug ? " (THIS arrangement)" : ""
+            return "#\(i + 1) = '\(name)' (ref arr:\(s))\(marker)"
         }
         return "This arrangement belongs to the piece '\(piece.name)'. "
-            + "Sibling arrangements by number: " + numbered.joined(separator: ", ")
+            + "The piece's arrangements are numbered, and the user refers to them "
+            + "by number with a '#' prefix: " + numbered.joined(separator: ", ") + ". "
+            + "So \"take the violin part from #3\" means pull_part with the arr: ref "
+            + "listed for #3. Numbers refer only to arrangements of this piece, never "
+            + "to versions or measures."
     }
 
     /// Chat context plus the active pencil highlight, if any, so prompts can

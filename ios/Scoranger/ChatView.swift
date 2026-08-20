@@ -9,6 +9,11 @@ struct ChatView: View {
     @State private var dictationBase = ""
 
     private var slug: String? { state.selectedScore?.slug }
+    /// How many arrangements the open one shares its piece with (1 = it's alone,
+    /// so there is nothing to refer to by number).
+    private var siblingCount: Int {
+        slug.flatMap { state.placement(of: $0)?.piece.arrangements.count } ?? 0
+    }
     private var messages: [ChatDisplayMessage] {
         slug.flatMap { state.chatMessages[$0] } ?? []
     }
@@ -21,10 +26,15 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         if messages.isEmpty {
-                            Text("Ask for an arrangement — “drop the piano”, “transpose down a minor third”, “give the cello line to a viola”…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding()
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Ask for an arrangement — “drop the piano”, “transpose down a minor third”, “give the cello line to a viola”…")
+                                if siblingCount > 1 {
+                                    Text("Refer to the other arrangements of this piece by number: “take the violin part from #2”.")
+                                }
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding()
                         }
                         ForEach(messages) { msg in
                             bubble(msg)
@@ -50,9 +60,33 @@ struct ChatView: View {
         .background(.background)
     }
 
+    /// Which arrangement this chat is talking to, spelled out the same way the
+    /// sidebar and prompts do, so "#3" is never ambiguous.
     private var header: some View {
-        HStack {
-            Text("Chat").font(.headline)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 1) {
+                if let score = state.selectedScore {
+                    HStack(spacing: 5) {
+                        if let placement = state.placement(of: score.slug) {
+                            Text("#\(placement.number)")
+                                .font(.headline.weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        Text(score.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                    }
+                    if let placement = state.placement(of: score.slug) {
+                        Text(placement.piece.name)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    Text("Chat").font(.headline)
+                }
+            }
             Spacer()
             if let catalog = state.modelCatalog {
                 Picker("Model", selection: $state.chatModel) {

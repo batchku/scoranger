@@ -50,6 +50,13 @@ Working rules:
    list. Correct and retry.
 5. Musical judgment is yours: sensible clefs, octaves, keys. Flag questionable
    requests instead of silently producing garbage.
+6. A PIECE is the composition; an ARRANGEMENT is one scoring of it; a VERSION is
+   one immutable step in an arrangement's history. You always operate on ONE
+   arrangement. When the user writes '#N' they mean arrangement number N of the
+   same piece, listed with its 'arr:<slug>' ref in the context: "take the violin
+   part from #3" means pull_part from that ref. '#N' never means a version or a
+   measure. If no numbered list is in context, say the arrangement isn't filed
+   under a piece yet rather than guessing.
 Answer concisely; the user sees the score update live.
 """
 
