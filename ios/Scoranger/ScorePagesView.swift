@@ -78,8 +78,8 @@ struct ScorePagesView: View {
                             if state.highlightedBars != nil,
                                let band = state.highlightBands[index] {
                                 GeometryReader { g in
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.yellow.opacity(0.3))
+                                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                        .fill(Theme.Status.highlight)
                                         .frame(width: band.width * g.size.width,
                                                height: band.height * g.size.height)
                                         .offset(x: band.minX * g.size.width,
@@ -104,7 +104,7 @@ struct ScorePagesView: View {
                                 }
                             }
                         }
-                        .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+                        .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
                 }
             }
         }
@@ -114,47 +114,77 @@ struct ScorePagesView: View {
 
     // MARK: highlight chip
 
-    /// "≈ bars X–Y" pill: tap to fine-tune with steppers, x to clear.
+    /// §7.10: a panel chip with a caps label, mono bar numbers on `well` cells,
+    /// and the sentence that says where the selection goes.
     @ViewBuilder
     private var highlightChip: some View {
         if let bars = state.highlightedBars {
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: "highlighter")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Button {
-                        chipExpanded.toggle()
-                    } label: {
-                        Text("≈ bars \(bars.lowerBound)–\(bars.upperBound)")
-                            .font(.callout.weight(.medium))
-                    }
-                    .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: Theme.Metric.s6) {
+                HStack(spacing: Theme.Metric.s8) {
+                    Text("Passage").typeRole(.label)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                    Spacer(minLength: Theme.Metric.s8)
                     Button {
                         state.clearHighlight()
                         chipExpanded = false
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Theme.Ink.ink2)
+                            .frame(width: 22, height: 22)
+                            .frame(width: Theme.Metric.hitTarget,
+                                   height: Theme.Metric.hitTarget)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Clear highlight")
                 }
+                Button { chipExpanded.toggle() } label: {
+                    HStack(spacing: Theme.Metric.s4) {
+                        barCell("\(bars.lowerBound)")
+                        Text("–").typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        barCell("\(bars.upperBound)")
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text("handed to chat").typeRole(.meta)
+                    .foregroundStyle(Theme.Ink.ink3)
                 if chipExpanded {
                     Stepper(value: chipLow, in: 1...bars.upperBound) {
-                        Text("from bar \(bars.lowerBound)").font(.footnote)
+                        Text("from bar \(bars.lowerBound)").typeRole(.meta)
                     }
-                    Stepper(value: chipHigh, in: bars.lowerBound...max(measureCount, bars.upperBound)) {
-                        Text("to bar \(bars.upperBound)").font(.footnote)
+                    Stepper(value: chipHigh,
+                            in: bars.lowerBound...max(measureCount, bars.upperBound)) {
+                        Text("to bar \(bars.upperBound)").typeRole(.meta)
                     }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
-            .padding(.top, 8)
-            .frame(maxWidth: 320)
+            .padding(.horizontal, Theme.Metric.s12)
+            .padding(.vertical, Theme.Metric.s8)
+            .background(Theme.Surface.panel)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
+                    .stroke(Theme.Line.line2, lineWidth: 1)
+            }
+            .modifier(ChipShadow())
+            .padding(.top, Theme.Metric.s8)
+            .frame(maxWidth: 260)
         }
+    }
+
+    private func barCell(_ text: String) -> some View {
+        Text(text)
+            .typeRole(.data)
+            .foregroundStyle(Theme.Ink.ink)
+            .padding(.vertical, Theme.Metric.s2)
+            .padding(.horizontal, Theme.Metric.s6)
+            .background(Theme.Surface.well)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                    .stroke(Theme.Line.line2, lineWidth: 1)
+            }
     }
 
     private var chipLow: Binding<Int> {
@@ -426,4 +456,9 @@ final class DrawingStore {
             try? FileManager.default.removeItem(at: f)
         }
     }
+}
+
+
+private struct ChipShadow: ViewModifier {
+    func body(content: Content) -> some View { Theme.Elevation.pill(content) }
 }

@@ -24,7 +24,7 @@ struct CanvasPill<VersionMenu: View, OptionsMenu: View>: View {
     var body: some View {
         HStack(spacing: Theme.Metric.s6) {
             PillToggle(systemName: "line.3.horizontal", label: "Library",
-                       isActive: libraryOpen) {
+                       identifier: "pill-library", isActive: libraryOpen) {
                 withAnimation(Theme.Motion.pillState) { libraryOpen.toggle() }
             }
 
@@ -50,6 +50,7 @@ struct CanvasPill<VersionMenu: View, OptionsMenu: View>: View {
                         .frame(minHeight: Theme.Metric.hitTarget)
                 }
                 .accessibilityLabel("Version \(versionID), pick another")
+                .accessibilityIdentifier("pill-version")
             }
 
             divider
@@ -65,10 +66,12 @@ struct CanvasPill<VersionMenu: View, OptionsMenu: View>: View {
                     .contentShape(Circle())
             }
             .accessibilityLabel("Score options")
+            .accessibilityIdentifier("pill-options")
 
             if showsMarkup {
                 PillToggle(systemName: markupActive ? "pencil.tip" : "pencil.slash",
                            label: markupActive ? "Exit markup" : "Markup",
+                           identifier: "pill-markup",
                            isActive: markupActive,
                            activeTint: markupInk,
                            action: onMarkup)
@@ -77,7 +80,7 @@ struct CanvasPill<VersionMenu: View, OptionsMenu: View>: View {
             divider
 
             PillToggle(systemName: "bubble.left.and.text.bubble.right", label: "Chat",
-                       isActive: chatOpen) {
+                       identifier: "pill-chat", isActive: chatOpen) {
                 withAnimation(Theme.Motion.pillState) { chatOpen.toggle() }
             }
         }
@@ -108,6 +111,7 @@ private struct PillShadow: ViewModifier {
 struct PillToggle: View {
     let systemName: String
     let label: String
+    var identifier: String?
     let isActive: Bool
     var activeTint: Color?
     let action: () -> Void
@@ -129,6 +133,7 @@ struct PillToggle: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier ?? label)
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }

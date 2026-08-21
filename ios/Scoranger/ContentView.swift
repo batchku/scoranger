@@ -24,16 +24,13 @@ struct ContentView: View {
     @State private var expandedArrangements: Set<String> = []
     /// Prompt groups showing their steps, keyed "<slug>/<group id>".
     @State private var expandedVersionGroups: Set<String> = []
-    @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
-    @State private var newPieceTarget: ScoreDoc?
-    @State private var newPieceName = ""
     @State private var importTargetPiece: String?
-    @State private var creatingSetlist = false
+    /// Every dialog goes through one request, so they cannot disagree.
+    @State private var alertRequest: AlertRequest?
+    @State private var newPieceName = ""
     @State private var newSetlistName = ""
-    @State private var renamingSetlist: SetlistDoc?
     @State private var setlistRenameDraft = ""
-    @State private var pendingSetlistDelete: SetlistDoc?
     @State private var dropTargetPiece: String?
 
     private static let scoreTypes: [UTType] = ([
@@ -70,6 +67,9 @@ struct ContentView: View {
             Theme.verifyFontsRegistered()
             state.startPolling()
         }
+        .onChange(of: state.notice) { _, notice in
+            if let notice { alertRequest = .notice(notice) }
+        }
         .onAppear {
             guard !didSetInitialOverlays else { return }
             didSetInitialOverlays = true
@@ -77,8 +77,6 @@ struct ContentView: View {
             // library is discoverable, on iPhone nothing covers the score
             libraryOpen = !isCompact
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
-        .sheet(item: $infoScore) { ScoreInfoView(score: $0) }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
             let piece = importTargetPiece
@@ -87,71 +85,112 @@ struct ContentView: View {
                 state.receiveFile(at: url, intoPiece: piece)
             }
         }
-        .alert("Delete \(pendingDelete?.name ?? "arrangement")?", isPresented: Binding(
-            get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let score = pendingDelete { state.deleteScore(slug: score.slug) }
-                pendingDelete = nil
-            }
-        } message: {
-            Text("This removes the arrangement and all its versions. The piece and its other arrangements are untouched.")
-        }
-        .alert("New piece", isPresented: Binding(
-            get: { newPieceTarget != nil }, set: { if !$0 { newPieceTarget = nil } })) {
-            TextField("Piece name", text: $newPieceName)
-            Button("Cancel", role: .cancel) { newPieceTarget = nil }
-            Button("Create") {
-                let name = newPieceName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let score = newPieceTarget, !name.isEmpty {
-                    state.createPieceAndAssign(name: name, scoreSlug: score.slug)
+        // Panel dialogs, not system ones: a sheet is 620 wide over a 34% dim and
+        // an alert has a band footer whose verb names the action (§7.15, §7.16).
+        .overlay { dialogLayer }
+    }
+
+    // MARK: - Dialogs
+
+    @ViewBuilder
+    private var dialogLayer: some View {
+        if infoScore != nil || showSettings || alertRequest != nil {
+            ZStack {
+                DialogScrim {
+                    // alerts are decisions: only sheets dismiss on the scrim
+                    if alertRequest == nil { infoScore = nil; showSettings = false }
                 }
-                newPieceTarget = nil
-            }
-        } message: {
-            Text("File \u{201C}\(newPieceTarget?.name ?? "this arrangement")\u{201D} under a new piece.")
-        }
-        .alert("New setlist", isPresented: $creatingSetlist) {
-            TextField("Setlist name", text: $newSetlistName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { return }
-                Task { await state.createSetlist(name: name) }
-            }
-        } message: {
-            Text("A setlist is an ordered group of pieces \u{2014} a gig's running order.")
-        }
-        .alert("Rename setlist", isPresented: Binding(
-            get: { renamingSetlist != nil }, set: { if !$0 { renamingSetlist = nil } })) {
-            TextField("Setlist name", text: $setlistRenameDraft)
-            Button("Cancel", role: .cancel) { renamingSetlist = nil }
-            Button("Rename") {
-                let name = setlistRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let setlist = renamingSetlist, !name.isEmpty {
-                    Task { await state.renameSetlist(setlist: setlist.slug, name: name) }
+                if let score = infoScore {
+                    PanelSheet(title: score.name,
+                               number: state.placement(of: score.slug)?.number,
+                               onDone: { infoScore = nil }) {
+                        ScoreInfoView(score: score)
+                    }
+                } else if showSettings {
+                    PanelSheet(title: "Settings", onDone: { showSettings = false }) {
+                        SettingsView()
+                    }
                 }
-                renamingSetlist = nil
+                if let request = alertRequest { alertView(request) }
             }
+            .transition(.opacity)
         }
-        .alert("Delete \(pendingSetlistDelete?.name ?? "setlist")?", isPresented: Binding(
-            get: { pendingSetlistDelete != nil },
-            set: { if !$0 { pendingSetlistDelete = nil } })) {
-            Button("Cancel", role: .cancel) { pendingSetlistDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let setlist = pendingSetlistDelete {
-                    Task { await state.deleteSetlist(setlist.slug) }
-                }
-                pendingSetlistDelete = nil
+    }
+
+    /// One presenter for every dialog, so they cannot disagree about width,
+    /// footer or button order.
+    enum AlertRequest: Equatable {
+        case deleteArrangement(ScoreDoc)
+        case newPiece(ScoreDoc)
+        case newSetlist
+        case renameSetlist(SetlistDoc)
+        case deleteSetlist(SetlistDoc)
+        case notice(String)
+    }
+
+    @ViewBuilder
+    private func alertView(_ request: AlertRequest) -> some View {
+        switch request {
+        case .deleteArrangement(let score):
+            PanelAlert(title: "Delete \(score.name)?",
+                       message: "This removes the arrangement and all its versions. The piece and its other arrangements are untouched.",
+                       verb: "Delete", isDestructive: true,
+                       onCancel: { alertRequest = nil },
+                       onConfirm: {
+                           state.deleteScore(slug: score.slug)
+                           alertRequest = nil
+                       })
+        case .newPiece(let score):
+            PanelAlert(title: "New piece",
+                       message: "File \u{201C}\(score.name)\u{201D} under a new piece.",
+                       field: $newPieceName, fieldPlaceholder: "Piece name",
+                       verb: "Create",
+                       onCancel: { alertRequest = nil },
+                       onConfirm: {
+                           let name = newPieceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                           if !name.isEmpty {
+                               state.createPieceAndAssign(name: name, scoreSlug: score.slug)
+                           }
+                           alertRequest = nil
+                       })
+        case .newSetlist:
+            PanelAlert(title: "New setlist",
+                       message: "A setlist is an ordered group of pieces \u{2014} a gig's running order.",
+                       field: $newSetlistName, fieldPlaceholder: "Setlist name",
+                       verb: "Create",
+                       onCancel: { alertRequest = nil },
+                       onConfirm: {
+                           let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                           if !name.isEmpty { Task { await state.createSetlist(name: name) } }
+                           alertRequest = nil
+                       })
+        case .renameSetlist(let setlist):
+            PanelAlert(title: "Rename setlist",
+                       field: $setlistRenameDraft, fieldPlaceholder: "Setlist name",
+                       verb: "Rename",
+                       onCancel: { alertRequest = nil },
+                       onConfirm: {
+                           let name = setlistRenameDraft
+                               .trimmingCharacters(in: .whitespacesAndNewlines)
+                           if !name.isEmpty {
+                               Task { await state.renameSetlist(setlist: setlist.slug, name: name) }
+                           }
+                           alertRequest = nil
+                       })
+        case .deleteSetlist(let setlist):
+            PanelAlert(title: "Delete \(setlist.name)?",
+                       message: "Only the grouping is removed. The pieces and their arrangements stay.",
+                       verb: "Delete", isDestructive: true,
+                       onCancel: { alertRequest = nil },
+                       onConfirm: {
+                           Task { await state.deleteSetlist(setlist.slug) }
+                           alertRequest = nil
+                       })
+        case .notice(let text):
+            PanelNotice(title: "Scoranger", message: text) {
+                state.notice = nil
+                alertRequest = nil
             }
-        } message: {
-            Text("Only the grouping is removed. The pieces and their arrangements stay.")
-        }
-        .alert("Scoranger", isPresented: Binding(
-            get: { state.notice != nil }, set: { if !$0 { state.notice = nil } })) {
-            Button("OK", role: .cancel) { state.notice = nil }
-        } message: {
-            Text(state.notice ?? "")
         }
     }
 
@@ -274,7 +313,30 @@ struct ContentView: View {
                     }
                 }
             }, trailing: {
-                EmptyView()
+                if let catalog = state.modelCatalog {
+                    Menu {
+                        ForEach(catalog.models.keys.sorted(), id: \.self) { alias in
+                            Button {
+                                state.chatModel = alias
+                            } label: {
+                                if state.chatModel == alias {
+                                    Label(alias, systemImage: "checkmark")
+                                } else { Text(alias) }
+                            }
+                        }
+                    } label: {
+                        Text(state.chatModel.isEmpty ? (catalog.default) : state.chatModel)
+                            .typeRole(.data)
+                            .foregroundStyle(Theme.Ink.ink2)
+                            .padding(.vertical, Theme.Metric.s4)
+                            .padding(.horizontal, Theme.Metric.s6)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                    .stroke(Theme.Line.line2, lineWidth: 1)
+                            }
+                    }
+                    .accessibilityLabel("Chat model")
+                }
             }, onDismiss: {
                 withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = false }
             }, dismissLabel: "Close chat")
@@ -377,7 +439,7 @@ struct ContentView: View {
         BandHeader(title: "Setlists") {
             PanelIconButton(systemName: "plus", label: "New setlist", size: 22) {
                 newSetlistName = ""
-                creatingSetlist = true
+                alertRequest = .newSetlist
             }
         }
         if state.setlistSections.isEmpty {
@@ -469,9 +531,9 @@ struct ContentView: View {
         .contextMenu {
             Button {
                 setlistRenameDraft = setlist.name
-                renamingSetlist = setlist
+                alertRequest = .renameSetlist(setlist)
             } label: { Label("Rename setlist", systemImage: "pencil") }
-            Button(role: .destructive) { pendingSetlistDelete = setlist } label: {
+            Button(role: .destructive) { alertRequest = .deleteSetlist(setlist) } label: {
                 Label("Delete setlist", systemImage: "trash")
             }
         }
@@ -714,7 +776,7 @@ struct ContentView: View {
             Divider()
             Button("New piece…") {
                 newPieceName = ""
-                newPieceTarget = score
+                alertRequest = .newPiece(score)
             }
         }
         if score.piece != nil {
@@ -723,7 +785,7 @@ struct ContentView: View {
             }
         }
         Divider()
-        Button(role: .destructive) { pendingDelete = score } label: {
+        Button(role: .destructive) { alertRequest = .deleteArrangement(score) } label: {
             Label("Delete arrangement", systemImage: "trash")
         }
     }
