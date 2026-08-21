@@ -51,9 +51,11 @@ def cmd_import(a):
     if not src.exists():
         raise FileNotFoundError(f"No such file: {src}")
     score = converter.parse(str(src), forceSource=True)
-    name = a.name or (score.metadata.title if score.metadata and score.metadata.title else src.stem)
-    if score.metadata is not None and not score.metadata.title:
-        score.metadata.title = name
+    name = a.name or ops.engraved_title(score) or src.stem
+    # music21 seeds the movement title with the file name, extension and all,
+    # and that is what Verovio engraves -- so the title is normalized on the way
+    # in rather than surfacing as "my-score.mxl" at the top of the page.
+    name = ops.clean_imported_metadata(score, name)["title"]
     slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
     _emit({"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)})
 
@@ -274,6 +276,11 @@ def cmd_piece_rename(a):
 
 def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
+
+
+def cmd_set_metadata(a):
+    _emit(workspace.set_score_metadata(a.score, title=a.title, composer=a.composer,
+                                       arranger=a.arranger))
 
 
 def cmd_delete_score(a):
@@ -497,6 +504,14 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("set-metadata",
+                       help="Edit a score's metadata (title engraves on the page)")
+    s.add_argument("score")
+    s.add_argument("--title", help="the arrangement's title, engraved at the top")
+    s.add_argument("--composer", help="composer credit ('' clears it)")
+    s.add_argument("--arranger", help="arranger credit ('' clears it)")
+    s.set_defaults(fn=cmd_set_metadata)
 
     s = sub.add_parser("rename-score",
                        help="Rename an arrangement (label only; slug and versions unchanged)")

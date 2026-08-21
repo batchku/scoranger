@@ -1031,6 +1031,92 @@ def set_chord_symbols(score, name: str, chords: list[dict]) -> dict:
     return {"part": part_label(part), "symbols_added": added}
 
 
+# ---------------------------------------------------------------- metadata
+#
+# There are two title fields in a music21 score and MusicXML carries both:
+# <work-title> (md.title) and <movement-title> (md.movementName). Verovio
+# engraves the *movement* title when it is present, so that -- not md.title --
+# is what a reader sees at the top of the page. Worse, music21 seeds
+# movementName with the source file's name, extension included, whenever the
+# file itself carries no title: that is why an imported score engraved
+# "sous-le-ciel-quartet.mxl". These helpers keep the two fields to one value.
+
+
+def engraved_title(score) -> str | None:
+    """The title that actually prints at the top of the page."""
+    md = getattr(score, "metadata", None)
+    if md is None:
+        return None
+    return md.movementName or md.title
+
+
+def _contributor(score, role: str) -> str | None:
+    md = getattr(score, "metadata", None)
+    if md is None:
+        return None
+    names = [str(c) for c in md.getContributorsByRole(role)]
+    # music21 stamps itself as the composer on every write when none is set
+    names = [n for n in names if n and n != "Music21"]
+    return names[0] if names else None
+
+
+def score_metadata(score) -> dict:
+    """Every editable metadata field, as it stands in the notation."""
+    return {
+        "title": engraved_title(score),
+        "composer": _contributor(score, "composer"),
+        "arranger": _contributor(score, "arranger"),
+    }
+
+
+def set_metadata(score, title: str | None = None, composer: str | None = None,
+                 arranger: str | None = None) -> dict:
+    """Write the score's own metadata. Only the fields passed are touched.
+
+    An empty string clears a field; None leaves it alone. The title is written
+    to both MusicXML title fields so there is exactly one title to see and
+    exactly one to edit.
+    """
+    from music21 import metadata as m21metadata
+
+    if score.metadata is None:
+        score.metadata = m21metadata.Metadata()
+    md = score.metadata
+    if title is not None:
+        title = title.strip()
+        if not title:
+            raise ValueError("A title is required")
+        md.title = title
+        md.movementName = title
+    # the property setters replace the existing contributor, and None removes it
+    for role, value in (("composer", composer), ("arranger", arranger)):
+        if value is None:
+            continue
+        setattr(md, role, value.strip() or None)
+    return score_metadata(score)
+
+
+def clean_imported_metadata(score, fallback_title: str) -> dict:
+    """Give a freshly imported score one sane title.
+
+    Drops music21's filename-derived movement title (it is a file name, not a
+    title, and it is what would engrave) and falls back to the name the score
+    was imported under.
+    """
+    from music21 import metadata as m21metadata
+
+    if score.metadata is None:
+        score.metadata = m21metadata.Metadata()
+    md = score.metadata
+    candidates = [md.title, md.movementName]
+    title = next((c for c in candidates if c and not _looks_like_a_filename(c)), None)
+    return set_metadata(score, title=title or fallback_title)
+
+
+def _looks_like_a_filename(text: str) -> bool:
+    return bool(re.search(r"\.(musicxml|xml|mxl|mid|midi|pdf)$", text.strip(), re.I))
+
+
 def info(score) -> dict:
     parts = []
     for i, p in enumerate(score.parts):
@@ -1054,10 +1140,12 @@ def info(score) -> dict:
     first = score.parts.first()
     time_sigs = [ts.ratioString for ts in first.recurse().getElementsByClass("TimeSignature")] if first else []
     key_sigs = [str(ks) for ks in first.recurse().getElementsByClass("KeySignature")] if first else []
-    md = score.metadata
+    meta = score_metadata(score)
     return {
-        "title": (md.title or md.movementName) if md else None,
-        "composer": md.composer if md else None,
+        # the title as engraved, so `info` and the page agree
+        "title": meta["title"],
+        "composer": meta["composer"],
+        "arranger": meta["arranger"],
         "parts": parts,
         "time_signatures": list(dict.fromkeys(time_sigs)),
         "key_signatures": list(dict.fromkeys(key_sigs)),

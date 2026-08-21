@@ -622,16 +622,90 @@ final class AppState: ObservableObject {
         Task { await renderIfNeeded() }
     }
 
-    /// Rename an arrangement. Label only: the slug stays, so version artifacts,
-    /// the piece's ordering and any 'arr:' chat references keep working, and no
-    /// new version is created because the notation is untouched.
+    /// The metadata as it stands in the notation of a version -- which is what
+    /// engraves on the page. The score doc carries a copy, but only versions
+    /// written since the projection landed, so the sheet asks the engine.
+    struct ScoreMetadata: Equatable {
+        var title: String?
+        var composer: String?
+        var arranger: String?
+    }
+
+    func scoreMetadata(slug: String, version: String? = nil) async -> ScoreMetadata? {
+        guard useLocalEngine else { return nil }
+        var args: [String: Any] = ["score": slug]
+        if let version { args["version"] = version }
+        guard let r = try? await local.call(op: "info", args: args) else { return nil }
+        return ScoreMetadata(title: r["title"] as? String,
+                             composer: r["composer"] as? String,
+                             arranger: r["arranger"] as? String)
+    }
+
+    /// Edit an arrangement's metadata. The title is one value: the name in the
+    /// library and the title engraved at the top of the page. Because the
+    /// engraved title lives in the notation, the engine appends a version, so
+    /// this clears any pin to put the freshly engraved version on screen.
+    /// Pass nil to leave a field alone, "" to clear a credit.
+    @discardableResult
+    func setScoreMetadata(slug: String, title: String? = nil,
+                          composer: String? = nil, arranger: String? = nil) async -> Bool {
+        var args: [String: Any] = ["score": slug]
+        if let title {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            args["title"] = trimmed
+        }
+        if let composer { args["composer"] = composer.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let arranger { args["arranger"] = arranger.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard args.count > 1 else { return false }
+        do {
+            _ = try await local.call(op: "set-metadata", args: args)
+            if slug == selectedSlug { pinnedVersion = nil }
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
+    }
+
+    /// The arrangement's title. Kept as its own call because renaming is what
+    /// callers ask for; the work is setScoreMetadata's, so a rename can never
+    /// leave the page saying something else.
     @discardableResult
     func renameScore(slug: String, name: String) async -> Bool {
+        await setScoreMetadata(slug: slug, title: name)
+    }
+
+    /// Rename a part (the staff label, engraved on every system).
+    @discardableResult
+    func renamePart(slug: String, part: String, name: String) async -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != part else { return false }
+        do {
+            _ = try await local.call(op: "rename-part",
+                                     args: ["score": slug, "part": part, "name": trimmed])
+            if slug == selectedSlug { pinnedVersion = nil }
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
+    }
+
+    /// Rename a piece (the grouping). Its slug is immutable, like a score's.
+    @discardableResult
+    func renamePiece(piece: String, name: String) async -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         do {
-            _ = try await local.call(op: "rename-score",
-                                     args: ["score": slug, "name": trimmed])
+            _ = try await local.call(op: "rename-piece",
+                                     args: ["piece": piece, "name": trimmed])
             await refresh()
             return true
         } catch let e as EngineError {

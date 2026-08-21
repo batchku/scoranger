@@ -66,8 +66,9 @@ def _dispatch(op, a):
         from music21 import converter
         score = converter.parse(a["path"], forceSource=True)
         name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
-        if score.metadata is not None and not score.metadata.title:
-            score.metadata.title = name
+        # music21 seeds the movement title with the file name, extension and
+        # all, and that is what engraves; normalize before the first version
+        name = ops.clean_imported_metadata(score, name)["title"]
         slug, entry = workspace.create_score(name, score, op="import", args={"source": a["path"]})
         piece = None
         if a.get("piece"):
@@ -99,6 +100,10 @@ def _dispatch(op, a):
         return workspace.assign_score_to_piece(a["score"], None)
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "set-metadata":
+        return workspace.set_score_metadata(a["score"], title=a.get("title"),
+                                            composer=a.get("composer"),
+                                            arranger=a.get("arranger"))
     if op == "rename-piece":
         return workspace.rename_piece(a["piece"], a["name"])
     if op == "reorder-piece":
@@ -119,7 +124,7 @@ def _dispatch(op, a):
         from music21 import clef, meter, metadata, note, stream
         s = stream.Score()
         name = a.get("name") or "Arrangement"
-        s.metadata = metadata.Metadata(title=name)
+        s.metadata = metadata.Metadata(title=name, movementName=name)
         p = stream.Part()
         p.partName = "Part 1"
         m = stream.Measure(number=1)

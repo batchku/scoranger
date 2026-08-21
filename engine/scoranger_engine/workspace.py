@@ -136,13 +136,31 @@ def resolve_path(slug: str, version_id: str | None = None) -> Path:
     return version_path(slug, version_id)
 
 
+# music21 writes itself in as the composer on every export when the score has
+# none, and there is no way to suppress it from the metadata object -- so it is
+# removed from the file after the write. Left in, it shows up as the composer of
+# every arrangement the moment any op runs.
+_M21_COMPOSER_STAMP = re.compile(
+    r'[ \t]*<creator type="composer">Music21</creator>\r?\n?')
+
+
+def _write_musicxml(m21_score, path: Path) -> None:
+    m21_score.write("musicxml", fp=str(path))
+    text = path.read_text(encoding="utf-8")
+    cleaned = _M21_COMPOSER_STAMP.sub("", text)
+    if cleaned != text:
+        path.write_text(cleaned, encoding="utf-8")
+
+
 def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None) -> dict:
+    from . import ops
+
     repo = _repo()
     seq = len(repo.list_versions(slug)) + 1
     vid = f"v{seq:03d}"
     fname = f"{vid}.musicxml"
     score_dir(slug).mkdir(parents=True, exist_ok=True)
-    m21_score.write("musicxml", fp=str(score_dir(slug) / fname))
+    _write_musicxml(m21_score, score_dir(slug) / fname)
     doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": _parts_snapshot(m21_score)}
     if _current_turn is not None and _current_turn["slug"] == slug:
@@ -150,6 +168,13 @@ def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None
     repo.add_version(slug, vid, seq, doc)
     score_doc = repo.get_score(slug)
     score_doc["latest"] = vid
+    # the doc's metadata is a projection of the latest version's notation, never
+    # an independent value -- that divergence is what gave the app one title in
+    # the library and a different one engraved on the page
+    meta = ops.score_metadata(m21_score)
+    score_doc["title"] = meta["title"]
+    score_doc["composer"] = meta["composer"]
+    score_doc["arranger"] = meta["arranger"]
     repo.set_score(slug, score_doc)
     rebuild_manifest()
     return doc
@@ -163,11 +188,12 @@ def create_score(name: str, m21_score, op: str = "import", args: dict | None = N
     while repo.get_score(slug) is not None:
         slug = f"{base}-{n}"
         n += 1
-    md = getattr(m21_score, "metadata", None)
+    from . import ops
+    meta = ops.score_metadata(m21_score)
     repo.set_score(slug, {
         "id": slug, "slug": slug, "name": name,
-        "title": (md.title or md.movementName) if md else name,
-        "composer": md.composer if md else None,
+        "title": meta["title"], "composer": meta["composer"],
+        "arranger": meta["arranger"],
         "created": _now(), "latest": None,
     })
     entry = _write_version(slug, m21_score, op, args or {}, parent=None)
@@ -279,25 +305,55 @@ def set_piece_order(name_or_slug: str, order: list) -> dict:
     return doc
 
 
-def rename_score(slug: str, new_name: str) -> dict:
-    """Rename an arrangement (library label only).
+def set_score_metadata(slug: str, title: str | None = None,
+                       composer: str | None = None,
+                       arranger: str | None = None) -> dict:
+    """Edit an arrangement's metadata, notation included.
 
-    The slug stays put: it is the identity every version artifact, piece order
-    and chat 'arr:' reference is keyed on, so renaming must not disturb it.
-    No new version is created either -- the notation is untouched.
+    The title is one value, not two: it is the arrangement's name in the library
+    AND the title engraved at the top of the page. Because the engraved title
+    lives in the notation, this appends a version like any other mutating op --
+    the edit is versioned and reversible, and no file is ever hand-edited.
+
+    The slug never moves: it is the identity every version artifact, piece order
+    and chat 'arr:' reference is keyed on.
     """
+    from music21 import converter
+
+    from . import ops
+
     repo = _repo()
     doc = repo.get_score(slug)
     if doc is None:
         available = [s["slug"] for s in repo.list_scores()]
         raise FileNotFoundError(f"No score '{slug}'. Available: {available}")
-    new_name = (new_name or "").strip()
-    if not new_name:
-        raise ValueError("A name is required")
-    doc["name"] = new_name
-    repo.set_score(slug, doc)
-    rebuild_manifest()
-    return {"score": slug, "name": new_name}
+    if title is not None and not title.strip():
+        raise ValueError("A title is required")
+    if title is None and composer is None and arranger is None:
+        raise ValueError("Nothing to change: pass a title, composer or arranger")
+
+    score = converter.parse(str(resolve_path(slug)), forceSource=True)
+    applied = ops.set_metadata(score, title=title, composer=composer,
+                              arranger=arranger)
+    entry = add_version(slug, score, "set-metadata",
+                        {k: v for k, v in (("title", title), ("composer", composer),
+                                           ("arranger", arranger)) if v is not None})
+    if title is not None:
+        doc = repo.get_score(slug)          # add_version refreshed the projection
+        doc["name"] = title.strip()
+        repo.set_score(slug, doc)
+        rebuild_manifest()
+    return {"score": slug, "version": entry["id"], "name": repo.get_score(slug)["name"],
+            **applied}
+
+
+def rename_score(slug: str, new_name: str) -> dict:
+    """Rename an arrangement: its library name and its engraved title together.
+
+    Kept as the name every caller already uses; the work is set_score_metadata's,
+    so a rename can never leave the page saying something else.
+    """
+    return set_score_metadata(slug, title=new_name or "")
 
 
 def rename_piece(name_or_slug: str, new_name: str) -> dict:
@@ -414,6 +470,7 @@ def rebuild_manifest() -> dict:
         scores.append({
             "slug": doc["slug"], "name": doc["name"],
             "title": doc.get("title"), "composer": doc.get("composer"),
+            "arranger": doc.get("arranger"),
             "latest": doc.get("latest"), "versions": versions,
             "sources": repo.list_sources(doc["slug"]),
             "piece": doc.get("piece"),

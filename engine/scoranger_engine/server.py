@@ -158,8 +158,8 @@ class Handler(BaseHTTPRequestHandler):
                 tmp.write(data)
                 tmp_path = tmp.name
             m21_score = converter.parse(tmp_path, forceSource=True)
-            if m21_score.metadata is not None and not m21_score.metadata.title:
-                m21_score.metadata.title = name
+            from . import ops as _ops
+            name = _ops.clean_imported_metadata(m21_score, name)["title"]
             source_of = (q.get("source_of") or [None])[0]
             if source_of:
                 doc = workspace.add_source(source_of, m21_score, name,

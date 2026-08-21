@@ -208,6 +208,13 @@ struct LocalChat {
                                      "measures": str("optional 'A-B' inclusive range")],
                                     required: ["from_ref", "part"]),
                  op: "pull-part", rename: ["from_ref": "from", "as_name": "as"]),
+        ToolSpec(name: "set_metadata",
+                 description: "Set the arrangement's title (the title engraved at the top of the page AND its name in the library — they are one value), its composer or its arranger. An empty string clears a credit.",
+                 parameters: params(["title": str("the arrangement's title"),
+                                     "composer": str("composer credit"),
+                                     "arranger": str("arranger credit")],
+                                    required: []),
+                 op: "set-metadata", rename: [:]),
         ToolSpec(name: "assign_to_piece",
                  description: "File this arrangement under a piece, creating it if needed.",
                  parameters: params(["piece_name": str("name of the piece to file under")],
@@ -247,6 +254,9 @@ struct LocalChat {
         case "respell": return "Respelling with \(s("prefer") ?? "flats")"
         case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
         case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        case "set_metadata":
+            if let t = s("title") { return "Titling the arrangement \u{201C}\(t)\u{201D}" }
+            return "Updating the arrangement's credits"
         case "change_clef": return "Setting \(s("part") ?? "part") to \(s("clef") ?? "") clef"
         case "keep_parts", "remove_parts":
             let parts = (args["parts"] as? [String])?.joined(separator: ", ") ?? ""
