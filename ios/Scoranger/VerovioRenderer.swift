@@ -109,6 +109,18 @@ actor VerovioRenderer {
     /// <text> elements: one per positioned tspan, style attrs inherited from
     /// the tspan stack, unpositioned runs (chord accidentals) appended to the
     /// preceding positioned run.
+    ///
+    /// Verovio positions text two ways. Chord symbols repeat x/y on the inner
+    /// tspan; staff labels, tuplet numbers and page numbers carry x/y on the
+    /// enclosing <text> and leave every tspan unpositioned. Grouping only on a
+    /// positioned tspan therefore discarded the whole second category -- which
+    /// is why instrument names never reached the page. So a block opens with a
+    /// group seeded from the <text> element itself, and a positioned tspan
+    /// still starts a fresh one.
+    ///
+    /// Only x/y/text-anchor come from <text>: it also carries font-size="0px"
+    /// (the real size lives on the inner tspan), and seeding that would emit
+    /// correctly placed but invisible zero-height text.
     private static func flattenTextElements(_ svg: String) -> String {
         guard let blockRe = try? NSRegularExpression(
             pattern: "<text[^>]*>.*?</text>", options: [.dotMatchesLineSeparators]),
@@ -152,6 +164,18 @@ actor VerovioRenderer {
             }
 
             let blockNS = block as NSString
+
+            // seed from the <text> open tag, so text that never meets a
+            // positioned tspan still has somewhere to land
+            if let openTag = block.range(of: "<text[^>]*>", options: .regularExpression) {
+                let a = attrs(of: String(block[openTag]))
+                if a["x"] != nil {
+                    var g: [String: String] = [:]
+                    for key in ["x", "y", "text-anchor"] { g[key] = a[key] }
+                    groupAttrs = g.compactMapValues { $0 }
+                }
+            }
+
             for tok in tokenRe.matches(in: block,
                                        range: NSRange(location: 0, length: blockNS.length)) {
                 let token = blockNS.substring(with: tok.range)

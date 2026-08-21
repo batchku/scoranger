@@ -13,8 +13,8 @@ struct ContentView: View {
     @State private var collapsedPieces: Set<String> = []
     /// Setlist rows are expanded by default; track only the collapsed ones.
     @State private var collapsedSetlists: Set<String> = []
-    /// Version prompt-groups are collapsed by default; track the expanded ones.
-    @State private var expandedVersionGroups: Set<String> = []
+    /// Arrangements whose version history is showing beneath them.
+    @State private var expandedArrangements: Set<String> = []
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
     /// Score awaiting a "New piece…" name (drives the naming alert).
@@ -23,6 +23,15 @@ struct ContentView: View {
     /// Piece the file importer should file its result under (set by a piece's
     /// "Import a file into this piece"); nil = the toolbar's unfiled import.
     @State private var importTargetPiece: String?
+
+    /// Section headings read as headings: accent-coloured, so they separate
+    /// from the item rows (which stay primary/secondary white and grey).
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .textCase(nil)
+    }
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -79,7 +88,6 @@ struct ContentView: View {
             setlistsSection
             piecesSection
             unfiledSection
-            versionsSection
         }
         .navigationTitle("Scoranger")
         .safeAreaInset(edge: .bottom) {
@@ -201,7 +209,7 @@ struct ContentView: View {
     @ViewBuilder
     private var setlistsSection: some View {
         if !state.setlistSections.isEmpty {
-            Section("Setlists") {
+            Section(header: sectionHeader("Setlists")) {
                 ForEach(state.setlistSections, id: \.setlist.slug) { section in
                     setlistRow(section.setlist)
                     if !collapsedSetlists.contains(section.setlist.slug) {
@@ -221,7 +229,7 @@ struct ContentView: View {
     @ViewBuilder
     private var piecesSection: some View {
         if !state.pieceSections.isEmpty {
-            Section("Pieces") {
+            Section(header: sectionHeader("Pieces")) {
                 ForEach(state.pieceSections, id: \.piece.slug) { section in
                     pieceRow(section)
                     if !collapsedPieces.contains(section.piece.slug) {
@@ -231,6 +239,11 @@ struct ContentView: View {
                         ForEach(Array(section.arrangements.enumerated()),
                                 id: \.element.slug) { index, score in
                             arrangementRow(score, number: index + 1, inPiece: section)
+                            if expandedArrangements.contains(score.slug) {
+                                ForEach(state.versionGroups(for: score)) { group in
+                                    nestedVersionRow(score, group)
+                                }
+                            }
                         }
                     }
                 }
@@ -244,38 +257,13 @@ struct ContentView: View {
     @ViewBuilder
     private var unfiledSection: some View {
         if !state.unfiledScores.isEmpty {
-            Section((state.manifest?.pieces ?? []).isEmpty
-                    ? "Arrangements" : "Unfiled arrangements") {
+            Section(header: sectionHeader((state.manifest?.pieces ?? []).isEmpty
+                                          ? "Arrangements" : "Unfiled arrangements")) {
                 ForEach(state.unfiledScores) { score in
                     arrangementRow(score)
-                }
-            }
-        }
-    }
-
-    /// Version history of the open arrangement; tapping a version opens the
-    /// score pinned to it. Versions made by one chat prompt collapse into an
-    /// expandable group faced by the prompt's final state.
-    /// Follows whatever the score pane shows: now that a row tap opens the
-    /// arrangement, "previewed" and "open" are the same thing, so this can no
-    /// longer end up describing some unrelated arrangement's history.
-    @ViewBuilder
-    private var versionsSection: some View {
-        if let score = state.selectedScore {
-            let slug = score.slug
-            Section(versionsSectionTitle(slug: slug, name: score.name)) {
-                // explicit caret buttons (DisclosureGroup labels swallow button
-                // taps on iPad sidebar lists)
-                ForEach(state.versionGroups(for: score)) { group in
-                    if group.subs.isEmpty {
-                        versionRow(score, group.face)
-                    } else {
-                        versionGroupRow(score, group)
-                        if expandedVersionGroups.contains(group.id) {
-                            ForEach(group.subs.reversed()) { v in
-                                versionRow(score, v)
-                                    .padding(.leading, 16)
-                            }
+                    if expandedArrangements.contains(score.slug) {
+                        ForEach(state.versionGroups(for: score)) { group in
+                            nestedVersionRow(score, group)
                         }
                     }
                 }
@@ -283,12 +271,7 @@ struct ContentView: View {
         }
     }
 
-    private func versionsSectionTitle(slug: String, name: String) -> String {
-        if let placement = state.placement(of: slug) {
-            return "Versions of #\(placement.number) \(name)"
-        }
-        return "Versions of \(name)"
-    }
+
 
     /// Piece currently under a drag, for the drop highlight.
     @State private var dropTargetPiece: String?
@@ -309,7 +292,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.accentColor)
                         .rotationEffect(.degrees(collapsed ? 0 : 90))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(piece.name)
@@ -458,11 +441,34 @@ struct ContentView: View {
     /// Tapping anywhere on the row opens the arrangement in the score pane.
     private func arrangementRow(_ score: ScoreDoc, number: Int? = nil,
                                 inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
+            // caret first: opens this arrangement's versions in place, which is
+            // where you look after a few chat prompts
+            Button {
+                withAnimation {
+                    if expandedArrangements.contains(score.slug) {
+                        expandedArrangements.remove(score.slug)
+                    } else {
+                        expandedArrangements.insert(score.slug)
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .rotationEffect(.degrees(expandedArrangements.contains(score.slug) ? 90 : 0))
+                    .frame(width: 22, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(expandedArrangements.contains(score.slug)
+                                ? "Hide versions of \(score.name)"
+                                : "Show versions of \(score.name)")
+            .accessibilityIdentifier("versions-toggle-\(score.slug)")
             Button {
                 openScore(score.slug)
             } label: {
-                HStack(alignment: .center, spacing: 10) {
+                HStack(alignment: .center, spacing: 8) {
                     if let number {
                         // the handle the user types in chat ("from #3"): big,
                         // accent-colored, and deliberately unlike the small
@@ -570,13 +576,49 @@ struct ContentView: View {
         }
     }
 
+    /// One version of an arrangement, nested under it. Titled by the chat
+    /// prompt that produced it when there was one, so a run of prompts reads
+    /// back as the history it is. Tapping jumps the score pane to that version.
+    private func nestedVersionRow(_ score: ScoreDoc,
+                                  _ group: AppState.VersionGroup) -> some View {
+        let isDisplayed = score.slug == state.selectedScore?.slug
+            && (group.face.id == state.displayedVersionID
+                || group.subs.contains { $0.id == state.displayedVersionID })
+        return Button {
+            openScore(score.slug,
+                      version: group.face.id == score.latest ? nil : group.face.id)
+        } label: {
+            HStack(spacing: 6) {
+                Text(group.face.id)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text(group.title)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if isDisplayed {
+                    Image(systemName: "eye")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.leading, 38)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .tint(.primary)
+        .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
+    }
+
     /// Trailing per-row icon button; borderless so it doesn't hijack the row
     /// tap, sized for a comfortable finger target.
     private func rowIcon(_ systemName: String, label: String,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.accentColor)
                 .frame(minWidth: 32, minHeight: 32)
                 .contentShape(Rectangle())
         }
@@ -604,66 +646,7 @@ struct ContentView: View {
         return bits.joined(separator: " · ")
     }
 
-    /// A single version row: id + op, eye on the displayed version.
-    private func versionRow(_ score: ScoreDoc, _ v: VersionDoc) -> some View {
-        Button {
-            openScore(score.slug, version: v.id == score.latest ? nil : v.id)
-        } label: {
-            HStack {
-                Text(v.id).font(.system(.caption, design: .monospaced))
-                Text(v.op).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                if score.slug == state.selectedScore?.slug,
-                   v.id == state.displayedVersionID {
-                    Image(systemName: "eye").font(.caption2)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
 
-    /// The face row of a prompt group: an explicit caret button expands the
-    /// group's step versions; tapping the rest opens the score at the group's
-    /// final version. The eye shows when any of its versions is displayed.
-    private func versionGroupRow(_ score: ScoreDoc, _ group: AppState.VersionGroup) -> some View {
-        let expanded = expandedVersionGroups.contains(group.id)
-        return HStack(spacing: 4) {
-            Button {
-                withAnimation {
-                    if expanded { expandedVersionGroups.remove(group.id) }
-                    else { expandedVersionGroups.insert(group.id) }
-                }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(expanded ? 90 : 0))
-                    .frame(minWidth: 24, minHeight: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("\(expanded ? "Collapse" : "Expand") versions of this prompt")
-            Button {
-                openScore(score.slug,
-                          version: group.face.id == score.latest ? nil : group.face.id)
-            } label: {
-                HStack {
-                    Text(group.face.id).font(.system(.caption, design: .monospaced))
-                    Text(group.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    if score.slug == state.selectedScore?.slug,
-                       group.subs.contains(where: { $0.id == state.displayedVersionID }) {
-                        Image(systemName: "eye").font(.caption2)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
 
     // MARK: detail
 
@@ -691,9 +674,10 @@ struct ContentView: View {
                     if hSize == .compact { showChat = false }
                 }
             }
-            .navigationTitle(score.name)
+            // No title bar on the canvas: the score itself carries the piece
+            // title, and the sidebar and chat header carry the "#N name".
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { detailTitle(score) }
             .toolbar { detailToolbar }
         } else {
             ContentUnavailableView(
@@ -705,35 +689,6 @@ struct ContentView: View {
         }
     }
 
-    /// The open arrangement's place in the hierarchy, carried into the title
-    /// bar: piece above, "#N name" below. Without this the detail pane gives no
-    /// clue which piece the score on screen belongs to.
-    @ToolbarContentBuilder
-    private func detailTitle(_ score: ScoreDoc) -> some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            let placement = state.placement(of: score.slug)
-            VStack(spacing: 0) {
-                if let placement {
-                    Text(placement.piece.name)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                HStack(spacing: 5) {
-                    if let placement {
-                        Text("#\(placement.number)")
-                            .font(.subheadline.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    Text(score.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                }
-            }
-            .accessibilityElement(children: .combine)
-        }
-    }
 
     @ViewBuilder
     private func scorePane(_ score: ScoreDoc) -> some View {

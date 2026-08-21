@@ -147,14 +147,27 @@ struct AnnotationBar: View {
                     // choosing a colour means you want to draw with it
                     controller.tool = .pen
                 } label: {
+                    // A thin ring round a small dot was too subtle to find at a
+                    // glance. The active colour now grows, gains a contrasting
+                    // halo, and carries a checkmark.
+                    let active = controller.ink == ink && controller.tool == .pen
                     Circle()
                         .fill(ink.swatch)
-                        .frame(width: 20, height: 20)
+                        .frame(width: active ? 28 : 20, height: active ? 28 : 20)
+                        .overlay {
+                            if active {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 13, weight: .heavy))
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.35), radius: 1)
+                            }
+                        }
                         .overlay(
-                            Circle().stroke(Color.primary,
-                                            lineWidth: controller.ink == ink && controller.tool == .pen ? 2.5 : 0)
+                            Circle().stroke(Color.primary.opacity(active ? 0.9 : 0.15),
+                                            lineWidth: active ? 2 : 1)
                         )
-                        .padding(2)
+                        .padding(active ? 0 : 4)
+                        .animation(.snappy(duration: 0.15), value: active)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(ink.rawValue.capitalized) pen")

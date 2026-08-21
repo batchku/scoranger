@@ -125,9 +125,6 @@ final class ScorangerUITests: XCTestCase {
         // the detail toolbar shows the version pill once an arrangement is open
         XCTAssertTrue(app.buttons["Versions"].waitForExistence(timeout: 60),
                       "row tap did not open the arrangement in the detail pane")
-        // and the sidebar's version history follows what the score pane shows
-        XCTAssertTrue(element(labelStartingWith: "Versions of #1").waitForExistence(timeout: 10),
-                      "sidebar did not show the open arrangement's versions")
         shot("row-tap-opens")
     }
 
@@ -196,6 +193,66 @@ final class ScorangerUITests: XCTestCase {
             usleep(200_000)
         }
         return !element.exists
+    }
+
+    /// Each arrangement has a caret that reveals its versions in place, and a
+    /// version row jumps the score pane to that version.
+    func testVersionsNestUnderArrangement() {
+        let versionRow = app.buttons["version-\(firstArrangement)-v001"]
+        XCTAssertFalse(versionRow.exists, "versions should be hidden until expanded")
+
+        let caret = app.buttons["versions-toggle-\(firstArrangement)"]
+        XCTAssertTrue(caret.exists, "no versions caret on the arrangement row")
+        caret.tap()
+        XCTAssertTrue(versionRow.waitForExistence(timeout: 10),
+                      "caret did not reveal the arrangement's versions")
+        shot("versions-nested")
+
+        versionRow.tap()
+        XCTAssertTrue(app.buttons["Versions"].waitForExistence(timeout: 60),
+                      "tapping a version did not open the arrangement")
+
+        caret.tap()
+        XCTAssertTrue(waitForDisappearance(of: versionRow, timeout: 5),
+                      "caret did not collapse the versions again")
+    }
+
+    /// The active ink is unmistakable: the chosen swatch grows and gains a
+    /// checkmark, and the toolbar toggle takes its colour.
+    func testActiveColourIsVisible() {
+        let enter = app.buttons["Annotate the score"]
+        // engraving a multi-page score can take a while before the score
+        // toolbar exists at all
+        XCTAssertTrue(enter.waitForExistence(timeout: 90), "score pane never appeared")
+        enter.tap()
+        XCTAssertTrue(app.buttons["Green pen"].waitForExistence(timeout: 5))
+        app.buttons["Green pen"].tap()
+        shot("active-colour-green")
+        app.buttons["Orange pen"].tap()
+        shot("active-colour-orange")
+        XCTAssertTrue(app.buttons["Draw"].exists, "bar should stay up after picking a colour")
+        app.buttons["Finish annotating"].tap()
+    }
+
+    /// Pinch zoom is UIScrollView's, so the score must survive a pinch and keep
+    /// its pages laid out. Whether the midpoint stays truly fixed is a feel
+    /// question that needs a device; this guards against regression to a broken
+    /// or crashing gesture.
+    func testPinchZoomKeepsScoreUsable() {
+        XCTAssertTrue(app.buttons["Annotate the score"].waitForExistence(timeout: 90),
+                      "score pane never appeared")
+        let score = app.scrollViews.firstMatch
+        guard score.exists else {
+            XCTFail("no scroll view hosting the score")
+            return
+        }
+        score.pinch(withScale: 2.2, velocity: 2.0)
+        shot("zoomed-in")
+        XCTAssertTrue(app.buttons["Annotate the score"].exists,
+                      "toolbar should survive a zoom")
+        score.pinch(withScale: 0.5, velocity: -2.0)
+        shot("zoomed-out")
+        XCTAssertTrue(app.buttons["Annotate the score"].exists)
     }
 
     /// Long-press on an arrangement row offers the filing context menu.

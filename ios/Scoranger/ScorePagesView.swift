@@ -4,7 +4,9 @@ import SwiftUI
 
 /// The score as a vertical stack of pages with a PencilKit canvas over each:
 /// the Apple Pencil draws, fingers scroll. Drawings persist per score+version+page.
-/// Two-finger pinch zooms the page width (0.5×–3×); scrolling pans.
+/// Two-finger pinch zooms (0.5×–3×) about the midpoint between the fingers,
+/// via UIScrollView; when the pinch settles the pages re-render crisply at the
+/// new size.
 /// Highlight mode (toolbar highlighter) turns strokes on a page into an
 /// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
@@ -12,10 +14,9 @@ struct ScorePagesView: View {
     let annotationKey: String  // "<slug>/<version>"
 
     @EnvironmentObject var state: AppState
-    /// Committed zoom factor applied to the base page width.
+    /// Committed zoom factor applied to the base page width. The live pinch is
+    /// UIScrollView's own transform; this is only what has been banked.
     @State private var zoom: CGFloat = 1.0
-    /// Live pinch factor while a MagnifyGesture is in flight (resets to 1).
-    @GestureState private var pinch: CGFloat = 1.0
     @State private var highlightMode = false
     /// Chip expanded into steppers for adjusting the estimated range.
     @State private var chipExpanded = false
@@ -36,70 +37,16 @@ struct ScorePagesView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let effectiveZoom = min(max(zoom * pinch, Self.zoomRange.lowerBound),
-                                    Self.zoomRange.upperBound)
-            let width = min(geo.size.width - 24, 1100) * effectiveZoom
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(spacing: 12) {
-                    ForEach(0..<document.pageCount, id: \.self) { index in
-                        if let page = document.page(at: index) {
-                            PageView(page: page,
-                                     width: width,
-                                     drawingStore: DrawingStore.shared,
-                                     drawingKey: "\(annotationKey)/p\(index)",
-                                     annotation: annotation)
-                                .overlay {
-                                    // the committed band stays visible (in unit
-                                    // page coordinates, so it survives zoom)
-                                    // while a highlight is active
-                                    if state.highlightedBars != nil,
-                                       let band = state.highlightBands[index] {
-                                        GeometryReader { g in
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .fill(Color.yellow.opacity(0.3))
-                                                .frame(width: band.width * g.size.width,
-                                                       height: band.height * g.size.height)
-                                                .offset(x: band.minX * g.size.width,
-                                                        y: band.minY * g.size.height)
-                                        }
-                                        .allowsHitTesting(false)
-                                    }
-                                }
-                                .overlay {
-                                    if highlightMode {
-                                        HighlightCaptureOverlay(
-                                            pageIndex: index,
-                                            pageCount: max(document.pageCount, 1),
-                                            measures: measureCount
-                                        ) { bars, note, bandRect in
-                                            state.highlightedBars = bars
-                                            state.highlightNote = note
-                                            // one band at a time: a new stroke
-                                            // replaces the previous selection
-                                            state.highlightBands = [index: bandRect]
-                                            chipExpanded = false
-                                        }
-                                    }
-                                }
-                                .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
-                        }
-                    }
-                }
-                .frame(minWidth: geo.size.width)
-                .padding(.vertical, 12)
-                .animation(nil, value: width)
+            let base = min(geo.size.width - 24, 1100)
+            let width = min(max(base * zoom, base * Self.zoomRange.lowerBound),
+                            base * Self.zoomRange.upperBound)
+            ZoomableScroll(contentSize: contentSize(pageWidth: width, viewport: geo.size),
+                           zoomRange: Self.zoomRange) { factor in
+                zoom = min(max(zoom * factor, Self.zoomRange.lowerBound),
+                           Self.zoomRange.upperBound)
+            } content: {
+                pageStack(width: width, viewport: geo.size)
             }
-            .background(Color(white: 0.93))
-            .simultaneousGesture(
-                MagnifyGesture()
-                    .updating($pinch) { value, pinchState, _ in
-                        pinchState = value.magnification
-                    }
-                    .onEnded { value in
-                        zoom = min(max(zoom * value.magnification, Self.zoomRange.lowerBound),
-                                   Self.zoomRange.upperBound)
-                    }
-            )
         }
         .overlay(alignment: .top) { highlightChip }
         .overlay(alignment: .bottom) {
@@ -112,9 +59,13 @@ struct ScorePagesView: View {
                     // the two modes both want the Pencil; only one at a time
                     if annotation.isOn { highlightMode = false }
                 } label: {
-                    Image(systemName: annotation.isOn
-                          ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
-                        .foregroundStyle(annotation.isOn ? Color.orange : Color.accentColor)
+                    // pencil.slash reads as "locked, taps won't mark the score";
+                    // a plain pencil means marks land now. Tinted with the live
+                    // ink so the active colour is visible without opening the bar.
+                    Image(systemName: annotation.isOn ? "pencil" : "pencil.slash")
+                        .fontWeight(annotation.isOn ? .semibold : .regular)
+                        .foregroundStyle(annotation.isOn
+                                         ? annotation.ink.swatch : Color.accentColor)
                 }
                 .accessibilityLabel(annotation.isOn
                                     ? "Exit annotation mode" : "Annotate the score")
@@ -130,6 +81,72 @@ struct ScorePagesView: View {
                 .accessibilityLabel(highlightMode ? "Exit highlight mode" : "Highlight a passage")
             }
         }
+    }
+
+    /// Total size of the page stack at a given page width — the scroll view's
+    /// content size, so it must match `pageStack`'s layout exactly.
+    private func contentSize(pageWidth: CGFloat, viewport: CGSize) -> CGSize {
+        var height: CGFloat = 12  // top padding
+        for index in 0..<document.pageCount {
+            guard let page = document.page(at: index) else { continue }
+            let bounds = page.bounds(for: .mediaBox)
+            height += pageWidth * bounds.height / max(bounds.width, 1) + 12
+        }
+        return CGSize(width: max(pageWidth + 24, viewport.width), height: height + 12)
+    }
+
+    @ViewBuilder
+    private func pageStack(width: CGFloat, viewport: CGSize) -> some View {
+        // VStack, not LazyVStack: inside a hosted view there is no scroll
+        // container to be lazy about, and the eager version at least lays out
+        // deterministically. PDFPageImage caps its raster size to compensate.
+        VStack(spacing: 12) {
+            ForEach(0..<document.pageCount, id: \.self) { index in
+                if let page = document.page(at: index) {
+                    PageView(page: page,
+                             width: width,
+                             drawingStore: DrawingStore.shared,
+                             drawingKey: "\(annotationKey)/p\(index)",
+                             annotation: annotation)
+                        .overlay {
+                            // the committed band stays visible (in unit page
+                            // coordinates, so it survives zoom) while a
+                            // highlight is active
+                            if state.highlightedBars != nil,
+                               let band = state.highlightBands[index] {
+                                GeometryReader { g in
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.yellow.opacity(0.3))
+                                        .frame(width: band.width * g.size.width,
+                                               height: band.height * g.size.height)
+                                        .offset(x: band.minX * g.size.width,
+                                                y: band.minY * g.size.height)
+                                }
+                                .allowsHitTesting(false)
+                            }
+                        }
+                        .overlay {
+                            if highlightMode {
+                                HighlightCaptureOverlay(
+                                    pageIndex: index,
+                                    pageCount: max(document.pageCount, 1),
+                                    measures: measureCount
+                                ) { bars, note, bandRect in
+                                    state.highlightedBars = bars
+                                    state.highlightNote = note
+                                    // one band at a time: a new stroke replaces
+                                    // the previous selection
+                                    state.highlightBands = [index: bandRect]
+                                    chipExpanded = false
+                                }
+                            }
+                        }
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
+                }
+            }
+        }
+        .frame(width: max(width + 24, viewport.width))
+        .padding(.vertical, 12)
     }
 
     // MARK: highlight chip
@@ -287,7 +304,9 @@ private struct PDFPageImage: View {
     }
 
     private func render() -> UIImage {
-        let scale: CGFloat = 2.0
+        // 2x for crispness, but bounded: at 3x zoom across a multi-page score
+        // an unbounded 2x raster runs to hundreds of megabytes.
+        let scale = min(2.0, 2000 / max(size.width, 1))
         return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
                               for: .mediaBox)
     }
@@ -371,7 +390,7 @@ private struct PencilCanvas: UIViewRepresentable {
 
         @objc func handleTwoFingerTap() {
             MainActor.assumeIsolated {
-                controller?.undo(key: key)
+                _ = controller?.undo(key: key)
             }
         }
 
