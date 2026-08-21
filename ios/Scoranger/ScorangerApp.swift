@@ -33,6 +33,11 @@ struct ScorangerApp: App {
                     #endif
                     await state.seedLibraryIfEmpty()
                     await state.refresh()
+                    // needs a manifest in hand, so it follows the first refresh
+                    await state.migrateSeededSetlistName()
+                    #if DEBUG
+                    await state.seedMultiStepTurnIfRequested()
+                    #endif
                 }
         }
     }

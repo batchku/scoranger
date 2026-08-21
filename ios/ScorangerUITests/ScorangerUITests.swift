@@ -341,6 +341,38 @@ final class ScorangerUITests: XCTestCase {
         }
     }
 
+    /// A run of versions from one chat prompt collapses to its final state, and
+    /// the steps in between must be reachable — otherwise the list looks like it
+    /// skips from v001 straight to v003.
+    func testPromptGroupStepsExpand() {
+        // the fixture runs two ops inside one turn on the quartet
+        let caret = app.buttons["versions-toggle-\(firstArrangement)"]
+        XCTAssertTrue(caret.waitForExistence(timeout: 30))
+        caret.tap()
+
+        let stepsToggle = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                  "steps-toggle-\(firstArrangement)-"))
+            .firstMatch
+        XCTAssertTrue(stepsToggle.waitForExistence(timeout: 20),
+                      "a multi-step prompt group should offer a caret for its steps")
+
+        let step = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                  "step-\(firstArrangement)-"))
+            .firstMatch
+        XCTAssertFalse(step.exists, "steps should be hidden until the caret opens")
+
+        stepsToggle.tap()
+        XCTAssertTrue(step.waitForExistence(timeout: 10),
+                      "the caret did not reveal the intermediate versions")
+        shot("prompt-group-steps")
+
+        step.tap()
+        XCTAssertTrue(app.buttons["Versions"].waitForExistence(timeout: 60),
+                      "tapping a step version did not open it")
+    }
+
     /// Long-press on an arrangement row offers the filing context menu.
     func testContextMenu() {
         app.buttons["arrangement-\(firstArrangement)"].press(forDuration: 1.2)

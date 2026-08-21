@@ -15,6 +15,9 @@ struct ContentView: View {
     @State private var collapsedSetlists: Set<String> = []
     /// Arrangements whose version history is showing beneath them.
     @State private var expandedArrangements: Set<String> = []
+    /// Prompt groups (one chat turn, several versions) showing their steps.
+    /// Keyed "<slug>/<group id>" so two arrangements cannot collide.
+    @State private var expandedVersionGroups: Set<String> = []
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
     /// Score awaiting a "New piece…" name (drives the naming alert).
@@ -298,6 +301,11 @@ struct ContentView: View {
                             if expandedArrangements.contains(score.slug) {
                                 ForEach(state.versionGroups(for: score)) { group in
                                     nestedVersionRow(score, group)
+                                    if expandedVersionGroups.contains("\(score.slug)/\(group.id)") {
+                                        ForEach(group.subs.reversed()) { step in
+                                            stepVersionRow(score, step)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -320,6 +328,11 @@ struct ContentView: View {
                     if expandedArrangements.contains(score.slug) {
                         ForEach(state.versionGroups(for: score)) { group in
                             nestedVersionRow(score, group)
+                            if expandedVersionGroups.contains("\(score.slug)/\(group.id)") {
+                                ForEach(group.subs.reversed()) { step in
+                                    stepVersionRow(score, step)
+                                }
+                            }
                         }
                     }
                 }
@@ -695,40 +708,107 @@ struct ContentView: View {
         }
     }
 
-    /// One version of an arrangement, nested under it. Titled by the chat
-    /// prompt that produced it when there was one, so a run of prompts reads
-    /// back as the history it is. Tapping jumps the score pane to that version.
+    /// One entry of an arrangement's history. A single version stands alone; a
+    /// run of versions from one chat prompt shows as its final state, with a
+    /// caret that opens the intermediate steps -- otherwise the list appears to
+    /// jump from v014 to v023 with no way to reach what happened between.
     private func nestedVersionRow(_ score: ScoreDoc,
                                   _ group: AppState.VersionGroup) -> some View {
+        let key = "\(score.slug)/\(group.id)"
+        let expanded = expandedVersionGroups.contains(key)
+        // subs holds every version of the turn, so >1 means there are steps
+        // between this row's face and where the run started
+        let hasSteps = group.subs.count > 1
         let isDisplayed = score.slug == state.selectedScore?.slug
             && (group.face.id == state.displayedVersionID
                 || group.subs.contains { $0.id == state.displayedVersionID })
+        return HStack(spacing: 2) {
+            if hasSteps {
+                Button {
+                    withAnimation {
+                        if expanded { expandedVersionGroups.remove(key) }
+                        else { expandedVersionGroups.insert(key) }
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.structure)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 20, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(expanded
+                    ? "Hide the steps of this prompt"
+                    : "Show the \(group.subs.count) steps of this prompt")
+                .accessibilityIdentifier("steps-toggle-\(score.slug)-\(group.id)")
+            } else {
+                Spacer().frame(width: 20)
+            }
+            Button {
+                openScore(score.slug,
+                          version: group.face.id == score.latest ? nil : group.face.id)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(group.face.id)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text(group.title)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if hasSteps {
+                        Text("\(group.subs.count) steps")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 4)
+                    if isDisplayed {
+                        Image(systemName: "eye")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.structure)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .tint(.primary)
+            .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
+        }
+        .padding(.leading, 20)
+    }
+
+    /// One intermediate version inside a prompt group: the individual op, not
+    /// the prompt. Indented past the group row it belongs to.
+    private func stepVersionRow(_ score: ScoreDoc, _ version: VersionDoc) -> some View {
+        let isDisplayed = score.slug == state.selectedScore?.slug
+            && version.id == state.displayedVersionID
         return Button {
             openScore(score.slug,
-                      version: group.face.id == score.latest ? nil : group.face.id)
+                      version: version.id == score.latest ? nil : version.id)
         } label: {
             HStack(spacing: 6) {
-                Text(group.face.id)
+                Text(version.id)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
-                Text(group.title)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
+                Text(version.op)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 if isDisplayed {
                     Image(systemName: "eye")
                         .font(.caption2)
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Theme.structure)
                 }
             }
-            .padding(.leading, 38)
+            .padding(.leading, 62)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
         .tint(.primary)
-        .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
+        .accessibilityIdentifier("step-\(score.slug)-\(version.id)")
     }
 
     /// Trailing per-row icon button; borderless so it doesn't hijack the row

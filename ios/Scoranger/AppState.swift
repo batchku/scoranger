@@ -84,6 +84,8 @@ final class AppState: ObservableObject {
     /// true = embedded Python engine + Verovio (no laptop needed);
     /// false = remote `scor serve` over the network.
     @AppStorage("useLocalEngine") var useLocalEngine = true
+    /// Guards the one-time rename of the old seeded "Samples" setlist.
+    @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
     /// Cloud OMR service base URL (Audiveris on Cloud Run); empty = disabled.
     @AppStorage("omrURL") var omrURLString =
         (Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String) ?? ""
@@ -690,6 +692,43 @@ final class AppState: ObservableObject {
             lastError = error.localizedDescription
         }
         return nil
+    }
+
+    #if DEBUG
+    /// Test fixture: run several ops inside one chat turn, so the sidebar has a
+    /// prompt group with intermediate steps to expand. Only reachable under
+    /// -seedTestLibrary, alongside the rest of the test scaffolding.
+    func seedMultiStepTurnIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-seedTestLibrary"),
+              let slug = manifest?.scores.first(where: { $0.versions.count == 1 })?.slug
+        else { return }
+        do {
+            _ = try await local.call(op: "begin-turn",
+                                     args: ["score": slug,
+                                            "prompt": "transpose up then back down"])
+            _ = try await local.call(op: "transpose", args: ["score": slug, "interval": "2"])
+            _ = try await local.call(op: "transpose", args: ["score": slug, "interval": "-2"])
+            _ = try await local.call(op: "end-turn", args: [:])
+            await refresh()
+            print("SCORANGER-SEED multi-step turn on \(slug)")
+        } catch {
+            print("SCORANGER-SEED turn failed: \(error.localizedDescription)")
+        }
+    }
+    #endif
+
+    /// One-time cleanup for devices carrying the setlist the old seeding made.
+    /// The samples concept is gone (build 116) but the row it created lives in
+    /// the on-device workspace, which app updates do not touch, so it has to be
+    /// renamed in place. Exact-name match only, and it runs once.
+    func migrateSeededSetlistName() async {
+        guard useLocalEngine, !didMigrateSetlistNames else { return }
+        guard let setlists = manifest?.setlists else { return }  // retry next refresh
+        didMigrateSetlistNames = true
+        guard let stale = setlists.first(where: { $0.name == "Samples" }) else { return }
+        if await renameSetlist(setlist: stale.slug, name: "Set List 1") {
+            print("SCORANGER-MIGRATE renamed setlist 'Samples' -> 'Set List 1'")
+        }
     }
 
     /// Create an empty setlist.
