@@ -84,3 +84,82 @@ Queued, not started. Verbatim asks with implementation notes:
   about `MagnifyGesture.Value.startAnchor` and adjust the scroll offset to keep
   that point fixed, or move the paged view into a `UIScrollView` with
   `zoomScale`/`viewForZooming`, which gives anchored pinch for free.
+
+## Next major bucket — a selectable vector score (not a page bitmap)
+
+Awaiting Ali's go-ahead: a UI design revamp is being explored in parallel and
+may reshape the interaction. Do not start without it.
+
+### The vision, in Ali's framing
+
+The score should be a real vector representation, the way Finale, Sibelius,
+Encore and Dorico render engraved music — "almost like a font", where every
+note, every bar, every clef, every sign is an individually selectable object.
+Today it is a flattened bitmap, which is why nothing on the page can be
+pointed at. Lasso selection is not the goal; it is the first thing the
+foundation makes possible.
+
+### Why the current pipeline blocks it
+
+`MusicXML -> Verovio SVG -> SwiftDraw -> PDF page bitmap`
+(`ios/Scoranger/VerovioRenderer.swift`). Every coordinate and id is discarded
+at render, so the app knows only "here is a picture of page 3".
+
+The existing bar selection (`HighlightCaptureOverlay` in
+`ios/Scoranger/ScorePagesView.swift`) maps a drag's horizontal span *linearly*
+onto the measure count. That is why its chip reads "≈ bars 12–15": it is an
+estimate, not hit-testing.
+
+The material is already there before flattening. Page 1 of the sample quartet
+carries 74 `g.note`, 19 `g.measure`, 19 `g.harm` (chord symbols), plus
+`g.staff`, `g.layer`, `g.tie`, `g.rest`, `g.barLine`, `g.accid`, `g.stem` —
+each with a stable SVG id, and nested so that a note's ancestry gives its staff
+(hence part) and its measure (hence bar number).
+
+### Foundation: keep the geometry
+
+1. Stop treating the SVG as an intermediate to be thrown away. Retain the
+   parsed per-page document alongside (or instead of) the rasterised page.
+2. Build a per-page spatial index of musical elements in page coordinates:
+   id, kind (note / measure / harm / clef / articulation / spanner), rect,
+   and the staff + measure it belongs to.
+3. Map view coordinates into page coordinates through the zoom transform
+   (`ZoomableScroll` owns it) so hit-testing is correct at every zoom level.
+4. Render selection as an overlay keyed on element ids, so it survives zoom,
+   scroll and re-render the way the highlight band already does.
+
+Open question worth settling early: keep rasterising for display and use the
+SVG purely as a hit-test model, or render the vectors directly and drop the
+bitmap. The second is closer to Ali's "like a font" framing and gives crisp
+zoom for free, but it is a bigger change to the drawing path and would need
+its own performance work on multi-page scores.
+
+### The interaction that rides on it
+
+Decided with Ali: a **selection mode** (like annotation mode) with a **single
+one-finger lasso** plus a **notes / bars / other picker**. The earlier
+one/two/three-finger scheme is dropped: finger-count switching collides with
+pinch zoom (which Ali specifically praised in build 116), with two-finger-tap
+undo in annotation mode, and with iPad system three-finger gestures.
+
+Selection then feeds chat as real context — parts and bar numbers rather than
+an estimate — extending what `chatContextWithHighlight` already does.
+
+`HighlightCaptureOverlay` is deleted only when this lands. Removing it first
+would leave no way to select bars at all.
+
+### Separate research spike — move/duplicate non-note elements
+
+Selecting a fermata, slur or chord symbol falls out of the index above. Editing
+one does not, and this should not be scheduled until two questions are answered:
+
+- **No engine ops exist** for relocating or duplicating an expression or a
+  spanner. They must be written as deterministic music21 operations (golden
+  rule: notation is never hand-edited).
+- **Identity does not round-trip.** Verovio's element ids are generated during
+  its own MusicXML->MEI conversion and do not map back to music21 objects, so
+  "this fermata on screen" cannot currently be resolved to "that fermata in the
+  file". Candidate approaches: match on (part, measure, offset, element type)
+  derived from SVG ancestry, or have the engine write a stable id into the
+  MusicXML that survives Verovio's conversion. Settle this before designing any
+  move/duplicate toolbar.
