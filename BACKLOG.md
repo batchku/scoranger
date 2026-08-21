@@ -50,3 +50,37 @@ The prototype is: local React viewer + Python score engine, driven by Claude Cod
 - Measure-range support on more ops (transpose, octave shift)
 - `merge_scores`, `extract_measures` tools
 - Part extraction to separate printable parts (one part per page/file)
+
+## Build 115 — score canvas polish (from Ali, after build 114)
+
+Queued, not started. Verbatim asks with implementation notes:
+
+- **Drop the title and number from the canvas header.** "The title of the piece
+  that's on the canvas doesn't need to be there because the title of the piece is
+  also written in the score. So remove that title. And also remove the number, so
+  I don't want to see 'number four arrangement' or something too."
+  → the principal toolbar item added in `ContentView.detailTitle`. Note the
+  sidebar and chat header still carry piece / #N, so the hierarchy stays legible
+  once the canvas header goes.
+
+- **Annotation toggle icon should read as locked vs editing.** "Change the icon so
+  that it goes between a pencil with a line across it (like 'no edit' or locked)
+  and a pencil with no line (means you're in edit mode right now)."
+  → `pencil.slash` when off, `pencil` when on, in `ScorePagesView`'s toolbar
+  (currently `pencil.tip.crop.circle` / `.fill`).
+
+- **Colour selection is not clear enough.** "The color change is not clear enough."
+  → the selected swatch in `AnnotationBar` is a thin ring; needs a much stronger
+  selected state (size bump, checkmark, or a filled surround), and the active
+  colour should probably show on the toggle itself.
+
+- **Two-finger zoom is broken: it does not anchor.** "As I do it the canvas — the
+  point in the center of my fingers should not move, that should be the center of
+  zooming, but right now the canvas moves as I zoom and that makes for a very
+  glitchy experience."
+  → `ScorePagesView` applies `MagnifyGesture` magnification to the page *width*
+  inside a ScrollView, so content reflows around the scroll origin rather than
+  scaling about the gesture anchor. Needs real anchored zoom: scale a container
+  about `MagnifyGesture.Value.startAnchor` and adjust the scroll offset to keep
+  that point fixed, or move the paged view into a `UIScrollView` with
+  `zoomScale`/`viewForZooming`, which gives anchored pinch for free.
