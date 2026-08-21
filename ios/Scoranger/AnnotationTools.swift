@@ -28,13 +28,14 @@ final class AnnotationController: ObservableObject {
 
         var id: String { rawValue }
 
+        /// Fixed by the design system: the user's marks are content, not palette.
         var uiColor: UIColor {
             switch self {
-            case .red:    return .systemRed
-            case .blue:   return .systemBlue
-            case .green:  return .systemGreen
-            case .orange: return .systemOrange
-            case .black:  return .label
+            case .red:    return UIColor(Theme.Pen.red)
+            case .blue:   return UIColor(Theme.Pen.blue)
+            case .green:  return UIColor(Theme.Pen.green)
+            case .orange: return UIColor(Theme.Pen.amber)
+            case .black:  return UIColor(Theme.Pen.black)
             }
         }
 
@@ -98,88 +99,91 @@ final class UndoableCanvas: PKCanvasView {
     override var undoManager: UndoManager? { ownUndoManager }
 }
 
-/// The floating annotation bar: tool, colour, undo, and a way out of the mode.
+/// The ink bar (§7.9): pill language, sitting 74 from the bottom so it stacks
+/// above the canvas toolbar. Pen · eraser · divider · five inks · divider ·
+/// undo · exit. The live ink grows and takes a ring and a tick.
 struct AnnotationBar: View {
     @ObservedObject var controller: AnnotationController
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Theme.Metric.s6) {
             toolButton(.pen, systemImage: "pencil.tip", label: "Draw")
             toolButton(.eraser, systemImage: "eraser", label: "Erase")
 
             separator
 
             ForEach(AnnotationController.Ink.allCases) { ink in
-                Button {
-                    controller.ink = ink
-                    // choosing a colour means you want to draw with it
-                    controller.tool = .pen
-                } label: {
-                    // A thin ring round a small dot was too subtle to find at a
-                    // glance. The active colour now grows, gains a contrasting
-                    // halo, and carries a checkmark.
-                    let active = controller.ink == ink && controller.tool == .pen
-                    Circle()
-                        .fill(ink.swatch)
-                        .frame(width: active ? 28 : 20, height: active ? 28 : 20)
-                        .overlay {
-                            if active {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 13, weight: .heavy))
-                                    .foregroundStyle(.white)
-                                    .shadow(color: .black.opacity(0.35), radius: 1)
-                            }
-                        }
-                        .overlay(
-                            Circle().stroke(Color.primary.opacity(active ? 0.9 : 0.15),
-                                            lineWidth: active ? 2 : 1)
-                        )
-                        .padding(active ? 0 : 4)
-                        .animation(.snappy(duration: 0.15), value: active)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(ink.rawValue.capitalized) pen")
+                inkDot(ink)
             }
 
             separator
 
-            Button {
-                controller.undo()
-            } label: {
+            Button { controller.undo() } label: {
                 Image(systemName: "arrow.uturn.backward")
-                    .frame(minWidth: 32, minHeight: 32)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(controller.canUndo ? Theme.Accent.clayStrong
+                                                        : Theme.Ink.ink3)
+                    .frame(width: 34, height: 34)
+                    .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .disabled(!controller.canUndo)
-            .foregroundStyle(controller.canUndo ? Color.accentColor : Color.secondary)
             .accessibilityLabel("Undo annotation")
 
             separator
 
-            Button {
-                controller.isOn = false
-            } label: {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title3)
-                    .frame(minWidth: 32, minHeight: 32)
+            Button { controller.isOn = false } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .frame(width: 34, height: 34)
+                    .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Finish annotating")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .fixedSize()
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Theme.Metric.s8)
+        .padding(.vertical, Theme.Metric.s6)
+        .background(Theme.Surface.panel)
+        .clipShape(Capsule())
+        .overlay { Capsule().stroke(Theme.Line.line2, lineWidth: 1) }
+        .modifier(InkBarShadow())
+        .padding(.bottom, 74)
     }
 
-    /// A plain rule. Divider() is flexible in an HStack and starves the
-    /// controls after it of width.
     private var separator: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.35))
-            .frame(width: 1, height: 24)
+        Rectangle().fill(Theme.Line.line2).frame(width: 1, height: 20)
+            .padding(.horizontal, Theme.Metric.s2)
+    }
+
+    private func inkDot(_ ink: AnnotationController.Ink) -> some View {
+        let active = controller.ink == ink && controller.tool == .pen
+        return Button {
+            controller.ink = ink
+            controller.tool = .pen
+        } label: {
+            Circle()
+                .fill(ink.swatch)
+                .frame(width: active ? 24 : 16, height: active ? 24 : 16)
+                .overlay {
+                    if active {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .overlay {
+                    Circle().stroke(active ? Theme.Ink.ink : Theme.Line.line2,
+                                    lineWidth: active ? 2 : 1)
+                }
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                .contentShape(Circle())
+                .animation(Theme.Motion.pillState, value: active)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(ink.rawValue.capitalized) pen")
     }
 
     private func toolButton(_ tool: AnnotationController.Tool,
@@ -189,13 +193,21 @@ struct AnnotationBar: View {
             controller.tool = tool
         } label: {
             Image(systemName: systemImage)
-                .frame(minWidth: 32, minHeight: 32)
-                .background(selected ? Color.accentColor.opacity(0.18) : .clear,
-                            in: RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(selected ? Theme.Accent.clayStrong : Theme.Ink.ink2)
+                .frame(width: 34, height: 34)
+                .background {
+                    if selected { Circle().fill(Theme.Accent.clayTint) }
+                }
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
+}
+
+private struct InkBarShadow: ViewModifier {
+    func body(content: Content) -> some View { Theme.Elevation.pill(content) }
 }

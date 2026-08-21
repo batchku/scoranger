@@ -28,3 +28,6 @@ testdata/
 
 # headless deploy credentials (see ios/.deploy.env.example)
 ios/.deploy.env
+
+# design mockup renders are regenerable via design/shoot*.sh
+design/png/

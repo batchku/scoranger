@@ -1,0 +1,592 @@
+<title>Scoranger Direction Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300..900&family=Inter+Tight:wght@300..900&family=Martian+Mono:wght@400..700&family=Space+Grotesk:wght@400..700&display=swap" rel="stylesheet">
+<style>
+/* ============================ deck shell ============================ */
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:#141414;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:1680px;margin:0 auto;padding:22px 16px 120px}
+h1{font-family:'Inter Tight',Inter,sans-serif;font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+.lede{font-size:14px;color:#555;max-width:70ch;line-height:1.5;margin:0 0 4px}
+.lede b{color:#141414}
+.q{margin-top:40px;border-top:2px solid #141414;padding-top:12px}
+.q-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.q-n{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;background:#141414;color:#fff;padding:2px 6px;border-radius:3px}
+.q-h h2{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
+.q-h .picked{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#137a3d;margin-left:auto}
+.q-sub{font-size:13px;color:#666;margin:4px 0 12px;max-width:80ch}
+.cards{display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:1180px){.cards{grid-template-columns:1fr}}
+.card{border:1px solid #e3e3e3;border-radius:10px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.card.on{border-color:#137a3d;box-shadow:0 0 0 2px rgba(19,122,61,.18)}
+.card-h{padding:10px 12px 8px}
+.card-h .opt{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;color:#888}
+.card-h h3{margin:1px 0 3px;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.card-h p{margin:0;font-size:12px;line-height:1.45;color:#5c5c5c}
+.stage{position:relative;width:100%;overflow:hidden;background:#f4f4f4;border-top:1px solid #ececec;border-bottom:1px solid #ececec;cursor:zoom-in}
+.stage .app{position:absolute;top:0;left:0;transform-origin:0 0}
+.stage .tap{position:absolute;right:8px;bottom:8px;font-size:10px;font-family:'IBM Plex Mono',monospace;background:rgba(20,20,20,.72);color:#fff;padding:3px 6px;border-radius:4px;pointer-events:none}
+.pickrow{display:flex;gap:8px;padding:10px 12px}
+.pickrow button{flex:1;font:600 13px/1 Inter,sans-serif;padding:10px 8px;border:1px solid #d8d8d8;background:#fafafa;border-radius:7px;cursor:pointer;color:#333}
+.pickrow button:hover{background:#f0f0f0}
+.card.on .pickrow button{background:#137a3d;border-color:#137a3d;color:#fff}
+/* answer bar */
+.answer{position:fixed;left:0;right:0;bottom:0;background:#141414;color:#fff;padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:40;flex-wrap:wrap}
+.answer .str{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;letter-spacing:.04em}
+.answer button{font:600 12px Inter,sans-serif;background:#fff;color:#141414;border:0;border-radius:6px;padding:7px 11px;cursor:pointer}
+.answer .hint{font-size:11px;color:#9a9a9a}
+/* zoom modal */
+.modal{position:fixed;inset:0;background:#0d0d0d;z-index:60;display:none;flex-direction:column}
+.modal.open{display:flex}
+.modal-h{display:flex;align-items:center;gap:10px;padding:8px 12px;color:#fff;flex-wrap:wrap}
+.modal-h .t{font:700 14px Inter,sans-serif}
+.modal-h .d{font-size:11px;color:#aaa;max-width:60ch}
+.modal-h .sp{margin-left:auto;display:flex;gap:6px}
+.modal-h button{font:600 13px Inter,sans-serif;background:#2a2a2a;color:#fff;border:1px solid #3d3d3d;border-radius:6px;padding:8px 12px;cursor:pointer}
+.modal-h button.on{background:#fff;color:#111;border-color:#fff}
+.modal-h button.x{background:transparent;border-color:#555}
+.modal-body{flex:1;position:relative;overflow:hidden}
+.modal-body .app{position:absolute;top:50%;left:50%;transform-origin:50% 50%}
+/* shot / sheet modes */
+body.shot{background:#fff}
+body.shot .answer,body.sheet .answer,body.shot .modal,body.sheet .modal{display:none}
+body.shot .wrap{display:none}
+.shotbox{display:none}
+body.shot .shotbox,body.sheet .shotbox{display:block}
+body.sheet .wrap{display:none}
+.sheet-item{position:relative}
+.sheet-lab{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;padding:10px 14px 6px;background:#fff;color:#111}
+.sheet-lab span{color:#777;font-weight:400;font-family:Inter,sans-serif;font-size:13px}
+
+.spec{border-top:1px solid;border-bottom:1px solid;padding:12px 14px 13px;display:flex;flex-direction:column;gap:3px}
+.spec-a{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.05}
+.spec-b{font-size:16px;font-weight:600}
+.spec-c{font-size:12.5px;opacity:.62}
+.spec-d{font-size:12px;opacity:.78;letter-spacing:-.01em}
+/* ============================ the mini app ============================ */
+.app{
+  width:1180px;height:740px;display:flex;position:relative;overflow:hidden;
+  background:var(--ground);color:var(--ink);font-family:var(--f-ui);font-size:var(--fs-body);
+  --r:2px;
+}
+.app *{box-sizing:border-box}
+/* ---- layout ---- */
+.side{flex:0 0 302px;width:302px;display:flex;flex-direction:column;background:var(--panel);min-height:0}
+.canvas{flex:1;min-width:0;display:flex;flex-direction:column;position:relative;background:var(--ground)}
+.chat{flex:0 0 344px;width:344px;display:flex;flex-direction:column;background:var(--panel);min-height:0}
+.app[data-layout="A"] .side{border-right:1px solid var(--line)}
+.app[data-layout="A"] .chat{border-left:1px solid var(--line)}
+.app[data-layout="B"]{padding:16px;gap:16px;background:var(--ground)}
+.app[data-layout="B"] .side,.app[data-layout="B"] .canvas,.app[data-layout="B"] .chat{
+  border-radius:14px;border:1px solid var(--line);box-shadow:0 6px 22px rgba(0,0,0,.07);overflow:hidden;background:var(--panel)}
+.app[data-layout="B"] .canvas{background:color-mix(in srgb,var(--ground) 60%,var(--panel))}
+.app[data-layout="C"] .side{position:absolute;left:0;top:0;bottom:0;z-index:3;box-shadow:22px 0 40px rgba(0,0,0,.13);border-right:1px solid var(--line)}
+.app[data-layout="C"] .chat{position:absolute;right:0;top:0;bottom:0;z-index:3;box-shadow:-22px 0 40px rgba(0,0,0,.13);border-left:1px solid var(--line)}
+.app[data-layout="C"] .canvas{position:absolute;inset:0;z-index:1}
+.app[data-layout="C"] .ctb{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:4;
+  border:1px solid var(--line);border-radius:999px;background:var(--panel);box-shadow:0 8px 24px rgba(0,0,0,.16);padding:8px 16px;border-bottom-width:1px}
+.app[data-layout="C"] .pagewrap{padding:26px 360px 20px 318px}
+.app[data-layout="C"] .abar{bottom:78px}
+
+/* ---- sidebar ---- */
+.side-top{display:flex;align-items:center;gap:9px;padding:13px 15px 9px}
+.brand{font-family:var(--f-head);font-weight:800;font-size:calc(var(--fs-head) + 1px);letter-spacing:var(--ls-brand);font-variation-settings:var(--head-var)}
+.led{width:9px;height:9px;border-radius:50%;background:#3ba05c;margin-left:auto}
+.sec{padding:2px 0 8px}
+.sec-h{display:flex;align-items:center;gap:7px;padding:7px 15px 5px;font-size:var(--fs-label);letter-spacing:var(--ls-label);
+  text-transform:uppercase;font-weight:700;color:var(--accent-text);font-family:var(--f-ui)}
+.sec-h .plus{margin-left:auto;color:var(--ink3);font-size:calc(var(--fs-body) + 2px);line-height:1}
+.row{display:flex;align-items:center;gap:9px;padding:6px 15px;position:relative}
+.row .car{width:9px;color:var(--accent-text);font-size:9px;flex:0 0 9px}
+.pname{font-family:var(--f-head);font-weight:700;font-size:var(--fs-head);letter-spacing:-.01em;font-variation-settings:var(--head-var);line-height:1.2}
+.sub{font-size:var(--fs-meta);color:var(--ink3);font-family:var(--f-data);line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stack{min-width:0;display:flex;flex-direction:column;gap:2px}
+.stack .nm{line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.num{font-family:var(--f-head);font-size:var(--fs-num);font-weight:var(--fw-num);color:var(--accent-text);
+  font-variant-numeric:tabular-nums;line-height:.95;flex:0 0 auto;min-width:var(--num-w);font-variation-settings:var(--head-var)}
+.arrow{margin-left:auto;color:var(--ink3);font-size:var(--fs-meta)}
+.vrow{display:flex;align-items:center;gap:7px;padding:3px 15px 3px 44px;font-size:var(--fs-meta);color:var(--ink)}
+.vid{font-family:var(--f-mono);font-size:var(--fs-meta);color:var(--ink2);letter-spacing:-.02em}
+.vt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--f-data)}
+.steps{color:var(--ink3);font-family:var(--f-data)}
+.eye{margin-left:auto;color:var(--accent-text);font-size:calc(var(--fs-meta) - 1px)}
+.tree{font-family:var(--f-mono);color:var(--ink3);font-size:var(--fs-meta);white-space:pre}
+.lead{flex:1;border-bottom:1px dotted var(--ink3);margin:0 2px;opacity:.7;min-width:8px}
+.ts{font-family:var(--f-mono);font-size:calc(var(--fs-meta) - .5px);color:var(--ink3)}
+.pend{display:flex;align-items:center;gap:8px;padding:5px 15px;font-size:var(--fs-meta);color:var(--ink2);font-family:var(--f-data)}
+.bar{height:3px;background:var(--line);flex:1;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;width:62%;background:var(--accent)}
+.foot{margin-top:auto;font-family:var(--f-mono);font-size:calc(var(--fs-meta) - .5px);color:var(--ink3);
+  text-align:center;padding:7px;border-top:1px solid var(--line)}
+/* active row (mood-dependent) */
+.row.act{background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.app[data-mood="A"] .row.act{background:transparent;box-shadow:inset 2.5px 0 0 var(--ink)}
+.app[data-mood="B"] .row.act{outline:1px solid var(--accent);outline-offset:-1px;border-radius:var(--r)}
+.app[data-mood="C"] .row.act{background:var(--accent);color:var(--accent-ink)}
+.app[data-mood="C"] .row.act .num,.app[data-mood="C"] .row.act .sub{color:var(--accent-ink)}
+.app[data-mood="C"] .row.act .sub{opacity:.78}
+
+/* ---- canvas ---- */
+.ctb{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.chip{font-family:var(--f-mono);font-size:var(--fs-meta);padding:3px 8px;border:1px solid var(--line);border-radius:var(--r);color:var(--ink2)}
+.tbi{color:var(--ink2);font-size:calc(var(--fs-body) + 2px);line-height:1}
+.tbi.on{color:var(--accent-text)}
+.ctb .sp{margin-left:auto}
+.tape{display:flex;gap:3px;align-items:center}
+.tape i{width:11px;height:11px;border:1px solid var(--ink3);display:block;border-radius:1px}
+.tape i.f{background:var(--accent);border-color:var(--accent)}
+.tape i.g{background:var(--ink3);opacity:.45;border-color:transparent}
+.tape .gap{width:6px}
+.tape-lab{font-family:var(--f-mono);font-size:calc(var(--fs-meta) - .5px);color:var(--ink3);margin-left:4px}
+.pagewrap{flex:1;display:flex;justify-content:center;padding:20px 16px;overflow:hidden;position:relative}
+.page{width:var(--page-w,428px);background:var(--paper);padding:20px 22px 14px;box-shadow:0 3px 16px rgba(0,0,0,.10);position:relative}
+.app[data-layout="C"] .page{--page-w:502px}
+.app[data-mood="A"] .page{box-shadow:0 1px 0 var(--line),0 0 0 1px var(--line)}
+.page-t{font-family:var(--f-head);font-weight:700;font-size:13.5px;color:#141414;font-variation-settings:var(--head-var);letter-spacing:-.01em}
+.page-s{font-size:9.5px;color:#777;margin-top:1px}
+.page-hd{display:flex;align-items:flex-start;gap:12px;margin-bottom:10px}
+.bignum{font-family:var(--f-head);font-weight:900;font-size:40px;line-height:.82;color:var(--accent-text);
+  font-variant-numeric:tabular-nums;font-variation-settings:var(--head-var);margin-left:auto}
+.staff{display:block;margin-bottom:10px}
+.hl{position:absolute;background:#ffe25a;opacity:.42;pointer-events:none}
+.abar{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  background:var(--panel);border:1px solid var(--line);border-radius:calc(var(--r) + 8px);padding:7px 12px;box-shadow:0 5px 18px rgba(0,0,0,.13)}
+.app[data-layout="C"] .abar{border-radius:999px}
+.abar .dot{width:13px;height:13px;border-radius:50%;display:block}
+.abar .dot.on{width:19px;height:19px;box-shadow:0 0 0 2px var(--ink)}
+.abar .sep{width:1px;height:16px;background:var(--line)}
+.abar .ic{font-size:13px;color:var(--ink2)}
+.chipwarn{position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:var(--fs-meta);font-family:var(--f-data);
+  background:var(--panel);border:1px solid var(--line);border-radius:calc(var(--r) + 6px);padding:4px 10px;color:var(--ink2);box-shadow:0 3px 10px rgba(0,0,0,.08)}
+
+/* ---- chat ---- */
+.chat-h{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line)}
+.chat-h .num{font-size:calc(var(--fs-num) * .72)}
+.model{margin-left:auto;font-family:var(--f-mono);font-size:var(--fs-meta);border:1px solid var(--line);
+  border-radius:var(--r);padding:3px 7px;color:var(--ink2)}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:9px;padding:12px;overflow:hidden}
+.bub{max-width:88%;padding:9px 11px;border-radius:calc(var(--r) + 9px);line-height:1.42}
+.bub.agent{background:color-mix(in srgb,var(--ink) 6%,transparent);align-self:flex-start}
+.bub.user{background:color-mix(in srgb,var(--accent) 18%,transparent);align-self:flex-end}
+.app[data-mood="C"] .bub.user{background:var(--accent);color:var(--accent-ink)}
+.app[data-mood="A"] .bub{border-radius:0;background:transparent;border-left:2px solid var(--line);padding-left:10px;max-width:100%}
+.app[data-mood="A"] .bub.user{border-left:2px solid var(--accent);background:transparent;color:var(--ink)}
+.prog{border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;display:flex;flex-direction:column;gap:5px;background:color-mix(in srgb,var(--ink) 3%,transparent)}
+.step{display:flex;align-items:center;gap:7px;font-size:var(--fs-meta);font-family:var(--f-data)}
+.step .k{color:#3ba05c;font-size:calc(var(--fs-meta) + 1px)}
+.step .w{color:#c8791b}
+.step .o{color:var(--ink3)}
+.step .det{color:var(--ink3);font-family:var(--f-mono);font-size:calc(var(--fs-meta) - .5px)}
+.spin{width:11px;height:11px;border:2px solid var(--ink3);border-top-color:transparent;border-radius:50%}
+.inbar{display:flex;align-items:center;gap:9px;padding:11px;border-top:1px solid var(--line)}
+.field{flex:1;border:1px solid var(--line);border-radius:calc(var(--r) + 5px);padding:8px 10px;color:var(--ink3);font-size:var(--fs-body)}
+.app[data-mood="A"] .field{border:0;border-bottom:1px solid var(--line);border-radius:0;padding-left:0}
+.send{font-size:17px;color:var(--accent-text)}
+/* ---- mood accents ---- */
+.app[data-mood="A"]{--r:0px}
+.app[data-mood="A"] .side,.app[data-mood="A"] .chat{background:transparent}
+.app[data-mood="A"] .ctb{background:transparent;border-bottom:1px solid color-mix(in srgb,var(--ink) 9%,transparent)}
+.app[data-mood="A"] .prog{border:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+.app[data-mood="A"] .chip,.app[data-mood="A"] .model{border:0;padding-left:0}
+.app[data-mood="B"]{--r:2px}
+.app[data-mood="B"] .led{box-shadow:0 0 0 3px color-mix(in srgb,#3ba05c 26%,transparent)}
+.app[data-mood="B"] .sec-h{background:color-mix(in srgb,var(--ink) 4%,transparent);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding-top:5px;padding-bottom:4px}
+.app[data-mood="C"]{--r:0px}
+.app[data-mood="C"] .sec-h{border-bottom:3px solid var(--ink);padding-bottom:4px;margin-bottom:5px;color:var(--ink)}
+.app[data-mood="C"] .side-top{border-bottom:3px solid var(--ink);margin:0 0 4px;padding-bottom:8px}
+.app[data-mood="C"] .row{padding-left:15px;padding-right:15px}
+.app[data-mood="C"] .prog{border:0;border-left:4px solid var(--accent);border-radius:0;background:transparent;padding-left:10px}
+</style>
+
+
+<div class="wrap" id="wrap"></div>
+<div class="shotbox" id="shotbox"></div>
+<div class="modal" id="modal">
+  <div class="modal-h">
+    <div><div class="t" id="mTitle"></div><div class="d" id="mDesc"></div></div>
+    <div class="sp">
+      <button data-m="A">A</button><button data-m="B">B</button><button data-m="C">C</button>
+      <button class="x" id="mClose">Close</button>
+    </div>
+  </div>
+  <div class="modal-body" id="modalBody"></div>
+</div>
+<div class="answer" id="answer">
+  <span class="str" id="ansStr">1– 2– 3– 4– 5– 6– 7–</span>
+  <button id="copyBtn">Copy answers</button>
+  <span class="hint">tap a screen to blow it up · tap A / B / C to pick</span>
+</div>
+<script>
+/* ===================== design tokens per option ===================== */
+const PALETTE = {
+  A:{name:'Paper & Clay', ground:'#F4F0E8', panel:'#FAF7F1', paper:'#FFFFFF', ink:'#1A1917',
+     ink2:'#6B655C', ink3:'#A9A29A', line:'#E2DBCE', accent:'#CC5C2E', accentInk:'#FFFFFF', accentText:'#CC5C2E'},
+  B:{name:'Blueprint', ground:'#EEF1F7', panel:'#FCFCFD', paper:'#FFFFFF', ink:'#0E1420',
+     ink2:'#5A6478', ink3:'#98A1B3', line:'#DBE1EC', accent:'#2A46F0', accentInk:'#FFFFFF', accentText:'#2A46F0'},
+  C:{name:'Acid Lab', ground:'#EBEFE7', panel:'#F8FAF6', paper:'#FFFFFF', ink:'#22262B',
+     ink2:'#5E666B', ink3:'#9AA29F', line:'#DCE2D6', accent:'#C7ED22', accentInk:'#1B2100', accentText:'#22262B'},
+};
+/* dark + stage variants of the baseline palette (Q7) */
+const DARK = {ground:'#131210', panel:'#1B1917', paper:'#FFFFFF', ink:'#F4F0E8', ink2:'#A29A8C',
+  ink3:'#726A5F', line:'#2E2A25'};
+const STAGE = {ground:'#0B0B0A', panel:'#141312', paper:'#EFE6D2', ink:'#E8E2D6', ink2:'#9C948A',
+  ink3:'#6A645C', line:'#26241F'};
+
+const TYPE = {
+  A:{name:'Grotesk + Mono', ui:"'Inter Tight',Inter,sans-serif", head:"'Inter Tight',Inter,sans-serif",
+     mono:"'IBM Plex Mono',monospace", headVar:'normal', lsBrand:'-0.02em'},
+  B:{name:'Space + Plex', ui:"Inter,sans-serif", head:"'Space Grotesk',sans-serif",
+     mono:"'IBM Plex Mono',monospace", headVar:'normal', lsBrand:'-0.01em'},
+  C:{name:'Extended Display', ui:"Archivo,sans-serif", head:"Archivo,sans-serif",
+     mono:"'Martian Mono','IBM Plex Mono',monospace", headVar:"'wdth' 125", lsBrand:'0.01em'},
+};
+const SCALE = {
+  A:{name:'Compressed, weight-driven', body:'13px', label:'10px', meta:'11px', head:'13.5px',
+     num:'21px', fwNum:800, numW:'34px', lsLabel:'.11em', dataMono:false},
+  B:{name:'Extreme contrast', body:'13px', label:'9.5px', meta:'10.5px', head:'16.5px',
+     num:'40px', fwNum:900, numW:'56px', lsLabel:'.17em', dataMono:false},
+  C:{name:'Monospace-forward', body:'15px', label:'11px', meta:'12.5px', head:'15px',
+     num:'25px', fwNum:700, numW:'44px', lsLabel:'.06em', dataMono:true},
+};
+const BASE = {pal:'A', type:'A', scale:'A', mood:'B', layout:'A', sig:'A', theme:'light'};
+
+function vars(cfg){
+  let p = Object.assign({}, PALETTE[cfg.pal]);
+  if(cfg.theme !== 'light'){
+    p = Object.assign({}, p, cfg.theme === 'dark' ? DARK : STAGE);
+    /* on a dark ground the accent can carry text again, whatever the palette */
+    p.accentText = p.accent;
+  }
+  const t = TYPE[cfg.type], s = SCALE[cfg.scale];
+  return [
+    `--ground:${p.ground}`,`--panel:${p.panel}`,`--paper:${p.paper}`,`--ink:${p.ink}`,`--ink2:${p.ink2}`,
+    `--ink3:${p.ink3}`,`--line:${p.line}`,`--accent:${p.accent}`,`--accent-ink:${p.accentInk}`,
+    `--accent-text:${p.accentText}`,
+    `--f-ui:${t.ui}`,`--f-head:${t.head}`,`--f-mono:${t.mono}`,`--head-var:${t.headVar}`,`--ls-brand:${t.lsBrand}`,
+    `--fs-body:${s.body}`,`--fs-label:${s.label}`,`--fs-meta:${s.meta}`,`--fs-head:${s.head}`,
+    `--fs-num:${s.num}`,`--fw-num:${s.fwNum}`,`--num-w:${s.numW}`,`--ls-label:${s.lsLabel}`,
+    `--f-data:${s.dataMono ? t.mono : t.ui}`,
+  ].join(';');
+}
+
+/* ===================== the mini Scoranger screen ===================== */
+const VB = 400;   /* every system is drawn in a 400x34 viewBox and scaled to the page */
+function staff(seed){
+  const lines = [0,1,2,3,4].map(i => `<line x1="0" y1="${5+i*5}" x2="${VB}" y2="${5+i*5}" stroke="#33312e" stroke-width=".6"/>`).join('');
+  const xs = [.10,.155,.20,.25,.30,.365,.42,.47,.52,.58,.65,.71,.77,.83,.90];
+  const heads = xs.map((x,i) => {
+    const y = 5 + ((i*3 + seed*2) % 9) * 2.5;
+    const cx = x * VB;
+    return `<ellipse cx="${cx}" cy="${y}" rx="2.9" ry="2.1" fill="#1b1b1b" transform="rotate(-16 ${cx} ${y})"/>`
+         + `<line x1="${cx+2.7}" y1="${y}" x2="${cx+2.7}" y2="${y-13}" stroke="#1b1b1b" stroke-width=".9"/>`;
+  }).join('');
+  const bars = [.335,.665,1].map(f => `<line x1="${f*VB - (f===1?.5:0)}" y1="5" x2="${f*VB - (f===1?.5:0)}" y2="25" stroke="#33312e" stroke-width=".8"/>`).join('');
+  return `<svg class="staff" width="100%" viewBox="0 0 ${VB} 34" preserveAspectRatio="none" style="height:26px">
+    <text x="1" y="24" font-family="Georgia,serif" font-size="23" fill="#1b1b1b">&#119070;</text>${lines}${bars}${heads}</svg>`;
+}
+function staves(n){ let o=''; for(let i=0;i<n;i++) o += staff(i); return o; }
+
+function versionsBlock(cfg){
+  if(cfg.sig === 'B'){ /* ledger: tree glyphs + dotted leaders */
+    return `
+    <div class="vrow"><span class="tree">├─</span><span class="vid">v014</span><span class="vt">give the cello line to a viola</span><span class="lead"></span><span class="ts">14:02</span><span class="eye">&#9673;</span></div>
+    <div class="vrow" style="padding-left:60px"><span class="tree">│  ├─</span><span class="vid">v013</span><span class="vt">change-instrument</span><span class="lead"></span><span class="ts">14:02</span></div>
+    <div class="vrow" style="padding-left:60px"><span class="tree">│  └─</span><span class="vid">v012</span><span class="vt">merge-parts</span><span class="lead"></span><span class="ts">14:01</span></div>
+    <div class="vrow"><span class="tree">├─</span><span class="vid">v011</span><span class="vt">drop the piano</span><span class="lead"></span><span class="ts">13:47</span></div>
+    <div class="vrow"><span class="tree">└─</span><span class="vid">v009</span><span class="vt">transpose down a minor third</span><span class="lead"></span><span class="ts">13:31</span></div>`;
+  }
+  if(cfg.sig === 'C'){ /* tape lives on the canvas; sidebar stays a one-liner */
+    return `<div class="vrow" style="padding-top:5px;padding-bottom:5px"><span class="vid">14 versions</span><span class="vt" style="color:var(--ink3)">history on the tape above the score</span><span class="arrow">&#8250;</span></div>`;
+  }
+  return `
+  <div class="vrow"><span class="car">&#9662;</span><span class="vid">v014</span><span class="vt">give the cello line to a viola</span><span class="steps">3 steps</span><span class="eye">&#9673;</span></div>
+  <div class="vrow" style="padding-left:66px"><span class="vid">v013</span><span class="vt" style="color:var(--ink2)">change-instrument</span></div>
+  <div class="vrow" style="padding-left:66px"><span class="vid">v012</span><span class="vt" style="color:var(--ink2)">merge-parts</span></div>
+  <div class="vrow"><span class="car">&#9656;</span><span class="vid">v011</span><span class="vt">drop the piano</span></div>
+  <div class="vrow"><span class="car">&#9656;</span><span class="vid">v009</span><span class="vt">transpose down a minor third</span><span class="steps">2 steps</span></div>`;
+}
+
+function arrRow(n, name, sub, active, cfg){
+  return `<div class="row${active ? ' act' : ''}">
+    <span class="car">${active ? '&#9662;' : '&#9656;'}</span>
+    <span class="num">#${n}</span>
+    <span class="stack"><span class="nm">${name}</span><span class="sub">${sub}</span></span>
+    <span class="arrow">&#9432;</span></div>`;
+}
+
+function render(cfg){
+  const tape = `<span class="tape">${
+    [0,1,2].map(()=>'<i class="g"></i>').join('')}<i></i><i></i><i class="f"></i><span class="gap"></span>${
+    [0,1].map(()=>'<i></i>').join('')}<span class="tape-lab">v014 / 14</span></span>`;
+  const side = `
+  <div class="side">
+    <div class="side-top"><span class="brand">SCORANGER</span><span class="led"></span></div>
+    <div class="pend"><span>Cavatina.pdf</span><span class="bar"><i></i></span><span>OMR</span></div>
+    <div class="sec">
+      <div class="sec-h">Setlists<span class="plus">+</span></div>
+      <div class="row"><span class="car">&#9662;</span><span class="stack"><span class="nm">Friday at Vinny&rsquo;s</span></span><span class="arrow">3</span></div>
+      <div class="row" style="padding-left:36px"><span class="stack"><span class="nm">Cavatina</span></span><span class="arrow">3</span></div>
+      <div class="row" style="padding-left:36px"><span class="stack"><span class="nm">Libertango</span></span><span class="arrow">1</span></div>
+    </div>
+    <div class="sec">
+      <div class="sec-h">Pieces<span class="plus">+</span></div>
+      <div class="row"><span class="car">&#9662;</span><span class="stack"><span class="nm pname">Cavatina</span><span class="sub">3 arrangements</span></span><span class="plus" style="margin-left:auto">+</span></div>
+      ${arrRow(1,'String quartet','Vln I, Vln II, Vla, Vc &middot; 8 versions',false,cfg)}
+      ${arrRow(2,'Accordion duo','Acc. Bass, Acc. Chords &middot; 14 versions',true,cfg)}
+      ${versionsBlock(cfg)}
+      ${arrRow(3,'Solo guitar','Guitar &middot; 4 versions',false,cfg)}
+      <div class="row"><span class="car">&#9656;</span><span class="stack"><span class="nm pname">Libertango</span><span class="sub">1 arrangement</span></span><span class="plus" style="margin-left:auto">+</span></div>
+    </div>
+    <div class="sec">
+      <div class="sec-h">Unfiled arrangements</div>
+      <div class="row"><span class="car">&#9656;</span><span class="stack"><span class="nm">Blue Bossa (OMR draft)</span><span class="sub">Voice, Voice &middot; 2 versions</span></span></div>
+    </div>
+    <div class="foot">v1.0 &middot; b116 &middot; 13c1253</div>
+  </div>`;
+
+  const canvas = `
+  <div class="canvas">
+    <div class="ctb">
+      ${cfg.sig === 'C' ? tape : '<span class="chip">v014</span>'}
+      <span class="sp"></span>
+      ${cfg.sig === 'C' ? '<span class="chip">v014</span>' : ''}
+      <span class="tbi">&#9881;</span><span class="tbi on">&#9998;</span><span class="tbi">&#9776;</span>
+    </div>
+    <div class="pagewrap">
+      <div class="page">
+        <div class="page-hd">
+          <div><div class="page-t">Cavatina &mdash; accordion duo</div><div class="page-s">Stanley Myers &middot; arr. from the string quartet &middot; A minor</div></div>
+          ${cfg.sig === 'A' ? '<div class="bignum">#2</div>' : ''}
+        </div>
+        ${staves(16)}
+        <div class="hl" style="left:22px;top:174px;width:62%;height:30px"></div>
+      </div>
+      <div class="chipwarn">bars 21&ndash;28 highlighted for chat</div>
+      <div class="abar">
+        <span class="ic">&#9998;</span><span class="ic">&#9003;</span><span class="sep"></span>
+        <span class="dot on" style="background:#D64B3F"></span>
+        <span class="dot" style="background:#2A6BD6"></span>
+        <span class="dot" style="background:#2E9159"></span>
+        <span class="dot" style="background:#E08A25"></span>
+        <span class="dot" style="background:var(--ink)"></span>
+        <span class="sep"></span><span class="ic">&#8630;</span>
+      </div>
+    </div>
+  </div>`;
+
+  const chat = `
+  <div class="chat">
+    <div class="chat-h">
+      <span class="num">#2</span>
+      <span class="stack"><span class="nm pname">Accordion duo</span><span class="sub">Cavatina</span></span>
+      <span class="model">kimi-k2</span>
+    </div>
+    <div class="msgs">
+      <div class="bub agent">Dropped the piano and merged viola + cello into <b>Acc. Bass</b>. Range is clean.</div>
+      <div class="bub user">now give the cello line to a viola</div>
+      <div class="prog">
+        <div class="step"><span class="k">&#10003;</span>merge-parts<span class="det">Vla, Vc &rarr; Acc. Bass</span></div>
+        <div class="step"><span class="k">&#10003;</span>change-instrument<span class="det">&rarr; Viola, 8vb</span></div>
+        <div class="step"><span class="w">&#9888;</span>check-range<span class="det">3 notes, bars 44&ndash;46</span></div>
+        <div class="step"><span class="spin"></span><span style="color:var(--ink3)">thinking&hellip;</span></div>
+      </div>
+    </div>
+    <div class="inbar"><span class="field">Arrange&hellip;</span><span class="tbi" style="font-size:14px">&#9678;</span><span class="send">&#9650;</span></div>
+  </div>`;
+
+  const app = document.createElement('div');
+  app.className = 'app';
+  app.setAttribute('style', vars(cfg));
+  app.dataset.mood = cfg.mood; app.dataset.layout = cfg.layout;
+  app.dataset.sig = cfg.sig; app.dataset.type = cfg.type; app.dataset.scale = cfg.scale;
+  app.innerHTML = cfg.layout === 'C' ? (canvas + side + chat) : (side + canvas + chat);
+  return app;
+}
+
+function specimen(cfg){
+  const t = TYPE[cfg.type], p = PALETTE[cfg.pal];
+  return `<div class="spec" style="background:${p.panel};color:${p.ink};border-color:${p.line}">
+    <div class="spec-a" style="font-family:${t.head};font-variation-settings:${t.headVar}">Cavatina <span style="color:${p.accentText}">#2</span></div>
+    <div class="spec-b" style="font-family:${t.head};font-variation-settings:${t.headVar}">Accordion duo &middot; Libertango</div>
+    <div class="spec-c" style="font-family:${t.ui}">Acc. Bass, Acc. Chords &middot; 14 versions &middot; 1 source</div>
+    <div class="spec-d" style="font-family:${t.mono}">v014 &nbsp;v013 &nbsp;0123456789 &nbsp;bars 21&ndash;28</div>
+  </div>`;
+}
+
+/* ===================== the questions ===================== */
+const W = 1180, H = 740;
+const QS = [
+ {n:1, key:'pal', title:'Colour palette', sub:'Three colours total, including the neutral pair. Watch what the accent does to the active row, the #2 badge and the chat bubble.',
+  opts:[
+   {k:'A', name:'Paper & Clay', d:'Warm off-white paper, near-black ink, one burnt clay orange. Closest to Claude desktop: quiet, warm, accent only where you act.'},
+   {k:'B', name:'Blueprint', d:'Cold white, navy-black ink, electric cobalt. Swiss / early-IBM technical — retro from restraint and geometry, not warmth.'},
+   {k:'C', name:'Acid Lab', d:'Mint-grey ground, graphite ink, electric chartreuse. Loudest: the accent can only be a block, never text, so it becomes a surface.'}]},
+ {n:2, key:'type', title:'Typeface pairing', sub:'All three need bundled font files (~1–2 MB). Look at the brand mark, piece titles, the #2 numerals and the version ids.',
+  opts:[
+   {k:'A', name:'Inter Tight + IBM Plex Mono', d:'One text face for everything, mono for all machine data. Personality comes from how often the mono shows up.'},
+   {k:'B', name:'Space Grotesk + Inter + Plex Mono', d:'Space Grotesk headings and numerals (its quirky digits are the retro), Inter for body, mono for data.'},
+   {k:'C', name:'Archivo Expanded + Martian Mono', d:'Wide poster-like headings and numbers, plain Archivo body, chunky mono data. Most opinionated, least Apple.'}]},
+ {n:3, key:'scale', title:'Type scale character', sub:'Same palette and faces in all three — only sizes, weights, tracking and how much is set in mono change.',
+  opts:[
+   {k:'A', name:'Compressed, weight-driven', d:'Narrow 10–22px range; weight and tracked-out caps labels carry hierarchy. Dense, most information per screen.'},
+   {k:'B', name:'Extreme contrast', d:'9.5px caps labels next to a 40px #2. The arrangement number becomes a poster element; costs vertical space.'},
+   {k:'C', name:'Monospace-forward', d:'One 15px body size, and everything countable set in tabular mono. Reads like a well-designed terminal.'}]},
+ {n:4, key:'mood', title:'Mood / surface treatment', sub:'Where the app draws edges, fills and rules — and how the selected arrangement announces itself.',
+  opts:[
+   {k:'A', name:'Gallery', d:'No cards, no fills, no radius. Hairlines and whitespace only; bubbles become margin-ruled paragraphs. Quietest voice.'},
+   {k:'B', name:'Instrument panel', d:'Flat bordered panels, 2px corners, banded section headers, the engine dot as a real LED. Reference is a mixing desk.'},
+   {k:'C', name:'Zine / print', d:'Heavy 3px rules under every section header, accent as a solid block behind the active row and the user bubble. Loudest voice.'}]},
+ {n:5, key:'layout', title:'iPad layout', sub:'Same content, three structures. Note where the toolbar goes and how much room the score gets.',
+  opts:[
+   {k:'A', name:'Three flush columns', d:'Sidebar / score / chat, no gaps, 1px dividers, chat permanently docked. Structural and honest; nothing floats.'},
+   {k:'B', name:'Floating panes', d:'Score page floats on a tinted ground, sidebar and chat as inset rounded panels. Modern iPadOS; spends space on air.'},
+   {k:'C', name:'Score-first, panels overlay', d:'Score edge-to-edge underneath; sidebar and chat slide over it, all controls collapse into one floating pill.'}]},
+ {n:6, key:'sig', title:'Signature move', sub:'The one element that gives the app a voice. Compare the sidebar version tree and the top of the score.',
+  opts:[
+   {k:'A', name:'Numbers as identity', d:'#2 treated like a record-sleeve track number — big, accent, repeated on the score page and the chat header.'},
+   {k:'B', name:'The ledger', d:'Version history as a printed index: mono rows, box-drawing brackets for the prompt nesting, dotted leaders to timestamps.'},
+   {k:'C', name:'The tape', d:'Versions as a strip of squares above the score — filled = current, grouped by prompt. The sidebar tree collapses to one line.'}]},
+ {n:7, key:'theme', title:'Light / dark stance', sub:'The score page is paper in all three; the question is what surrounds it.',
+  opts:[
+   {k:'A', name:'Light only', d:'One palette, tuned hard. The score is paper, the app is the desk. Simplest system, defensible for a music-stand app.', v:'light'},
+   {k:'B', name:'Light + true dark', d:'Full dark palette with the page staying white — a lit page on a dark stand. Doubles every token, accent re-tuned.', v:'dark'},
+   {k:'C', name:'Light + “stage” mode', d:'One hand-toggled reading mode: near-black chrome and a warm dimmed page, tuned for a dark pit rather than for the OS.', v:'stage'}]},
+];
+function cfgFor(q, opt){
+  const c = Object.assign({}, BASE, picks);
+  if(q.key === 'theme') c.theme = opt.v; else c[q.key] = opt.k;
+  return c;
+}
+const picks = {};
+
+/* ===================== deck ===================== */
+function fit(stage, app){
+  const k = stage.clientWidth / W;
+  app.style.transform = `scale(${k})`;
+  stage.style.height = (H * k) + 'px';
+}
+const stages = [];
+function buildDeck(){
+  const wrap = document.getElementById('wrap');
+  wrap.innerHTML = `<h1>Scoranger — pick a design direction</h1>
+    <p class="lede">Seven decisions, three options each, every one shown on the same fake screen: sidebar (setlists, pieces, <b>#N</b> arrangements, nested versions), the score canvas with its markup bar, and the chat pane mid-request.
+    Each question changes <b>one thing only</b> — everything else stays at a neutral baseline, and it updates as you pick.</p>
+    <p class="lede">Tap any screen to fill the display and flip A → B → C. Tap <b>A</b>/<b>B</b>/<b>C</b> underneath to lock a pick; the bar at the bottom builds your answer string.</p>`;
+  QS.forEach(q => {
+    const sec = document.createElement('div');
+    sec.className = 'q';
+    sec.innerHTML = `<div class="q-h"><span class="q-n">Q${q.n}</span><h2>${q.title}</h2><span class="picked" id="pk${q.n}"></span></div>
+      <p class="q-sub">${q.sub}</p><div class="cards" id="c${q.n}"></div>`;
+    wrap.appendChild(sec);
+    const row = sec.querySelector('#c' + q.n);
+    q.opts.forEach(opt => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.q = q.n; card.dataset.k = opt.k;
+      card.innerHTML = `<div class="card-h"><div class="opt">OPTION ${opt.k}</div><h3>${opt.name}</h3><p>${opt.d}</p></div>
+        ${q.key === 'type' ? specimen(cfgFor(q, opt)) : ''}
+        <div class="stage"><div class="tap">tap to enlarge</div></div>
+        <div class="pickrow"><button>Pick ${opt.k}</button></div>`;
+      row.appendChild(card);
+      const stage = card.querySelector('.stage');
+      const app = render(cfgFor(q, opt));
+      stage.insertBefore(app, stage.firstChild);
+      stages.push({stage, app, q, opt});
+      new ResizeObserver(() => fit(stage, app)).observe(stage);
+      stage.addEventListener('click', () => openModal(q, opt.k));
+      card.querySelector('button').addEventListener('click', () => pick(q, opt.k));
+    });
+  });
+}
+function rerender(){
+  stages.forEach(s => {
+    const fresh = render(cfgFor(s.q, s.opt));
+    s.stage.replaceChild(fresh, s.app);
+    s.app = fresh;
+    fit(s.stage, fresh);
+  });
+}
+function pick(q, k){
+  picks[q.key] = (q.key === 'theme') ? q.opts.find(o => o.k === k).v : k;
+  document.querySelectorAll(`.card[data-q="${q.n}"]`).forEach(c => c.classList.toggle('on', c.dataset.k === k));
+  document.getElementById('pk' + q.n).textContent = 'picked ' + k;
+  document.getElementById('ansStr').textContent =
+    QS.map(x => x.n + (x.key === 'theme'
+      ? (picks.theme ? (x.opts.find(o => o.v === picks.theme) || {}).k : '–')
+      : (picks[x.key] || '–'))).join(' ');
+  rerender();
+}
+function openModal(q, k){
+  const m = document.getElementById('modal');
+  m.classList.add('open');
+  m.dataset.q = q.n;
+  drawModal(q, k);
+}
+function drawModal(q, k){
+  const opt = q.opts.find(o => o.k === k);
+  document.getElementById('mTitle').textContent = `Q${q.n} ${q.title} — ${k}: ${opt.name}`;
+  document.getElementById('mDesc').textContent = opt.d;
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '';
+  const app = render(cfgFor(q, opt));
+  body.appendChild(app);
+  const k2 = Math.min(body.clientWidth / W, body.clientHeight / H);
+  app.style.transform = `translate(-50%,-50%) scale(${k2})`;
+  document.querySelectorAll('.modal-h button[data-m]').forEach(b => {
+    b.classList.toggle('on', b.dataset.m === k);
+    b.onclick = () => drawModal(q, b.dataset.m);
+  });
+  document.getElementById('modal').dataset.k = k;
+}
+document.getElementById('mClose').onclick = () => document.getElementById('modal').classList.remove('open');
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('modal');
+  if(!m.classList.contains('open')) return;
+  if(e.key === 'Escape') m.classList.remove('open');
+  const order = ['A','B','C'];
+  const q = QS.find(x => x.n == m.dataset.q);
+  const i = order.indexOf(m.dataset.k);
+  if(e.key === 'ArrowRight') drawModal(q, order[(i + 1) % 3]);
+  if(e.key === 'ArrowLeft')  drawModal(q, order[(i + 2) % 3]);
+});
+document.getElementById('copyBtn').onclick = async () => {
+  const t = document.getElementById('ansStr').textContent;
+  try { await navigator.clipboard.writeText(t); document.getElementById('copyBtn').textContent = 'Copied'; }
+  catch { document.getElementById('copyBtn').textContent = t; }
+};
+
+/* ===================== screenshot modes ===================== */
+const P = new URLSearchParams(location.search);
+if(P.get('shot')){                     /* ?shot=1A -> one frame, exactly 1180x740 */
+  document.body.classList.add('shot');
+  const n = P.get('shot')[0], k = P.get('shot')[1];
+  const q = QS.find(x => x.n == n);
+  document.getElementById('shotbox').appendChild(render(cfgFor(q, q.opts.find(o => o.k === k))));
+} else if(P.get('sheet')){             /* ?sheet=1 -> A/B/C stacked with labels */
+  document.body.classList.add('sheet');
+  const q = QS.find(x => x.n == P.get('sheet'));
+  const box = document.getElementById('shotbox');
+  box.innerHTML = `<div class="sheet-lab" style="font-size:19px;padding-top:16px">Q${q.n} — ${q.title}<br><span>${q.sub}</span></div>`;
+  q.opts.forEach(opt => {
+    const item = document.createElement('div');
+    item.className = 'sheet-item';
+    item.innerHTML = `<div class="sheet-lab">${opt.k} &nbsp;${opt.name} <span>— ${opt.d}</span></div>`;
+    item.appendChild(render(cfgFor(q, opt)));
+    box.appendChild(item);
+  });
+} else if(P.get('spec')){          /* ?spec=1 -> the three typeface pairings, large */
+  document.body.classList.add('sheet');
+  const q = QS.find(x => x.key === 'type');
+  const box = document.getElementById('shotbox');
+  box.innerHTML = `<div class="sheet-lab" style="font-size:19px;padding-top:16px">Q2 &mdash; Typeface pairing, at size<br><span>Display / heading face, UI face, and the mono used for every version id and count.</span></div>`;
+  q.opts.forEach(opt => {
+    const item = document.createElement('div');
+    item.innerHTML = `<div class="sheet-lab">${opt.k} &nbsp;${opt.name}</div>` + specimen(cfgFor(q, opt));
+    box.appendChild(item);
+  });
+} else {
+  buildDeck();
+}
+</script>

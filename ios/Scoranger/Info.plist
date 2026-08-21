@@ -81,6 +81,13 @@
 	<string>Dictate arrangement requests</string>
 	<key>OMRDefaultURL</key>
 	<string>https://scoranger-omr-37kxlg2dpa-uc.a.run.app</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>SpaceGrotesk-Variable.ttf</string>
+		<string>Inter-Variable.ttf</string>
+		<string>IBMPlexMono-Regular.ttf</string>
+		<string>IBMPlexMono-Medium.ttf</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UTImportedTypeDeclarations</key>

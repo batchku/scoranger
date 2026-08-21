@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scoranger Instrument Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════ TOKENS — the chosen system ══════════════════════ */
+:root{
+  /* surface + ink */
+  --paper:#FFFFFF; --ground:#F4F0E8; --panel:#FAF7F1; --well:#EFEAE0; --band:#F1ECE2;
+  --ink:#1A1917; --ink-2:#6B655C; --ink-3:#8A8378;
+  --line:#E2DBCE; --line-2:#CFC6B6;
+  /* the one accent */
+  --clay:#CC5C2E; --clay-strong:#A8481F; --clay-press:#B14D22; --clay-tint:#F7E7DD;
+  /* system status — outside the three-colour budget, never decorative */
+  --ok:#3BA05C; --warn:#C8791B; --danger:#C0392B; --hl:#FFE25A;
+  /* type */
+  --f-display:'Space Grotesk',system-ui,sans-serif;
+  --f-ui:Inter,system-ui,-apple-system,sans-serif;
+  --f-data:'IBM Plex Mono',ui-monospace,monospace;
+  /* spacing ladder */
+  --s1:2px; --s2:4px; --s3:6px; --s4:8px; --s5:12px; --s6:16px; --s7:20px; --s8:24px; --s9:32px;
+  /* border + radius */
+  --r-ctl:2px; --r-panel:3px; --r-pill:999px;
+  /* elevation: overlays only */
+  --e-panel:0 10px 34px rgba(26,25,23,.14);
+  --e-pill:0 6px 20px rgba(26,25,23,.16);
+  --e-sheet:0 20px 60px rgba(26,25,23,.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-ui);font-size:14px;-webkit-text-size-adjust:100%}
+
+/* ══════════════════════ presentation shell ══════════════════════ */
+.wrap{max-width:1560px;margin:0 auto;padding:26px 16px 70px}
+.masthead{display:flex;align-items:flex-end;gap:var(--s5);border-bottom:3px solid var(--ink);padding-bottom:var(--s5)}
+.masthead h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:-.02em;margin:0}
+.masthead .code{font-family:var(--f-data);font-size:13px;color:var(--clay-strong);margin-left:auto;font-weight:500}
+.lede{font-size:14px;line-height:1.55;color:var(--ink-2);max-width:78ch;margin:var(--s6) 0 0}
+.lede b{color:var(--ink)}
+h2.sec{font-family:var(--f-display);font-weight:600;font-size:19px;margin:44px 0 2px;letter-spacing:-.01em}
+h2.sec .n{font-family:var(--f-data);font-size:12px;color:var(--clay-strong);margin-right:8px;font-weight:500}
+.sec-sub{font-size:13px;color:var(--ink-2);margin:0 0 var(--s6);max-width:80ch;line-height:1.5}
+.label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.screens{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:1100px){.screens{grid-template-columns:1fr}}
+.shot{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel);overflow:hidden}
+.shot-h{padding:10px 13px 9px;border-bottom:1px solid var(--line)}
+.shot-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.shot-h .d{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:2px}
+.stage{position:relative;width:100%;overflow:hidden;background:var(--well);cursor:zoom-in}
+.stage .scr{position:absolute;top:0;left:0;transform-origin:0 0}
+.tapz{position:absolute;right:7px;bottom:7px;font-family:var(--f-data);font-size:10px;background:rgba(26,25,23,.72);color:#fff;padding:2px 6px;border-radius:var(--r-ctl);pointer-events:none}
+/* token tables */
+.tok{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.chip{border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;background:var(--panel)}
+.chip .sw{height:52px;border-bottom:1px solid var(--line-2)}
+.chip .m{padding:7px 9px}
+.chip .nm{font-size:12px;font-weight:600}
+.chip .hx{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.chip .use{font-size:11px;color:var(--ink-3);line-height:1.35;margin-top:2px}
+table.spec{border-collapse:collapse;width:100%;font-size:12.5px}
+table.spec th,table.spec td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+table.spec th{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);border-bottom:1px solid var(--line-2)}
+table.spec td.mono,table.spec td .mono{font-family:var(--f-data);font-size:11.5px}
+.scroller{overflow-x:auto}
+.modal{position:fixed;inset:0;background:rgba(20,19,17,.94);z-index:60;display:none;align-items:center;justify-content:center}
+.modal.open{display:flex}
+.modal .scr{transform-origin:50% 50%}
+.modal .x{position:absolute;top:12px;right:14px;font:600 13px Inter,sans-serif;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;color:var(--ink)}
+body.shot-mode .wrap,body.shot-mode .modal{display:none}
+.shotbox{display:none}
+body.shot-mode .shotbox{display:block}
+
+/* ══════════════════════ THE APP — instrument panel, score-first ══════════════════════ */
+.scr{width:1180px;height:886px;position:relative;overflow:hidden;background:var(--ground);
+     font-family:var(--f-ui);font-size:13px;color:var(--ink)}
+.scr.phone{width:390px;height:844px}
+
+/* canvas: the permanent ground */
+.cv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    padding:var(--s7) 0 96px;overflow:hidden;background:var(--ground)}
+.cv.shift-l{padding-left:320px}
+.cv.shift-r{padding-right:380px}
+.cv.shift-l.shift-r{--pg-w:436px}
+.pg{width:var(--pg-w,520px);background:var(--paper);border:1px solid var(--line-2);padding:22px 26px 16px;position:relative;
+    box-shadow:0 2px 10px rgba(26,25,23,.07)}
+.pg-hd{display:flex;align-items:flex-start;gap:var(--s5);border-bottom:1px solid #E9E4DA;padding-bottom:9px;margin-bottom:12px}
+.pg-t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;line-height:1.2}
+.pg-s{font-size:10.5px;color:#8A8378;margin-top:2px}
+.pg-n{margin-left:auto;font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.86;
+      color:var(--clay);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pg-n small{display:block;font-family:var(--f-ui);font-size:8.5px;font-weight:700;letter-spacing:.11em;
+      text-transform:uppercase;color:var(--ink-3);text-align:right;margin-top:3px}
+.hlband{position:absolute;background:var(--hl);opacity:.4}
+
+/* the pill: every canvas control, one object */
+.pill{position:absolute;bottom:var(--s7);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s2);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);
+      padding:6px 8px;box-shadow:var(--e-pill);z-index:6}
+.pill .b{width:38px;height:38px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;
+      font-size:16px;color:var(--ink-2)}
+.pill .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.pill .vchip{font-family:var(--f-data);font-size:11px;font-weight:500;color:var(--ink-2);
+      border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:4px 7px;margin:0 var(--s2)}
+.pill .div{width:1px;height:22px;background:var(--line);margin:0 var(--s2)}
+.pill .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);
+      font-variant-numeric:tabular-nums;padding:0 var(--s3) 0 var(--s2)}
+
+/* annotation bar: sits above the pill, same object language */
+.abar{position:absolute;bottom:74px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s3);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:6px 10px;
+      box-shadow:var(--e-pill);z-index:6}
+.abar .b{width:34px;height:34px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.abar .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.abar .div{width:1px;height:20px;background:var(--line)}
+.abar .dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(26,25,23,.16)}
+.abar .dot.on{width:24px;height:24px;box-shadow:0 0 0 2px var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+
+/* highlight chip */
+.hchip{position:absolute;top:var(--s6);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s4);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);padding:7px 10px;
+      box-shadow:var(--e-pill);z-index:6;font-size:12px}
+.hchip .st{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden}
+.hchip .st span{padding:3px 8px;font-family:var(--f-data);font-size:11px}
+.hchip .st b{padding:3px 7px;background:var(--well);font-weight:600;font-size:13px;border-left:1px solid var(--line-2);border-right:1px solid var(--line-2)}
+
+/* overlay panels */
+.ov{position:absolute;top:0;bottom:0;background:var(--panel);z-index:8;display:flex;flex-direction:column}
+.ov.left{left:0;width:320px;border-right:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov.right{right:0;width:380px;border-left:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov-h{display:flex;align-items:center;gap:var(--s4);padding:13px 14px 11px;border-bottom:1px solid var(--line-2)}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.02em;text-transform:uppercase}
+.led{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(59,160,92,.22)}
+.led.bad{background:var(--danger);box-shadow:0 0 0 3px rgba(192,57,43,.22)}
+.ov-h .x{margin-left:auto;width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.scrollbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* silkscreen section band */
+.bandh{display:flex;align-items:center;gap:var(--s3);padding:5px 14px 4px;background:var(--band);
+      border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);
+      font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.bandh .plus{margin-left:auto;width:22px;height:22px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-2);line-height:1}
+
+/* rows */
+.row{display:flex;align-items:center;gap:var(--s3);padding:7px 14px;min-height:36px}
+.row .car{width:10px;flex:0 0 10px;font-size:9px;color:var(--clay);text-align:center}
+.stk{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pnm{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.row .sub{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .cnt{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.row .i{margin-left:auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px}
+.row .num{font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);
+      font-variant-numeric:tabular-nums;min-width:36px;line-height:1}
+.row.sel{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.row.sel .sub{color:var(--ink-2)}
+.row.drop{background:var(--clay-tint);outline:1px dashed var(--clay);outline-offset:-2px}
+.vrow{display:flex;align-items:center;gap:var(--s3);padding:4px 14px 4px 42px;min-height:28px;font-size:12px}
+.vrow .vid{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.vrow .vt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vrow .stp{font-family:var(--f-data);font-size:10.5px;color:var(--ink-3)}
+.vrow .eye{margin-left:auto;color:var(--clay);font-size:11px}
+.vrow.deep{padding-left:64px;color:var(--ink-2)}
+.vrow.now{background:var(--well)}
+.prog{display:flex;align-items:center;gap:var(--s4);padding:7px 14px;font-size:11px;color:var(--ink-2)}
+.prog .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line);overflow:hidden}
+.prog .track i{display:block;height:100%;width:62%;background:var(--clay)}
+.foot{margin-top:auto;font-family:var(--f-data);font-size:10.5px;color:var(--ink-3);text-align:center;
+      padding:7px;border-top:1px solid var(--line-2);background:var(--band)}
+
+/* chat */
+.chat-h{display:flex;align-items:center;gap:var(--s4);padding:11px 14px;border-bottom:1px solid var(--line-2)}
+.chat-h .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);font-variant-numeric:tabular-nums}
+
+.chat-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.chat-h .s{font-size:11px;color:var(--ink-3)}
+.mdl{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);
+     border-radius:var(--r-ctl);padding:4px 7px;display:flex;gap:5px;align-items:center;white-space:nowrap;flex:0 0 auto}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s5);padding:var(--s5);overflow:hidden}
+.bub{max-width:86%;padding:9px 11px;border:1px solid var(--line-2);border-radius:var(--r-panel);line-height:1.45;background:var(--panel)}
+.bub.me{align-self:flex-end;background:var(--clay-tint);border-color:#E7C4B1}
+.bub.err{border-color:#E3B4AE;background:#FBEEEC}
+.bub .who{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.card{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel)}
+.card .ch{display:flex;align-items:center;gap:var(--s3);padding:6px 10px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.card .cb{padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.stp{display:flex;align-items:center;gap:var(--s3);font-size:12px}
+.stp .k{color:var(--ok);font-size:12px;width:13px}
+.stp .w{color:var(--warn);width:13px}
+.stp .o{color:var(--ink-3);width:13px}
+.stp .d{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.spin{width:11px;height:11px;border:2px solid var(--line-2);border-top-color:var(--clay);border-radius:50%}
+.inbar{display:flex;align-items:center;gap:var(--s4);padding:11px;border-top:1px solid var(--line-2);background:var(--band)}
+.fld{flex:1;background:var(--paper);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:9px 10px;color:var(--ink-3);font-size:13px}
+.iconb{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.iconb.go{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.iconb.rec{color:var(--danger);border-color:#E3B4AE}
+
+/* sheets, alerts, states */
+.dim{position:absolute;inset:0;background:rgba(26,25,23,.34);z-index:20}
+.sheet{position:absolute;top:64px;bottom:64px;left:50%;transform:translateX(-50%);width:620px;background:var(--panel);
+     border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:21;display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{display:flex;align-items:center;gap:var(--s4);padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.sheet-h .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.sheet-h .btn{margin-left:auto}
+.btn{font-size:13px;font-weight:600;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     padding:8px 12px;color:var(--ink)}
+.btn.pri{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.btn.dan{background:var(--danger);border-color:var(--danger);color:#fff}
+.sheet-b{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.frow{display:flex;align-items:center;gap:var(--s5);padding:9px 14px;border-bottom:1px solid var(--line);min-height:40px}
+.frow .k{font-size:12.5px;color:var(--ink-2);min-width:150px}
+.frow .v{margin-left:auto;font-size:12.5px}
+.frow .v.mono{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2)}
+.sw{width:44px;height:26px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--well);position:relative}
+.sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--panel);border:1px solid var(--line-2);border-radius:1px}
+.sw.on{background:var(--clay-tint);border-color:var(--clay)}
+.sw.on i{left:auto;right:2px;background:var(--clay);border-color:var(--clay-press)}
+.alert{width:420px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);overflow:hidden}
+.alert .ah{padding:12px 14px 4px;font-family:var(--f-display);font-weight:600;font-size:16px}
+.alert .ab{padding:0 14px 12px;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.alert .af{display:flex;gap:var(--s4);padding:11px 14px;border-top:1px solid var(--line-2);background:var(--band);justify-content:flex-end}
+.state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);text-align:center;
+     height:100%;padding:var(--s9)}
+.state .ic{font-size:30px;color:var(--ink-3)}
+.state .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.state .d{font-size:12.5px;color:var(--ink-2);max-width:44ch;line-height:1.5}
+.tile{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--ground);height:280px;position:relative;overflow:hidden}
+.tile .cap{position:absolute;top:0;left:0;right:0;padding:5px 9px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.grid4{display:grid;gap:var(--s6);grid-template-columns:repeat(2,minmax(0,1fr))}
+.staff{display:block;margin-bottom:9px}
+/* phone */
+.scr.phone .ov.left,.scr.phone .ov.right{width:100%;box-shadow:none}
+.scr.phone .pg{width:340px;padding:14px 16px 10px}
+.scr.phone .cv{padding:12px 0 86px}
+.scr.phone .pill{bottom:14px}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<div class="shotbox" id="shotbox"></div>
+<div class="modal" id="modal"><button class="x" id="mx">Close</button></div>
+<script>
+/* ════════════════════════ shared pieces ════════════════════════ */
+const VB = 400;
+function staff(seed, ink){
+  const c = ink || '#33312e';
+  const lines = [0,1,2,3,4].map(i => `<line x1="0" y1="${5+i*5}" x2="${VB}" y2="${5+i*5}" stroke="${c}" stroke-width=".6"/>`).join('');
+  const xs = [.10,.155,.20,.25,.30,.365,.42,.47,.52,.58,.65,.71,.77,.83,.90];
+  const heads = xs.map((x,i) => {
+    const y = 5 + ((i*3 + seed*2) % 9) * 2.5, cx = x * VB;
+    return `<ellipse cx="${cx}" cy="${y}" rx="2.9" ry="2.1" fill="#1b1b1b" transform="rotate(-16 ${cx} ${y})"/>`
+         + `<line x1="${cx+2.7}" y1="${y}" x2="${cx+2.7}" y2="${y-13}" stroke="#1b1b1b" stroke-width=".9"/>`;
+  }).join('');
+  const bars = [.335,.665,1].map(f => `<line x1="${f*VB-(f===1?.5:0)}" y1="5" x2="${f*VB-(f===1?.5:0)}" y2="25" stroke="${c}" stroke-width=".8"/>`).join('');
+  return `<svg class="staff" width="100%" viewBox="0 0 ${VB} 34" preserveAspectRatio="none" style="height:27px">
+    <text x="1" y="24" font-family="Georgia,serif" font-size="23" fill="#1b1b1b">&#119070;</text>${lines}${bars}${heads}</svg>`;
+}
+const staves = n => Array.from({length:n}, (_,i) => staff(i)).join('');
+
+/* the score page — the app's one piece of white */
+function page(o = {}){
+  return `<div class="pg">
+    <div class="pg-hd">
+      <div><div class="pg-t">Cavatina &mdash; accordion duo</div>
+      <div class="pg-s">Stanley Myers &middot; arr. from the string quartet &middot; A minor &middot; 62 bars</div></div>
+      <div class="pg-n">#2<small>arrangement</small></div>
+    </div>
+    ${staves(o.systems || 19)}
+    ${o.highlight ? '<div class="hlband" style="left:26px;top:196px;width:64%;height:30px"></div>' : ''}
+    ${o.markup ? `<svg style="position:absolute;left:26px;top:150px" width="440" height="150">
+        <path d="M8 46 C60 30, 120 62, 176 44" stroke="#D64B3F" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <path d="M186 40 l16 12 l-16 12" stroke="#D64B3F" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <text x="214" y="56" font-family="Inter,sans-serif" font-size="13" fill="#D64B3F" font-weight="600">pull back here</text>
+        <path d="M20 104 h150" stroke="#2A6BD6" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      </svg>` : ''}
+  </div>`;
+}
+
+/* the pill — every canvas control in one object */
+function pill(o = {}){
+  return `<div class="pill">
+    <div class="b${o.lib ? ' on' : ''}">&#9776;</div>
+    <div class="num">#2</div>
+    <div class="vchip">v014</div>
+    <div class="div"></div>
+    <div class="b">&#9881;</div>
+    <div class="b${o.pen ? ' on' : ''}">&#9998;</div>
+    <div class="div"></div>
+    <div class="b${o.chat ? ' on' : ''}">&#128172;</div>
+  </div>`;
+}
+
+function annobar(){
+  return `<div class="abar">
+    <div class="b on">&#9998;</div><div class="b">&#9003;</div><div class="div"></div>
+    <div class="dot on" style="background:#D64B3F">&#10003;</div>
+    <div class="dot" style="background:#2A6BD6"></div>
+    <div class="dot" style="background:#2E9159"></div>
+    <div class="dot" style="background:#E08A25"></div>
+    <div class="dot" style="background:#1A1917"></div>
+    <div class="div"></div><div class="b">&#8630;</div><div class="b">&#10005;</div>
+  </div>`;
+}
+
+function hchip(){
+  return `<div class="hchip">
+    <span class="label" style="color:var(--clay-strong)">passage</span>
+    <span class="st"><span>bars</span><b>21</b><span style="padding-left:2px">&ndash;</span><b>28</b></span>
+    <span style="color:var(--ink-2)">handed to chat</span>
+    <span class="iconb" style="width:26px;height:26px">&#10005;</span>
+  </div>`;
+}
+
+/* ── library overlay: setlists → pieces → #N arrangements → versions ── */
+function library(o = {}){
+  return `<div class="ov left">
+    <div class="ov-h"><span class="brand">Scoranger</span><span class="led"></span>
+      <span style="font-family:var(--f-data);font-size:10.5px;color:var(--ink-3)">on&#8209;device</span>
+      <span class="x">&#10005;</span></div>
+    <div class="scrollbody">
+      ${o.importing ? `<div class="prog"><span>Cavatina.pdf</span><span class="track"><i></i></span><span class="mono" style="font-family:var(--f-data)">OMR 62%</span></div>` : ''}
+      <div class="bandh">Setlists<span class="plus">+</span></div>
+      <div class="row"><span class="car">&#9662;</span><span class="stk"><span class="nm">Friday at Vinny&rsquo;s</span></span><span class="cnt">3</span></div>
+      <div class="row" style="padding-left:38px"><span class="stk"><span class="nm">Cavatina</span></span><span class="cnt">3</span></div>
+      <div class="row" style="padding-left:38px"><span class="stk"><span class="nm">Libertango</span></span><span class="cnt">1</span></div>
+      <div class="bandh">Pieces<span class="plus">+</span></div>
+      <div class="row"><span class="car">&#9662;</span><span class="stk"><span class="pnm">Cavatina</span><span class="sub">Stanley Myers &middot; 3 arrangements</span></span><span class="plus" style="margin-left:auto;width:22px;height:22px;border:1px solid var(--line-2);border-radius:2px;display:flex;align-items:center;justify-content:center;color:var(--ink-2)">+</span></div>
+      <div class="row"><span class="car">&#9656;</span><span class="num">#1</span><span class="stk"><span class="nm">String quartet</span><span class="sub">Vln I, Vln II, Vla, Vc &middot; 8 versions</span></span><span class="i">&#9432;</span></div>
+      <div class="row sel"><span class="car">&#9662;</span><span class="num">#2</span><span class="stk"><span class="nm">Accordion duo</span><span class="sub">Acc. Bass, Acc. Chords &middot; 14 versions &middot; 1 source</span></span><span class="i">&#9432;</span></div>
+      <div class="vrow now"><span class="car" style="color:var(--clay)">&#9662;</span><span class="vid">v014</span><span class="vt">give the cello line to a viola</span><span class="stp">3</span><span class="eye">&#9673;</span></div>
+      <div class="vrow deep"><span class="vid">v013</span><span class="vt">change-instrument</span></div>
+      <div class="vrow deep"><span class="vid">v012</span><span class="vt">merge-parts</span></div>
+      <div class="vrow"><span class="car">&#9656;</span><span class="vid">v011</span><span class="vt">drop the piano</span></div>
+      <div class="vrow"><span class="car">&#9656;</span><span class="vid">v009</span><span class="vt">transpose down a minor third</span><span class="stp">2</span></div>
+      <div class="row${o.drop ? ' drop' : ''}"><span class="car">&#9656;</span><span class="num">#3</span><span class="stk"><span class="nm">Solo guitar</span><span class="sub">Guitar &middot; 4 versions</span></span><span class="i">&#9432;</span></div>
+      <div class="row"><span class="car">&#9656;</span><span class="stk"><span class="pnm">Libertango</span><span class="sub">Piazzolla &middot; 1 arrangement</span></span></div>
+      <div class="bandh">Unfiled</div>
+      <div class="row"><span class="car">&#9656;</span><span class="stk"><span class="nm">Blue Bossa (OMR draft)</span><span class="sub">Voice, Voice &middot; 2 versions</span></span><span class="i">&#9432;</span></div>
+      <div class="foot">v1.0 &middot; b117 &middot; 13c1253</div>
+    </div>
+  </div>`;
+}
+
+/* ── chat overlay ── */
+function chat(o = {}){
+  const live = `<div class="card">
+      <div class="ch">working &middot; 3 ops</div>
+      <div class="cb">
+        <div class="stp"><span class="k">&#10003;</span>merge-parts<span class="d">Vla, Vc &rarr; Acc. Bass</span></div>
+        <div class="stp"><span class="k">&#10003;</span>change-instrument<span class="d">&rarr; Viola, 8vb</span></div>
+        <div class="stp"><span class="w">&#9888;</span>check-range<span class="d">3 notes, bars 44&ndash;46</span></div>
+        <div class="stp"><span class="spin"></span><span style="color:var(--ink-3)">thinking&hellip;</span></div>
+      </div></div>`;
+  return `<div class="ov right">
+    <div class="chat-h"><span class="num">#2</span>
+      <span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina &middot; 14 versions</span></span>
+      <span class="mdl">kimi-k2 &#9662;</span><span class="x" style="width:30px;height:30px;border:1px solid var(--line-2);border-radius:2px;display:flex;align-items:center;justify-content:center;color:var(--ink-2)">&#10005;</span></div>
+    <div class="msgs">
+      <div class="bub"><div class="who">agent</div>Dropped the piano and merged viola + cello into <b>Acc. Bass</b>. Bass sits in range; nothing above C4.</div>
+      <div class="bub me"><div class="who">you</div>now give the cello line to a viola, bars 21&ndash;28 only</div>
+      ${o.live ? live : `<div class="bub"><div class="who">agent</div>Done &mdash; <span style="font-family:var(--f-data);font-size:11.5px">v014</span>. Three notes in bars 44&ndash;46 are above the viola&rsquo;s range; say the word and I&rsquo;ll drop them an octave.</div>`}
+    </div>
+    <div class="inbar"><span class="fld">Arrange&hellip;</span><span class="iconb rec">&#9679;</span><span class="iconb go">&#9650;</span></div>
+  </div>`;
+}
+
+/* ════════════════════════ screens ════════════════════════ */
+const SCREENS = {
+s1:{t:'Resting state — score first',
+  d:'No panels. The score is the ground, the pill is the only chrome, and the arrangement numeral sits on the page itself so “which arrangement am I marking up?” is answered without opening anything.',
+  html:() => `<div class="scr"><div class="cv">${page()}</div>${pill()}</div>`},
+s2:{t:'Library overlay',
+  d:'Slides over the score from the left, 320pt, opaque panel, hard 1pt edge. The page re-centres into the free space rather than resizing. Silkscreen band headers; #N in Space Grotesk 21pt; the open arrangement takes the clay tint with a 1pt outline.',
+  html:() => `<div class="scr"><div class="cv shift-l">${page()}</div>${library({importing:true})}${pill({lib:true})}</div>`},
+s3:{t:'Chat overlay',
+  d:'380pt from the right, same object language. Header repeats #2 — the numeral is the app’s identity element, present wherever you can act on an arrangement. Bubbles are bordered panels, not blobs: the user’s is clay-tinted.',
+  html:() => `<div class="scr"><div class="cv shift-r">${page()}</div>${chat()}${pill({chat:true})}</div>`},
+s4:{t:'Working — both panels, agent mid-request',
+  d:'The everyday state. Op checklist is a bordered card with a banded header, ticks in system green, warnings in amber with the bar numbers in mono. The page stays legible in the gap between panels.',
+  html:() => `<div class="scr"><div class="cv shift-l shift-r">${page({systems:19})}</div>${library()}${chat({live:true})}${pill({lib:true,chat:true})}</div>`},
+s5:{t:'Pencil markup',
+  d:'Pencil draws, fingers scroll. The ink bar stacks above the pill in the same pill language; the live ink grows, gains a ring and a tick. Black ink is app ink, not pure black.',
+  html:() => `<div class="scr"><div class="cv">${page({markup:true})}</div>${annobar()}${pill({pen:true})}</div>`},
+s6:{t:'Highlight a passage for chat',
+  d:'A stroke on the page estimates a bar range; the chip states it in words and mono digits with steppers to correct it. Yellow band is a system colour, held at 40% so the engraving stays readable.',
+  html:() => `<div class="scr"><div class="cv shift-r">${page({highlight:true})}</div>${hchip()}${chat({live:true})}${pill({chat:true})}</div>`},
+s7:{t:'Arrangement details',
+  d:'Sheets are panels, not iOS grouped tables: banded section headers, label/value rows on a 1pt rule, every machine value in mono. Destructive actions live at the bottom, never in the header.',
+  html:() => `<div class="scr"><div class="cv">${page()}</div>${pill()}<div class="dim"></div>
+    <div class="sheet">
+      <div class="sheet-h"><span class="num" style="font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay)">#2</span>
+        <span class="t">Accordion duo</span><span class="btn">Done</span></div>
+      <div class="sheet-b">
+        <div class="bandh">Arrangement</div>
+        <div class="frow"><span class="k">Name</span><span class="v">Accordion duo</span></div>
+        <div class="frow"><span class="k">Piece</span><span class="v">Cavatina</span></div>
+        <div class="frow"><span class="k">Number in piece</span><span class="v mono">#2 of 3</span></div>
+        <div class="frow"><span class="k">Slug</span><span class="v mono">cavatina-accordion-duo</span></div>
+        <div class="frow"><span class="k">Latest version</span><span class="v mono">v014</span></div>
+        <div class="bandh">Scored for &mdash; v014</div>
+        <div class="frow"><span class="k">Acc. Bass</span><span class="v mono">Accordion &middot; bass &middot; E2&ndash;C4 &middot; 62 bars</span></div>
+        <div class="frow"><span class="k">Acc. Chords</span><span class="v mono">Accordion &middot; treble &middot; G3&ndash;A5 &middot; 62 bars</span></div>
+        <div class="bandh">Sources</div>
+        <div class="frow"><span class="k mono" style="font-family:var(--f-data)">s01</span><span class="v">MuseScore tab version &middot; 2 parts</span></div>
+        <div class="frow" style="border:0;padding-top:14px"><span class="btn dan">Delete arrangement</span></div>
+      </div>
+    </div></div>`},
+s8:{t:'Settings',
+  d:'Same sheet grammar. Chunky square toggles read as switches on a panel; the engine LED and its self-test output are the one place mono runs multi-line.',
+  html:() => `<div class="scr"><div class="cv">${page()}</div>${pill()}<div class="dim"></div>
+    <div class="sheet">
+      <div class="sheet-h"><span class="t">Settings</span><span class="btn">Done</span></div>
+      <div class="sheet-b">
+        <div class="bandh">On&#8209;device engine</div>
+        <div class="frow"><span class="k">Run the engine on this iPad</span><span class="v"><span class="sw on"><i></i></span></span></div>
+        <div class="frow"><span class="k">Status</span><span class="v" style="display:flex;align-items:center;gap:7px"><span class="led"></span><span class="mono" style="font-family:var(--f-data);font-size:11.5px">Python 3.14.6 &middot; music21 10.5.0</span></span></div>
+        <div class="frow"><span class="k">OpenRouter key</span><span class="v mono">sk&#8209;or&#8209;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;4f2a</span></div>
+        <div class="frow"><span class="k"></span><span class="v"><span class="btn">Run engine self&#8209;test</span></span></div>
+        <div class="frow" style="background:var(--well)"><span class="v mono" style="margin:0;font-family:var(--f-data);color:var(--ok)">C D E F &rarr; D E F&#9839; G (up M2) &middot; versions v001, v002 &#10003;</span></div>
+        <div class="bandh">PDF conversion (OMR)</div>
+        <div class="frow"><span class="k">Service</span><span class="v mono">scoranger&#8209;omr&#8209;&hellip;.run.app</span></div>
+        <div class="frow"><span class="k">API key</span><span class="v mono">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span></div>
+        <div class="frow"><span class="k"></span><span class="v" style="display:flex;gap:9px;align-items:center"><span class="btn">Test connection</span><span style="font-family:var(--f-data);font-size:11.5px;color:var(--ok)">&#10003; reachable, key accepted</span></span></div>
+      </div>
+    </div></div>`},
+s9:{t:'Alerts',
+  d:'One width (420pt), banded footer, destructive verb in the danger fill and never the default. Naming alerts put the field on paper white inside the panel so it reads as an input.',
+  html:() => `<div class="scr"><div class="cv">${page()}</div>${pill()}<div class="dim"></div>
+    <div style="position:absolute;inset:0;z-index:22;display:flex;align-items:flex-start;justify-content:center;gap:28px;padding-top:300px">
+      <div class="alert">
+        <div class="ah">Delete “Accordion duo”?</div>
+        <div class="ab">This removes arrangement <b>#2</b> and all 14 versions. Cavatina and its other arrangements are untouched.</div>
+        <div class="af"><span class="btn">Cancel</span><span class="btn dan">Delete</span></div>
+      </div>
+      <div class="alert">
+        <div class="ah">New setlist</div>
+        <div class="ab">A setlist is an ordered group of pieces &mdash; a gig&rsquo;s running order.
+          <div class="fld" style="margin-top:9px;color:var(--ink)">Friday at Vinny&rsquo;s</div></div>
+        <div class="af"><span class="btn">Cancel</span><span class="btn pri">Create</span></div>
+      </div>
+    </div></div>`},
+s10:{t:'Empty, loading and failure states',
+  d:'Every state keeps the pill, so the app never looks broken. Failures name the cause and the fix in one sentence and put the engine words in mono.',
+  html:() => `<div class="scr" style="padding:18px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:18px;background:var(--panel)">
+    ${[['no arrangement open','&#9835;','No arrangement open','Open the library and pick an arrangement, or import a MusicXML, MIDI or PDF file.'],
+       ['engraving','&#9203;','Engraving v014&hellip;','Verovio is laying out 62 bars across 4 pages.'],
+       ['render failed','&#9888;','Render failed','<span style="font-family:var(--f-data);font-size:11.5px">measure 44: unpitched note in Acc. Bass</span> &mdash; try the previous version while I look at it.'],
+       ['engine unreachable','&#9673;','Engine unreachable','On&#8209;device engine is off and <span style="font-family:var(--f-data);font-size:11.5px">scor serve</span> is not answering on your Mac. Check Settings.']]
+      .map(([cap,ic,t,d]) => `<div class="tile"><div class="cap">${cap}</div><div class="state">
+        <div class="ic">${ic}</div><div class="t">${t}</div><div class="d">${d}</div>
+        ${cap === 'engine unreachable' ? '<span class="btn">Open Settings</span>' : ''}
+        ${cap === 'no arrangement open' ? '<span class="btn pri">Open library</span>' : ''}</div></div>`).join('')}
+  </div>`},
+s11:{t:'iPhone — the same system, one pane at a time',
+  d:'Compact width keeps the pill and the numeral; overlays go full width instead of sliding in. Pencil markup stays iPad&#8209;only, so the phone pill drops the pencil.',
+  html:() => `<div class="scr" style="display:flex;align-items:center;justify-content:center;gap:40px;background:var(--panel)">
+    <div class="scr phone" style="border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;position:relative">
+      <div class="cv">${page({systems:16})}</div>
+      <div class="pill" style="gap:2px;padding:5px 7px"><div class="b" style="width:34px;height:34px">&#9776;</div>
+        <div class="num" style="font-size:15px">#2</div><div class="vchip">v014</div>
+        <div class="div"></div><div class="b" style="width:34px;height:34px">&#9881;</div>
+        <div class="b" style="width:34px;height:34px">&#128172;</div></div>
+    </div>
+    <div class="scr phone" style="border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;position:relative">
+      <div class="ov left" style="box-shadow:none;border:0">
+        <div class="chat-h"><span class="num">#2</span><span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina</span></span><span class="mdl">kimi &#9662;</span></div>
+        <div class="msgs">
+          <div class="bub"><div class="who">agent</div>Dropped the piano and merged viola + cello into <b>Acc. Bass</b>.</div>
+          <div class="bub me"><div class="who">you</div>now give the cello line to a viola</div>
+          <div class="card"><div class="ch">working</div><div class="cb">
+            <div class="stp"><span class="k">&#10003;</span>merge-parts</div>
+            <div class="stp"><span class="spin"></span><span style="color:var(--ink-3)">thinking&hellip;</span></div></div></div>
+        </div>
+        <div class="inbar"><span class="fld">Arrange&hellip;</span><span class="iconb rec">&#9679;</span><span class="iconb go">&#9650;</span></div>
+      </div>
+    </div>
+  </div>`},
+s12:{t:'Tokens and controls',
+  d:'The whole system on one board: five surfaces, three inks, one accent in three strengths, the status colours that sit outside the budget, the type ladder, and every control in its states.',
+  html:() => tokenBoard()},
+};
+
+function tokenBoard(){
+  const sw = (nm,hex,use,dark) => `<div style="border:1px solid var(--line-2);border-radius:2px;overflow:hidden">
+    <div style="height:34px;background:${hex};border-bottom:1px solid var(--line-2)"></div>
+    <div style="padding:5px 7px;background:var(--panel)">
+      <div style="font-size:11px;font-weight:600">${nm}</div>
+      <div style="font-family:var(--f-data);font-size:10px;color:var(--ink-2)">${hex}</div>
+      <div style="font-size:9.5px;color:var(--ink-3);line-height:1.3">${use}</div></div></div>`;
+  return `<div class="scr" style="background:var(--panel);padding:18px;display:flex;flex-direction:column;gap:12px;height:886px">
+    <div class="bandh" style="border-top:0">Surfaces &amp; ink</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px">
+      ${sw('paper','#FFFFFF','score page only')}${sw('ground','#F4F0E8','canvas behind the page')}
+      ${sw('panel','#FAF7F1','overlays, sheets, pill')}${sw('well','#EFEAE0','inset areas, output')}
+      ${sw('band','#F1ECE2','section header strips')}${sw('line-2','#CFC6B6','panel + control edges')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px">
+      ${sw('ink','#1A1917','titles, body, pen black')}${sw('ink-2','#6B655C','secondary text 5.5:1')}
+      ${sw('ink-3','#8A8378','meta ≥11px only 3.5:1')}${sw('clay','#CC5C2E','numerals, icons, ≥15px')}
+      ${sw('clay-strong','#A8481F','caps labels, small accent text 5.4:1')}${sw('clay-tint','#F7E7DD','selected row, your bubble')}
+    </div>
+    <div class="bandh">System status — outside the three-colour budget</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px">
+      ${sw('ok','#3BA05C','engine LED, done ticks')}${sw('warn','#C8791B','range warnings')}
+      ${sw('danger','#C0392B','delete, errors')}${sw('hl','#FFE25A','passage band @40%')}
+      ${sw('pen red','#D64B3F','markup ink')}${sw('pen blue','#2A6BD6','markup ink')}
+    </div>
+    <div style="display:flex;gap:18px;flex:1;min-height:0">
+      <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+        <div class="bandh">Type ladder</div>
+        <div style="font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.9;color:var(--clay);font-variant-numeric:tabular-nums;letter-spacing:-.02em">#2<span style="font-family:var(--f-ui);font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3);margin-left:8px">NUMERAL / XL 34 · SG 700</span></div>
+        <div style="font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay)">#2 <span style="font-family:var(--f-ui);font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3)">NUMERAL / L 21</span></div>
+        <div style="font-family:var(--f-display);font-weight:600;font-size:17px">Cavatina <span style="font-family:var(--f-ui);font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3)">TITLE 17 · SG 600</span></div>
+        <div style="font-family:var(--f-display);font-weight:600;font-size:15px">Accordion duo <span style="font-family:var(--f-ui);font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3)">TITLE&#8209;S 15</span></div>
+        <div style="font-size:13.5px;font-weight:500">String quartet <span style="font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3)">ROW 13.5 · INTER 500</span></div>
+        <div style="font-size:13px">Dropped the piano and merged viola + cello. <span style="font-size:10px;font-weight:700;letter-spacing:.11em;color:var(--ink-3)">BODY 13</span></div>
+        <div class="label">Setlists · Pieces · Unfiled &nbsp;<span style="color:var(--ink-3)">LABEL 10 / .11em CAPS</span></div>
+        <div style="font-size:11px;color:var(--ink-3)">Vln I, Vln II, Vla, Vc · 8 versions <span style="font-weight:700;letter-spacing:.11em">META 11</span></div>
+        <div style="font-family:var(--f-data);font-size:11px;color:var(--ink-2)">v014 &nbsp;0123456789 &nbsp;bars 21–28 &nbsp;<span style="font-size:10px">DATA 11 · PLEX MONO</span></div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:9px">
+        <div class="bandh">Controls</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="btn">Default</span><span class="btn pri">Primary</span><span class="btn dan">Destructive</span>
+          <span class="btn" style="opacity:.42">Disabled</span>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <span class="sw on"><i></i></span><span class="sw"><i></i></span>
+          <span style="display:flex;align-items:center;gap:6px"><span class="led"></span><span style="font-size:11.5px;font-family:var(--f-data)">engine ok</span></span>
+          <span style="display:flex;align-items:center;gap:6px"><span class="led bad"></span><span style="font-size:11.5px;font-family:var(--f-data)">unreachable</span></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center"><span class="iconb">&#9881;</span><span class="iconb">&#9998;</span><span class="iconb rec">&#9679;</span><span class="iconb go">&#9650;</span>
+          <span class="vchip" style="font-family:var(--f-data);font-size:11px;border:1px solid var(--line-2);border-radius:2px;padding:4px 7px;color:var(--ink-2)">v014</span></div>
+        <div style="position:relative;height:70px;margin-top:4px">${pill({lib:true})}</div>
+        <div style="border:1px solid var(--line-2);border-radius:3px;overflow:hidden">
+          <div class="bandh" style="border-top:0">Rows</div>
+          <div class="row sel"><span class="car">&#9662;</span><span class="num">#2</span><span class="stk"><span class="nm">Accordion duo</span><span class="sub">Acc. Bass, Acc. Chords · 14 versions</span></span><span class="i">&#9432;</span></div>
+          <div class="row"><span class="car">&#9656;</span><span class="num">#3</span><span class="stk"><span class="nm">Solo guitar</span><span class="sub">Guitar · 4 versions</span></span><span class="i">&#9432;</span></div>
+          <div class="vrow now"><span class="car" style="color:var(--clay)">&#9662;</span><span class="vid">v014</span><span class="vt">give the cello line to a viola</span><span class="stp">3</span><span class="eye">&#9673;</span></div>
+          <div class="vrow deep"><span class="vid">v013</span><span class="vt">change-instrument</span></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ════════════════════════ gallery ════════════════════════ */
+const ORDER = ['s1','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','s12'];
+const W = 1180, H = 886;
+function fit(stage, el){
+  const k = stage.clientWidth / (el.classList.contains('phone') ? 390 : W);
+  el.style.transform = `scale(${k})`;
+  stage.style.height = (H * k) + 'px';
+}
+function build(){
+  const wrap = document.getElementById('wrap');
+  wrap.innerHTML = `
+  <div class="masthead"><h1>Scoranger &mdash; instrument panel</h1>
+    <div class="code">1A &middot; 2B &middot; 3A &middot; 4B &middot; 5C &middot; 6A &middot; 7A</div></div>
+  <p class="lede">The picked direction, combined and applied to every surface: <b>Paper &amp; Clay</b> on one accent,
+  <b>Space Grotesk</b> for titles and the arrangement numerals over <b>Inter</b> body and <b>IBM Plex Mono</b> for every machine value,
+  a <b>compressed weight-driven</b> ladder, <b>instrument-panel</b> surfaces (flat, hard 1pt edges, 2&ndash;3pt corners, banded silkscreen labels, a real LED),
+  a <b>score-first</b> layout where the library and chat slide over the page and every control collapses into one pill, and
+  <b>#N as the identity</b> &mdash; on the page, in the pill, in the chat header. Light only.</p>
+  <p class="lede">Written spec: <b>design/DESIGN_SYSTEM.md</b>. Tap any screen to enlarge.</p>
+  <h2 class="sec"><span class="n">01</span>Screens</h2>
+  <p class="sec-sub">Every surface inventoried in the app today, in the new system.</p>
+  <div class="screens" id="screens"></div>`;
+  const grid = document.getElementById('screens');
+  ORDER.forEach(id => {
+    const s = SCREENS[id];
+    const card = document.createElement('div');
+    card.className = 'shot';
+    card.innerHTML = `<div class="shot-h"><div class="t">${id.toUpperCase()} &nbsp;${s.t}</div><div class="d">${s.d}</div></div>
+      <div class="stage"><div class="tapz">tap to enlarge</div></div>`;
+    grid.appendChild(card);
+    const stage = card.querySelector('.stage');
+    const el = document.createElement('div');
+    el.innerHTML = s.html();
+    const scr = el.firstElementChild;
+    stage.insertBefore(scr, stage.firstChild);
+    new ResizeObserver(() => fit(stage, scr)).observe(stage);
+    stage.addEventListener('click', () => zoom(id));
+  });
+}
+function zoom(id){
+  const m = document.getElementById('modal');
+  m.querySelectorAll('.scr').forEach(n => n.remove());
+  const el = document.createElement('div');
+  el.innerHTML = SCREENS[id].html();
+  const scr = el.firstElementChild;
+  m.appendChild(scr);
+  m.classList.add('open');
+  const k = Math.min((m.clientWidth - 24) / W, (m.clientHeight - 24) / H);
+  scr.style.transform = `scale(${k})`;
+}
+document.getElementById('mx').onclick = () => document.getElementById('modal').classList.remove('open');
+
+const P = new URLSearchParams(location.search);
+if(P.get('screen')){
+  document.body.classList.add('shot-mode');
+  document.getElementById('shotbox').innerHTML = SCREENS[P.get('screen')].html();
+} else {
+  build();
+}
+</script>
+</body>
+</html>
