@@ -113,8 +113,12 @@ estimate, not hit-testing.
 The material is already there before flattening. Page 1 of the sample quartet
 carries 74 `g.note`, 19 `g.measure`, 19 `g.harm` (chord symbols), plus
 `g.staff`, `g.layer`, `g.tie`, `g.rest`, `g.barLine`, `g.accid`, `g.stem` —
-each with a stable SVG id, and nested so that a note's ancestry gives its staff
-(hence part) and its measure (hence bar number).
+each with an SVG id. CORRECTION (measured in the spike, see
+ios/VECTOR_SCORE.md): those ids are NOT stable — a fresh load of the same file
+produces entirely different ones, and the source MusicXML carries no xml:id for
+Verovio to adopt. Durable addressing must come from joining the SVG to
+Verovio's MEI/getElementAttr output, which does expose measure and staff
+numbers.
 
 ### Foundation: keep the geometry
 
