@@ -1,6 +1,25 @@
 import SwiftUI
 import UIKit
 
+/// A scroll view that reports its own resizes.
+///
+/// `updateUIView` runs before SwiftUI has resized the representable, so the
+/// centring inset computed there is derived from the *previous* width. Opening
+/// the chat panel therefore left the page centred on the old, wider region --
+/// mostly hidden under the panel. UIViewRepresentable has no hook for "my
+/// bounds changed", so the view reports it itself.
+final class BoundsAwareScrollView: UIScrollView {
+    var onBoundsChange: (() -> Void)?
+    private var lastSize: CGSize = .zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != lastSize else { return }
+        lastSize = bounds.size
+        onBoundsChange?()
+    }
+}
+
 /// A UIScrollView wrapper that gives SwiftUI content real anchored pinch zoom.
 ///
 /// Build 115 got the anchoring right by handing zoom to UIScrollView, but then
@@ -10,12 +29,15 @@ import UIKit
 /// the fingers lifted, and the recomputed content size was what stopped some
 /// zoom levels from scrolling to the end of the score.
 ///
-/// So the geometry is now left alone entirely. One layout at `contentWidth`,
-/// measured rather than predicted, and zoom stays UIScrollView's transform —
-/// which means UIKit owns the scroll extents at every zoom level, and nothing
-/// moves when the gesture ends. `onZoomSettled` reports the settled scale purely
-/// so the caller can raise the *raster* resolution of what it draws; that
-/// changes sharpness, not position.
+/// So the geometry is written once per size, measured rather than predicted, and
+/// zoom stays UIScrollView's transform — which means UIKit owns the scroll
+/// extents at every zoom level, and nothing moves when the gesture ends.
+/// `onZoomSettled` reports the settled scale purely so the caller can raise the
+/// *raster* resolution of what it draws; that changes sharpness, not position.
+///
+/// Build 120: the size does change while zoomed — a panel opening or closing
+/// resizes the canvas under the score — so `commit` handles that case rather
+/// than deferring it, and only an in-flight pinch is waited out.
 struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// Layout width for the content at zoom 1.
     let contentWidth: CGFloat
@@ -29,7 +51,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     @ViewBuilder var content: () -> Content
 
     func makeUIView(context: Context) -> UIScrollView {
-        let scroll = UIScrollView()
+        let scroll = BoundsAwareScrollView()
+        let coordinator = context.coordinator
+        scroll.onBoundsChange = { [weak coordinator] in coordinator?.viewportChanged() }
         scroll.delegate = context.coordinator
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
@@ -39,6 +63,13 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         // safe-area inset and the score runs under the status bar as soon as
         // you scroll. Our own centring inset is added on top of it.
         scroll.contentInsetAdjustmentBehavior = .always
+        // the library panel also hosts a scroll view, so tests (and VoiceOver)
+        // need to be able to name this one specifically
+        scroll.accessibilityIdentifier = "score-canvas"
+        scroll.isAccessibilityElement = false
+        // the live zoom scale, the only way a UI test can see what a pinch
+        // actually did to the canvas
+        scroll.accessibilityValue = "zoom 1.00"
 
         let host = UIHostingController(rootView: AnyView(content()))
         host.view.backgroundColor = .clear
@@ -86,15 +117,15 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             let size = CGSize(width: width, height: max(measured.height, 1))
             guard size != laidOutSize else { return }
 
-            // Changing the zoomed view's frame under a zoom transform is what
-            // stranded the scroll extents at some zoom levels: UIScrollView
-            // derives contentSize from the view it zooms, and mutating that
-            // view's frame behind its back leaves the extents stale, so the end
-            // of the score becomes unreachable. Defer the resize to zoom 1 and
-            // meanwhile keep contentSize consistent with what is on screen.
-            if scroll.zoomScale != 1 {
+            // Never mid-gesture: resizing the view UIScrollView is actively
+            // zooming fights the pinch and leaves the extents stale, which is
+            // what made the end of a score unreachable in build 118. Any other
+            // time -- including sitting at 2x when a panel opens -- the resize
+            // has to happen, or the page overflows a content area still sized
+            // for the old width and part of it can no longer be panned to.
+            if scroll.isZooming || scroll.isZoomBouncing {
                 pendingSize = size
-                syncContentSize()
+                recentre()
                 return
             }
             commit(size)
@@ -104,32 +135,74 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             guard let host, let scroll else { return }
             laidOutSize = size
             pendingSize = nil
+
+            // where the viewport sits in the content, so the same music is
+            // still in view after the resize
+            let old = scroll.contentSize
+            let anchor = CGPoint(
+                x: old.width > 0
+                    ? (scroll.contentOffset.x + scroll.bounds.width / 2) / old.width : 0.5,
+                y: old.height > 0
+                    ? (scroll.contentOffset.y + scroll.bounds.height / 2) / old.height : 0)
+
+            // Geometry can only be written at zoom 1: under a zoom transform the
+            // hosted view's `frame` IS the zoomed frame, and UIScrollView keeps
+            // it and contentSize in step itself. So drop to 1, resize, put the
+            // scale back, and let UIKit re-derive the extents.
+            let scale = scroll.zoomScale
+            if scale != 1 { scroll.setZoomScale(1, animated: false) }
+            host.view.transform = .identity
             host.view.frame = CGRect(origin: .zero, size: size)
-            scroll.contentSize = CGSize(width: size.width * scroll.zoomScale,
-                                        height: size.height * scroll.zoomScale)
+            scroll.contentSize = size
+            if scale != 1 { scroll.setZoomScale(scale, animated: false) }
+
+            centreIfNeeded()
+            let now = scroll.contentSize
+            scroll.contentOffset = CGPoint(
+                x: anchor.x * now.width - scroll.bounds.width / 2,
+                y: anchor.y * now.height - scroll.bounds.height / 2)
+            centreIfNeeded()   // clamps the restored offset into range
+        }
+
+        /// While a zoom is live, contentSize belongs to UIScrollView.
+        ///
+        /// Zooming scales the hosted view about the pinch anchor and UIScrollView
+        /// then re-anchors the view's frame and contentSize together. Writing
+        /// contentSize ourselves broke that pairing: computed from the
+        /// transformed `frame` it squared the scale (1600pt of empty scrollable
+        /// area at 1.8x), and computed from `bounds` it ignored the view's new
+        /// frame origin, which put part of the page outside the scrollable
+        /// range -- a hard limit a few hundred points inside the canvas, at
+        /// every zoom level. So during zoom we only re-centre.
+        private func recentre() {
             centreIfNeeded()
         }
 
-        /// contentSize must always be the zoomed view's on-screen size.
-        private func syncContentSize() {
-            guard let host, let scroll else { return }
-            let scaled = CGSize(width: host.view.frame.width * scroll.zoomScale,
-                                height: host.view.frame.height * scroll.zoomScale)
-            if scroll.contentSize != scaled { scroll.contentSize = scaled }
+        /// The viewport itself resized (a panel opened or closed, or the
+        /// device rotated). The content width comes from SwiftUI and is already
+        /// correct by then; what is stale is the centring inset and, with it,
+        /// where the page sits. Re-centre against the bounds we now have.
+        func viewportChanged() {
             centreIfNeeded()
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
-            syncContentSize()
+            recentre()
+            publishZoom(scrollView)
+        }
+
+        private func publishZoom(_ scrollView: UIScrollView) {
+            scrollView.accessibilityValue = String(format: "zoom %.2f",
+                                                   scrollView.zoomScale)
         }
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView,
                                      with view: UIView?, atScale scale: CGFloat) {
-            // a resize measured mid-zoom was held back; it is safe now
-            if scale == 1, let pending = pendingSize { commit(pending) }
-            else { syncContentSize() }
+            // a resize measured mid-gesture was held back; it is safe now
+            if let pending = pendingSize { commit(pending) } else { recentre() }
+            publishZoom(scrollView)
             onZoomSettled(scale)
         }
 
@@ -138,14 +211,37 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// always leave `bottomChrome` clear so the pill cannot sit on the last
         /// system.
         func centreIfNeeded() {
-            guard let scrollView = scroll, let view = host?.view else { return }
-            let shown = CGSize(width: view.frame.width * scrollView.zoomScale,
-                               height: view.frame.height * scrollView.zoomScale)
+            guard let scrollView = scroll else { return }
+            // contentSize, not the hosted view's frame: UIScrollView keeps the
+            // two in step through a zoom, and it is the extents that the
+            // centring inset has to agree with
+            let shown = scrollView.contentSize
             let dx = max(0, (scrollView.bounds.width - shown.width) / 2)
             let dy = max(0, (scrollView.bounds.height - shown.height - bottomChrome) / 2)
             let inset = UIEdgeInsets(top: dy, left: dx,
                                      bottom: dy + bottomChrome, right: dx)
             if scrollView.contentInset != inset { scrollView.contentInset = inset }
+            clampOffset(scrollView, shown: shown, inset: inset)
+        }
+
+        /// A contentOffset left over from a wider viewport stays out of range
+        /// until something scrolls: UIScrollView clamps on gesture, not when the
+        /// inset changes. Without this the re-centred page still draws off to
+        /// one side after a panel opens.
+        private func clampOffset(_ scrollView: UIScrollView,
+                                 shown: CGSize, inset: UIEdgeInsets) {
+            func fit(_ offset: CGFloat, _ content: CGFloat, _ viewport: CGFloat,
+                     _ lead: CGFloat, _ trail: CGFloat) -> CGFloat {
+                let low = -lead
+                let high = max(low, content - viewport + trail)
+                return min(max(offset, low), high)
+            }
+            let target = CGPoint(
+                x: fit(scrollView.contentOffset.x, shown.width,
+                       scrollView.bounds.width, inset.left, inset.right),
+                y: fit(scrollView.contentOffset.y, shown.height,
+                       scrollView.bounds.height, inset.top, inset.bottom))
+            if target != scrollView.contentOffset { scrollView.contentOffset = target }
         }
     }
 }

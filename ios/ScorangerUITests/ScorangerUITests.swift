@@ -84,6 +84,184 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: app.buttons["Close chat"], timeout: 5))
     }
 
+    /// The canvas must fill the gap the panels leave, in every combination.
+    /// Build 119 capped the score pane to the spec's 520pt page width, which
+    /// left dead bands beside the score and — because the pane is also the
+    /// scroll view — put hard limits on how far zoom could pan. Asserted
+    /// numerically because eyeballing missed it twice.
+    func testCanvasFillsTheGapBesideThePanels() {
+        let screen = app.windows.firstMatch.frame.width
+        let library: CGFloat = 320
+        let chat: CGFloat = 380
+        // the score view only exists once an arrangement has engraved
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+
+        // the page itself, via the PencilKit canvas that overlays it: the
+        // build-120 second defect was the canvas frame being right while the
+        // page stayed centred on the region it had *before* a panel opened.
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 30), "no page found in the canvas")
+
+        func assertPageFillsCanvas(_ what: String) {
+            XCTAssertEqual(page.frame.midX, score.frame.midX, accuracy: 6,
+                           "page off-centre in the canvas with \(what): page "
+                           + "\(page.frame) in canvas \(score.frame)")
+            // 12pt of paper margin either side (ScorePagesView)
+            XCTAssertEqual(page.frame.width, score.frame.width - 24, accuracy: 8,
+                           "page does not fill the canvas with \(what): "
+                           + "\(page.frame.width) of \(score.frame.width)")
+        }
+
+        func assertWidth(_ expected: CGFloat, _ what: String) {
+            // a couple of points of slack for panel borders
+            XCTAssertEqual(score.frame.width, expected, accuracy: 4,
+                           "canvas width with \(what): expected ~\(expected), "
+                           + "got \(score.frame.width) of \(screen) available")
+        }
+
+        // library open (the launch state), chat closed
+        assertWidth(screen - library, "library open, chat closed")
+        assertPageFillsCanvas("library open, chat closed")
+        shot("width-library-open")
+
+        app.buttons["pill-chat"].tap()
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
+        sleep(1)
+        assertWidth(screen - library - chat, "both panels open")
+        assertPageFillsCanvas("both panels open")
+        shot("width-both-open")
+
+        app.buttons["pill-library"].tap()
+        sleep(1)
+        assertWidth(screen - chat, "library closed, chat open")
+        assertPageFillsCanvas("library closed, chat open")
+        shot("width-chat-only")
+
+        app.buttons["Close chat"].tap()
+        sleep(1)
+        assertWidth(screen, "both panels closed")
+        assertPageFillsCanvas("both panels closed")
+        shot("width-none-open")
+    }
+
+    /// Zoomed in, the page has to be bigger than the region and pannable to
+    /// both of its edges -- the build-120 symptom was hard left/right limits
+    /// well inside the screen, because the scroll view itself was only 544pt
+    /// wide. XCUITest's pinch under-delivers (a requested 2.5 lands near 1.2),
+    /// so the canvas publishes its live zoom scale and the test pinches until
+    /// it reads high enough.
+    func testTheZoomedPageUsesTheWholeCanvas() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier ENDSWITH %@", "/p0"))
+            .firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 30), "no first page")
+
+        func scale() -> CGFloat {
+            CGFloat(Double((score.value as? String)?
+                .replacingOccurrences(of: "zoom ", with: "") ?? "0") ?? 0)
+        }
+        func zoom(toAtLeast target: CGFloat) -> CGFloat {
+            // one pinch only multiplies the scale by ~1.15 however large the
+            // requested factor, so this walks up to the target
+            for _ in 0..<24 where scale() < target {
+                score.pinch(withScale: 3.0, velocity: 2.0)
+            }
+            return scale()
+        }
+
+        // a drag rather than swipeLeft/Right: a flick's inertia makes "did we
+        // reach the extreme" depend on how many flicks land before the
+        // deceleration ends, which is not something to assert on
+        func pan(from: CGFloat, to: CGFloat) {
+            let a = score.coordinate(withNormalizedOffset: CGVector(dx: from, dy: 0.5))
+            let b = score.coordinate(withNormalizedOffset: CGVector(dx: to, dy: 0.5))
+            a.press(forDuration: 0.05, thenDragTo: b)
+        }
+
+        func checkRegion(_ what: String) {
+            let z = zoom(toAtLeast: 1.8)
+            XCTAssertGreaterThanOrEqual(z, 1.8, "could not zoom in (\(what))")
+            let canvas = score.frame
+            XCTAssertGreaterThan(page.frame.width, canvas.width,
+                                 "at \(z)x the page (\(page.frame.width)) is still "
+                                 + "narrower than the canvas (\(canvas.width)) (\(what))")
+            // pan to the left extreme: the left of the page has to come to rest
+            // at the canvas's own left edge, not at some inner limit
+            for _ in 0..<4 { pan(from: 0.1, to: 0.9) }
+            sleep(2)
+            XCTAssertEqual(page.frame.minX, canvas.minX, accuracy: 30,
+                           "at \(z)x the left of the page stops at "
+                           + "\(page.frame.minX), canvas starts at \(canvas.minX) (\(what))")
+            shot("zoom-left-edge-\(what)")
+            for _ in 0..<8 { pan(from: 0.9, to: 0.1) }
+            sleep(2)
+            XCTAssertEqual(page.frame.maxX, canvas.maxX, accuracy: 30,
+                           "at \(z)x the right of the page stops at "
+                           + "\(page.frame.maxX), canvas ends at \(canvas.maxX) (\(what))")
+            shot("zoom-right-edge-\(what)")
+            // back to zoom 1 before the next stage (0.2 lands on the 0.5 floor,
+            // from which a couple of pinches climb back)
+            score.pinch(withScale: 0.2, velocity: -2.0)
+            for _ in 0..<8 where scale() < 1 { score.pinch(withScale: 1.4, velocity: 1.0) }
+            sleep(1)
+        }
+
+        checkRegion("library-open")
+        app.buttons["pill-library"].tap()
+        sleep(1)
+        checkRegion("no-panels")
+        app.buttons["pill-chat"].tap()
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
+        sleep(1)
+        checkRegion("chat-open")
+    }
+
+    /// And the region stays usable under zoom: the page can be panned across
+    /// the whole gap rather than being clipped to an inner box.
+    func testZoomPansAcrossTheWholeCanvas() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180))
+        app.buttons["pill-library"].tap()
+        sleep(2)
+        let full = app.windows.firstMatch.frame.width
+        XCTAssertEqual(score.frame.width, full, accuracy: 4,
+                       "with no panels the canvas should be the whole screen")
+        for scale in [2.0, 1.5] {
+            score.pinch(withScale: scale, velocity: 1.5)
+            sleep(1)
+            score.swipeLeft(velocity: .fast)
+            score.swipeRight(velocity: .fast)
+            XCTAssertEqual(score.frame.width, full, accuracy: 4,
+                           "the canvas shrank while zoomed at \(scale)")
+            shot("width-zoomed-\(scale)")
+        }
+        // and zoomed with the library open, which is where the stale
+        // centring inset used to strand the page under the panel. The pan
+        // itself is checked by eye from the screenshot: XCUITest pinch scales
+        // compound unpredictably, so asserting an exact page frame here is
+        // flakier than it is useful. The canvas frame is what stays asserted.
+        app.buttons["pill-library"].tap()
+        sleep(1)
+        score.pinch(withScale: 2.0, velocity: 1.5)
+        sleep(1)
+        for _ in 0..<3 { score.swipeRight(velocity: .fast) }
+        sleep(1)
+        XCTAssertEqual(score.frame.width, full - 320, accuracy: 4,
+                       "the canvas shrank when the library reopened while zoomed")
+        shot("width-zoomed-library-open")
+        score.pinch(withScale: 0.3, velocity: -2.0)
+    }
+
     // MARK: - Hierarchy
 
     func testArrangementsAreNumberedWithinPiece() {
@@ -270,8 +448,12 @@ final class ScorangerUITests: XCTestCase {
     }
 
     func testPinchZoomKeepsScoreUsable() {
-        let score = app.scrollViews.firstMatch
-        guard score.exists else { return XCTFail("no scroll view hosting the score") }
+        // named, not firstMatch: the library panel hosts a scroll view too, and
+        // firstMatch was pinching that instead of the score
+        let score = app.scrollViews["score-canvas"]
+        guard score.waitForExistence(timeout: 180) else {
+            return XCTFail("no score canvas")
+        }
         score.pinch(withScale: 2.2, velocity: 2.0)
         XCTAssertTrue(app.buttons["pill-library"].exists, "the pill should survive a zoom")
         score.pinch(withScale: 0.5, velocity: -2.0)

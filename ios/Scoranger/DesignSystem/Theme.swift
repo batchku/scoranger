@@ -187,8 +187,12 @@ enum Theme {
 
         static let libraryWidth: CGFloat = 320
         static let chatWidth: CGFloat = 380
-        static let pageWidth: CGFloat = 520
-        static let pageWidthBothOpen: CGFloat = 436
+        // Retired. The spec's fixed page widths (520, and 436 with both panels
+        // open) were derived from a 1180pt mockup; enforcing them on a 1032pt
+        // iPad left dead bands beside the score and, because the pane is also
+        // the scroll view, capped how far zoom could pan. The canvas now takes
+        // the full gap between the panels. Kept documented rather than deleted
+        // so the numbers are not reintroduced from the spec by mistake.
         static let pillHeight: CGFloat = 50
         static let pillButton: CGFloat = 38
         static let hitTarget: CGFloat = 44

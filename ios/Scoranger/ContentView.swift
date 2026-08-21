@@ -201,14 +201,18 @@ struct ContentView: View {
     /// are open (§5).
     @ViewBuilder
     private var canvasLayer: some View {
-        let bothOpen = libraryOpen && chatOpen && !isCompact
-        let pageWidth = bothOpen ? Theme.Metric.pageWidthBothOpen : Theme.Metric.pageWidth
         HStack(spacing: 0) {
+            // reserve exactly the panels' widths, so what remains IS the canvas
             Color.clear.frame(width: isCompact ? 0 : (libraryOpen ? Theme.Metric.libraryWidth : 0))
             Group {
                 if let score = state.selectedScore {
+                    // No width cap. The spec pins the page at 520 (436 with both
+                    // panels open), but those came from a 1180pt mockup; capping
+                    // an iPad's 1032pt canvas to 544 left dead bands either side
+                    // and made the scroll view itself too narrow, so zoom hit
+                    // hard limits well inside the screen. The score gets the
+                    // whole gap and ScorePagesView sizes the page from it.
                     scorePane(score)
-                        .frame(maxWidth: pageWidth + Theme.Metric.s24)
                 } else {
                     emptyState
                 }
