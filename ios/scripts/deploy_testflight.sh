@@ -44,9 +44,8 @@ PY=$(python_with_cryptography)
 
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 add_keychain_to_search_list
-IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-  | grep "Apple Distribution" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)
-[[ -n "$IDENTITY" ]] || die "no Apple Distribution identity in $KEYCHAIN_PATH -- run scripts/bootstrap_signing.sh"
+IDENTITY=$(distribution_identity)
+[[ -n "$IDENTITY" ]] || die "no distribution identity in $KEYCHAIN_PATH -- run scripts/bootstrap_signing.sh"
 
 # a profile that expired mid-cycle produces a baffling codesign failure later
 EXPIRY=$(security cms -D -i "$SIGNING_PROFILE" 2>/dev/null \
@@ -76,8 +75,10 @@ BUILD_NUMBER=$(awk '/^ *CURRENT_PROJECT_VERSION:/ {print $2; exit}' project.yml)
 say "building version $(awk '/^ *MARKETING_VERSION:/ {print $2; exit}' project.yml) build $BUILD_NUMBER"
 
 # ------------------------------------------------------------------ archive
-# Manual signing is forced here rather than in project.yml so that opening the
-# project in Xcode still uses automatic development signing.
+# Signing settings live in project.yml, scoped to this target's Release config:
+# on the xcodebuild command line they would also apply to the Verovio SPM
+# resource bundle, which cannot take a provisioning profile. codesign finds the
+# key because bootstrap added the signing keychain to the search list.
 say "archiving (this takes a few minutes)"
 rm -rf "$ARCHIVE_PATH"
 xcodebuild archive \
@@ -86,11 +87,6 @@ xcodebuild archive \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE_PATH" \
-  CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY="$IDENTITY" \
-  PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-  DEVELOPMENT_TEAM="$TEAM_ID" \
-  OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
   | grep -E "error:|warning: (Provisioning|Signing)|ARCHIVE (SUCCEEDED|FAILED)" || true
 
 [[ -d "$ARCHIVE_PATH" ]] || die "archive failed"

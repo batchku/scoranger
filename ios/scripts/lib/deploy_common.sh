@@ -87,6 +87,14 @@ ensure_wwdr_in_keychain() {
   say "Apple WWDR intermediate present in the signing keychain"
 }
 
+# Apple names IOS_DISTRIBUTION certificates "iPhone Distribution: ..." and the
+# newer universal DISTRIBUTION type "Apple Distribution: ...". Both sign an App
+# Store build, so match either rather than one spelling.
+distribution_identity() {
+  security find-identity -v -p codesigning "$KEYCHAIN_PATH" 2>/dev/null \
+    | grep -E '"(iPhone|Apple) Distribution' | head -1 | sed -E 's/.*"(.*)"/\1/'
+}
+
 add_keychain_to_search_list() {
   local current
   current=$(security list-keychains -d user | sed -E 's/^ *"(.*)"$/\1/')

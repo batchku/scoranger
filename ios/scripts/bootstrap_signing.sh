@@ -79,8 +79,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: \
 ensure_wwdr_in_keychain
 add_keychain_to_search_list
 
-IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-  | grep "Apple Distribution" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)
+IDENTITY=$(distribution_identity)
 [[ -n "$IDENTITY" ]] || die "the distribution identity did not import; \
 check that $SIGNING_KEY matches the certificate Apple issued"
 say "signing identity ready: $IDENTITY"

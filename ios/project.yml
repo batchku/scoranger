@@ -104,6 +104,18 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
+      configs:
+        # Release signs manually with the local distribution identity that
+        # scripts/bootstrap_signing.sh created, so archiving needs no Apple ID
+        # session. Scoped to this target and configuration on purpose: passing
+        # these on the xcodebuild command line also hits the Verovio SPM
+        # resource bundle, which rejects a provisioning profile outright.
+        # Debug is untouched, so opening the project in Xcode still uses
+        # automatic development signing.
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "iPhone Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Scoranger App Store (headless)"
     info:
       path: Scoranger/Info.plist
       properties:
