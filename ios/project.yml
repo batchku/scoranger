@@ -156,6 +156,29 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [mxl]
+  # Logic tests for the score model. Deliberately has NO host application:
+  # it compiles ScoreModel/ straight into the bundle, so the suite runs in a
+  # second or two without booting the app or the embedded Python engine.
+  ScorangerTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: ScorangerTests
+        excludes: ["Fixtures"]
+      - path: Scoranger/ScoreModel
+      - path: ScorangerTests/Fixtures
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger.tests
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: V9DBGV72NL
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.10
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
   ScorangerUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -182,6 +205,6 @@ schemes:
       config: Debug
     test:
       config: Debug
-      targets: [ScorangerUITests]
+      targets: [ScorangerTests, ScorangerUITests]
     archive:
       config: Release
