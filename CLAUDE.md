@@ -44,6 +44,10 @@ scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"F
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
+scor set-metadata <score> [--title T] [--composer C] [--arranger A]
+  # the ONE title: the arrangement's name in the library and the title engraved
+  # at the top of the page are the same value. Versioned, like any notation
+  # change. `rename-score` is the same op under its older name.
 scor check-range <score> --part "Violin I" [--instrument Viola]
 scor export <score> --format musicxml|midi|pdf --out <path> [--version vNNN] [--parts "..."]
   # PDF rendering: Verovio + cairosvg + pypdf, all in the venv (engine/scoranger_engine/render.py).
@@ -122,6 +126,16 @@ Source of truth: `workspace/scoranger.db` via `scoranger_engine/db.py`.
 Moving to Firebase = implement `FirestoreRepository` with the same interface as
 `SqliteRepository`, put artifacts in Storage, replace manifest polling with
 listeners. Never write meta files by hand; the DB is authoritative.
+
+**Titles and credits**: a score has exactly one title. It lives in the notation
+(MusicXML `<work-title>` *and* `<movement-title>` — Verovio engraves the
+movement title, so both are written to the same value) and the score document's
+`title`/`composer`/`arranger` are a *projection* of the latest version's
+notation, never independent fields. Edit through `set-metadata`; never set a
+title by writing the document. Two music21 behaviours the op exists to contain:
+it seeds the movement title with the source *file name* when a file carries no
+title (which then engraves as "my-score.mxl"), and it stamps itself in as the
+composer on every export when none is set (stripped in `workspace._write_version`).
 
 Extra commands: `scor delete-score <slug>` (irreversible),
 `scor serve` (local API on :8765 — powers the viewer's New… upload; keep it

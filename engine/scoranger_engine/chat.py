@@ -264,6 +264,18 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
                   {"from": from_ref, "part": part, "replace": replace, "measures": measures}, fn)
 
 
+def set_metadata(ctx: RunContext[str], title: str | None = None,
+                 composer: str | None = None, arranger: str | None = None) -> dict:
+    """Set the arrangement's title (engraved at the top of the page AND its name
+    in the library -- one value, not two), its composer or its arranger.
+    An empty string clears a credit."""
+    try:
+        return workspace.set_score_metadata(ctx.deps, title=title, composer=composer,
+                                            arranger=arranger)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 def assign_to_piece(ctx: RunContext[str], piece_name: str) -> dict:
     """File this arrangement under a piece, creating it if needed."""
     try:
@@ -276,7 +288,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
-         pull_part, assign_to_piece]
+         pull_part, set_metadata, assign_to_piece]
 
 
 def resolve_model(alias_or_string: str | None) -> str:

@@ -16,7 +16,9 @@ final class ScorangerUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-seedTestLibrary", "-annotateWithFinger"]
+        // -resetLibrary so each test starts from the same seeded library: these
+        // tests rename things, and the on-device workspace outlives the app.
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary", "-annotateWithFinger"]
         app.launch()
         // the library overlay starts open on iPad; band headers render uppercased
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
@@ -28,6 +30,18 @@ final class ScorangerUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// Replace a field's whole contents.
+    ///
+    /// `typeText` inserts at the cursor and a tap puts the cursor wherever it
+    /// landed, so appending is not setting. Command-A never reaches the
+    /// simulator, and neither arrow keys nor backspace go through typeText on
+    /// this OS — a triple tap selects the whole line the way a finger would,
+    /// and typing then replaces the selection.
+    private func replaceText(_ field: XCUIElement, with text: String) {
+        field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        field.typeText(text)
     }
 
     private func element(labelStartingWith prefix: String) -> XCUIElement {
@@ -339,19 +353,138 @@ final class ScorangerUITests: XCTestCase {
 
     func testRenameArrangementFromTheSheet() {
         app.buttons["Arrangement details"].firstMatch.tap()
-        let field = app.textFields["Arrangement name"]
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "name field missing")
-        field.tap()
-        field.typeText(" Renamed")
-        let rename = app.buttons["Rename"]
-        XCTAssertTrue(rename.waitForExistence(timeout: 5),
-                      "Rename should appear once the name differs")
-        rename.tap()
-        XCTAssertTrue(waitForDisappearance(of: rename, timeout: 20),
-                      "Rename still offered after a successful save")
+        let field = app.textFields["arrangement-title"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "title field missing")
+        replaceText(field, with: "Renamed arrangement")
+        let save = app.buttons["save-metadata"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5),
+                      "Save should appear once the title differs")
+        save.tap()
+        XCTAssertTrue(waitForDisappearance(of: save, timeout: 60),
+                      "Save still offered after a successful write")
         app.buttons["Done"].firstMatch.tap()
         XCTAssertTrue(app.buttons["arrangement-\(firstArrangement)"].exists,
                       "the slug-based identifier must survive a rename")
+    }
+
+    /// Ali's build-121 report: the title at the top of the score, the title in
+    /// the sidebar and the title in the sheet were three different values, and
+    /// only one of them could be edited. One title now, and editing it reaches
+    /// the notation — which is checked by reading the metadata back out of the
+    /// engraved file (the sheet's mismatch note is derived from it), not just
+    /// out of the library document.
+    func testTitleAndCreditsAreEditableAndReachTheNotation() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        app.buttons["Arrangement details"].firstMatch.tap()
+
+        let title = app.textFields["arrangement-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title field")
+        let composer = app.textFields["arrangement-composer"]
+        XCTAssertTrue(composer.exists, "composer is metadata too, so it must be editable")
+        XCTAssertTrue(app.textFields["arrangement-arranger"].exists, "no arranger field")
+
+        replaceText(title, with: "Quartet Retitled")
+        replaceText(composer, with: "Hubert Giraud")
+        shot("metadata-editor")
+
+        let save = app.buttons["save-metadata"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "no way to save the edit")
+        save.tap()
+        XCTAssertTrue(waitForDisappearance(of: save, timeout: 90),
+                      "the metadata edit never completed")
+
+        // the edit is a version, like every other change to the notation
+        XCTAssertTrue(app.staticTexts["set-metadata"].waitForExistence(timeout: 10),
+                      "editing metadata should append a version")
+        app.buttons["Done"].firstMatch.tap()
+
+        // the sidebar row now carries the same title (its label is built from
+        // the numeral, the title and the subtitle, so this is a contains-check)
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.label.contains("Quartet Retitled"),
+                      "the sidebar still shows the old title: \(row.label)")
+
+        // and reopening reads the credits back out of the notation
+        app.buttons["Arrangement details"].firstMatch.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["arrangement-composer"].value as? String,
+                       "Hubert Giraud",
+                       "the composer did not survive in the notation")
+        XCTAssertEqual(title.value as? String, "Quartet Retitled")
+        XCTAssertFalse(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "still engraves")).firstMatch.exists,
+                       "the page and the title should now agree")
+        shot("metadata-saved")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// The point of the whole change, seen on the page: the title engraved at
+    /// the top of the score is the arrangement's title. Screenshots before and
+    /// after, so the engraving itself can be read (the page is a bitmap, so no
+    /// assertion can look at it — the values either side are asserted instead).
+    func testTheEngravedTitleFollowsTheArrangementTitle() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(2)
+        shot("engraved-title-before")
+
+        app.buttons["Arrangement details"].firstMatch.tap()
+        let title = app.textFields["arrangement-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        replaceText(title, with: "Sous le ciel de Paris \u{2014} String Quartet")
+        replaceText(app.textFields["arrangement-composer"], with: "Hubert Giraud")
+        replaceText(app.textFields["arrangement-arranger"], with: "Gheorghe Branici")
+        app.buttons["save-metadata"].tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["save-metadata"], timeout: 90))
+        app.buttons["Done"].firstMatch.tap()
+
+        // the canvas re-engraves the new version by itself
+        sleep(6)
+        shot("engraved-title-after")
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(row.label.contains("String Quartet"),
+                      "sidebar out of step with the engraved title: \(row.label)")
+    }
+
+    /// Part names are the staff labels engraved on every system, so they are
+    /// metadata the user can edit too.
+    func testPartNamesAreEditableFromTheSheet() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        app.buttons["Arrangement details"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
+        let first = app.buttons["part-0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10), "part rows should be editable")
+        first.tap()
+        let field = app.textFields["part-name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "no part name field")
+        replaceText(field, with: "Violin I")
+        app.buttons["Rename"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["part-0"].waitForExistence(timeout: 60))
+        XCTAssertTrue(element(labelStartingWith: "Rename Violin I").waitForExistence(timeout: 30),
+                      "the part row still shows the old name")
+        shot("part-renamed")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// The piece is metadata as well, and its name was editable nowhere.
+    func testPieceIsRenameableFromTheSheet() {
+        app.buttons["Arrangement details"].firstMatch.tap()
+        let rename = app.buttons["rename-piece"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 10), "no way to rename the piece")
+        rename.tap()
+        let field = app.textFields["piece-name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        replaceText(field, with: "Paris Revisited")
+        app.buttons["Rename"].firstMatch.tap()
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(element(labelStartingWith: "Paris Revisited")
+                        .waitForExistence(timeout: 30),
+                      "the piece heading still shows the old name")
+        shot("piece-renamed")
     }
 
     /// The alert is ours: a verb rather than OK, and a field in the body.

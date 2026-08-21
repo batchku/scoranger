@@ -28,6 +28,13 @@ actor PythonEngine {
             state = .failed("interpreter init failed (code \(rc))")
             return state
         }
+        // Test fixture only: UI tests need each launch to start from the same
+        // library, or edits made by one test leak into the next one's
+        // assertions. Never reachable in a shipped run -- it is an argument the
+        // test runner passes, not a setting.
+        if ProcessInfo.processInfo.arguments.contains("-resetLibrary") {
+            try? FileManager.default.removeItem(at: Self.workspaceURL)
+        }
         try? FileManager.default.createDirectory(at: Self.workspaceURL,
                                                  withIntermediateDirectories: true)
         let response = rawCall(op: "configure",

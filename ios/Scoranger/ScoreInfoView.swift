@@ -3,96 +3,80 @@ import SwiftUI
 /// The arrangement sheet's body (§8 screen 07). `PanelSheet` supplies the
 /// frame, the numeral, the title and Done; this is band headers and rows.
 /// Destructive actions sit in the body, last, never in the header.
+///
+/// It is also where an arrangement's metadata is edited. There is one title,
+/// not several: what the sidebar shows, what this sheet shows, and what is
+/// engraved at the top of the page are the same value, and saving writes all
+/// of them through the engine's `set-metadata` op (a new version, like any
+/// other change to the notation).
 struct ScoreInfoView: View {
+    /// The score as it was when the sheet opened. Everything reads `live`
+    /// instead: the sheet edits the arrangement, so it has to show the results
+    /// of its own edits — the new version, the new title, the new piece.
     let score: ScoreDoc
     @EnvironmentObject var state: AppState
 
-    /// Local override so the piece row updates immediately after a pick — the
-    /// sheet's `score` is a snapshot and never sees the refreshed manifest.
-    @State private var pieceOverride: String??
-    @State private var draftName = ""
-    /// The name as last persisted; comparing against the snapshot would leave
-    /// the Rename button showing after a successful save.
-    @State private var savedName = ""
-    @State private var renaming = false
-    @State private var confirmingDelete = false
+    private var live: ScoreDoc {
+        state.manifest?.scores.first { $0.slug == score.slug } ?? score
+    }
 
-    private var trimmedDraft: String {
-        draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+    @State private var draftTitle = ""
+    @State private var draftComposer = ""
+    @State private var draftArranger = ""
+    /// What was last persisted; comparing against the snapshot would leave the
+    /// Save button showing after a successful write.
+    @State private var saved = AppState.ScoreMetadata()
+    @State private var saving = false
+    /// The metadata the notation actually carries, read from the engine. For
+    /// scores imported before the fields were reconciled this can differ from
+    /// the library name — the note below says so, and one save fixes it.
+    @State private var engraved: AppState.ScoreMetadata?
+    @State private var renamingPart: Int?
+    @State private var draftPartName = ""
+    @State private var confirmingDelete = false
+    @State private var renamingPiece = false
+    @State private var draftPieceName = ""
+
+    private func trimmed(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    private var canRename: Bool {
-        !trimmedDraft.isEmpty && trimmedDraft != savedName && !renaming
+    private var canSave: Bool {
+        guard !saving, !trimmed(draftTitle).isEmpty else { return false }
+        return trimmed(draftTitle) != (saved.title ?? "")
+            || trimmed(draftComposer) != (saved.composer ?? "")
+            || trimmed(draftArranger) != (saved.arranger ?? "")
     }
-    private var currentPieceSlug: String? {
-        if let pieceOverride { return pieceOverride }
-        return score.piece
+    /// The page says something other than the arrangement's name (an import
+    /// from before the two were one field).
+    private var engravedMismatch: String? {
+        guard let engravedTitle = engraved?.title, !engravedTitle.isEmpty,
+              engravedTitle != trimmed(draftTitle) else { return nil }
+        return engravedTitle
+    }
+    private var currentPieceSlug: String? { live.piece }
+    private var currentPiece: PieceDoc? {
+        state.manifest?.pieces?.first { $0.slug == currentPieceSlug }
     }
     private func pieceName(_ slug: String?) -> String {
         guard let slug else { return "None" }
         return state.manifest?.pieces?.first { $0.slug == slug }?.name ?? slug
     }
     private var latestParts: [PartDoc] {
-        score.versions.first { $0.id == score.latest }?.parts
-            ?? score.versions.last?.parts ?? []
+        let doc = live
+        return doc.versions.first { $0.id == doc.latest }?.parts
+            ?? doc.versions.last?.parts ?? []
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             BandHeader("Arrangement")
-            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-                HStack(spacing: Theme.Metric.s8) {
-                    PanelField(placeholder: "Name", text: $draftName)
-                        .accessibilityLabel("Arrangement name")
-                    if renaming {
-                        ProgressView().controlSize(.small).tint(Theme.Accent.clay)
-                    } else if canRename {
-                        PanelButton(title: "Rename", kind: .primary, action: commitRename)
-                    }
-                }
-                if let placement = state.placement(of: score.slug) {
-                    HStack(spacing: Theme.Metric.s8) {
-                        Text("Number in piece").typeRole(.body)
-                            .foregroundStyle(Theme.Ink.ink2)
-                        Spacer()
-                        NumeralBadge(number: placement.number)
-                    }
-                }
+            metadataEditor
+            SheetRow(label: "Piece") { pieceMenu }
+            if renamingPiece, let piece = currentPiece {
+                renamePieceField(piece)
             }
-            .padding(Theme.Metric.panelPadding)
-
-            SheetRow(label: "Piece") {
-                Menu {
-                    Button {
-                        state.assignToPiece(scoreSlug: score.slug, piece: nil)
-                        pieceOverride = .some(nil)
-                    } label: {
-                        currentPieceSlug == nil
-                            ? Label("None", systemImage: "checkmark") : Label("None", systemImage: "")
-                    }
-                    ForEach(state.manifest?.pieces ?? []) { piece in
-                        Button {
-                            state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
-                            pieceOverride = .some(piece.slug)
-                        } label: {
-                            if currentPieceSlug == piece.slug {
-                                Label(piece.name, systemImage: "checkmark")
-                            } else { Text(piece.name) }
-                        }
-                    }
-                } label: {
-                    Text(pieceName(currentPieceSlug))
-                        .typeRole(.body)
-                        .foregroundStyle(Theme.Accent.clayStrong)
-                }
-            }
-            if let title = score.title, !title.isEmpty {
-                SheetRow("Title", title)
-            }
-            if let composer = score.composer, !composer.isEmpty {
-                SheetRow("Composer", composer)
-            }
-            SheetRow("Slug", score.slug, mono: true)
-            if let latest = score.latest {
+            SheetRow("Slug", live.slug, mono: true)
+            if let latest = live.latest {
                 SheetRow("Latest version", latest, mono: true)
             }
 
@@ -104,11 +88,11 @@ struct ScoreInfoView: View {
             }
 
             BandHeader("Versions")
-            ForEach(score.versions.reversed()) { version in
+            ForEach(live.versions.reversed()) { version in
                 SheetRow(label: version.id) {
                     HStack(spacing: Theme.Metric.s8) {
                         Text(version.op).typeRole(.meta).foregroundStyle(Theme.Ink.ink)
-                        if version.id == score.latest {
+                        if version.id == live.latest {
                             Text("latest").typeRole(.dataS)
                                 .foregroundStyle(Theme.Accent.clayStrong)
                         }
@@ -116,7 +100,7 @@ struct ScoreInfoView: View {
                 }
             }
 
-            if let sources = score.sources, !sources.isEmpty {
+            if let sources = live.sources, !sources.isEmpty {
                 BandHeader("Sources")
                 ForEach(sources) { source in
                     SheetRow(label: source.id) {
@@ -151,21 +135,145 @@ struct ScoreInfoView: View {
             }
             .padding(Theme.Metric.panelPadding)
         }
-        .onAppear {
-            draftName = score.name
-            savedName = score.name
+        .task { await load() }
+    }
+
+    // MARK: - Metadata
+
+    @ViewBuilder
+    private var metadataEditor: some View {
+        VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+            PanelField(placeholder: "Title", text: $draftTitle)
+                .accessibilityIdentifier("arrangement-title")
+                .accessibilityLabel("Arrangement title")
+            PanelField(placeholder: "Composer", text: $draftComposer)
+                .accessibilityIdentifier("arrangement-composer")
+                .accessibilityLabel("Composer")
+            PanelField(placeholder: "Arranger", text: $draftArranger)
+                .accessibilityIdentifier("arrangement-arranger")
+                .accessibilityLabel("Arranger")
+            if let engravedTitle = engravedMismatch {
+                PanelNote(text: "The page still engraves \u{201C}\(engravedTitle)\u{201D}. "
+                          + "Saving makes the title on the score the same as this one.")
+            }
+            HStack(spacing: Theme.Metric.s8) {
+                if let placement = state.placement(of: score.slug) {
+                    Text("Number in piece").typeRole(.body)
+                        .foregroundStyle(Theme.Ink.ink2)
+                    NumeralBadge(number: placement.number)
+                }
+                Spacer(minLength: Theme.Metric.s8)
+                if saving {
+                    ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+                } else if canSave {
+                    PanelButton(title: "Save", kind: .primary, action: commitMetadata)
+                        .accessibilityIdentifier("save-metadata")
+                }
+            }
+        }
+        .padding(Theme.Metric.panelPadding)
+    }
+
+    @ViewBuilder
+    private var pieceMenu: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Menu {
+                Button {
+                    state.assignToPiece(scoreSlug: score.slug, piece: nil)
+                } label: {
+                    currentPieceSlug == nil
+                        ? Label("None", systemImage: "checkmark") : Label("None", systemImage: "")
+                }
+                ForEach(state.manifest?.pieces ?? []) { piece in
+                    Button {
+                        state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
+                    } label: {
+                        if currentPieceSlug == piece.slug {
+                            Label(piece.name, systemImage: "checkmark")
+                        } else { Text(piece.name) }
+                    }
+                }
+            } label: {
+                Text(pieceName(currentPieceSlug))
+                    .typeRole(.body)
+                    .foregroundStyle(Theme.Accent.clayStrong)
+            }
+            if let piece = currentPiece {
+                Button {
+                    draftPieceName = piece.name
+                    renamingPiece = true
+                } label: {
+                    Image(systemName: "pencil").font(.system(size: 13))
+                }
+                .tint(Theme.Accent.clayStrong)
+                .accessibilityIdentifier("rename-piece")
+                .accessibilityLabel("Rename piece")
+            }
         }
     }
 
-    private func partRow(_ part: PartDoc) -> some View {
-        SheetRow(label: part.name) {
-            VStack(alignment: .trailing, spacing: 1) {
-                if let instrument = part.instrument, instrument != part.name {
-                    Text(instrument).typeRole(.body).foregroundStyle(Theme.Ink.ink)
-                }
-                Text(partDetail(part)).typeRole(.data)
-                    .foregroundStyle(Theme.Ink.ink2)
+    @ViewBuilder
+    private func renamePieceField(_ piece: PieceDoc) -> some View {
+        HStack(spacing: Theme.Metric.s8) {
+            PanelField(placeholder: "Piece name", text: $draftPieceName)
+                .accessibilityIdentifier("piece-name")
+                .accessibilityLabel("Piece name")
+            PanelButton(title: "Cancel") { renamingPiece = false }
+            PanelButton(title: "Rename", kind: .primary) {
+                let name = trimmed(draftPieceName)
+                renamingPiece = false
+                guard !name.isEmpty, name != piece.name else { return }
+                Task { await state.renamePiece(piece: piece.slug, name: name) }
             }
+        }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.bottom, Theme.Metric.s8)
+    }
+
+    // MARK: - Parts
+
+    /// A part row, tappable to rename. The name is the staff label engraved on
+    /// every system, so renaming goes through the engine's `rename-part` op.
+    @ViewBuilder
+    private func partRow(_ part: PartDoc) -> some View {
+        if renamingPart == part.index {
+            HStack(spacing: Theme.Metric.s8) {
+                PanelField(placeholder: "Part name", text: $draftPartName)
+                    .accessibilityIdentifier("part-name")
+                    .accessibilityLabel("Part name")
+                PanelButton(title: "Cancel") { renamingPart = nil }
+                PanelButton(title: "Rename", kind: .primary) {
+                    let name = trimmed(draftPartName)
+                    renamingPart = nil
+                    Task { await state.renamePart(slug: score.slug,
+                                                  part: "#\(part.index)", name: name) }
+                }
+            }
+            .padding(.horizontal, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.s8)
+        } else {
+            Button {
+                draftPartName = part.name
+                renamingPart = part.index
+            } label: {
+                SheetRow(label: part.name) {
+                    HStack(spacing: Theme.Metric.s8) {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            if let instrument = part.instrument, instrument != part.name {
+                                Text(instrument).typeRole(.body)
+                                    .foregroundStyle(Theme.Ink.ink)
+                            }
+                            Text(partDetail(part)).typeRole(.data)
+                                .foregroundStyle(Theme.Ink.ink2)
+                        }
+                        Image(systemName: "pencil").font(.system(size: 12))
+                            .foregroundStyle(Theme.Accent.clayStrong)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("part-\(part.index)")
+            .accessibilityLabel("Rename \(part.name)")
         }
     }
 
@@ -179,13 +287,41 @@ struct ScoreInfoView: View {
         return bits.joined(separator: " · ")
     }
 
-    private func commitRename() {
-        guard canRename else { return }
-        let name = trimmedDraft
-        renaming = true
+    // MARK: - Load and save
+
+    private func load() async {
+        let fromNotation = await state.scoreMetadata(slug: score.slug)
+        engraved = fromNotation
+        // The library name wins as the editable value: it is what the user
+        // named this arrangement. The credits only exist in the notation.
+        let doc = live
+        draftTitle = doc.name
+        draftComposer = fromNotation?.composer ?? doc.composer ?? ""
+        draftArranger = fromNotation?.arranger ?? ""
+        saved = AppState.ScoreMetadata(title: draftTitle,
+                                       composer: draftComposer,
+                                       arranger: draftArranger)
+    }
+
+    private func commitMetadata() {
+        guard canSave else { return }
+        let title = trimmed(draftTitle)
+        let composer = trimmed(draftComposer)
+        let arranger = trimmed(draftArranger)
+        saving = true
         Task {
-            if await state.renameScore(slug: score.slug, name: name) { savedName = name }
-            renaming = false
+            // one call, so one new version carries the whole edit
+            let ok = await state.setScoreMetadata(
+                slug: score.slug,
+                title: title == (saved.title ?? "") ? nil : title,
+                composer: composer == (saved.composer ?? "") ? nil : composer,
+                arranger: arranger == (saved.arranger ?? "") ? nil : arranger)
+            if ok {
+                saved = AppState.ScoreMetadata(title: title, composer: composer,
+                                               arranger: arranger)
+                engraved = await state.scoreMetadata(slug: score.slug)
+            }
+            saving = false
         }
     }
 }
