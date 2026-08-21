@@ -96,11 +96,23 @@ distribution_identity() {
 }
 
 add_keychain_to_search_list() {
-  local current
-  current=$(security list-keychains -d user | sed -E 's/^ *"(.*)"$/\1/')
-  if ! grep -qF "$KEYCHAIN_PATH" <<<"$current"; then
-    # shellcheck disable=SC2086
-    security list-keychains -d user -s $(printf '"%s" ' $current) "$KEYCHAIN_PATH" >/dev/null
-    say "added signing keychain to the search list"
-  fi
+  # `security list-keychains` prints one quoted, indented path per line. Parse
+  # it into an array: splitting the output on whitespace mangles any path with
+  # a space in it and corrupts the whole search list -- which, if the login
+  # keychain is the casualty, silently breaks every other tool that reads it.
+  local -a current=()
+  local line
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"   # strip leading whitespace
+    line="${line%\"}"                          # strip surrounding quotes
+    line="${line#\"}"
+    [[ -n "$line" ]] && current+=("$line")
+  done < <(security list-keychains -d user)
+
+  local k
+  for k in "${current[@]}"; do
+    [[ "$k" == "$KEYCHAIN_PATH" ]] && return 0
+  done
+  security list-keychains -d user -s "${current[@]}" "$KEYCHAIN_PATH" >/dev/null
+  say "added signing keychain to the search list"
 }
