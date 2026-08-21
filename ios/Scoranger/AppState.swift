@@ -105,6 +105,9 @@ final class AppState: ObservableObject {
 
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
+    /// Pencil markup state. Lives here because the pill drives it and the score
+    /// pane only reacts, the same reason highlightMode moved up in build 116.
+    let annotation = AnnotationController()
 
     /// Sidebar grouping: each piece with its arrangements resolved to ScoreDocs
     /// (pieces with no resolvable arrangements are dropped here — the full list,

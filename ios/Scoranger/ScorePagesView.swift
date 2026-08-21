@@ -20,8 +20,8 @@ struct ScorePagesView: View {
     @State private var rasterZoom: CGFloat = 1.0
     /// Chip expanded into steppers for adjusting the estimated range.
     @State private var chipExpanded = false
-    /// Pencil markup: off by default so the score reads as a document.
-    @StateObject private var annotation = AnnotationController()
+    /// Pencil markup: the shared controller, driven from the pill.
+    private var annotation: AnnotationController { state.annotation }
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
 
@@ -50,24 +50,6 @@ struct ScorePagesView: View {
         .overlay(alignment: .top) { highlightChip }
         .overlay(alignment: .bottom) {
             if annotation.isOn { AnnotationBar(controller: annotation) }
-        }
-        .toolbar {
-            // ONE pencil in the toolbar. "highlighter" is also a pencil glyph,
-            // so having both read as two edit buttons; highlight-a-passage is a
-            // chat-targeting action and now lives in the score's gear menu.
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    annotation.isOn.toggle()
-                    if annotation.isOn { state.highlightMode = false }
-                } label: {
-                    Image(systemName: annotation.isOn ? "pencil.circle.fill" : "lock.circle")
-                        .font(.title3)
-                        .foregroundStyle(annotation.isOn
-                                         ? annotation.ink.swatch : Color.secondary)
-                }
-                .accessibilityLabel(annotation.isOn
-                                    ? "Exit annotation mode" : "Annotate the score")
-            }
         }
         .onChange(of: state.highlightMode) { _, on in
             // both modes want the Pencil; only one at a time

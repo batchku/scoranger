@@ -1,47 +1,40 @@
 import SwiftUI
-
 import UniformTypeIdentifiers
 
+/// Score-first (§7, §8): the score is the permanent ground, the library and chat
+/// slide over it, and every canvas control lives in one pill. There is no
+/// navigation bar, no title bar and no split view — losing `NavigationSplitView`
+/// is the largest change in the revamp.
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.horizontalSizeClass) private var hSize
-    @State private var showChat = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The two overlays, which replace the split view's columns.
+    @State private var libraryOpen = false
+    @State private var chatOpen = false
+    @State private var didSetInitialOverlays = false
+
     @State private var showSettings = false
     @State private var showImporter = false
-    @State private var didSetInitialChat = false
     /// Piece rows are expanded by default; track only the collapsed ones.
     @State private var collapsedPieces: Set<String> = []
-    /// Setlist rows are expanded by default; track only the collapsed ones.
     @State private var collapsedSetlists: Set<String> = []
-    /// Arrangements whose version history is showing beneath them.
+    /// Arrangements showing their version history.
     @State private var expandedArrangements: Set<String> = []
-    /// Prompt groups (one chat turn, several versions) showing their steps.
-    /// Keyed "<slug>/<group id>" so two arrangements cannot collide.
+    /// Prompt groups showing their steps, keyed "<slug>/<group id>".
     @State private var expandedVersionGroups: Set<String> = []
     @State private var pendingDelete: ScoreDoc?
     @State private var infoScore: ScoreDoc?
-    /// Score awaiting a "New piece…" name (drives the naming alert).
     @State private var newPieceTarget: ScoreDoc?
     @State private var newPieceName = ""
-    /// Piece the file importer should file its result under (set by a piece's
-    /// "Import a file into this piece"); nil = the toolbar's unfiled import.
     @State private var importTargetPiece: String?
-    /// Drives the "New setlist" naming alert.
     @State private var creatingSetlist = false
     @State private var newSetlistName = ""
-    /// Setlist awaiting a rename, and the draft name.
     @State private var renamingSetlist: SetlistDoc?
     @State private var setlistRenameDraft = ""
     @State private var pendingSetlistDelete: SetlistDoc?
-
-    /// Section headings read as headings: accent-coloured, so they separate
-    /// from the item rows (which stay primary/secondary white and grey).
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
-            .textCase(nil)
-    }
+    @State private var dropTargetPiece: String?
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -51,12 +44,8 @@ struct ContentView: View {
         UTType(filenameExtension: "midi"),
     ].compactMap { $0 }) + [.pdf]
 
-    /// Which column shows in compact width — set to .detail to open a score.
-    @State private var compactColumn: NavigationSplitViewColumn = .sidebar
-
-    /// Build identity, composed at runtime from the bundle so the number shown
-    /// here is exactly CFBundleVersion, i.e. the build number App Store Connect
-    /// records. Only the git sha is baked in (it isn't in Info.plist).
+    /// Build identity, read from the bundle so what is displayed is exactly the
+    /// CFBundleVersion App Store Connect records.
     static let buildStamp: String = {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -67,124 +56,76 @@ struct ContentView: View {
         return "v\(version) · b\(build)" + (sha.map { " · \($0)" } ?? "")
     }()
 
+    private var isCompact: Bool { hSize == .compact }
+
     var body: some View {
-        NavigationSplitView(preferredCompactColumn: $compactColumn) {
-            sidebar
-        } detail: {
-            detail
+        ZStack {
+            Theme.Surface.ground.ignoresSafeArea()
+            canvasLayer
+            overlayLayer
         }
+        .overlay(alignment: .bottom) { pillLayer }
+        .background(Theme.Surface.ground)
         .task {
+            Theme.verifyFontsRegistered()
             state.startPolling()
         }
-    }
-
-    private func openScore(_ slug: String, version: String? = nil) {
-        state.select(slug: slug, version: version)
-        compactColumn = .detail
-    }
-
-    // MARK: sidebar
-
-    // The sidebar is the app's statement of the hierarchy: setlists hold
-    // pieces, pieces hold numbered arrangements, arrangements hold versions.
-    // Split into per-section builders — as one expression the SwiftUI type
-    // checker gives up on it.
-    private var sidebar: some View {
-        // Plain List — no selection binding: the system's row selection fought
-        // the per-row buttons (eaten taps, three competing highlight colors).
-        // Highlight is ours alone; navigation goes through openScore.
-        List {
-            statusSection
-            setlistsSection
-            piecesSection
-            unfiledSection
-        }
-        .navigationTitle("Scoranger")
-        .safeAreaInset(edge: .bottom) {
-            // always-visible build identity (baked at build time)
-            Text(Self.buildStamp)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 3)
-                .background(.bar)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Circle()
-                    .fill(state.engineOK ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                    .accessibilityLabel(state.engineOK ? "Engine connected" : "Engine unreachable")
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if state.useLocalEngine {
-                    Button {
-                        importTargetPiece = nil
-                        showImporter = true
-                    } label: { Image(systemName: "plus") }
-                        .accessibilityLabel("Import an arrangement")
-                }
-                Button { showSettings = true } label: { Image(systemName: "gearshape") }
-            }
+        .onAppear {
+            guard !didSetInitialOverlays else { return }
+            didSetInitialOverlays = true
+            // the score is the ground: on iPad the library starts open so the
+            // library is discoverable, on iPhone nothing covers the score
+            libraryOpen = !isCompact
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(item: $infoScore) { ScoreInfoView(score: $0) }
-        .alert(
-            "Delete \(pendingDelete?.name ?? "arrangement")?",
-            isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
-            )
-        ) {
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: Self.scoreTypes) { result in
+            let piece = importTargetPiece
+            importTargetPiece = nil
+            if case .success(let url) = result {
+                state.receiveFile(at: url, intoPiece: piece)
+            }
+        }
+        .alert("Delete \(pendingDelete?.name ?? "arrangement")?", isPresented: Binding(
+            get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
             Button("Delete", role: .destructive) {
                 if let score = pendingDelete { state.deleteScore(slug: score.slug) }
                 pendingDelete = nil
             }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("This removes the arrangement and all its versions. The piece and its other arrangements are untouched.")
         }
         .alert("New piece", isPresented: Binding(
-            get: { newPieceTarget != nil },
-            set: { if !$0 { newPieceTarget = nil } }
-        )) {
+            get: { newPieceTarget != nil }, set: { if !$0 { newPieceTarget = nil } })) {
             TextField("Piece name", text: $newPieceName)
-            Button("OK") {
+            Button("Cancel", role: .cancel) { newPieceTarget = nil }
+            Button("Create") {
                 let name = newPieceName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let score = newPieceTarget, !name.isEmpty {
                     state.createPieceAndAssign(name: name, scoreSlug: score.slug)
                 }
                 newPieceTarget = nil
             }
-            Button("Cancel", role: .cancel) { newPieceTarget = nil }
         } message: {
-            Text("File “\(newPieceTarget?.name ?? "this arrangement")” under a new piece.")
-        }
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: Self.scoreTypes) { result in
-            let piece = importTargetPiece
-            importTargetPiece = nil
-            // receiveFile routes by type: PDFs -> cloud OMR, scores -> direct import
-            if case .success(let url) = result {
-                state.receiveFile(at: url, intoPiece: piece)
-            }
+            Text("File \u{201C}\(newPieceTarget?.name ?? "this arrangement")\u{201D} under a new piece.")
         }
         .alert("New setlist", isPresented: $creatingSetlist) {
             TextField("Setlist name", text: $newSetlistName)
+            Button("Cancel", role: .cancel) {}
             Button("Create") {
                 let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { return }
                 Task { await state.createSetlist(name: name) }
             }
-            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("A setlist is an ordered group of pieces — a gig's running order.")
+            Text("A setlist is an ordered group of pieces \u{2014} a gig's running order.")
         }
         .alert("Rename setlist", isPresented: Binding(
-            get: { renamingSetlist != nil },
-            set: { if !$0 { renamingSetlist = nil } }
-        )) {
+            get: { renamingSetlist != nil }, set: { if !$0 { renamingSetlist = nil } })) {
             TextField("Setlist name", text: $setlistRenameDraft)
+            Button("Cancel", role: .cancel) { renamingSetlist = nil }
             Button("Rename") {
                 let name = setlistRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let setlist = renamingSetlist, !name.isEmpty {
@@ -192,304 +133,350 @@ struct ContentView: View {
                 }
                 renamingSetlist = nil
             }
-            Button("Cancel", role: .cancel) { renamingSetlist = nil }
         }
-        .alert("Delete \(pendingSetlistDelete?.name ?? "setlist")?",
-               isPresented: Binding(
-                get: { pendingSetlistDelete != nil },
-                set: { if !$0 { pendingSetlistDelete = nil } }
-        )) {
+        .alert("Delete \(pendingSetlistDelete?.name ?? "setlist")?", isPresented: Binding(
+            get: { pendingSetlistDelete != nil },
+            set: { if !$0 { pendingSetlistDelete = nil } })) {
+            Button("Cancel", role: .cancel) { pendingSetlistDelete = nil }
             Button("Delete", role: .destructive) {
                 if let setlist = pendingSetlistDelete {
                     Task { await state.deleteSetlist(setlist.slug) }
                 }
                 pendingSetlistDelete = nil
             }
-            Button("Cancel", role: .cancel) { pendingSetlistDelete = nil }
         } message: {
             Text("Only the grouping is removed. The pieces and their arrangements stay.")
         }
         .alert("Scoranger", isPresented: Binding(
-            get: { state.notice != nil },
-            set: { if !$0 { state.notice = nil } }
-        )) {
+            get: { state.notice != nil }, set: { if !$0 { state.notice = nil } })) {
             Button("OK", role: .cancel) { state.notice = nil }
         } message: {
             Text(state.notice ?? "")
         }
     }
 
-    /// Engine startup and in-flight PDF conversions.
+    // MARK: - Canvas
+
+    /// The score, inset so it stays centred in whatever gap the overlays leave.
+    /// The inset animates; the page itself does not resize unless both overlays
+    /// are open (§5).
     @ViewBuilder
-    private var statusSection: some View {
-        Section {
-            if state.manifest == nil {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("starting engine…")
-                        .font(.caption)
+    private var canvasLayer: some View {
+        let bothOpen = libraryOpen && chatOpen && !isCompact
+        let pageWidth = bothOpen ? Theme.Metric.pageWidthBothOpen : Theme.Metric.pageWidth
+        HStack(spacing: 0) {
+            Color.clear.frame(width: isCompact ? 0 : (libraryOpen ? Theme.Metric.libraryWidth : 0))
+            Group {
+                if let score = state.selectedScore {
+                    scorePane(score)
+                        .frame(maxWidth: pageWidth + Theme.Metric.s24)
+                } else {
+                    emptyState
                 }
-                .foregroundStyle(.secondary)
             }
-            ForEach(state.pendingImports) { pending in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(pending.name)
-                        Spacer()
-                        if pending.fraction == nil {
-                            ProgressView()
-                                .controlSize(.small)
+            .frame(maxWidth: .infinity)
+            Color.clear.frame(width: isCompact ? 0 : (chatOpen ? Theme.Metric.chatWidth : 0))
+        }
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: libraryOpen)
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+    }
+
+    @ViewBuilder
+    private func scorePane(_ score: ScoreDoc) -> some View {
+        if let doc = state.pdfDocument, let vid = state.displayedVersionID {
+            if isCompact {
+                ScoreZoomView(document: doc)
+            } else {
+                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
+            }
+        } else if state.loadingPDF {
+            StateView(systemImage: "music.note.list", title: "Engraving…",
+                      message: "Verovio is setting the page.")
+        } else if let err = state.lastError {
+            StateView(systemImage: "exclamationmark.triangle",
+                      title: "Render failed", message: "The engine could not draw this version.",
+                      mono: err)
+        } else {
+            StateView(systemImage: "music.note", title: "Opening…")
+        }
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if !state.engineOK && !state.useLocalEngine {
+            StateView(systemImage: "bolt.horizontal.circle",
+                      title: "Engine unreachable",
+                      message: "Check the URL in Settings and that the engine is running on your Mac.",
+                      mono: state.engineURLString,
+                      actionTitle: "Settings") { showSettings = true }
+        } else {
+            StateView(systemImage: "music.quarternote.3",
+                      title: "No arrangement open",
+                      message: "Open the library to pick an arrangement, or import a score.",
+                      actionTitle: "Open library") {
+                withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { libraryOpen = true }
+            }
+        }
+    }
+
+    // MARK: - Overlays
+
+    @ViewBuilder
+    private var overlayLayer: some View {
+        HStack(spacing: 0) {
+            if libraryOpen {
+                OverlayPanel(edge: .leading,
+                             width: isCompact ? .infinity : Theme.Metric.libraryWidth) {
+                    libraryPanel
+                }
+                .transition(panelTransition(.leading))
+            }
+            Spacer(minLength: 0)
+            if chatOpen && !(isCompact && libraryOpen) {
+                OverlayPanel(edge: .trailing,
+                             width: isCompact ? .infinity : Theme.Metric.chatWidth) {
+                    chatPanel
+                }
+                .transition(panelTransition(.trailing))
+            }
+        }
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: libraryOpen)
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+    }
+
+    /// Reduce Motion swaps the slide for a cross-fade (§5, §9).
+    private func panelTransition(_ edge: OverlayEdge) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return .move(edge: edge == .leading ? .leading : .trailing)
+    }
+
+    @ViewBuilder
+    private var chatPanel: some View {
+        VStack(spacing: 0) {
+            OverlayHeader(subject: {
+                HStack(spacing: Theme.Metric.s6) {
+                    if let slug = state.selectedScore?.slug,
+                       let placement = state.placement(of: slug) {
+                        NumeralBadge(number: placement.number, role: .numeralM)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(state.selectedScore?.name ?? "Chat")
+                            .typeRole(.title)
+                            .foregroundStyle(Theme.Ink.ink)
+                            .lineLimit(1)
+                        if let slug = state.selectedScore?.slug,
+                           let placement = state.placement(of: slug) {
+                            Text(placement.piece.name)
+                                .typeRole(.meta)
+                                .foregroundStyle(Theme.Ink.ink3)
+                                .lineLimit(1)
                         }
                     }
-                    if let fraction = pending.fraction {
-                        ProgressView(value: fraction)
-                            .controlSize(.small)
-                    }
-                    Text(pending.stage)
-                        .font(.caption2)
                 }
-                .foregroundStyle(.secondary)
+            }, trailing: {
+                EmptyView()
+            }, onDismiss: {
+                withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = false }
+            }, dismissLabel: "Close chat")
+            ChatView()
+        }
+    }
+
+    // MARK: - Library
+
+    @ViewBuilder
+    private var libraryPanel: some View {
+        VStack(spacing: 0) {
+            OverlayHeader(subject: {
+                Text("Scoranger")
+                    .typeRole(.title)
+                    .foregroundStyle(Theme.Ink.ink)
+            }, trailing: {
+                HStack(spacing: Theme.Metric.s4) {
+                    LED(isOn: state.engineOK, showsLabel: false)
+                    if state.useLocalEngine {
+                        PanelIconButton(systemName: "plus", label: "Import an arrangement",
+                                        size: 30) {
+                            importTargetPiece = nil
+                            showImporter = true
+                        }
+                    }
+                    PanelIconButton(systemName: "gearshape", label: "Settings", size: 30) {
+                        showSettings = true
+                    }
+                }
+            }, onDismiss: {
+                withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { libraryOpen = false }
+            }, dismissLabel: "Close library")
+
+            ScrollView {
+                LazyVStack(spacing: 0, pinnedViews: []) {
+                    statusSection
+                    setlistsSection
+                    piecesSection
+                    unfiledSection
+                }
+            }
+            .background(Theme.Surface.panel)
+
+            // build identity, always visible
+            Text(Self.buildStamp)
+                .typeRole(.dataS)
+                .foregroundStyle(Theme.Ink.ink3)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Metric.s6)
+                .background(Theme.Surface.band)
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Theme.Line.line2).frame(height: 1)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        if state.manifest == nil || !state.pendingImports.isEmpty {
+            BandHeader("Status")
+            if state.manifest == nil {
+                HStack(spacing: Theme.Metric.s8) {
+                    ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+                    Text("starting engine…").typeRole(.data)
+                        .foregroundStyle(Theme.Ink.ink2)
+                }
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .padding(.vertical, Theme.Metric.rowVertical)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // §7.18: name, a bordered track with a clay fill, stage in mono
+            ForEach(state.pendingImports) { pending in
+                VStack(alignment: .leading, spacing: Theme.Metric.s4) {
+                    Text(pending.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                        .lineLimit(1)
+                    if let fraction = pending.fraction {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Rectangle().fill(Theme.Surface.well)
+                                Rectangle().fill(Theme.Accent.clay)
+                                    .frame(width: geo.size.width * fraction)
+                            }
+                        }
+                        .frame(height: 4)
+                        .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
+                    } else {
+                        ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+                    }
+                    Text(pending.stage).typeRole(.dataS).foregroundStyle(Theme.Ink.ink3)
+                }
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .padding(.vertical, Theme.Metric.rowVertical)
             }
         }
     }
 
-    /// Setlists: ordered groups of pieces; tapping a piece expands it under
-    /// Pieces and opens its first arrangement.
     @ViewBuilder
     private var setlistsSection: some View {
-        Section(header: setlistsHeader) {
-            if state.setlistSections.isEmpty {
-                Text("No setlists yet. Use + to group pieces into a running order.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        BandHeader(title: "Setlists") {
+            PanelIconButton(systemName: "plus", label: "New setlist", size: 22) {
+                newSetlistName = ""
+                creatingSetlist = true
             }
-            ForEach(state.setlistSections, id: \.setlist.slug) { section in
-                setlistRow(section.setlist, pieces: section.pieces)
-                if !collapsedSetlists.contains(section.setlist.slug) {
-                    if section.pieces.isEmpty {
-                        Text("Empty — add pieces from the + on this setlist.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 16)
-                    }
-                    ForEach(section.pieces) { piece in
-                        setlistPieceRow(piece, in: section.setlist)
-                    }
+        }
+        if state.setlistSections.isEmpty {
+            emptyNote("No setlists yet. Use + to group pieces into a running order.")
+        }
+        ForEach(state.setlistSections, id: \.setlist.slug) { section in
+            setlistRow(section.setlist, pieces: section.pieces)
+            if !collapsedSetlists.contains(section.setlist.slug) {
+                if section.pieces.isEmpty {
+                    emptyNote("Empty — add pieces from the + on this setlist.")
+                }
+                ForEach(section.pieces) { piece in
+                    setlistPieceRow(piece, in: section.setlist)
                 }
             }
         }
     }
 
-    /// Each piece is an expandable row whose children are its numbered
-    /// arrangements. Plain rows with an explicit chevron button instead of
-    /// DisclosureGroup: buttons inside DisclosureGroup labels get swallowed by
-    /// the disclosure tap target on iPad sidebar lists.
     @ViewBuilder
     private var piecesSection: some View {
         if !state.pieceSections.isEmpty {
-            Section(header: sectionHeader("Pieces")) {
-                ForEach(state.pieceSections, id: \.piece.slug) { section in
-                    pieceRow(section)
-                    if !collapsedPieces.contains(section.piece.slug) {
-                        // .onMove would fight the rows' onDrag (used for filing
-                        // onto pieces), so reordering is offered via the rows'
-                        // context menu instead.
-                        ForEach(Array(section.arrangements.enumerated()),
-                                id: \.element.slug) { index, score in
-                            arrangementRow(score, number: index + 1, inPiece: section)
-                            if expandedArrangements.contains(score.slug) {
-                                ForEach(state.versionGroups(for: score)) { group in
-                                    nestedVersionRow(score, group)
-                                    if expandedVersionGroups.contains("\(score.slug)/\(group.id)") {
-                                        ForEach(group.subs.reversed()) { step in
-                                            stepVersionRow(score, step)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+            BandHeader("Pieces")
+            ForEach(state.pieceSections, id: \.piece.slug) { section in
+                pieceRow(section)
+                if !collapsedPieces.contains(section.piece.slug) {
+                    ForEach(Array(section.arrangements.enumerated()),
+                            id: \.element.slug) { index, score in
+                        arrangementRow(score, number: index + 1, inPiece: section)
+                        versionRows(for: score)
                     }
                 }
             }
         }
     }
 
-    /// Arrangements not filed under any piece. Same row design as filed ones,
-    /// but no number: "#N" is defined within a piece, and that is exactly what
-    /// chat prompts refer to.
     @ViewBuilder
     private var unfiledSection: some View {
         if !state.unfiledScores.isEmpty {
-            Section(header: sectionHeader((state.manifest?.pieces ?? []).isEmpty
-                                          ? "Arrangements" : "Unfiled arrangements")) {
-                ForEach(state.unfiledScores) { score in
-                    arrangementRow(score)
-                    if expandedArrangements.contains(score.slug) {
-                        ForEach(state.versionGroups(for: score)) { group in
-                            nestedVersionRow(score, group)
-                            if expandedVersionGroups.contains("\(score.slug)/\(group.id)") {
-                                ForEach(group.subs.reversed()) { step in
-                                    stepVersionRow(score, step)
-                                }
-                            }
-                        }
-                    }
-                }
+            BandHeader((state.manifest?.pieces ?? []).isEmpty
+                       ? "Arrangements" : "Unfiled arrangements")
+            ForEach(state.unfiledScores) { score in
+                arrangementRow(score)
+                versionRows(for: score)
             }
         }
     }
 
-
-
-    /// Piece currently under a drag, for the drop highlight.
-    @State private var dropTargetPiece: String?
-
-    /// Piece title row: an explicit caret button (expand/collapse), the drop
-    /// zone for filing dragged arrangements, and a menu of ways to add an
-    /// arrangement to the piece. Highlights while a drag hovers over it.
-    private func pieceRow(_ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
-        let piece = section.piece
-        let collapsed = collapsedPieces.contains(piece.slug)
-        return HStack(spacing: 4) {
-            Button {
-                withAnimation {
-                    if collapsed { collapsedPieces.remove(piece.slug) }
-                    else { collapsedPieces.insert(piece.slug) }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(piece.name)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text("\(section.arrangements.count) arrangement"
-                             + (section.arrangements.count == 1 ? "" : "s"))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .tint(.primary)
-            .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(piece.name)")
-            addArrangementMenu(section)
-        }
-        .padding(.vertical, 4)
-        .listRowBackground(dropTargetPiece == piece.slug
-                           ? Color.orange.opacity(0.3) : nil)
-        .onDrop(of: [.plainText],
-                isTargeted: Binding(
-                    get: { dropTargetPiece == piece.slug },
-                    set: { dropTargetPiece = $0 ? piece.slug : nil }
-                )) { providers in
-            guard let provider = providers.first else { return false }
-            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                guard let slug = object as? String else { return }
-                Task { @MainActor in
-                    state.assignToPiece(scoreSlug: slug, piece: piece.slug)
-                }
-            }
-            return true
-        }
+    private func emptyNote(_ text: String) -> some View {
+        Text(text)
+            .typeRole(.meta)
+            .foregroundStyle(Theme.Ink.ink3)
+            .padding(.horizontal, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.rowVertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The three ways to add an arrangement to a piece. Blank-then-chat is the
-    /// core workflow; duplicating an existing arrangement is the usual starting
-    /// point in practice ("a string quartet version of #1").
-    private func addArrangementMenu(
-        _ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
-        Menu {
-            Button {
-                Task {
-                    if let slug = await state.createArrangement(pieceSlug: section.piece.slug,
-                                                                name: "New arrangement") {
-                        openScore(slug)
-                        showChat = true
-                    }
-                }
-            } label: {
-                Label("New blank arrangement", systemImage: "doc")
-            }
-            if !section.arrangements.isEmpty {
-                Menu {
-                    ForEach(Array(section.arrangements.enumerated()),
-                            id: \.element.slug) { index, score in
-                        Button("#\(index + 1)  \(score.name)") {
-                            Task {
-                                if let slug = await state.duplicateScore(
-                                    slug: score.slug, name: "\(score.name) copy") {
-                                    openScore(slug)
-                                    showChat = true
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Duplicate an arrangement", systemImage: "plus.square.on.square")
-                }
-            }
-            Button {
-                importTargetPiece = section.piece.slug
-                showImporter = true
-            } label: {
-                Label("Import a file into this piece", systemImage: "square.and.arrow.down")
-            }
-        } label: {
-            Image(systemName: "plus.circle")
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 32, minHeight: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("Add an arrangement to \(section.piece.name)")
+    // MARK: - Rows
+
+    private func caret(_ expanded: Bool) -> some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Theme.Accent.clay)
+            .rotationEffect(.degrees(expanded ? 90 : 0))
     }
 
-    /// The Setlists heading, with the button that creates one.
-    private var setlistsHeader: some View {
-        HStack {
-            sectionHeader("Setlists")
-            Spacer()
-            Button {
-                newSetlistName = ""
-                creatingSetlist = true
-            } label: {
-                Image(systemName: "plus")
-                    .foregroundStyle(Theme.structure)
-                    .frame(minWidth: 28, minHeight: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("New setlist")
-        }
-    }
-
-    /// Setlist title row: explicit caret, a + that adds pieces, and a context
-    /// menu to rename or delete the grouping.
     private func setlistRow(_ setlist: SetlistDoc, pieces: [PieceDoc]) -> some View {
         let collapsed = collapsedSetlists.contains(setlist.slug)
-        return HStack(spacing: 4) {
-            setlistTitleButton(setlist, collapsed: collapsed)
+        return HStack(spacing: Theme.Metric.s8) {
+            Button {
+                withAnimation(Theme.Motion.disclosure) {
+                    if collapsed { collapsedSetlists.remove(setlist.slug) }
+                    else { collapsedSetlists.insert(setlist.slug) }
+                }
+            } label: {
+                HStack(spacing: Theme.Metric.s8) {
+                    caret(!collapsed)
+                    Text(setlist.name).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
             addPieceMenu(setlist, current: pieces)
         }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.rowVertical)
+        .frame(minHeight: Theme.Metric.rowMinHeight)
         .contextMenu {
             Button {
                 setlistRenameDraft = setlist.name
                 renamingSetlist = setlist
             } label: { Label("Rename setlist", systemImage: "pencil") }
-            Button(role: .destructive) {
-                pendingSetlistDelete = setlist
-            } label: { Label("Delete setlist", systemImage: "trash") }
+            Button(role: .destructive) { pendingSetlistDelete = setlist } label: {
+                Label("Delete setlist", systemImage: "trash")
+            }
         }
     }
 
-    /// Every piece not already in the setlist, offered for adding.
     private func addPieceMenu(_ setlist: SetlistDoc, current: [PieceDoc]) -> some View {
         let members = Set(current.map(\.slug))
         let candidates = (state.manifest?.pieces ?? []).filter { !members.contains($0.slug) }
@@ -499,52 +486,25 @@ struct ContentView: View {
             }
             ForEach(candidates) { piece in
                 Button(piece.name) {
-                    Task {
-                        await state.addPieceToSetlist(setlist: setlist.slug,
-                                                      piece: piece.slug)
-                    }
+                    Task { await state.addPieceToSetlist(setlist: setlist.slug,
+                                                         piece: piece.slug) }
                 }
             }
         } label: {
-            Image(systemName: "plus.circle")
-                .foregroundStyle(Theme.structure)
-                .frame(minWidth: 32, minHeight: 32)
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Ink.ink2)
+                .frame(width: 22, height: 22)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(Theme.Line.line2, lineWidth: 1)
+                }
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
         .accessibilityLabel("Add a piece to \(setlist.name)")
     }
 
-    private func setlistTitleButton(_ setlist: SetlistDoc, collapsed: Bool) -> some View {
-        Button {
-            withAnimation {
-                if collapsed { collapsedSetlists.remove(setlist.slug) }
-                else { collapsedSetlists.insert(setlist.slug) }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.structure)
-                    .rotationEffect(.degrees(collapsed ? 0 : 90))
-                Image(systemName: "music.note.list")
-                    .font(.caption)
-                    .foregroundStyle(Theme.structure)
-                Text(setlist.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .padding(.vertical, 4)
-        }
-        .buttonStyle(.borderless)
-        .tint(.primary)
-        .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
-    }
-
-    /// A piece inside a setlist: tap expands the piece in Pieces and opens its
-    /// first arrangement, matching tap-to-open everywhere else.
     private func setlistPieceRow(_ piece: PieceDoc, in setlist: SetlistDoc) -> some View {
         let arrangements = state.pieceSections
             .first { $0.piece.slug == piece.slug }?.arrangements ?? []
@@ -553,281 +513,221 @@ struct ContentView: View {
             if let first = arrangements.first { openScore(first.slug) }
         } label: {
             HStack {
-                Text(piece.name)
+                Text(piece.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
                 Spacer()
-                Text("\(arrangements.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                Text("\(arrangements.count)").typeRole(.data)
+                    .foregroundStyle(Theme.Ink.ink3)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, Theme.Metric.s20)
+            .padding(.horizontal, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.rowVertical)
+            .frame(minHeight: Theme.Metric.rowMinHeight)
             .contentShape(Rectangle())
-            .padding(.leading, 16)
         }
-        .buttonStyle(.borderless)
-        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                Task { await state.removePieceFromSetlist(setlist: setlist.slug,
+                                                          piece: piece.slug) }
+            } label: { Label("Remove from \(setlist.name)", systemImage: "minus.circle") }
+        }
     }
 
-    /// An arrangement row. `number`/`inPiece` are set for rows inside a piece:
-    /// the number shows as the prominent "#N" badge chat prompts refer to, and
-    /// the piece enables Move up/down in the context menu.
-    /// Tapping anywhere on the row opens the arrangement in the score pane.
-    private func arrangementRow(_ score: ScoreDoc, number: Int? = nil,
-                                inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
-        HStack(spacing: 4) {
-            // caret first: opens this arrangement's versions in place, which is
-            // where you look after a few chat prompts
+    private func pieceRow(_ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
+        let piece = section.piece
+        let collapsed = collapsedPieces.contains(piece.slug)
+        return HStack(spacing: Theme.Metric.s8) {
             Button {
-                withAnimation {
-                    if expandedArrangements.contains(score.slug) {
-                        expandedArrangements.remove(score.slug)
-                    } else {
-                        expandedArrangements.insert(score.slug)
-                    }
+                withAnimation(Theme.Motion.disclosure) {
+                    if collapsed { collapsedPieces.remove(piece.slug) }
+                    else { collapsedPieces.insert(piece.slug) }
                 }
             } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .rotationEffect(.degrees(expandedArrangements.contains(score.slug) ? 90 : 0))
-                    .frame(width: 22, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(expandedArrangements.contains(score.slug)
-                                ? "Hide versions of \(score.name)"
-                                : "Show versions of \(score.name)")
-            .accessibilityIdentifier("versions-toggle-\(score.slug)")
-            Button {
-                openScore(score.slug)
-            } label: {
-                HStack(alignment: .center, spacing: 8) {
-                    if let number {
-                        // the handle the user types in chat ("from #3"): big,
-                        // accent-colored, and deliberately unlike the small
-                        // grey version/part counts underneath
-                        Text("#\(number)")
-                            .font(.title3.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.arrangementNumber)
-                            .frame(minWidth: 38, alignment: .leading)
-                            .accessibilityLabel("Arrangement number \(number)")
+                HStack(spacing: Theme.Metric.s8) {
+                    caret(!collapsed)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(piece.name).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+                        Text("\(section.arrangements.count) arrangement"
+                             + (section.arrangements.count == 1 ? "" : "s"))
+                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(score.name)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(arrangementSubtitle(score))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            // .borderless tints its whole label with the accent color, which
-            // would make the name compete with the #N badge; the badge sets its
-            // accent explicitly, so neutralise the inherited tint here.
-            .tint(.primary)
-            .accessibilityIdentifier("arrangement-\(score.slug)")
-            rowIcon("info.circle", label: "Arrangement details") { infoScore = score }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") \(piece.name)")
+            addArrangementMenu(section)
         }
-        // one highlight system only: warm attention color on the open row.
-        // selectedScore, not selectedSlug: at launch the detail pane falls back
-        // to the most recent arrangement without anything being tapped, and the
-        // sidebar has to agree with what the score pane is showing.
-        .listRowBackground(
-            state.selectedScore?.slug == score.slug ? Color.orange.opacity(0.22) : nil)
-        // long-press-drag an arrangement onto a piece row to file it
-        // (NSItemProvider pairs with the onDrop handler on piece rows)
-        .onDrag { NSItemProvider(object: score.slug as NSString) }
-        .contextMenu {
-            // Move up/down renumbers the arrangement, i.e. changes the #N chat
-            // refers to, so it is worth the explicit labels.
-            if let section, let number {
-                let index = number - 1
-                let slugs = section.arrangements.map(\.slug)
-                if index > 0 {
-                    Button {
-                        var order = slugs
-                        order.swapAt(index, index - 1)
-                        state.reorderPiece(piece: section.piece.slug, order: order)
-                    } label: {
-                        Label("Move up (become #\(number - 1))", systemImage: "arrow.up")
-                    }
-                }
-                if index < slugs.count - 1 {
-                    Button {
-                        var order = slugs
-                        order.swapAt(index, index + 1)
-                        state.reorderPiece(piece: section.piece.slug, order: order)
-                    } label: {
-                        Label("Move down (become #\(number + 1))", systemImage: "arrow.down")
-                    }
-                }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.rowVertical)
+        .frame(minHeight: Theme.Metric.rowMinHeight)
+        .background(RowSelectionBackground(isSelected: false))
+        .overlay {
+            if dropTargetPiece == piece.slug {
+                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                    .strokeBorder(Theme.Accent.clay, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .background(Theme.Accent.clayTint.opacity(0.6))
             }
+        }
+        .onDrop(of: [.plainText], isTargeted: Binding(
+            get: { dropTargetPiece == piece.slug },
+            set: { dropTargetPiece = $0 ? piece.slug : nil }
+        )) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let slug = object as? String else { return }
+                Task { @MainActor in state.assignToPiece(scoreSlug: slug, piece: piece.slug) }
+            }
+            return true
+        }
+    }
+
+    private func addArrangementMenu(
+        _ section: (piece: PieceDoc, arrangements: [ScoreDoc])) -> some View {
+        Menu {
             Button {
-                Task { await state.duplicateScore(slug: score.slug,
-                                                  name: "\(score.name) copy") }
-            } label: {
-                Label("Duplicate arrangement", systemImage: "plus.square.on.square")
-            }
-            Menu("Move to piece") {
-                // full manifest list, including pieces with no arrangements yet
-                ForEach(state.manifest?.pieces ?? []) { piece in
-                    Button {
-                        state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
-                    } label: {
-                        if score.piece == piece.slug {
-                            Label(piece.name, systemImage: "checkmark")
-                        } else {
-                            Text(piece.name)
+                Task {
+                    if let slug = await state.createArrangement(pieceSlug: section.piece.slug,
+                                                               name: "New arrangement") {
+                        openScore(slug)
+                        chatOpen = true
+                    }
+                }
+            } label: { Label("New blank arrangement", systemImage: "doc") }
+            if !section.arrangements.isEmpty {
+                Menu {
+                    ForEach(Array(section.arrangements.enumerated()),
+                            id: \.element.slug) { index, score in
+                        Button("#\(index + 1)  \(score.name)") {
+                            Task {
+                                if let slug = await state.duplicateScore(
+                                    slug: score.slug, name: "\(score.name) copy") {
+                                    openScore(slug)
+                                    chatOpen = true
+                                }
+                            }
                         }
                     }
-                }
-                Divider()
-                Button("New piece…") {
-                    newPieceName = ""
-                    newPieceTarget = score
-                }
-            }
-            if score.piece != nil {
-                Button("Remove from piece") {
-                    state.assignToPiece(scoreSlug: score.slug, piece: nil)
-                }
-            }
-        }
-        .swipeActions(edge: .trailing) {
-            // non-destructive role: the row shouldn't vanish before the
-            // confirmation alert is answered
-            Button { pendingDelete = score } label: {
-                Label("Delete", systemImage: "trash")
-            }
-            .tint(.red)
-        }
-    }
-
-    /// One entry of an arrangement's history. A single version stands alone; a
-    /// run of versions from one chat prompt shows as its final state, with a
-    /// caret that opens the intermediate steps -- otherwise the list appears to
-    /// jump from v014 to v023 with no way to reach what happened between.
-    private func nestedVersionRow(_ score: ScoreDoc,
-                                  _ group: AppState.VersionGroup) -> some View {
-        let key = "\(score.slug)/\(group.id)"
-        let expanded = expandedVersionGroups.contains(key)
-        // subs holds every version of the turn, so >1 means there are steps
-        // between this row's face and where the run started
-        let hasSteps = group.subs.count > 1
-        let isDisplayed = score.slug == state.selectedScore?.slug
-            && (group.face.id == state.displayedVersionID
-                || group.subs.contains { $0.id == state.displayedVersionID })
-        return HStack(spacing: 2) {
-            if hasSteps {
-                Button {
-                    withAnimation {
-                        if expanded { expandedVersionGroups.remove(key) }
-                        else { expandedVersionGroups.insert(key) }
-                    }
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Theme.structure)
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: 20, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(expanded
-                    ? "Hide the steps of this prompt"
-                    : "Show the \(group.subs.count) steps of this prompt")
-                .accessibilityIdentifier("steps-toggle-\(score.slug)-\(group.id)")
-            } else {
-                Spacer().frame(width: 20)
+                } label: { Label("Duplicate an arrangement", systemImage: "plus.square.on.square") }
             }
             Button {
-                openScore(score.slug,
-                          version: group.face.id == score.latest ? nil : group.face.id)
-            } label: {
-                HStack(spacing: 6) {
-                    Text(group.face.id)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text(group.title)
-                        .font(.caption)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    if hasSteps {
-                        Text("\(group.subs.count) steps")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 4)
-                    if isDisplayed {
-                        Image(systemName: "eye")
-                            .font(.caption2)
-                            .foregroundStyle(Theme.structure)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .tint(.primary)
-            .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
-        }
-        .padding(.leading, 20)
-    }
-
-    /// One intermediate version inside a prompt group: the individual op, not
-    /// the prompt. Indented past the group row it belongs to.
-    private func stepVersionRow(_ score: ScoreDoc, _ version: VersionDoc) -> some View {
-        let isDisplayed = score.slug == state.selectedScore?.slug
-            && version.id == state.displayedVersionID
-        return Button {
-            openScore(score.slug,
-                      version: version.id == score.latest ? nil : version.id)
+                importTargetPiece = section.piece.slug
+                showImporter = true
+            } label: { Label("Import a file into this piece", systemImage: "square.and.arrow.down") }
         } label: {
-            HStack(spacing: 6) {
-                Text(version.id)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text(version.op)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                if isDisplayed {
-                    Image(systemName: "eye")
-                        .font(.caption2)
-                        .foregroundStyle(Theme.structure)
+            Image(systemName: "plus")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Theme.Ink.ink2)
+                .frame(width: 22, height: 22)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(Theme.Line.line2, lineWidth: 1)
                 }
-            }
-            .padding(.leading, 62)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .tint(.primary)
-        .accessibilityIdentifier("step-\(score.slug)-\(version.id)")
-    }
-
-    /// Trailing per-row icon button; borderless so it doesn't hijack the row
-    /// tap, sized for a comfortable finger target.
-    private func rowIcon(_ systemName: String, label: String,
-                         action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .foregroundStyle(Color.accentColor)
-                .frame(minWidth: 32, minHeight: 32)
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(label)
+        .accessibilityLabel("Add an arrangement to \(section.piece.name)")
     }
 
-    /// What distinguishes one arrangement of a piece from another: what it is
-    /// scored for, then how far it has been worked (versions) and what it has
-    /// to draw on (sources).
+    /// §7.4 + §7.5. Unfiled arrangements have no numeral and no reserved space:
+    /// the number only means something inside a piece.
+    private func arrangementRow(_ score: ScoreDoc, number: Int? = nil,
+                                inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])? = nil) -> some View {
+        let isOpen = state.selectedScore?.slug == score.slug
+        let expanded = expandedArrangements.contains(score.slug)
+        return HStack(spacing: Theme.Metric.s6) {
+            Button {
+                withAnimation(Theme.Motion.disclosure) {
+                    if expanded { expandedArrangements.remove(score.slug) }
+                    else { expandedArrangements.insert(score.slug) }
+                }
+            } label: {
+                caret(expanded)
+                    .frame(width: 20, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Hide versions of \(score.name)"
+                                         : "Show versions of \(score.name)")
+            .accessibilityIdentifier("versions-toggle-\(score.slug)")
+
+            Button { openScore(score.slug) } label: {
+                HStack(spacing: Theme.Metric.s8) {
+                    if let number { NumeralBadge(number: number) }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(score.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                            .lineLimit(1)
+                        Text(arrangementSubtitle(score)).typeRole(.meta)
+                            .foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("arrangement-\(score.slug)")
+
+            PanelIconButton(systemName: "info.circle", label: "Arrangement details",
+                            bordered: false, size: 26) { infoScore = score }
+        }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.rowVertical)
+        .frame(minHeight: Theme.Metric.rowMinHeight)
+        .background(RowSelectionBackground(isSelected: isOpen))
+        .onDrag { NSItemProvider(object: score.slug as NSString) }
+        .contextMenu { arrangementMenu(score, number: number, inPiece: section) }
+    }
+
+    @ViewBuilder
+    private func arrangementMenu(_ score: ScoreDoc, number: Int?,
+                                 inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])?) -> some View {
+        if let section, let number {
+            let index = number - 1
+            let slugs = section.arrangements.map(\.slug)
+            if index > 0 {
+                Button {
+                    var order = slugs; order.swapAt(index, index - 1)
+                    state.reorderPiece(piece: section.piece.slug, order: order)
+                } label: { Label("Move up (become #\(number - 1))", systemImage: "arrow.up") }
+            }
+            if index < slugs.count - 1 {
+                Button {
+                    var order = slugs; order.swapAt(index, index + 1)
+                    state.reorderPiece(piece: section.piece.slug, order: order)
+                } label: { Label("Move down (become #\(number + 1))", systemImage: "arrow.down") }
+            }
+        }
+        Button {
+            Task { await state.duplicateScore(slug: score.slug, name: "\(score.name) copy") }
+        } label: { Label("Duplicate arrangement", systemImage: "plus.square.on.square") }
+        Menu("Move to piece") {
+            ForEach(state.manifest?.pieces ?? []) { piece in
+                Button {
+                    state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
+                } label: {
+                    if score.piece == piece.slug {
+                        Label(piece.name, systemImage: "checkmark")
+                    } else { Text(piece.name) }
+                }
+            }
+            Divider()
+            Button("New piece…") {
+                newPieceName = ""
+                newPieceTarget = score
+            }
+        }
+        if score.piece != nil {
+            Button("Remove from piece") {
+                state.assignToPiece(scoreSlug: score.slug, piece: nil)
+            }
+        }
+        Divider()
+        Button(role: .destructive) { pendingDelete = score } label: {
+            Label("Delete arrangement", systemImage: "trash")
+        }
+    }
+
     private func arrangementSubtitle(_ score: ScoreDoc) -> String {
         var bits: [String] = []
         let parts = (score.versions.first { $0.id == score.latest }
@@ -845,175 +745,200 @@ struct ContentView: View {
         return bits.joined(separator: " · ")
     }
 
-
-
-    // MARK: detail
+    // MARK: - Version rows (§7.6)
 
     @ViewBuilder
-    private var detail: some View {
-        if let score = state.selectedScore {
-            Group {
-                if hSize == .compact {
-                    // iPhone: chat replaces the score pane instead of squeezing it
-                    if showChat { ChatView() } else { scorePane(score) }
-                } else {
-                    HStack(spacing: 0) {
-                        scorePane(score)
-                        if showChat {
-                            Divider()
-                            ChatView()
-                                .frame(width: 360)
-                        }
+    private func versionRows(for score: ScoreDoc) -> some View {
+        if expandedArrangements.contains(score.slug) {
+            ForEach(state.versionGroups(for: score)) { group in
+                versionGroupRow(score, group)
+                if expandedVersionGroups.contains("\(score.slug)/\(group.id)") {
+                    ForEach(group.subs.reversed()) { step in
+                        stepRow(score, step)
                     }
                 }
             }
-            .onAppear {
-                if !didSetInitialChat {
-                    didSetInitialChat = true
-                    if hSize == .compact { showChat = false }
-                }
-            }
-            // No title bar on the canvas: the score itself carries the piece
-            // title, and the sidebar and chat header carry the "#N name".
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { detailToolbar }
-        } else {
-            ContentUnavailableView(
-                "No arrangement open",
-                systemImage: "music.quarternote.3",
-                description: Text(!state.engineOK && !state.useLocalEngine
-                    ? "Engine unreachable — check the URL in Settings and that `scor serve` is running on your Mac."
-                    : "Pick an arrangement in the sidebar, or tap + to import a MusicXML, MIDI, or PDF file."))
         }
     }
 
-
-    @ViewBuilder
-    private func scorePane(_ score: ScoreDoc) -> some View {
-        ZStack {
-            if let doc = state.pdfDocument, let vid = state.displayedVersionID {
-                if hSize == .compact {
-                    // iPhone: zoomable read-only view; pencil markup is iPad-only
-                    ScoreZoomView(document: doc)
-                } else {
-                    ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
+    private func versionGroupRow(_ score: ScoreDoc,
+                                 _ group: AppState.VersionGroup) -> some View {
+        let key = "\(score.slug)/\(group.id)"
+        let expanded = expandedVersionGroups.contains(key)
+        let hasSteps = group.subs.count > 1
+        let isDisplayed = score.slug == state.selectedScore?.slug
+            && (group.face.id == state.displayedVersionID
+                || group.subs.contains { $0.id == state.displayedVersionID })
+        return HStack(spacing: Theme.Metric.s6) {
+            if hasSteps {
+                Button {
+                    withAnimation(Theme.Motion.disclosure) {
+                        if expanded { expandedVersionGroups.remove(key) }
+                        else { expandedVersionGroups.insert(key) }
+                    }
+                } label: {
+                    caret(expanded).frame(width: 18, height: 26).contentShape(Rectangle())
                 }
-            } else if state.loadingPDF {
-                ProgressView("Engraving…")
-            } else if let err = state.lastError {
-                ContentUnavailableView("Render failed", systemImage: "exclamationmark.triangle",
-                                       description: Text(err))
+                .buttonStyle(.plain)
+                .accessibilityLabel(expanded ? "Hide the steps of this prompt"
+                                             : "Show the \(group.subs.count) steps of this prompt")
+                .accessibilityIdentifier("steps-toggle-\(score.slug)-\(group.id)")
             } else {
-                ProgressView()
+                Spacer().frame(width: 18)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ToolbarContentBuilder
-    private var detailToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            versionsMenu
-            gearMenu
-            Button { showChat.toggle() } label: {
-                Label("Chat", systemImage: showChat ? "sidebar.trailing" : "bubble.left.and.text.bubble.right")
-            }
-        }
-    }
-
-    /// Version picker mirroring the sidebar's Versions section, so version
-    /// hopping works without opening the sidebar (essential on iPhone).
-    /// Prompt groups appear as one entry (tap = the group's final version)
-    /// with a nested menu of the step versions.
-    @ViewBuilder
-    private var versionsMenu: some View {
-        if let score = state.selectedScore {
-            Menu {
-                ForEach(state.versionGroups(for: score)) { group in
-                    if group.subs.isEmpty {
-                        versionMenuButton(score, group.face, title: group.title)
-                    } else {
-                        Menu {
-                            ForEach(group.subs.reversed()) { v in
-                                versionMenuButton(score, v, title: v.op)
-                            }
-                        } label: {
-                            if group.subs.contains(where: { $0.id == state.displayedVersionID }) {
-                                Label("\(group.face.id) · \(shortTitle(group.title))",
-                                      systemImage: "checkmark")
-                            } else {
-                                Text("\(group.face.id) · \(shortTitle(group.title))")
-                            }
-                        } primaryAction: {
-                            pinVersion(group.face, in: score)
-                        }
-                    }
-                }
+            Button {
+                openScore(score.slug,
+                          version: group.face.id == score.latest ? nil : group.face.id)
             } label: {
-                Text(state.displayedVersionID ?? "")
-                    .font(.system(.caption, design: .monospaced))
+                HStack(spacing: Theme.Metric.s6) {
+                    Text(group.face.id).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                    Text(group.title).typeRole(.meta).foregroundStyle(Theme.Ink.ink)
+                        .lineLimit(1)
+                    if hasSteps {
+                        Text("\(group.subs.count) steps").typeRole(.dataS)
+                            .foregroundStyle(Theme.Ink.ink3)
+                    }
+                    Spacer(minLength: 0)
+                    if isDisplayed {
+                        Image(systemName: "circle.fill").font(.system(size: 7))
+                            .foregroundStyle(Theme.Accent.clay)
+                    }
+                }
+                .contentShape(Rectangle())
             }
-            .accessibilityLabel("Versions")
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
         }
+        .padding(.leading, Theme.Metric.versionIndent - 18)
+        .padding(.trailing, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.versionRowVertical)
+        .background(isDisplayed ? Theme.Surface.well : Color.clear)
     }
 
-    private func versionMenuButton(_ score: ScoreDoc, _ v: VersionDoc,
-                                   title: String) -> some View {
-        Button {
-            pinVersion(v, in: score)
+    private func stepRow(_ score: ScoreDoc, _ version: VersionDoc) -> some View {
+        let isDisplayed = score.slug == state.selectedScore?.slug
+            && version.id == state.displayedVersionID
+        return Button {
+            openScore(score.slug, version: version.id == score.latest ? nil : version.id)
         } label: {
-            if v.id == state.displayedVersionID {
-                Label("\(v.id) · \(shortTitle(title))", systemImage: "checkmark")
-            } else {
-                Text("\(v.id) · \(shortTitle(title))")
+            HStack(spacing: Theme.Metric.s6) {
+                Text(version.id).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                Text(version.op).typeRole(.meta).foregroundStyle(Theme.Ink.ink2).lineLimit(1)
+                Spacer(minLength: 0)
+                if isDisplayed {
+                    Image(systemName: "circle.fill").font(.system(size: 7))
+                        .foregroundStyle(Theme.Accent.clay)
+                }
+            }
+            .padding(.leading, Theme.Metric.stepIndent)
+            .padding(.trailing, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.versionRowVertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isDisplayed ? Theme.Surface.well : Color.clear)
+        .accessibilityIdentifier("step-\(score.slug)-\(version.id)")
+    }
+
+    // MARK: - Pill
+
+    /// Wrapped in a child view so the annotation controller can be observed:
+    /// the pill shows markup state and the live ink colour.
+    @ViewBuilder
+    private var pillLayer: some View {
+        PillLayer(annotation: state.annotation,
+                  number: state.selectedScore.flatMap { state.placement(of: $0.slug)?.number },
+                  versionID: state.displayedVersionID,
+                  libraryOpen: $libraryOpen,
+                  chatOpen: $chatOpen,
+                  showsMarkup: !isCompact,
+                  versionMenu: { versionMenuItems },
+                  optionsMenu: { optionsMenuItems })
+    }
+
+    @ViewBuilder
+    private var versionMenuItems: some View {
+        if let score = state.selectedScore {
+            ForEach(state.versionGroups(for: score)) { group in
+                Button {
+                    state.pinnedVersion = (group.face.id == score.latest) ? nil : group.face.id
+                    Task { await state.renderIfNeeded() }
+                } label: {
+                    if group.face.id == state.displayedVersionID {
+                        Label("\(group.face.id) · \(shortTitle(group.title))",
+                              systemImage: "checkmark")
+                    } else {
+                        Text("\(group.face.id) · \(shortTitle(group.title))")
+                    }
+                }
             }
         }
     }
 
-    private func pinVersion(_ v: VersionDoc, in score: ScoreDoc) {
-        state.pinnedVersion = (v.id == score.latest) ? nil : v.id
-        Task { await state.renderIfNeeded() }
+    @ViewBuilder
+    private var optionsMenuItems: some View {
+        Button { state.transpose(semitones: 1) } label: {
+            Label("Transpose up a semitone", systemImage: "arrow.up")
+        }
+        Button { state.transpose(semitones: -1) } label: {
+            Label("Transpose down a semitone", systemImage: "arrow.down")
+        }
+        Toggle("Use flats", isOn: Binding(
+            get: { state.useFlats[state.selectedScore?.slug ?? "", default: true] },
+            set: { newValue in
+                if let slug = state.selectedScore?.slug { state.useFlats[slug] = newValue }
+                state.respell(preferFlats: newValue)
+            }))
+        if !isCompact {
+            Toggle("Highlight a passage for chat", isOn: Binding(
+                get: { state.highlightMode }, set: { state.highlightMode = $0 }))
+            Button {
+                if let score = state.selectedScore, let vid = state.displayedVersionID {
+                    DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
+                    Task { await state.renderIfNeeded(force: true) }
+                }
+            } label: { Label("Clear markup", systemImage: "pencil.slash") }
+        }
     }
 
     private func shortTitle(_ title: String) -> String {
         title.count > 40 ? title.prefix(40).trimmingCharacters(in: .whitespaces) + "…" : title
     }
 
-    private var gearMenu: some View {
-        Menu {
-            Button { state.transpose(semitones: 1) } label: {
-                Label("Transpose up a semitone", systemImage: "arrow.up")
-            }
-            Button { state.transpose(semitones: -1) } label: {
-                Label("Transpose down a semitone", systemImage: "arrow.down")
-            }
-            Toggle("Use flats", isOn: Binding(
-                get: { state.useFlats[state.selectedScore?.slug ?? "", default: true] },
-                set: { newValue in
-                    if let slug = state.selectedScore?.slug {
-                        state.useFlats[slug] = newValue
-                    }
-                    state.respell(preferFlats: newValue)
-                }
-            ))
-            if hSize != .compact {
-                Toggle("Highlight a passage for chat", isOn: Binding(
-                    get: { state.highlightMode },
-                    set: { state.highlightMode = $0 }
-                ))
-                Button {
-                    if let score = state.selectedScore, let vid = state.displayedVersionID {
-                        DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
-                        // force page reload to drop canvases' in-memory drawings
-                        Task { await state.renderIfNeeded(force: true) }
-                    }
-                } label: {
-                    Label("Clear markup", systemImage: "pencil.slash")
-                }
-            }
-        } label: {
-            Label("Score options", systemImage: "gearshape")
+    // MARK: - Navigation
+
+    private func openScore(_ slug: String, version: String? = nil) {
+        state.select(slug: slug, version: version)
+        // one pane at a time on iPhone: opening a score reveals it
+        if isCompact {
+            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { libraryOpen = false }
         }
+    }
+}
+
+/// Observes the shared annotation controller so the pill reflects markup state
+/// and carries the live ink colour.
+private struct PillLayer<VersionMenu: View, OptionsMenu: View>: View {
+    @ObservedObject var annotation: AnnotationController
+    let number: Int?
+    let versionID: String?
+    @Binding var libraryOpen: Bool
+    @Binding var chatOpen: Bool
+    let showsMarkup: Bool
+    @ViewBuilder var versionMenu: () -> VersionMenu
+    @ViewBuilder var optionsMenu: () -> OptionsMenu
+
+    var body: some View {
+        CanvasPill(number: number,
+                   versionID: versionID,
+                   libraryOpen: $libraryOpen,
+                   chatOpen: $chatOpen,
+                   markupActive: annotation.isOn,
+                   markupInk: annotation.ink.swatch,
+                   showsMarkup: showsMarkup,
+                   onMarkup: { annotation.isOn.toggle() },
+                   versionMenu: versionMenu,
+                   optionsMenu: optionsMenu)
     }
 }

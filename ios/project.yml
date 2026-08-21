@@ -128,6 +128,13 @@ targets:
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         OMRDefaultURL: "https://scoranger-omr-37kxlg2dpa-uc.a.run.app"
         ITSAppUsesNonExemptEncryption: false
+        # Bundled by decision: the design system uses no system faces.
+        # Space Grotesk and Inter are variable; weights come from the wght axis.
+        UIAppFonts:
+          - SpaceGrotesk-Variable.ttf
+          - Inter-Variable.ttf
+          - IBMPlexMono-Regular.ttf
+          - IBMPlexMono-Medium.ttf
         # receive scores from the share sheet / "Open in" (Files, Chrome, Mail…)
         LSSupportsOpeningDocumentsInPlace: true
         # expose the app's Documents as Files -> On My iPad -> Scoranger
