@@ -31,8 +31,12 @@ actor VerovioRenderer {
             throw RenderError.resourcesMissing
         }
         // A4 portrait-ish pages at a comfortable reading scale
+        // adjustPageHeight trims each page to its content. Without it Verovio
+        // pads every page to full A4 height (29700 units regardless of what is
+        // on it), so a partly-filled page renders as a tall white void that
+        // reads as broken layout rather than as a page break.
         _ = t.setOptions("""
-            {"scale": 45, "footer": "none",
+            {"scale": 45, "footer": "none", "adjustPageHeight": true,
              "pageMarginTop": 100, "pageMarginBottom": 100,
              "pageMarginLeft": 120, "pageMarginRight": 120}
             """)

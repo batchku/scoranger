@@ -39,6 +39,10 @@ struct ScorePagesView: View {
         GeometryReader { geo in
             let width = min(geo.size.width - 24, 1100)
             ZoomableScroll(contentWidth: max(width + 24, geo.size.width),
+                           // the pill floats over the canvas: 50pt of pill, its
+                           // 20pt bottom padding, and 12 of breathing room
+                           bottomChrome: Theme.Metric.pillHeight
+                               + Theme.Metric.s20 + Theme.Metric.s12,
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
                 let stepped = (settled * 2).rounded() / 2
@@ -284,7 +288,12 @@ private struct PageView: View {
             PencilCanvas(store: drawingStore, key: drawingKey, controller: annotation)
         }
         .frame(width: width, height: height)
-        .background(Color.white)
+        .background(Theme.Surface.paper)
+        // the warm ground sits close to paper white in luminance, so without an
+        // edge the gap between pages reads as a hole rather than a page break
+        .overlay {
+            Rectangle().stroke(Theme.Line.line2, lineWidth: 1)
+        }
     }
 }
 

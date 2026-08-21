@@ -22,6 +22,11 @@ def _toolkit():
     if _tk is None:
         import verovio
         _tk = verovio.toolkit()
+        # Parity with the on-device renderer: trim each page to its content.
+        # Verovio otherwise pads every page to full A4 height, so a partly
+        # filled page exports as a tall white void. Passed as a dict — this
+        # binding rejects the JSON-string form setOptions also accepts.
+        _tk.setOptions({"adjustPageHeight": True})
     return _tk
 
 
