@@ -82,7 +82,7 @@ struct ScoreInfoView: View {
                             Text("#\(placement.number)")
                                 .font(.body.weight(.bold))
                                 .monospacedDigit()
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Theme.arrangementNumber)
                         }
                     }
                     if let title = score.title, !title.isEmpty {

@@ -71,7 +71,7 @@ struct ChatView: View {
                             Text("#\(placement.number)")
                                 .font(.headline.weight(.bold))
                                 .monospacedDigit()
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Theme.arrangementNumber)
                         }
                         Text(score.name)
                             .font(.headline)

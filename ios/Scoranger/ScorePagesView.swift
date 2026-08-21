@@ -7,17 +7,17 @@ import SwiftUI
 /// Two-finger pinch zooms (0.5×–3×) about the midpoint between the fingers,
 /// via UIScrollView; when the pinch settles the pages re-render crisply at the
 /// new size.
-/// Highlight mode (toolbar highlighter) turns strokes on a page into an
+/// Highlight mode (score gear menu) turns strokes on a page into an
 /// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
     let document: PDFDocument
     let annotationKey: String  // "<slug>/<version>"
 
     @EnvironmentObject var state: AppState
-    /// Committed zoom factor applied to the base page width. The live pinch is
-    /// UIScrollView's own transform; this is only what has been banked.
-    @State private var zoom: CGFloat = 1.0
-    @State private var highlightMode = false
+    /// Settled zoom scale, used ONLY to raise the raster resolution of the
+    /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
+    /// transform, which is what keeps the canvas from jumping on release.
+    @State private var rasterZoom: CGFloat = 1.0
     /// Chip expanded into steppers for adjusting the estimated range.
     @State private var chipExpanded = false
     /// Pencil markup: off by default so the score reads as a document.
@@ -37,13 +37,12 @@ struct ScorePagesView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let base = min(geo.size.width - 24, 1100)
-            let width = min(max(base * zoom, base * Self.zoomRange.lowerBound),
-                            base * Self.zoomRange.upperBound)
-            ZoomableScroll(contentSize: contentSize(pageWidth: width, viewport: geo.size),
-                           zoomRange: Self.zoomRange) { factor in
-                zoom = min(max(zoom * factor, Self.zoomRange.lowerBound),
-                           Self.zoomRange.upperBound)
+            let width = min(geo.size.width - 24, 1100)
+            ZoomableScroll(contentWidth: max(width + 24, geo.size.width),
+                           zoomRange: Self.zoomRange) { settled in
+                // round so small wobbles don't re-raster every gesture
+                let stepped = (settled * 2).rounded() / 2
+                if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
                 pageStack(width: width, viewport: geo.size)
             }
@@ -53,46 +52,27 @@ struct ScorePagesView: View {
             if annotation.isOn { AnnotationBar(controller: annotation) }
         }
         .toolbar {
+            // ONE pencil in the toolbar. "highlighter" is also a pencil glyph,
+            // so having both read as two edit buttons; highlight-a-passage is a
+            // chat-targeting action and now lives in the score's gear menu.
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     annotation.isOn.toggle()
-                    // the two modes both want the Pencil; only one at a time
-                    if annotation.isOn { highlightMode = false }
+                    if annotation.isOn { state.highlightMode = false }
                 } label: {
-                    // pencil.slash reads as "locked, taps won't mark the score";
-                    // a plain pencil means marks land now. Tinted with the live
-                    // ink so the active colour is visible without opening the bar.
-                    Image(systemName: annotation.isOn ? "pencil" : "pencil.slash")
-                        .fontWeight(annotation.isOn ? .semibold : .regular)
+                    Image(systemName: annotation.isOn ? "pencil.circle.fill" : "lock.circle")
+                        .font(.title3)
                         .foregroundStyle(annotation.isOn
-                                         ? annotation.ink.swatch : Color.accentColor)
+                                         ? annotation.ink.swatch : Color.secondary)
                 }
                 .accessibilityLabel(annotation.isOn
                                     ? "Exit annotation mode" : "Annotate the score")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    highlightMode.toggle()
-                    if highlightMode { annotation.isOn = false }
-                } label: {
-                    Image(systemName: "highlighter")
-                        .foregroundStyle(highlightMode ? Color.orange : Color.accentColor)
-                }
-                .accessibilityLabel(highlightMode ? "Exit highlight mode" : "Highlight a passage")
-            }
         }
-    }
-
-    /// Total size of the page stack at a given page width — the scroll view's
-    /// content size, so it must match `pageStack`'s layout exactly.
-    private func contentSize(pageWidth: CGFloat, viewport: CGSize) -> CGSize {
-        var height: CGFloat = 12  // top padding
-        for index in 0..<document.pageCount {
-            guard let page = document.page(at: index) else { continue }
-            let bounds = page.bounds(for: .mediaBox)
-            height += pageWidth * bounds.height / max(bounds.width, 1) + 12
+        .onChange(of: state.highlightMode) { _, on in
+            // both modes want the Pencil; only one at a time
+            if on { annotation.isOn = false }
         }
-        return CGSize(width: max(pageWidth + 24, viewport.width), height: height + 12)
     }
 
     @ViewBuilder
@@ -105,6 +85,7 @@ struct ScorePagesView: View {
                 if let page = document.page(at: index) {
                     PageView(page: page,
                              width: width,
+                             rasterZoom: rasterZoom,
                              drawingStore: DrawingStore.shared,
                              drawingKey: "\(annotationKey)/p\(index)",
                              annotation: annotation)
@@ -126,7 +107,7 @@ struct ScorePagesView: View {
                             }
                         }
                         .overlay {
-                            if highlightMode {
+                            if state.highlightMode {
                                 HighlightCaptureOverlay(
                                     pageIndex: index,
                                     pageCount: max(document.pageCount, 1),
@@ -276,6 +257,7 @@ private struct HighlightCaptureOverlay: View {
 private struct PageView: View {
     let page: PDFPage
     let width: CGFloat
+    let rasterZoom: CGFloat
     let drawingStore: DrawingStore
     let drawingKey: String
     @ObservedObject var annotation: AnnotationController
@@ -284,7 +266,9 @@ private struct PageView: View {
         let bounds = page.bounds(for: .mediaBox)
         let height = width * bounds.height / max(bounds.width, 1)
         ZStack {
-            PDFPageImage(page: page, size: CGSize(width: width, height: height))
+            PDFPageImage(page: page,
+                         size: CGSize(width: width, height: height),
+                         rasterZoom: rasterZoom)
             PencilCanvas(store: drawingStore, key: drawingKey, controller: annotation)
         }
         .frame(width: width, height: height)
@@ -295,6 +279,9 @@ private struct PageView: View {
 private struct PDFPageImage: View {
     let page: PDFPage
     let size: CGSize
+    /// Settled zoom: the page is drawn at the same size but rasterised finer,
+    /// so zooming in sharpens without moving anything.
+    let rasterZoom: CGFloat
 
     var body: some View {
         Image(uiImage: render())
@@ -304,9 +291,10 @@ private struct PDFPageImage: View {
     }
 
     private func render() -> UIImage {
-        // 2x for crispness, but bounded: at 3x zoom across a multi-page score
-        // an unbounded 2x raster runs to hundreds of megabytes.
-        let scale = min(2.0, 2000 / max(size.width, 1))
+        // 2x for crispness, scaled up with the settled zoom, but bounded: an
+        // unbounded raster across a zoomed multi-page score runs to hundreds of
+        // megabytes.
+        let scale = min(2.0 * rasterZoom, 3000 / max(size.width, 1))
         return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
                               for: .mediaBox)
     }
@@ -321,30 +309,39 @@ private struct PencilCanvas: UIViewRepresentable {
     let key: String
     @ObservedObject var controller: AnnotationController
 
-    func makeUIView(context: Context) -> PKCanvasView {
-        let canvas = PKCanvasView()
+    /// The simulator has no Pencil, so UI tests ask for finger drawing to be
+    /// able to exercise strokes and undo at all.
+    private static let allowFingerDrawing =
+        ProcessInfo.processInfo.arguments.contains("-annotateWithFinger")
+
+    func makeUIView(context: Context) -> UndoableCanvas {
+        let canvas = UndoableCanvas()
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.drawingPolicy = .pencilOnly
+        canvas.drawingPolicy = Self.allowFingerDrawing ? .anyInput : .pencilOnly
         canvas.tool = controller.pkTool
         canvas.delegate = context.coordinator
-        let initial = store.drawing(for: key)
-        canvas.drawing = initial
+        canvas.drawingKey = key
+        canvas.drawing = store.drawing(for: key)
         canvas.isUserInteractionEnabled = controller.isOn
-        // drawingPolicy .pencilOnly governs what draws, but the canvas's
-        // gesture recognizers still claim finger touches — which ate the
-        // two-finger pinch. Restrict every recognizer to pencil touches so
-        // finger scrolls and pinches pass through to the SwiftUI ScrollView
-        // and MagnifyGesture.
-        let pencilOnly = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
-        canvas.drawingGestureRecognizer.allowedTouchTypes = pencilOnly
-        for recognizer in canvas.gestureRecognizers ?? [] {
-            recognizer.allowedTouchTypes = pencilOnly
+        // Loading a drawing must not look like an edit: clear anything
+        // PencilKit registered while we assigned it.
+        canvas.ownUndoManager.removeAllActions()
+
+        if !Self.allowFingerDrawing {
+            // drawingPolicy .pencilOnly governs what draws, but the canvas's
+            // gesture recognizers still claim finger touches — which ate the
+            // two-finger pinch. Restrict every recognizer to pencil touches so
+            // finger scrolls and pinches pass through to the scroll view.
+            let pencilOnly = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+            canvas.drawingGestureRecognizer.allowedTouchTypes = pencilOnly
+            for recognizer in canvas.gestureRecognizers ?? [] {
+                recognizer.allowedTouchTypes = pencilOnly
+            }
         }
 
         // Two-finger tap undoes, the way it does in Apple's own note apps.
-        // It is a finger gesture on purpose, and must not cancel the scroll
-        // view's own recognizers, hence the simultaneous delegate below.
+        // Declared simultaneous so it never cancels the scroll view's pinch.
         let undoTap = UITapGestureRecognizer(
             target: context.coordinator,
             action: #selector(Coordinator.handleTwoFingerTap))
@@ -357,17 +354,17 @@ private struct PencilCanvas: UIViewRepresentable {
         context.coordinator.key = key
         context.coordinator.store = store
         context.coordinator.controller = controller
-        controller.register(canvas, key: key, initial: initial)
+        context.coordinator.publishStrokeCount(canvas)
         return canvas
     }
 
-    func updateUIView(_ canvas: PKCanvasView, context: Context) {
+    func updateUIView(_ canvas: UndoableCanvas, context: Context) {
         if context.coordinator.key != key {
-            let previousKey = context.coordinator.key
             context.coordinator.key = key
-            let drawing = store.drawing(for: key)
-            canvas.drawing = drawing
-            controller.rebind(canvas, from: previousKey, to: key, initial: drawing)
+            canvas.drawingKey = key
+            canvas.drawing = store.drawing(for: key)
+            canvas.ownUndoManager.removeAllActions()
+            context.coordinator.publishStrokeCount(canvas)
         }
         context.coordinator.controller = controller
         canvas.isUserInteractionEnabled = controller.isOn
@@ -381,16 +378,28 @@ private struct PencilCanvas: UIViewRepresentable {
         var store: DrawingStore?
         var controller: AnnotationController?
 
+        /// Stroke count as an accessibility value: the only way a UI test can
+        /// observe what the canvas actually holds.
+        func publishStrokeCount(_ canvas: PKCanvasView) {
+            canvas.isAccessibilityElement = true
+            canvas.accessibilityIdentifier = "canvas-\(key)"
+            canvas.accessibilityValue = "\(canvas.drawing.strokes.count) strokes"
+        }
+
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             store?.save(canvasView.drawing, for: key)
+            publishStrokeCount(canvasView)
+            guard let canvas = canvasView as? UndoableCanvas else { return }
             MainActor.assumeIsolated {
-                controller?.recordChange(canvasView.drawing, key: key)
+                controller?.noteChange(on: canvas)
             }
         }
 
-        @objc func handleTwoFingerTap() {
+        @objc func handleTwoFingerTap(_ sender: UITapGestureRecognizer) {
+            guard let canvas = sender.view as? UndoableCanvas else { return }
             MainActor.assumeIsolated {
-                _ = controller?.undo(key: key)
+                _ = controller?.undo(on: canvas)
+                publishStrokeCount(canvas)
             }
         }
 

@@ -108,6 +108,12 @@ def _dispatch(op, a):
     if op == "assign-setlist":
         return workspace.add_piece_to_setlist(a["setlist"], a["piece"],
                                               create_if_missing=True)
+    if op == "unassign-setlist":
+        return workspace.remove_piece_from_setlist(a["setlist"], a["piece"])
+    if op == "rename-setlist":
+        return workspace.rename_setlist(a["setlist"], a["name"])
+    if op == "delete-setlist":
+        return workspace.delete_setlist(a["setlist"])
     if op == "create-arrangement":
         # a minimal valid score: one part, one 4/4 measure with a whole rest
         from music21 import clef, meter, metadata, note, stream

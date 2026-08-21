@@ -15,6 +15,9 @@ final class ScorangerUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // the app ships with no sample library; tests ask for a fixture, and
+        // for finger drawing since the simulator has no Pencil
+        app.launchArguments = ["-seedTestLibrary", "-annotateWithFinger"]
         app.launch()
         // engine boot + first manifest can take a while on first run
         XCTAssertTrue(app.staticTexts["Pieces"].waitForExistence(timeout: 90),
@@ -40,13 +43,13 @@ final class ScorangerUITests: XCTestCase {
     /// Setlists section exists and its caret collapses/expands.
     func testSetlistSection() {
         XCTAssertTrue(app.staticTexts["Setlists"].exists)
-        let collapse = app.buttons["Collapse setlist Samples"]
+        let collapse = app.buttons["Collapse setlist Test setlist"]
         XCTAssertTrue(collapse.exists, "setlist caret missing")
         collapse.tap()
-        XCTAssertTrue(app.buttons["Expand setlist Samples"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.buttons["Expand setlist Test setlist"].waitForExistence(timeout: 5),
                       "setlist caret did not toggle")
-        app.buttons["Expand setlist Samples"].tap()
-        XCTAssertTrue(app.buttons["Collapse setlist Samples"].waitForExistence(timeout: 5))
+        app.buttons["Expand setlist Test setlist"].tap()
+        XCTAssertTrue(app.buttons["Collapse setlist Test setlist"].waitForExistence(timeout: 5))
         shot("setlists-section")
     }
 
@@ -253,6 +256,89 @@ final class ScorangerUITests: XCTestCase {
         score.pinch(withScale: 0.5, velocity: -2.0)
         shot("zoomed-out")
         XCTAssertTrue(app.buttons["Annotate the score"].exists)
+    }
+
+    /// Exactly one pencil in the score toolbar: the old highlighter button was
+    /// a second pencil glyph and read as a duplicate edit control.
+    func testSingleAnnotationToggleInToolbar() {
+        XCTAssertTrue(app.buttons["Annotate the score"].waitForExistence(timeout: 90))
+        XCTAssertFalse(app.buttons["Highlight a passage"].exists,
+                       "the highlighter toolbar button should be gone")
+        XCTAssertFalse(app.buttons["Exit highlight mode"].exists)
+        shot("single-pencil-toolbar")
+    }
+
+    /// The reported undo bug: draw, undo, switch colour, draw, undo. The first
+    /// stroke must not come back. Stroke counts are read off the canvas's
+    /// accessibility value.
+    func testAnnotationUndoAcrossColourChange() {
+        XCTAssertTrue(app.buttons["Annotate the score"].waitForExistence(timeout: 90))
+        app.buttons["Annotate the score"].tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 5))
+
+        let canvas = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no annotation canvas found")
+
+        func strokes() -> Int {
+            Int((canvas.value as? String)?
+                .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+        }
+        func draw() {
+            let a = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
+            let b = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45))
+            a.press(forDuration: 0.05, thenDragTo: b)
+        }
+
+        XCTAssertEqual(strokes(), 0, "canvas should start empty")
+
+        draw()
+        XCTAssertEqual(strokes(), 1, "the stroke did not land")
+
+        app.buttons["Undo annotation"].tap()
+        XCTAssertEqual(strokes(), 0, "undo did not remove the stroke")
+
+        app.buttons["Blue pen"].tap()
+        draw()
+        XCTAssertEqual(strokes(), 1,
+                       "after a colour change there must be exactly one stroke, not the undone one as well")
+
+        app.buttons["Undo annotation"].tap()
+        XCTAssertEqual(strokes(), 0, "undo after a colour change did not work")
+        shot("undo-across-colour-change")
+
+        app.buttons["Finish annotating"].tap()
+    }
+
+    /// Setlists can be created, and pieces added to and removed from them.
+    func testCreateSetlistAndAddPiece() {
+        app.buttons["New setlist"].tap()
+        let field = app.textFields["Setlist name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no name field")
+        field.typeText("Gig night")
+        app.buttons["Create"].tap()
+
+        let add = app.buttons["Add a piece to Gig night"]
+        XCTAssertTrue(add.waitForExistence(timeout: 20), "new setlist did not appear")
+        add.tap()
+        let candidate = app.buttons[piece]
+        XCTAssertTrue(candidate.waitForExistence(timeout: 10),
+                      "the add menu should offer pieces not yet in the setlist")
+        candidate.tap()
+
+        // the piece now shows under the setlist, so the menu no longer offers it
+        XCTAssertTrue(app.buttons["Collapse setlist Gig night"].waitForExistence(timeout: 20))
+        shot("setlist-with-piece")
+
+        // clean up so repeated runs stay deterministic
+        app.buttons["Collapse setlist Gig night"].press(forDuration: 1.2)
+        if app.buttons["Delete setlist"].waitForExistence(timeout: 10) {
+            app.buttons["Delete setlist"].tap()
+            if app.buttons["Delete"].waitForExistence(timeout: 5) {
+                app.buttons["Delete"].tap()
+            }
+        }
     }
 
     /// Long-press on an arrangement row offers the filing context menu.

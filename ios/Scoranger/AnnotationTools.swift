@@ -7,11 +7,14 @@ import SwiftUI
 /// pinch, and the Pencil does nothing. On, the Pencil draws or erases and a
 /// floating bar offers the tool, the colour and undo.
 ///
-/// Undo is kept here rather than delegated to PencilKit's own undo manager:
-/// inside a SwiftUI `UIViewRepresentable` the responder chain that supplies
-/// that manager is not reliably ours, whereas a per-page stack of previous
-/// drawings is small, predictable, and survives pages being recycled by the
-/// enclosing LazyVStack.
+/// Undo is PencilKit's own, reached through a canvas that supplies its own
+/// UndoManager. The previous version kept a parallel stack of prior drawings
+/// keyed by page, which drifted out of step with the canvas: the canvases were
+/// held weakly and were rebuilt whenever the hosted SwiftUI tree churned (a
+/// colour change was enough), so an undo could restore state into a canvas that
+/// no longer existed while the visible one kept the stroke -- the reported bug
+/// where an undone line came back after switching colours. PencilKit's manager
+/// is attached to the live canvas by construction and cannot drift.
 @MainActor
 final class AnnotationController: ObservableObject {
 
@@ -41,26 +44,13 @@ final class AnnotationController: ObservableObject {
     @Published var isOn = false
     @Published var tool: Tool = .pen
     @Published var ink: Ink = .red
-    /// Republished so the Undo button can enable and disable itself.
-    @Published private(set) var undoDepth = 0
+    /// Mirrors the focused canvas's undo manager so the button can enable and
+    /// disable itself; recomputed whenever a drawing changes or an undo runs.
+    @Published private(set) var canUndo = false
 
-    /// Live canvases by page key, held weakly: pages scroll out of the
-    /// LazyVStack and must be free to deallocate.
-    private var canvases: [String: WeakCanvas] = [:]
-    /// The drawing as last persisted per page, i.e. the state an undo restores.
-    private var current: [String: PKDrawing] = [:]
-    /// Per-page stack of prior drawings.
-    private var stacks: [String: [PKDrawing]] = [:]
-    /// The page most recently drawn on: what a toolbar undo acts upon.
-    private var lastKey: String?
-    /// Set while we assign a drawing ourselves, so the change delegate does not
-    /// record our own undo as a new edit.
-    private var applying = false
-
-    private final class WeakCanvas {
-        weak var value: PKCanvasView?
-        init(_ value: PKCanvasView) { self.value = value }
-    }
+    /// The canvas the user last drew on. Strong for the lifetime of that canvas
+    /// is wrong (pages recycle), so weak, and always re-checked before use.
+    private weak var focused: UndoableCanvas?
 
     /// The PencilKit tool matching the current selection.
     var pkTool: PKTool {
@@ -72,62 +62,40 @@ final class AnnotationController: ObservableObject {
         }
     }
 
-    var canUndo: Bool { undoDepth > 0 }
-
-    // MARK: canvas lifecycle
-
-    func register(_ canvas: PKCanvasView, key: String, initial: PKDrawing) {
-        canvases[key] = WeakCanvas(canvas)
-        current[key] = initial
-        refreshDepth()
+    /// Note the canvas a change came from and refresh the undo state.
+    func noteChange(on canvas: UndoableCanvas) {
+        focused = canvas
+        refresh()
     }
 
-    func rebind(_ canvas: PKCanvasView, from oldKey: String, to newKey: String,
-                initial: PKDrawing) {
-        canvases[oldKey] = nil
-        register(canvas, key: newKey, initial: initial)
-    }
-
-    // MARK: edits
-
-    /// Record an edit the user just made on `key`.
-    func recordChange(_ drawing: PKDrawing, key: String) {
-        guard !applying else { return }
-        stacks[key, default: []].append(current[key] ?? PKDrawing())
-        // a runaway stack would pin every intermediate drawing in memory
-        if stacks[key]!.count > 50 { stacks[key]!.removeFirst() }
-        current[key] = drawing
-        lastKey = key
-        refreshDepth()
-    }
-
-    /// Undo the last edit on `key`, or on the most recently drawn page.
-    /// Returns false when there is nothing to undo.
+    /// Undo on a specific canvas (a two-finger tap on that page), or on the
+    /// last one drawn (the toolbar button).
     @discardableResult
-    func undo(key explicitKey: String? = nil) -> Bool {
-        guard let key = explicitKey ?? lastKey,
-              var stack = stacks[key], let previous = stack.popLast() else { return false }
-        stacks[key] = stack
-        current[key] = previous
-        applying = true
-        canvases[key]?.value?.drawing = previous
-        applying = false
-        DrawingStore.shared.save(previous, for: key)
-        refreshDepth()
+    func undo(on canvas: UndoableCanvas? = nil) -> Bool {
+        let target = canvas ?? focused
+        guard let target, target.ownUndoManager.canUndo else { return false }
+        target.ownUndoManager.undo()
+        // the drawing changed underneath PencilKit's delegate, so persist it
+        DrawingStore.shared.save(target.drawing, for: target.drawingKey)
+        focused = target
+        refresh()
         return true
     }
 
-    /// Forget history for a score/version (its drawings were cleared).
-    func reset(prefix: String) {
-        for key in stacks.keys where key.hasPrefix(prefix) { stacks[key] = nil }
-        for key in current.keys where key.hasPrefix(prefix) { current[key] = nil }
-        lastKey = nil
-        refreshDepth()
+    func refresh() {
+        canUndo = focused?.ownUndoManager.canUndo ?? false
     }
+}
 
-    private func refreshDepth() {
-        undoDepth = lastKey.flatMap { stacks[$0]?.count } ?? 0
-    }
+/// A canvas that owns its undo manager. PKCanvasView otherwise resolves
+/// `undoManager` through the responder chain, which inside a SwiftUI
+/// UIViewRepresentable is not dependably ours.
+final class UndoableCanvas: PKCanvasView {
+    let ownUndoManager = UndoManager()
+    /// The store key for this page, so an undo can persist the result.
+    var drawingKey: String = ""
+
+    override var undoManager: UndoManager? { ownUndoManager }
 }
 
 /// The floating annotation bar: tool, colour, undo, and a way out of the mode.

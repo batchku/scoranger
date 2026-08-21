@@ -361,6 +361,40 @@ def add_piece_to_setlist(setlist: str, piece: str,
     return doc
 
 
+def remove_piece_from_setlist(setlist: str, piece: str) -> dict:
+    """Drop a piece from a setlist. The piece and its arrangements are untouched."""
+    repo = _repo()
+    doc = resolve_setlist(setlist)
+    piece_slug = resolve_piece(piece)["slug"]
+    pieces = [p for p in (doc.get("pieces") or []) if p != piece_slug]
+    doc["pieces"] = pieces
+    repo.set_setlist(doc["slug"], doc)
+    rebuild_manifest()
+    return doc
+
+
+def rename_setlist(name_or_slug: str, new_name: str) -> dict:
+    """Rename a setlist (slug is immutable, like pieces and scores)."""
+    repo = _repo()
+    doc = resolve_setlist(name_or_slug)
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("A name is required")
+    doc["name"] = new_name
+    repo.set_setlist(doc["slug"], doc)
+    rebuild_manifest()
+    return doc
+
+
+def delete_setlist(name_or_slug: str) -> dict:
+    """Delete a setlist document. Pieces and arrangements are untouched: a
+    setlist is only an ordered grouping."""
+    doc = resolve_setlist(name_or_slug)
+    _repo().delete_setlist(doc["slug"])
+    rebuild_manifest()
+    return {"deleted": doc["slug"]}
+
+
 def delete_score(slug: str) -> None:
     import shutil
     load_meta(slug)  # raises with available slugs if missing

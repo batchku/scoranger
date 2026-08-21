@@ -23,6 +23,13 @@ struct ContentView: View {
     /// Piece the file importer should file its result under (set by a piece's
     /// "Import a file into this piece"); nil = the toolbar's unfiled import.
     @State private var importTargetPiece: String?
+    /// Drives the "New setlist" naming alert.
+    @State private var creatingSetlist = false
+    @State private var newSetlistName = ""
+    /// Setlist awaiting a rename, and the draft name.
+    @State private var renamingSetlist: SetlistDoc?
+    @State private var setlistRenameDraft = ""
+    @State private var pendingSetlistDelete: SetlistDoc?
 
     /// Section headings read as headings: accent-coloured, so they separate
     /// from the item rows (which stay primary/secondary white and grey).
@@ -159,6 +166,46 @@ struct ContentView: View {
                 state.receiveFile(at: url, intoPiece: piece)
             }
         }
+        .alert("New setlist", isPresented: $creatingSetlist) {
+            TextField("Setlist name", text: $newSetlistName)
+            Button("Create") {
+                let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                Task { await state.createSetlist(name: name) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A setlist is an ordered group of pieces — a gig's running order.")
+        }
+        .alert("Rename setlist", isPresented: Binding(
+            get: { renamingSetlist != nil },
+            set: { if !$0 { renamingSetlist = nil } }
+        )) {
+            TextField("Setlist name", text: $setlistRenameDraft)
+            Button("Rename") {
+                let name = setlistRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let setlist = renamingSetlist, !name.isEmpty {
+                    Task { await state.renameSetlist(setlist: setlist.slug, name: name) }
+                }
+                renamingSetlist = nil
+            }
+            Button("Cancel", role: .cancel) { renamingSetlist = nil }
+        }
+        .alert("Delete \(pendingSetlistDelete?.name ?? "setlist")?",
+               isPresented: Binding(
+                get: { pendingSetlistDelete != nil },
+                set: { if !$0 { pendingSetlistDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let setlist = pendingSetlistDelete {
+                    Task { await state.deleteSetlist(setlist.slug) }
+                }
+                pendingSetlistDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingSetlistDelete = nil }
+        } message: {
+            Text("Only the grouping is removed. The pieces and their arrangements stay.")
+        }
         .alert("Scoranger", isPresented: Binding(
             get: { state.notice != nil },
             set: { if !$0 { state.notice = nil } }
@@ -208,14 +255,23 @@ struct ContentView: View {
     /// Pieces and opens its first arrangement.
     @ViewBuilder
     private var setlistsSection: some View {
-        if !state.setlistSections.isEmpty {
-            Section(header: sectionHeader("Setlists")) {
-                ForEach(state.setlistSections, id: \.setlist.slug) { section in
-                    setlistRow(section.setlist)
-                    if !collapsedSetlists.contains(section.setlist.slug) {
-                        ForEach(section.pieces) { piece in
-                            setlistPieceRow(piece)
-                        }
+        Section(header: setlistsHeader) {
+            if state.setlistSections.isEmpty {
+                Text("No setlists yet. Use + to group pieces into a running order.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(state.setlistSections, id: \.setlist.slug) { section in
+                setlistRow(section.setlist, pieces: section.pieces)
+                if !collapsedSetlists.contains(section.setlist.slug) {
+                    if section.pieces.isEmpty {
+                        Text("Empty — add pieces from the + on this setlist.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 16)
+                    }
+                    ForEach(section.pieces) { piece in
+                        setlistPieceRow(piece, in: section.setlist)
                     }
                 }
             }
@@ -382,10 +438,72 @@ struct ContentView: View {
         .accessibilityLabel("Add an arrangement to \(section.piece.name)")
     }
 
-    /// Setlist title row: explicit caret, like pieces.
-    private func setlistRow(_ setlist: SetlistDoc) -> some View {
+    /// The Setlists heading, with the button that creates one.
+    private var setlistsHeader: some View {
+        HStack {
+            sectionHeader("Setlists")
+            Spacer()
+            Button {
+                newSetlistName = ""
+                creatingSetlist = true
+            } label: {
+                Image(systemName: "plus")
+                    .foregroundStyle(Theme.structure)
+                    .frame(minWidth: 28, minHeight: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("New setlist")
+        }
+    }
+
+    /// Setlist title row: explicit caret, a + that adds pieces, and a context
+    /// menu to rename or delete the grouping.
+    private func setlistRow(_ setlist: SetlistDoc, pieces: [PieceDoc]) -> some View {
         let collapsed = collapsedSetlists.contains(setlist.slug)
-        return Button {
+        return HStack(spacing: 4) {
+            setlistTitleButton(setlist, collapsed: collapsed)
+            addPieceMenu(setlist, current: pieces)
+        }
+        .contextMenu {
+            Button {
+                setlistRenameDraft = setlist.name
+                renamingSetlist = setlist
+            } label: { Label("Rename setlist", systemImage: "pencil") }
+            Button(role: .destructive) {
+                pendingSetlistDelete = setlist
+            } label: { Label("Delete setlist", systemImage: "trash") }
+        }
+    }
+
+    /// Every piece not already in the setlist, offered for adding.
+    private func addPieceMenu(_ setlist: SetlistDoc, current: [PieceDoc]) -> some View {
+        let members = Set(current.map(\.slug))
+        let candidates = (state.manifest?.pieces ?? []).filter { !members.contains($0.slug) }
+        return Menu {
+            if candidates.isEmpty {
+                Text("Every piece is already in this setlist")
+            }
+            ForEach(candidates) { piece in
+                Button(piece.name) {
+                    Task {
+                        await state.addPieceToSetlist(setlist: setlist.slug,
+                                                      piece: piece.slug)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "plus.circle")
+                .foregroundStyle(Theme.structure)
+                .frame(minWidth: 32, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Add a piece to \(setlist.name)")
+    }
+
+    private func setlistTitleButton(_ setlist: SetlistDoc, collapsed: Bool) -> some View {
+        Button {
             withAnimation {
                 if collapsed { collapsedSetlists.remove(setlist.slug) }
                 else { collapsedSetlists.insert(setlist.slug) }
@@ -394,11 +512,11 @@ struct ContentView: View {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.structure)
                     .rotationEffect(.degrees(collapsed ? 0 : 90))
                 Image(systemName: "music.note.list")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.structure)
                 Text(setlist.name)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
@@ -408,12 +526,13 @@ struct ContentView: View {
             .padding(.vertical, 4)
         }
         .buttonStyle(.borderless)
+        .tint(.primary)
         .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
     }
 
     /// A piece inside a setlist: tap expands the piece in Pieces and opens its
     /// first arrangement, matching tap-to-open everywhere else.
-    private func setlistPieceRow(_ piece: PieceDoc) -> some View {
+    private func setlistPieceRow(_ piece: PieceDoc, in setlist: SetlistDoc) -> some View {
         let arrangements = state.pieceSections
             .first { $0.piece.slug == piece.slug }?.arrangements ?? []
         return Button {
@@ -476,7 +595,7 @@ struct ContentView: View {
                         Text("#\(number)")
                             .font(.title3.weight(.bold))
                             .monospacedDigit()
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(Theme.arrangementNumber)
                             .frame(minWidth: 38, alignment: .leading)
                             .accessibilityLabel("Arrangement number \(number)")
                     }
@@ -799,6 +918,10 @@ struct ContentView: View {
                 }
             ))
             if hSize != .compact {
+                Toggle("Highlight a passage for chat", isOn: Binding(
+                    get: { state.highlightMode },
+                    set: { state.highlightMode = $0 }
+                ))
                 Button {
                     if let score = state.selectedScore, let vid = state.displayedVersionID {
                         DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")

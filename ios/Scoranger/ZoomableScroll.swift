@@ -3,23 +3,24 @@ import UIKit
 
 /// A UIScrollView wrapper that gives SwiftUI content real anchored pinch zoom.
 ///
-/// The previous implementation multiplied the *page width* by a SwiftUI
-/// `MagnifyGesture`'s magnification. That relaid the page stack out on every
-/// frame, so content reflowed around the scroll origin instead of scaling about
-/// the fingers: the score slid away under the gesture. UIScrollView's own
-/// zooming keeps the midpoint between the fingers fixed, which is the behaviour
-/// being asked for, and it comes with matched panning and rubber-banding.
+/// Build 115 got the anchoring right by handing zoom to UIScrollView, but then
+/// banked the gesture: on `scrollViewDidEndZooming` it relaid the page stack out
+/// at the new size, reset `zoomScale` to 1 and tried to restore the offset. Three
+/// things changing across two layout passes is what made the canvas jump when
+/// the fingers lifted, and the recomputed content size was what stopped some
+/// zoom levels from scrolling to the end of the score.
 ///
-/// Zoom is a view transform during the gesture, so the rendered bitmap stretches
-/// while pinching. When the gesture settles, `onZoomSettled` reports the factor
-/// so the caller can re-render the pages crisply at the new size; the scroll
-/// offset is then restored proportionally, leaving the same music under the
-/// same point on screen.
+/// So the geometry is now left alone entirely. One layout at `contentWidth`,
+/// measured rather than predicted, and zoom stays UIScrollView's transform —
+/// which means UIKit owns the scroll extents at every zoom level, and nothing
+/// moves when the gesture ends. `onZoomSettled` reports the settled scale purely
+/// so the caller can raise the *raster* resolution of what it draws; that
+/// changes sharpness, not position.
 struct ZoomableScroll<Content: View>: UIViewRepresentable {
-    /// Content size in points at zoom 1. The hosted view is pinned to this.
-    let contentSize: CGSize
+    /// Layout width for the content at zoom 1.
+    let contentWidth: CGFloat
     let zoomRange: ClosedRange<CGFloat>
-    /// Called when a pinch settles, with the factor relative to the last commit.
+    /// Called with the absolute zoom scale once a pinch settles.
     let onZoomSettled: (CGFloat) -> Void
     @ViewBuilder var content: () -> Content
 
@@ -29,10 +30,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
         scroll.bouncesZoom = true
-        scroll.showsVerticalScrollIndicator = true
-        scroll.showsHorizontalScrollIndicator = true
         scroll.backgroundColor = UIColor(white: 0.93, alpha: 1)
-        // the pages are drawn edge to edge; no automatic inset juggling
         scroll.contentInsetAdjustmentBehavior = .never
 
         let host = UIHostingController(rootView: AnyView(content()))
@@ -40,34 +38,19 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addSubview(host.view)
         context.coordinator.host = host
         context.coordinator.scroll = scroll
-        layout(scroll, context.coordinator)
+        context.coordinator.applyLayout(width: contentWidth)
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
-        context.coordinator.host?.rootView = AnyView(content())
         context.coordinator.onZoomSettled = onZoomSettled
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
-        layout(scroll, context.coordinator)
-    }
-
-    /// Pin the hosted view to the content size and centre it when it is
-    /// narrower than the viewport.
-    private func layout(_ scroll: UIScrollView, _ coordinator: Coordinator) {
-        guard let view = coordinator.host?.view else { return }
-        if coordinator.pendingContentSize != contentSize {
-            coordinator.pendingContentSize = contentSize
-            view.frame = CGRect(origin: .zero, size: contentSize)
-            scroll.contentSize = contentSize
-            coordinator.centreIfNeeded()
-            // a re-render at a new size means the transform has been banked
-            if scroll.zoomScale != 1 { scroll.setZoomScale(1, animated: false) }
-            if let restore = coordinator.offsetToRestore {
-                scroll.contentOffset = restore
-                coordinator.offsetToRestore = nil
-            }
-        }
+        // Swapping the root view re-renders the pages (a new raster scale, a new
+        // annotation tool). Geometry is unchanged, so the scroll position is not
+        // touched: that is what keeps the settle from jumping.
+        context.coordinator.host?.rootView = AnyView(content())
+        context.coordinator.applyLayout(width: contentWidth)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onZoomSettled: onZoomSettled) }
@@ -76,12 +59,30 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         var host: UIHostingController<AnyView>?
         weak var scroll: UIScrollView?
         var onZoomSettled: (CGFloat) -> Void
-        var pendingContentSize: CGSize = .zero
-        /// Offset to reapply once the caller has re-rendered at the new size.
-        var offsetToRestore: CGPoint?
+        private var laidOutSize: CGSize = .zero
 
         init(onZoomSettled: @escaping (CGFloat) -> Void) {
             self.onZoomSettled = onZoomSettled
+        }
+
+        /// Size the hosted view from what SwiftUI actually needs at this width.
+        /// The previous hand-computed height was the reason the end of a score
+        /// could sit outside the scrollable area.
+        func applyLayout(width: CGFloat) {
+            guard let host, let scroll, width > 0 else { return }
+            let measured = host.sizeThatFits(in: CGSize(width: width,
+                                                        height: .greatestFiniteMagnitude))
+            let size = CGSize(width: width, height: max(measured.height, 1))
+            guard size != laidOutSize else { return }
+            laidOutSize = size
+            host.view.frame = CGRect(origin: .zero, size: size)
+            // While zoomed, UIScrollView derives contentSize from the zoomed
+            // view; setting it ourselves then would fight it and strand the
+            // bottom of the score out of reach.
+            if scroll.zoomScale == 1 {
+                scroll.contentSize = size
+            }
+            centreIfNeeded()
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }
@@ -92,20 +93,20 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView,
                                      with view: UIView?, atScale scale: CGFloat) {
-            guard abs(scale - 1) > 0.001 else { return }
-            // Bank the gesture: the caller re-renders at scale x the current
-            // size, and the offset scales with it so the same music stays put.
-            offsetToRestore = CGPoint(x: scrollView.contentOffset.x,
-                                      y: scrollView.contentOffset.y)
+            // Report only. Nothing here changes layout or offset.
             onZoomSettled(scale)
         }
 
+        /// Centre the content when it is smaller than the viewport, and keep the
+        /// insets at zero when it is larger so every part stays reachable.
         func centreIfNeeded() {
             guard let scrollView = scroll, let view = host?.view else { return }
-            let scaled = view.frame.size
-            let dx = max(0, (scrollView.bounds.width - scaled.width) / 2)
-            let dy = max(0, (scrollView.bounds.height - scaled.height) / 2)
-            scrollView.contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
+            let shown = CGSize(width: view.frame.width * scrollView.zoomScale,
+                               height: view.frame.height * scrollView.zoomScale)
+            let dx = max(0, (scrollView.bounds.width - shown.width) / 2)
+            let dy = max(0, (scrollView.bounds.height - shown.height) / 2)
+            let inset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
+            if scrollView.contentInset != inset { scrollView.contentInset = inset }
         }
     }
 }

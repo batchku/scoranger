@@ -71,10 +71,11 @@ targets:
           SHA=$(git -C "$PROJECT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo "?")
           printf '%s' "$SHA" > "$CODESIGNING_FOLDER_PATH/build-sha.txt"
         basedOnDependencyAnalysis: false
-      - name: Bake samples
+      - name: Bake UI-test fixtures
         script: |
-          # sample scores for quick testing, seeded into Documents/samples on
-          # launch; live in gitignored testdata (copyrighted material)
+          # NOT a shipped feature: a fresh install starts with an empty library.
+          # These files exist only so the UI tests have deterministic content;
+          # they are seeded on launch only under -seedTestLibrary.
           if [ -d "$PROJECT_DIR/../testdata/app-samples" ]; then
             mkdir -p "$CODESIGNING_FOLDER_PATH/samples-seed"
             cp "$PROJECT_DIR/../testdata/app-samples/"* "$CODESIGNING_FOLDER_PATH/samples-seed/"
@@ -90,7 +91,7 @@ targets:
         # ships as CFBundleVersion, what App Store Connect records, and what the
         # app's footer shows. Bump with scripts/bump_build.sh (never by hand,
         # never by letting Xcode manage it at upload time).
-        CURRENT_PROJECT_VERSION: 115
+        CURRENT_PROJECT_VERSION: 116
         MARKETING_VERSION: 0.1.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h

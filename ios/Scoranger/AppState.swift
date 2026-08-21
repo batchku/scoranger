@@ -28,6 +28,9 @@ final class AppState: ObservableObject {
     @Published var highlightedBars: ClosedRange<Int>?
     /// Where the highlight came from (e.g. "pencil highlight on page 2").
     @Published var highlightNote: String?
+    /// Highlight-capture mode. Lives here, not in the score pane, because the
+    /// score's gear menu turns it on and the pane only reacts.
+    @Published var highlightMode = false
     /// The drawn highlight band per page index, in unit (0…1) page coordinates,
     /// so the yellow band stays visible (across zoom levels) while a highlight
     /// is active. Cleared together with `highlightedBars`.
@@ -228,8 +231,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// One-time Documents layout: inbox/ for auto-ingest, samples/ seeded from
-    /// the bundle for quick testing.
+    /// One-time Documents layout: inbox/ for auto-ingest, plus the chat hook
+    /// folders. No samples folder: the library is whatever the user imported.
     func prepareDocumentsFolders() {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: docs.appending(path: "inbox"),
@@ -238,25 +241,14 @@ final class AppState: ObservableObject {
                                                  withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: docs.appending(path: "outbox-chat"),
                                                  withIntermediateDirectories: true)
-        let samples = docs.appending(path: "samples")
-        try? FileManager.default.createDirectory(at: samples, withIntermediateDirectories: true)
-        if let seed = Bundle.main.resourceURL?.appending(path: "samples-seed"),
-           let files = try? FileManager.default.contentsOfDirectory(
-               at: seed, includingPropertiesForKeys: nil) {
-            for f in files {
-                let dest = samples.appending(path: f.lastPathComponent)
-                if !FileManager.default.fileExists(atPath: dest.path) {
-                    try? FileManager.default.copyItem(at: f, to: dest)
-                }
-            }
-        }
     }
 
-    /// First-launch seed: when the workspace has zero scores, import every
-    /// bundled samples-seed/*.mxl (no network — the files ship in the bundle),
-    /// file them under one piece, and create a "Samples" setlist containing it.
+    /// Test fixture only. The app ships with no sample library: a fresh install
+    /// starts empty and fills up from what the user imports. UI tests need
+    /// deterministic content, so they pass -seedTestLibrary to get it.
     func seedLibraryIfEmpty() async {
-        guard useLocalEngine else { return }
+        guard useLocalEngine,
+              ProcessInfo.processInfo.arguments.contains("-seedTestLibrary") else { return }
         do {
             let m = try await local.manifest()
             guard m.scores.isEmpty else { return }
@@ -274,7 +266,7 @@ final class AppState: ObservableObject {
                                                 "piece": pieceName])
             }
             _ = try await local.call(op: "assign-setlist",
-                                     args: ["setlist": "Samples", "piece": pieceName])
+                                     args: ["setlist": "Test setlist", "piece": pieceName])
             print("SCORANGER-SEED imported \(files.count) sample score(s)")
             await refresh()
         } catch {
@@ -698,6 +690,50 @@ final class AppState: ObservableObject {
             lastError = error.localizedDescription
         }
         return nil
+    }
+
+    /// Create an empty setlist.
+    @discardableResult
+    func createSetlist(name: String) async -> Bool {
+        await runSetlistOp(op: "create-setlist", args: ["name": name])
+    }
+
+    /// Add a piece to a setlist (no-op if already a member).
+    @discardableResult
+    func addPieceToSetlist(setlist: String, piece: String) async -> Bool {
+        await runSetlistOp(op: "assign-setlist",
+                           args: ["setlist": setlist, "piece": piece])
+    }
+
+    /// Drop a piece from a setlist. The piece itself is untouched.
+    @discardableResult
+    func removePieceFromSetlist(setlist: String, piece: String) async -> Bool {
+        await runSetlistOp(op: "unassign-setlist",
+                           args: ["setlist": setlist, "piece": piece])
+    }
+
+    @discardableResult
+    func renameSetlist(setlist: String, name: String) async -> Bool {
+        await runSetlistOp(op: "rename-setlist", args: ["setlist": setlist, "name": name])
+    }
+
+    /// Delete a setlist. Only the grouping goes; pieces and arrangements stay.
+    @discardableResult
+    func deleteSetlist(_ setlist: String) async -> Bool {
+        await runSetlistOp(op: "delete-setlist", args: ["setlist": setlist])
+    }
+
+    private func runSetlistOp(op: String, args: [String: Any]) async -> Bool {
+        do {
+            _ = try await local.call(op: op, args: args)
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
     }
 
     /// Persist a piece's arrangement order (the sidebar numbering).
