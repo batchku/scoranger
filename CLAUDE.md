@@ -44,6 +44,11 @@ scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"F
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
+scor whistle-fingerings <score> --part X [--whistle D] [--clear]
+  # penny-whistle fingerings engraved under the part as stacked lyric verses:
+  # six holes top to bottom (X covered, O open, / half), a 7th verse "+" for
+  # the overblown octave. Notes the whistle cannot play are reported, not faked.
+  # Chart: engine/scripts/check_whistle.py asserts it against the published one.
 scor set-metadata <score> [--title T] [--composer C] [--arranger A]
   # the ONE title: the arrangement's name in the library and the title engraved
   # at the top of the page are the same value. Versioned, like any notation

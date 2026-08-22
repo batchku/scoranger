@@ -2,11 +2,19 @@ import Foundation
 
 // Mirrors the engine's manifest/chat JSON (decoded with .convertFromSnakeCase).
 
-struct Manifest: Codable {
+struct Manifest: Codable, Equatable {
+    /// The engine stamps this on every rebuild, so it differs even when
+    /// nothing about the library did. Deliberately left out of equality:
+    /// what the UI cares about is the content.
     var generated: String?
     var scores: [ScoreDoc]
     var pieces: [PieceDoc]?
     var setlists: [SetlistDoc]?
+
+    static func == (lhs: Manifest, rhs: Manifest) -> Bool {
+        lhs.scores == rhs.scores && lhs.pieces == rhs.pieces
+            && lhs.setlists == rhs.setlists
+    }
 }
 
 struct ScoreDoc: Codable, Identifiable, Hashable {
@@ -21,7 +29,13 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
 
     var id: String { slug }
 
-    static func == (lhs: ScoreDoc, rhs: ScoreDoc) -> Bool { lhs.slug == rhs.slug }
+    /// By content: the sidebar polls, and a poll that finds the same library
+    /// must not look like a change or every row rebuilds twice a second.
+    static func == (lhs: ScoreDoc, rhs: ScoreDoc) -> Bool {
+        lhs.slug == rhs.slug && lhs.name == rhs.name && lhs.title == rhs.title
+            && lhs.composer == rhs.composer && lhs.latest == rhs.latest && lhs.piece == rhs.piece
+            && lhs.versions == rhs.versions && lhs.sources == rhs.sources
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 
@@ -32,19 +46,26 @@ struct PieceDoc: Codable, Identifiable, Hashable {
 
     var id: String { slug }
 
-    static func == (lhs: PieceDoc, rhs: PieceDoc) -> Bool { lhs.slug == rhs.slug }
+    static func == (lhs: PieceDoc, rhs: PieceDoc) -> Bool {
+        lhs.slug == rhs.slug && lhs.name == rhs.name
+            && lhs.arrangements == rhs.arrangements
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 
-/// An ordered group of pieces (a gig's running order).
+/// An ordered group of arrangements (a gig's running order). Arrangements,
+/// not pieces: what gets played is a particular version of a tune.
 struct SetlistDoc: Codable, Identifiable, Hashable {
     var slug: String
     var name: String
-    var pieces: [String]
+    var arrangements: [String]
 
     var id: String { slug }
 
-    static func == (lhs: SetlistDoc, rhs: SetlistDoc) -> Bool { lhs.slug == rhs.slug }
+    static func == (lhs: SetlistDoc, rhs: SetlistDoc) -> Bool {
+        lhs.slug == rhs.slug && lhs.name == rhs.name
+            && lhs.arrangements == rhs.arrangements
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 
@@ -57,7 +78,9 @@ struct VersionDoc: Codable, Identifiable, Hashable {
     /// The chat turn (prompt) this version was created during, if any.
     var turn: TurnRef?
 
-    static func == (lhs: VersionDoc, rhs: VersionDoc) -> Bool { lhs.id == rhs.id }
+    static func == (lhs: VersionDoc, rhs: VersionDoc) -> Bool {
+        lhs.id == rhs.id && lhs.op == rhs.op && lhs.parts == rhs.parts
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
