@@ -264,6 +264,17 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
                   {"from": from_ref, "part": part, "replace": replace, "measures": measures}, fn)
 
 
+def penny_whistle_fingerings(ctx: RunContext[str], part: str, whistle: str = "D",
+                             clear: bool = False) -> dict:
+    """Write penny-whistle fingerings under every note of a part, as stacked
+    hole diagrams in the notation (X covered, O open, / half, + overblown).
+    `whistle` is the instrument's key (D by default). `clear` removes them."""
+    def fn(s):
+        return ops.whistle_fingerings(s, _part(s, part), whistle, clear=clear)
+    return _apply(ctx.deps, "whistle-fingerings",
+                  {"part": part, "whistle": whistle, "clear": clear}, fn)
+
+
 def set_metadata(ctx: RunContext[str], title: str | None = None,
                  composer: str | None = None, arranger: str | None = None) -> dict:
     """Set the arrangement's title (engraved at the top of the page AND its name
@@ -288,7 +299,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
-         pull_part, set_metadata, assign_to_piece]
+         pull_part, set_metadata, penny_whistle_fingerings, assign_to_piece]
 
 
 def resolve_model(alias_or_string: str | None) -> str:

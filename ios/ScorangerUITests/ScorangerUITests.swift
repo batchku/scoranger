@@ -62,6 +62,17 @@ final class ScorangerUITests: XCTestCase {
         return false
     }
 
+    /// Poll an element's label: a reorder round-trips through the engine.
+    private func waitForLabel(_ element: XCUIElement, contains text: String,
+                              timeout: TimeInterval = 30) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.label.contains(text) { return true }
+            usleep(200_000)
+        }
+        return false
+    }
+
     private func element(labelStartingWith prefix: String) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH[c] %@", prefix))
@@ -621,6 +632,82 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["Done"].firstMatch.tap()
     }
 
+    // MARK: - Order (build 125)
+
+    /// Reordering has to move the numbers with the rows: #N is what Ali types
+    /// in chat ("take the violin part from #2"), so a badge that disagrees with
+    /// the order is worse than no badge.
+    func testReorderingArrangementsRenumbersThem() {
+        let first = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        XCTAssertTrue(first.label.contains("Arrangement number 1"),
+                      "expected the quartet at #1: \(first.label)")
+        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
+        XCTAssertTrue(second.exists, "the seed should file two arrangements")
+        XCTAssertTrue(second.label.contains("Arrangement number 2"), second.label)
+
+        // the context menu drives the same op the drag does
+        second.press(forDuration: 1.2)
+        let moveUp = app.buttons["Move up (become #1)"]
+        XCTAssertTrue(moveUp.waitForExistence(timeout: 10),
+                      "no reorder action in the arrangement menu")
+        moveUp.tap()
+
+        // the numbers swapped, and they followed the rows rather than the slugs
+        XCTAssertTrue(waitForLabel(second, contains: "Arrangement number 1"),
+                      "the moved arrangement kept its old number: \(second.label)")
+        XCTAssertTrue(first.label.contains("Arrangement number 2"),
+                      "the displaced arrangement was not renumbered: \(first.label)")
+        shot("reordered")
+    }
+
+    /// Dragging an arrangement onto a piece heading files it there. This
+    /// shipped in an earlier build with no test; it earned one while it was
+    /// serving as the control that proved XCUITest *can* drive SwiftUI
+    /// drag-and-drop (which is how row-to-row reordering was shown to be a
+    /// real gap rather than a harness limit).
+    func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        app.buttons["Arrangement details"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
+        app.buttons["piece-menu"].firstMatch.tap()
+        app.buttons["None"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 20))
+        app.buttons["Done"].firstMatch.tap()
+
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        let pieceHeading = app.buttons["Collapse \(piece)"]
+        XCTAssertTrue(pieceHeading.waitForExistence(timeout: 10))
+        row.press(forDuration: 1.0, thenDragTo: pieceHeading)
+
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
+                                           timeout: 20),
+                      "the dragged arrangement was not filed under the piece")
+        shot("dragged-into-piece")
+    }
+
+    /// And chat is told the new order: the refs it is handed are built from the
+    /// same list the badges are.
+    func testChatContextFollowsTheNewOrder() {
+        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
+        XCTAssertTrue(second.waitForExistence(timeout: 20))
+        second.press(forDuration: 1.2)
+        let moveUp = app.buttons["Move up (become #1)"]
+        XCTAssertTrue(moveUp.waitForExistence(timeout: 10))
+        moveUp.tap()
+        XCTAssertTrue(waitForLabel(second, contains: "Arrangement number 1"))
+
+        // open the moved arrangement: the pill numeral is the same number the
+        // chat context hands the model
+        second.tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
+        app.buttons["pill-chat"].tap()
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
+        let numeral = element(labelStartingWith: "Arrangement number 1")
+        XCTAssertTrue(numeral.exists, "the pill should show the new number")
+        shot("reordered-chat")
+    }
+
     // MARK: - Selection (build 124)
 
     /// The old yellow-band highlight is gone, replaced by a real selection.
@@ -708,24 +795,37 @@ final class ScorangerUITests: XCTestCase {
         shot("piece-renamed")
     }
 
-    /// The alert is ours: a verb rather than OK, and a field in the body.
-    func testNewSetlistUsesAPanelAlertWithAVerb() {
+    /// Ali's build-125 ask: a set list holds ARRANGEMENTS. Creating one asks
+    /// for the name first, then offers arrangements to put in it.
+    func testNewSetlistAsksForANameThenOffersArrangements() {
         app.buttons["New setlist"].tap()
         let field = app.textFields["Setlist name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no field in the naming alert")
         XCTAssertTrue(app.buttons["Create"].exists, "the verb should name the action")
         XCTAssertFalse(app.buttons["OK"].exists, "alerts never say OK")
         field.typeText("Gig night")
-        shot("panel-alert")
+        shot("setlist-name-first")
         app.buttons["Create"].tap()
 
-        let add = app.buttons["Add a piece to Gig night"]
-        XCTAssertTrue(add.waitForExistence(timeout: 20), "the new setlist did not appear")
+        // the picker opens on the new set list, listing arrangements
+        XCTAssertTrue(app.staticTexts["ADD AN ARRANGEMENT"].waitForExistence(timeout: 20),
+                      "naming a set list should lead straight to picking its arrangements")
+        let add = app.buttons["picker-add-\(firstArrangement)"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10),
+                      "the picker should offer arrangements, not pieces")
+        XCTAssertFalse(app.buttons[piece].exists,
+                       "a set list holds arrangements; pieces should not be offered")
         add.tap()
-        let candidate = app.buttons[piece]
-        XCTAssertTrue(candidate.waitForExistence(timeout: 10))
-        candidate.tap()
-        XCTAssertTrue(app.buttons["Collapse setlist Gig night"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["picker-remove-\(firstArrangement)"]
+                        .waitForExistence(timeout: 20),
+                      "the arrangement did not move into the set list")
+        shot("setlist-picker")
+        app.buttons["Done"].firstMatch.tap()
+
+        // and it shows in the sidebar under that set list
+        XCTAssertTrue(app.buttons["setlist-gig-night-\(firstArrangement)"]
+                        .waitForExistence(timeout: 20),
+                      "the set list row does not list the arrangement")
 
         // clean up so repeat runs stay deterministic
         app.buttons["Collapse setlist Gig night"].press(forDuration: 1.2)
@@ -736,6 +836,37 @@ final class ScorangerUITests: XCTestCase {
             }
         }
     }
+
+    /// The + on an existing set list adds arrangements to it.
+    func testAddingAnArrangementToAnExistingSetlist() {
+        let add = app.buttons["add-to-setlist-test-setlist"]
+        XCTAssertTrue(add.waitForExistence(timeout: 20), "no + on the seeded set list")
+        add.tap()
+        XCTAssertTrue(app.staticTexts["IN THIS SET LIST"].waitForExistence(timeout: 10),
+                      "the picker did not open")
+        // the seed puts both arrangements in, so they are all members already
+        XCTAssertTrue(app.buttons["picker-remove-\(firstArrangement)"].exists,
+                      "the seeded set list should already hold the arrangements")
+        shot("setlist-existing-picker")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// And an arrangement can be put in a set list from its own row.
+    func testArrangementContextMenuOffersAddToSetList() {
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.press(forDuration: 1.2)
+        let action = app.buttons["Add to set list…"]
+        XCTAssertTrue(action.waitForExistence(timeout: 15),
+                      "no way to add an arrangement to a set list from its row")
+        action.tap()
+        XCTAssertTrue(app.buttons["chooser-test-setlist"].waitForExistence(timeout: 15),
+                      "the set list chooser did not open")
+        shot("add-to-setlist-chooser")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+
 
     func testSettingsIsAPanelSheet() {
         app.buttons["Settings"].tap()

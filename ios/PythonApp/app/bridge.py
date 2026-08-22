@@ -100,6 +100,14 @@ def _dispatch(op, a):
         return workspace.assign_score_to_piece(a["score"], None)
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "whistle-fingerings":
+        score = _load(a["score"], None)
+        part = _part(score, a["part"])
+        details = ops.whistle_fingerings(score, part, a.get("whistle") or "D",
+                                         clear=bool(a.get("clear")))
+        entry = workspace.add_version(a["score"], score, "whistle-fingerings",
+                                      {"part": a["part"], "whistle": a.get("whistle") or "D"})
+        return {"version": entry["id"], "details": details}
     if op == "rename-slug":
         return workspace.rename_slug(a["score"], a["to"])
     if op == "set-metadata":
@@ -113,10 +121,10 @@ def _dispatch(op, a):
     if op == "create-setlist":
         return workspace.create_setlist(a["name"])
     if op == "assign-setlist":
-        return workspace.add_piece_to_setlist(a["setlist"], a["piece"],
+        return workspace.add_score_to_setlist(a["setlist"], a["score"],
                                               create_if_missing=True)
     if op == "unassign-setlist":
-        return workspace.remove_piece_from_setlist(a["setlist"], a["piece"])
+        return workspace.remove_score_from_setlist(a["setlist"], a["score"])
     if op == "rename-setlist":
         return workspace.rename_setlist(a["setlist"], a["name"])
     if op == "delete-setlist":

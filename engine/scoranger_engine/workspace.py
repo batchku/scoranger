@@ -433,14 +433,14 @@ def delete_piece(name_or_slug: str) -> None:
 
 
 def create_setlist(name: str) -> dict:
-    """Create a setlist document (an ordered group of pieces). Returns the doc."""
+    """Create a setlist document (an ordered group of arrangements)."""
     repo = _repo()
     base = slugify(name)
     slug, n = base, 2
     while repo.get_setlist(slug) is not None:
         slug = f"{base}-{n}"
         n += 1
-    doc = {"id": slug, "slug": slug, "name": name, "pieces": [], "created": _now()}
+    doc = {"id": slug, "slug": slug, "name": name, "scores": [], "created": _now()}
     repo.set_setlist(slug, doc)
     rebuild_manifest()
     return doc
@@ -461,28 +461,33 @@ def resolve_setlist(name_or_slug: str, create_if_missing: bool = False) -> dict:
     raise FileNotFoundError(f"No setlist '{name_or_slug}'. Available: {available}")
 
 
-def add_piece_to_setlist(setlist: str, piece: str,
+def add_score_to_setlist(setlist: str, score: str,
                          create_if_missing: bool = True) -> dict:
-    """Append a piece to a setlist (no-op if already a member)."""
+    """Append an arrangement to a setlist (no-op if already in it).
+
+    A setlist is a running order, and what gets played is an arrangement, not a
+    piece: "the quartet version, then the accordion one" is a set; "Sous le
+    ciel de Paris" is not.
+    """
     repo = _repo()
     doc = resolve_setlist(setlist, create_if_missing=create_if_missing)
-    piece_slug = resolve_piece(piece)["slug"]
-    pieces = doc.get("pieces") or []
-    if piece_slug not in pieces:
-        pieces.append(piece_slug)
-        doc["pieces"] = pieces
+    if repo.get_score(score) is None:
+        available = [s["slug"] for s in repo.list_scores()]
+        raise FileNotFoundError(f"No arrangement '{score}'. Available: {available}")
+    scores = doc.get("scores") or []
+    if score not in scores:
+        scores.append(score)
+        doc["scores"] = scores
         repo.set_setlist(doc["slug"], doc)
         rebuild_manifest()
     return doc
 
 
-def remove_piece_from_setlist(setlist: str, piece: str) -> dict:
-    """Drop a piece from a setlist. The piece and its arrangements are untouched."""
+def remove_score_from_setlist(setlist: str, score: str) -> dict:
+    """Drop an arrangement from a setlist. The arrangement itself is untouched."""
     repo = _repo()
     doc = resolve_setlist(setlist)
-    piece_slug = resolve_piece(piece)["slug"]
-    pieces = [p for p in (doc.get("pieces") or []) if p != piece_slug]
-    doc["pieces"] = pieces
+    doc["scores"] = [s for s in (doc.get("scores") or []) if s != score]
     repo.set_setlist(doc["slug"], doc)
     rebuild_manifest()
     return doc
@@ -519,6 +524,30 @@ def delete_score(slug: str) -> None:
     rebuild_manifest()
 
 
+def _setlist_with_scores(doc: dict, pieces: list[dict]) -> dict:
+    """Bring a setlist written before setlists held arrangements up to date.
+
+    Setlists used to be ordered lists of *pieces*. A piece is not a thing you
+    play — its arrangements are — so a stored piece is expanded, in place and
+    once, into that piece's arrangements in their existing order. Nothing is
+    dropped and nothing is guessed: a piece with three arrangements becomes
+    those three, and the user reorders or removes from there.
+    """
+    if doc.get("scores") is not None or not doc.get("pieces"):
+        doc.setdefault("scores", [])
+        return doc
+    by_piece = {p["slug"]: p.get("arrangements") or [] for p in pieces}
+    expanded: list[str] = []
+    for piece_slug in doc.get("pieces") or []:
+        for score in by_piece.get(piece_slug, []):
+            if score not in expanded:
+                expanded.append(score)
+    doc["scores"] = expanded
+    doc.pop("pieces", None)
+    _repo().set_setlist(doc["slug"], doc)
+    return doc
+
+
 def rebuild_manifest() -> dict:
     """Project the DB into workspace/manifest.json for the viewer."""
     repo = _repo()
@@ -545,10 +574,13 @@ def rebuild_manifest() -> dict:
                                                for d in score_docs if d["slug"] == s))
         pieces.append({"slug": p["slug"], "name": p["name"],
                        "arrangements": ordered + stragglers})
-    piece_slugs = {p["slug"] for p in pieces}
-    setlists = [{"slug": s["slug"], "name": s["name"],
-                 "pieces": [q for q in (s.get("pieces") or []) if q in piece_slugs]}
-                for s in sorted(repo.list_setlists(), key=lambda x: x["name"].lower())]
+    known = {d["slug"] for d in score_docs}
+    setlists = []
+    for doc in sorted(repo.list_setlists(), key=lambda x: x["name"].lower()):
+        doc = _setlist_with_scores(doc, pieces)
+        setlists.append({"slug": doc["slug"], "name": doc["name"],
+                         "arrangements": [s for s in doc.get("scores") or []
+                                          if s in known]})
     manifest = {"generated": _now(), "scores": scores, "pieces": pieces,
                 "setlists": setlists}
     WORKSPACE.mkdir(parents=True, exist_ok=True)

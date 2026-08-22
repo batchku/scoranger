@@ -278,6 +278,14 @@ def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
 
 
+def cmd_whistle_fingerings(a):
+    score = _load(a.score, None)
+    part = _part(score, a.part)
+    details = ops.whistle_fingerings(score, part, a.whistle, clear=a.clear)
+    _mutate(a.score, score, "whistle-fingerings",
+            {"part": a.part, "whistle": a.whistle, "clear": a.clear}, details)
+
+
 def cmd_rename_slug(a):
     _emit(workspace.rename_slug(a.score, a.to))
 
@@ -508,6 +516,14 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("whistle-fingerings",
+                       help="Write penny-whistle fingerings under a part")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--whistle", default="D", help="whistle key (D, C, E-, F, G, A)")
+    s.add_argument("--clear", action="store_true", help="remove fingerings instead")
+    s.set_defaults(fn=cmd_whistle_fingerings)
 
     s = sub.add_parser("rename-slug",
                        help="Change the slug a score is filed under (moves artifacts)")

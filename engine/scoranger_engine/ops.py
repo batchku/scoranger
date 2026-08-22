@@ -999,6 +999,118 @@ def analyze_harmony(score, names: list[str] | None = None) -> dict:
     return {"key": global_key, "parts_analyzed": [part_label(p) for p in parts], "measures": out}
 
 
+
+# ------------------------------------------------- penny whistle fingerings
+#
+# A six-hole whistle has one fingering per pitch class and no keys, so the
+# chart is small, published and unambiguous — which is exactly why this belongs
+# in the engine as a table rather than in a model's head. Holes are numbered
+# from the mouthpiece down: 1-3 under the upper hand, 4-6 under the lower.
+#
+# Both octaves use the same fingering; the second is overblown, which the chart
+# marks with a "+" rather than by inventing a different pattern.
+
+# X / O / half-slash, the way whistle fingerings have always been written in
+# text ("xxx ooo"). Filled circles read better but are not in the font the PDF
+# rasterizer falls back to, and a chart that engraves as a column of empty
+# boxes is worse than no chart at all.
+COVERED, OPEN, HALF = "X", "O", "/"
+
+# pitch class (as a sounding name) -> the six holes, top to bottom.
+# The cross-fingerings for C natural and F natural are the standard ones;
+# half-holed notes are marked HALF on the hole that is half covered.
+WHISTLE_D_FINGERINGS = {
+    "D":  "xxxxxx",
+    "E-": "xxxxxh",      # half-hole the bottom
+    "E":  "xxxxxo",
+    "F":  "xxxoxx",      # cross-fingering
+    "F#": "xxxxoo",
+    "G":  "xxxooo",
+    "G#": "xxxhoo",      # half-hole
+    "A":  "xxoooo",
+    "B-": "xoxxxo",      # cross-fingering
+    "B":  "xooooo",
+    "C":  "oxxooo",      # cross-fingering
+    "C#": "oooooo",
+}
+
+WHISTLE_KEYS = {"D": "D4", "C": "C4", "E-": "E-4", "F": "F4", "G": "G4", "A": "A4"}
+
+
+def _whistle_symbols(pattern: str) -> list[str]:
+    table = {"x": COVERED, "o": OPEN, "h": HALF}
+    return [table[c] for c in pattern]
+
+
+def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False) -> dict:
+    """Write penny-whistle fingerings under a part, as stacked lyric verses.
+
+    Six verses, one per hole, so the notation itself carries the diagram: it
+    engraves under the right notehead, exports with the score, prints, and
+    survives every later op — none of which is true of anything drawn over the
+    page. A seventh verse marks the overblown octave.
+
+    Notes the whistle cannot play are left without a diagram and reported, the
+    same way `check-range` reports what an instrument cannot reach.
+    """
+    from music21 import note as m21note
+
+    if clear:
+        cleared = 0
+        for n in part.recurse().notes:
+            if n.lyrics:
+                n.lyrics = []
+                cleared += 1
+        return {"part": part_label(part), "cleared": cleared}
+
+    key = whistle_key.upper().replace("EB", "E-").replace("BB", "B-")
+    if key not in WHISTLE_KEYS:
+        raise ValueError(f"No fingering chart for a {whistle_key} whistle. "
+                         f"Have: {sorted(WHISTLE_KEYS)}")
+    lowest = m21pitch.Pitch(WHISTLE_KEYS[key])
+    # the transposition from a D whistle's chart to this whistle's
+    shift = m21interval.Interval(noteStart=m21pitch.Pitch("D4"), noteEnd=lowest)
+
+    written = 0
+    unplayable: list[dict] = []
+    for n in part.recurse().notes:
+        pitches = n.pitches if isinstance(n, m21chord.Chord) else [n.pitch]
+        # a whistle plays one note at a time; the top of a chord is the tune
+        sounding = max(pitches)
+        # express the pitch on the D chart this whistle is a transposition of
+        as_d = sounding.transpose(shift.reverse()) if shift.semitones else sounding
+        # Which octave of the *instrument*, not of the staff: a D whistle's
+        # first octave runs D4 to C#5, so C#5 is the top of the low octave and
+        # is not overblown. Octave numbers change at C, which is why measuring
+        # from the whistle's lowest note is the only thing that works.
+        steps = int(round(as_d.ps - m21pitch.Pitch("D4").ps))
+        octave_offset = steps // 12
+        pattern = WHISTLE_D_FINGERINGS.get(as_d.name)
+        if pattern is None or steps < 0 or octave_offset not in (0, 1):
+            unplayable.append({
+                "measure": n.measureNumber,
+                "pitch": sounding.nameWithOctave,
+                "why": "outside the whistle's two octaves" if pattern
+                       else f"no standard fingering for {as_d.name}",
+            })
+            n.lyrics = []
+            continue
+        n.lyrics = []
+        for hole, symbol in enumerate(_whistle_symbols(pattern), start=1):
+            n.addLyric(symbol, lyricNumber=hole)
+        if octave_offset == 1:
+            n.addLyric("+", lyricNumber=7)     # overblown
+        written += 1
+
+    return {
+        "part": part_label(part),
+        "whistle": key,
+        "notes_fingered": written,
+        "unplayable": unplayable[:20],
+        "unplayable_count": len(unplayable),
+    }
+
+
 def set_chord_symbols(score, name: str, chords: list[dict]) -> dict:
     """Write chord symbols (MusicXML <harmony>) onto a part at given measures.
 

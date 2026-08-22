@@ -236,3 +236,116 @@ the instrument's range, and whether fingerings live in the notation (versioned,
 exportable) or as a view layer (cheap, disposable). The range question overlaps
 with `check-range`, which already knows how to report notes an instrument
 cannot play.
+
+## Assessed for build 125, deferred with reasons
+
+### Drag to reorder arrangements — the numbering shipped, the drag did not
+
+Reordering works and is covered: "Move up (become #1)" / "Move down" in an
+arrangement's context menu call `reorder-piece`, and two tests now assert that
+the #N badges AND the chat refs follow the new order (they are both derived
+from `piece.arrangements`, so neither needs renumbering code).
+
+What did not work is the *gesture*. Three shapes were tried and none received
+the drop: the row itself as a target, a background layer behind the row, and a
+dedicated insertion strip between rows (via both `onDrop` and
+`dropDestination`). Instrumenting the handler showed it never runs.
+
+This is NOT a test-harness limit, which was checked rather than assumed: a
+control test dragged an unfiled arrangement onto a piece heading — the gesture
+that shipped in an earlier build — and it worked under XCUITest. That control
+is now a permanent test. So SwiftUI is declining to deliver drops somewhere in
+the arrangement-row hierarchy, and the row being a drag source (`.onDrag`) is
+the likeliest reason: a view that is dragging cannot also be dropped on, and
+the neighbouring strips inherit something from that context.
+
+Next things to try, in order: move the whole per-piece list into a `List` with
+`.onMove` (which owns reordering natively and sidesteps drag sources entirely —
+the cost is fitting a List into the overlay sidebar's styling); or hoist the
+drop target to the *section* and compute the insertion index from the drop
+location. Budget it as a session, not a patch.
+
+### Move/duplicate of lasso-selected elements — tractable, but not free
+
+More feasible than when it was first deferred, and worth stating precisely
+what changed. Phase A addresses are (staff, measure, layer, kind, ordinal),
+which resolve to music21 objects deterministically. The elements split three
+ways:
+
+1. **Offset-anchored** (dynamics, text, chord symbols) carry their own offset
+   in a measure. Moving or duplicating is a deepcopy and an insert at a new
+   (measure, offset) — deterministic, and an engine op could land in an hour.
+2. **Note-attached** (fermatas, articulations) live on a note's `expressions`
+   or `articulations`. Moving is remove-from-A, append-to-B — also fine once
+   both ends are addressed.
+3. **Spanners** (slurs, hairpins) reference their endpoints. Re-pointing them
+   is deterministic only when the destination has an unambiguous anchor; "move
+   this slur four bars later" has no answer when the rhythms differ.
+
+So the *ops* are largely tractable. What is missing is the interaction: move
+and duplicate need a destination, and there is no way yet to express one — the
+selection has no drag, and the sidebar work above says dragging in this app is
+its own problem. Design the destination first (drag the selection? tap a target
+bar? a bar-offset stepper?), then the ops follow quickly for classes 1 and 2.
+
+### Phase B, direct vector rendering — a renderer, not a feature
+
+Still the right direction and still large. The current path is Verovio → SVG →
+SwiftDraw → PDF → PDFKit raster, re-rasterized at the settled zoom. Drawing the
+score directly means owning glyph rendering: Verovio's SVG places SMuFL glyphs
+by reference (`<use xlink:href="#E0A4">`), so direct drawing needs the Bravura
+font, the codepoint mapping, and path rendering for everything that is not a
+glyph — beams, slurs, staff lines, hairpins. `SVGGeometryParser` gives element
+*bounds* today, not draw instructions, so this is new work rather than a
+rewiring.
+
+It is also the one change that would put the thing Ali reads music from at
+risk, and the problem it was meant to solve — pinch redraw — is currently
+adequate (the page re-rasterizes at the settled zoom and stays sharp). Worth
+doing behind a flag, in a session where it can be compared side by side against
+the bitmap path on real scores, and not in a build that also carries features.
+
+## Sequencing decided by Ali (for the build after the whistle build)
+
+1. **Direct vector rendering (Phase B) first.** Promoted from "deferred, not
+   recommended yet" to the next major build. Ali's rationale: he wants vector
+   rendering to underpin the selection work.
+2. **Then re-base the finger+Pencil selection interactions on it.**
+
+Recorded as decided. One technical note for whoever picks this up, because the
+plan reads as though selection is blocked on vectors and it is not:
+
+Selection does NOT depend on the drawing path. The hit-test model is built by
+parsing Verovio's SVG and MEI at engrave time (`ScoreModelBuilder`), which
+yields per-element frames in page coordinates and durable addresses. The lasso
+maps its points into those page coordinates and queries that model. How the
+pixels reach the screen — PDF raster today, drawn vectors tomorrow — is not
+part of that path. Build 124 ships working selection on the bitmap.
+
+What Phase B genuinely adds, in order of real value:
+
+- **Showing what is selected.** Today the page is one flat image, so the only
+  feedback is the lasso outline and the chip's "8 elements in bars 1-4". The
+  selected noteheads themselves cannot be tinted. Per-element drawing fixes
+  that properly. (A halfway option exists: draw highlight boxes over the bitmap
+  from the model's frames — the geometry is already there. Boxes, not tinted
+  glyphs.)
+- **Direct manipulation.** Dragging a selected element wants that element drawn
+  on its own. This is the move/duplicate spike's real dependency.
+- **Fidelity of odd shapes.** Curved spanners are indexed by bounding box, so a
+  slur's "centre" can sit off the curve. Vector geometry would make lasso hits
+  on those exact.
+
+What Phase B does NOT fix, and should not be expected to:
+
+- Precision at zoom — hit-testing is already in resolution-independent page
+  coordinates.
+- Which element kinds are selectable — that is the parser's class list, not the
+  renderer.
+- Selection on the remote-engine path — the model is built where the engrave
+  happens, which is on-device only.
+
+Risk worth pricing in: re-basing the selection interactions means replacing
+code that ships and works today with code on an unproven renderer. If Phase B
+is done first, keep the bitmap path behind a flag until the vector path renders
+every score in the library correctly at every zoom level.

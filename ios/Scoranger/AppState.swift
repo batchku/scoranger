@@ -138,13 +138,23 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Sidebar setlists: each setlist with its pieces resolved to PieceDocs.
-    var setlistSections: [(setlist: SetlistDoc, pieces: [PieceDoc])] {
+    /// Sidebar setlists: each setlist with its arrangements resolved.
+    var setlistSections: [(setlist: SetlistDoc, arrangements: [ScoreDoc])] {
         guard let m = manifest, let setlists = m.setlists else { return [] }
         return setlists.map { s in
             (setlist: s,
-             pieces: s.pieces.compactMap { slug in (m.pieces ?? []).first { $0.slug == slug } })
+             arrangements: s.arrangements.compactMap { slug in
+                 m.scores.first { $0.slug == slug }
+             })
         }
+    }
+
+    /// Arrangements that could still be added to a setlist.
+    func arrangementsNotIn(setlist: SetlistDoc) -> [ScoreDoc] {
+        let inIt = Set(setlist.arrangements)
+        return (manifest?.scores ?? [])
+            .filter { !inIt.contains($0.slug) }
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 
     /// Where an arrangement sits in the hierarchy: the piece it is filed under
@@ -303,8 +313,11 @@ final class AppState: ObservableObject {
                                                 "name": f.deletingPathExtension().lastPathComponent,
                                                 "piece": pieceName])
             }
-            _ = try await local.call(op: "assign-setlist",
-                                     args: ["setlist": "Test setlist", "piece": pieceName])
+            for score in (try await local.manifest()).scores {
+                _ = try await local.call(op: "assign-setlist",
+                                         args: ["setlist": "Test setlist",
+                                                "score": score.slug])
+            }
             print("SCORANGER-SEED imported \(files.count) sample score(s)")
             await refresh()
         } catch {
@@ -377,7 +390,11 @@ final class AppState: ObservableObject {
         #endif
         do {
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
-            manifest = m
+            // Only publish a manifest that differs. The poll runs every 1.5s,
+            // and republishing an identical library rebuilt the whole sidebar
+            // — including any open context menu — twice a second, which is why
+            // a long-press could keep the app from ever going idle.
+            if manifest != m { manifest = m }
             engineOK = true
             // a selection pointing at a deleted score would otherwise leave the
             // canvas showing nothing with no row highlighted
@@ -905,24 +922,35 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Create an empty setlist.
+    /// Create an empty setlist. Returns the slug the engine filed it under,
+    /// which is not always slugify(name) — a second "Gig night" becomes
+    /// "gig-night-2", and the caller needs the real one to fill it.
     @discardableResult
-    func createSetlist(name: String) async -> Bool {
-        await runSetlistOp(op: "create-setlist", args: ["name": name])
+    func createSetlist(name: String) async -> String? {
+        do {
+            let r = try await local.call(op: "create-setlist", args: ["name": name])
+            await refresh()
+            return r["slug"] as? String
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return nil
     }
 
-    /// Add a piece to a setlist (no-op if already a member).
+    /// Add an arrangement to a setlist (no-op if already in it).
     @discardableResult
-    func addPieceToSetlist(setlist: String, piece: String) async -> Bool {
+    func addToSetlist(setlist: String, score: String) async -> Bool {
         await runSetlistOp(op: "assign-setlist",
-                           args: ["setlist": setlist, "piece": piece])
+                           args: ["setlist": setlist, "score": score])
     }
 
-    /// Drop a piece from a setlist. The piece itself is untouched.
+    /// Drop an arrangement from a setlist. The arrangement itself is untouched.
     @discardableResult
-    func removePieceFromSetlist(setlist: String, piece: String) async -> Bool {
+    func removeFromSetlist(setlist: String, score: String) async -> Bool {
         await runSetlistOp(op: "unassign-setlist",
-                           args: ["setlist": setlist, "piece": piece])
+                           args: ["setlist": setlist, "score": score])
     }
 
     @discardableResult

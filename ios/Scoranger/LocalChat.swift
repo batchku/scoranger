@@ -213,6 +213,13 @@ struct LocalChat {
                                      "measures": str("optional 'A-B' inclusive range")],
                                     required: ["from_ref", "part"]),
                  op: "pull-part", rename: ["from_ref": "from", "as_name": "as"]),
+        ToolSpec(name: "penny_whistle_fingerings",
+                 description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). Notes the whistle cannot play are reported. Set clear=true to remove them.",
+                 parameters: params(["part": str("the part to fingerings"),
+                                     "whistle": str("the whistle's key, D by default"),
+                                     "clear": bool("remove the fingerings instead")],
+                                    required: ["part"]),
+                 op: "whistle-fingerings", rename: [:]),
         ToolSpec(name: "set_metadata",
                  description: "Set the arrangement's title (the title engraved at the top of the page AND its name in the library — they are one value), its composer or its arranger. An empty string clears a credit.",
                  parameters: params(["title": str("the arrangement's title"),
@@ -259,6 +266,10 @@ struct LocalChat {
         case "respell": return "Respelling with \(s("prefer") ?? "flats")"
         case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
         case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        case "penny_whistle_fingerings":
+            return s("clear") == "true"
+                ? "Removing whistle fingerings from \(s("part") ?? "the part")"
+                : "Writing whistle fingerings under \(s("part") ?? "the part")"
         case "set_metadata":
             if let t = s("title") { return "Titling the arrangement \u{201C}\(t)\u{201D}" }
             return "Updating the arrangement's credits"

@@ -30,6 +30,12 @@ struct ContentView: View {
     @State private var alertRequest: AlertRequest?
     @State private var newPieceName = ""
     @State private var newSetlistName = ""
+    /// An arrangement that should go into the setlist about to be created.
+    @State private var setlistSeedScore: String?
+    /// The setlist whose arrangement picker is open.
+    @State private var setlistPicker: SetlistDoc?
+    /// The arrangement being put into a set list from its own row.
+    @State private var setlistChooserScore: ScoreDoc?
     @State private var setlistRenameDraft = ""
     @State private var dropTargetPiece: String?
 
@@ -94,11 +100,17 @@ struct ContentView: View {
 
     @ViewBuilder
     private var dialogLayer: some View {
-        if infoScore != nil || showSettings || alertRequest != nil {
+        if infoScore != nil || showSettings || alertRequest != nil
+            || setlistPicker != nil || setlistChooserScore != nil {
             ZStack {
                 DialogScrim {
                     // alerts are decisions: only sheets dismiss on the scrim
-                    if alertRequest == nil { infoScore = nil; showSettings = false }
+                    if alertRequest == nil {
+                        infoScore = nil
+                        showSettings = false
+                        setlistPicker = nil
+                        setlistChooserScore = nil
+                    }
                 }
                 if let score = infoScore {
                     PanelSheet(title: score.name,
@@ -109,6 +121,20 @@ struct ContentView: View {
                 } else if showSettings {
                     PanelSheet(title: "Settings", onDone: { showSettings = false }) {
                         SettingsView()
+                    }
+                } else if let setlist = setlistPicker {
+                    PanelSheet(title: setlist.name, onDone: { setlistPicker = nil }) {
+                        SetlistPickerView(setlist: setlist)
+                    }
+                } else if let score = setlistChooserScore {
+                    PanelSheet(title: score.name,
+                               onDone: { setlistChooserScore = nil }) {
+                        SetlistChooserView(score: score) {
+                            newSetlistName = ""
+                            setlistSeedScore = score.slug
+                            setlistChooserScore = nil
+                            alertRequest = .newSetlist
+                        }
                     }
                 }
                 if let request = alertRequest { alertView(request) }
@@ -161,7 +187,21 @@ struct ContentView: View {
                        onCancel: { alertRequest = nil },
                        onConfirm: {
                            let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                           if !name.isEmpty { Task { await state.createSetlist(name: name) } }
+                           let seed = setlistSeedScore
+                           setlistSeedScore = nil
+                           if !name.isEmpty {
+                               Task {
+                                   // name first, then contents — and the picker
+                                   // opens on the setlist that was just made
+                                   guard let slug = await state.createSetlist(name: name)
+                                   else { return }
+                                   if let seed {
+                                       await state.addToSetlist(setlist: slug, score: seed)
+                                   }
+                                   setlistPicker = state.manifest?.setlists?
+                                       .first { $0.slug == slug }
+                               }
+                           }
                            alertRequest = nil
                        })
         case .renameSetlist(let setlist):
@@ -452,16 +492,17 @@ struct ContentView: View {
             }
         }
         if state.setlistSections.isEmpty {
-            emptyNote("No setlists yet. Use + to group pieces into a running order.")
+            emptyNote("No setlists yet. Use + to put arrangements in a running order.")
         }
         ForEach(state.setlistSections, id: \.setlist.slug) { section in
-            setlistRow(section.setlist, pieces: section.pieces)
+            setlistRow(section.setlist, arrangements: section.arrangements)
             if !collapsedSetlists.contains(section.setlist.slug) {
-                if section.pieces.isEmpty {
-                    emptyNote("Empty — add pieces from the + on this setlist.")
+                if section.arrangements.isEmpty {
+                    emptyNote("Empty — add arrangements from the + on this setlist.")
                 }
-                ForEach(section.pieces) { piece in
-                    setlistPieceRow(piece, in: section.setlist)
+                ForEach(section.arrangements) { score in
+                    setlistArrangementRow(score, in: section.setlist)
+                        .id("setlist/\(section.setlist.slug)/\(score.slug)")
                 }
             }
         }
@@ -522,7 +563,8 @@ struct ContentView: View {
             .rotationEffect(.degrees(expanded ? 90 : 0))
     }
 
-    private func setlistRow(_ setlist: SetlistDoc, pieces: [PieceDoc]) -> some View {
+    private func setlistRow(_ setlist: SetlistDoc,
+                            arrangements: [ScoreDoc]) -> some View {
         let collapsed = collapsedSetlists.contains(setlist.slug)
         return HStack(spacing: Theme.Metric.s8) {
             Button {
@@ -540,7 +582,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(collapsed ? "Expand" : "Collapse") setlist \(setlist.name)")
-            addPieceMenu(setlist, current: pieces)
+            addArrangementButton(setlist)
         }
         .padding(.horizontal, Theme.Metric.panelPadding)
         .padding(.vertical, Theme.Metric.rowVertical)
@@ -556,20 +598,9 @@ struct ContentView: View {
         }
     }
 
-    private func addPieceMenu(_ setlist: SetlistDoc, current: [PieceDoc]) -> some View {
-        let members = Set(current.map(\.slug))
-        let candidates = (state.manifest?.pieces ?? []).filter { !members.contains($0.slug) }
-        return Menu {
-            if candidates.isEmpty {
-                Text("Every piece is already in this setlist")
-            }
-            ForEach(candidates) { piece in
-                Button(piece.name) {
-                    Task { await state.addPieceToSetlist(setlist: setlist.slug,
-                                                         piece: piece.slug) }
-                }
-            }
-        } label: {
+    /// The + on a setlist: pick arrangements to put in it.
+    private func addArrangementButton(_ setlist: SetlistDoc) -> some View {
+        Button { setlistPicker = setlist } label: {
             Image(systemName: "plus")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Theme.Ink.ink2)
@@ -581,21 +612,29 @@ struct ContentView: View {
                 .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel("Add a piece to \(setlist.name)")
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("add-to-setlist-\(setlist.slug)")
+        .accessibilityLabel("Add an arrangement to \(setlist.name)")
     }
 
-    private func setlistPieceRow(_ piece: PieceDoc, in setlist: SetlistDoc) -> some View {
-        let arrangements = state.pieceSections
-            .first { $0.piece.slug == piece.slug }?.arrangements ?? []
-        return Button {
-            collapsedPieces.remove(piece.slug)
-            if let first = arrangements.first { openScore(first.slug) }
-        } label: {
-            HStack {
-                Text(piece.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
-                Spacer()
-                Text("\(arrangements.count)").typeRole(.data)
-                    .foregroundStyle(Theme.Ink.ink3)
+    /// One arrangement in a running order. It shows the piece it belongs to,
+    /// because in a set the tune is the context and the arrangement is the
+    /// thing being played.
+    private func setlistArrangementRow(_ score: ScoreDoc,
+                                       in setlist: SetlistDoc) -> some View {
+        let placement = state.placement(of: score.slug)
+        return Button { openScore(score.slug) } label: {
+            HStack(spacing: Theme.Metric.s8) {
+                if let placement { NumeralBadge(number: placement.number) }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(score.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                        .lineLimit(1)
+                    if let placement {
+                        Text(placement.piece.name).typeRole(.meta)
+                            .foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
             }
             .padding(.leading, Theme.Metric.s20)
             .padding(.horizontal, Theme.Metric.panelPadding)
@@ -604,10 +643,11 @@ struct ContentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("setlist-\(setlist.slug)-\(score.slug)")
         .contextMenu {
             Button(role: .destructive) {
-                Task { await state.removePieceFromSetlist(setlist: setlist.slug,
-                                                          piece: piece.slug) }
+                Task { await state.removeFromSetlist(setlist: setlist.slug,
+                                                     score: score.slug) }
             } label: { Label("Remove from \(setlist.name)", systemImage: "minus.circle") }
         }
     }
@@ -764,6 +804,11 @@ struct ContentView: View {
     @ViewBuilder
     private func arrangementMenu(_ score: ScoreDoc, number: Int?,
                                  inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])?) -> some View {
+        // A flat action, not a nested Menu: a Menu inside a contextMenu hung
+        // the app hard enough for the watchdog to kill it.
+        Button {
+            setlistChooserScore = score
+        } label: { Label("Add to set list…", systemImage: "music.note.list") }
         if let section, let number {
             let index = number - 1
             let slugs = section.arrangements.map(\.slug)
