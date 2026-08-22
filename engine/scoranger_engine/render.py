@@ -91,56 +91,120 @@ def _style_chart_svg(svg: str, harm_staves: set[int], grey: str = "#8f8f8f") -> 
 
 
 WHISTLE_TAG = "wf"
+# five or six single X/O/ verses on one note is a fingering, tag or no tag
+WHISTLE_COLUMN = 5
 _VERSE_RE = re.compile(r'<g[^>]*class="verse">.*?</g>\s*</g>', re.S)
 _SYMBOL_RE = re.compile(r'>([XO/])</tspan>')
 _X_RE = re.compile(r'<text x="([-\d.]+)"')
 _Y_RE = re.compile(r'<text[^>]*y="([-\d.]+)"')
 _SIZE_RE = re.compile(r'<tspan font-size="([\d.]+)px">')
 _TEXT_RE = re.compile(r"<text.*?</text>", re.S)
+_LABEL_RE = re.compile(r'<title class="labelAttr">([^<]*)</title>')
+_ANY_SYL_RE = re.compile(r'>([^<>]{1,3})</tspan>')
 
 
 def _fingering_diagrams(svg: str) -> str:
-    """Replace tagged whistle-fingering glyphs with drawn circles.
+    """Replace whistle-fingering glyphs with drawn circles.
 
     Verovio lays the fingerings out as lyric verses, which is what centres them
     under each notehead; it cannot draw a filled circle, and the circle glyphs
     are missing from the font the rasterizer falls back to. So the letters are
-    the notation and the circles are the drawing. Mirrors
-    ios/Scoranger/FingeringDiagrams.swift — keep the two in step.
+    the notation and the circles are the drawing.
+
+    Two kinds of verse qualify: ones the engine tagged (<lyric name="wf">), and
+    untagged columns of five or six single X/O/ verses on one note — fingerings
+    written before the tag existed, which are already sitting in scores.
+    Mirrors ios/Scoranger/FingeringDiagrams.swift; keep the two in step.
     """
-    if f">{WHISTLE_TAG}<" not in svg:
+    if 'class="verse"' not in svg:
         return svg
 
-    def one(match: "re.Match[str]") -> str:
-        block = match.group(0)
-        if f">{WHISTLE_TAG}</title>" not in block:
-            return block
-        symbol = _SYMBOL_RE.search(block)
-        x, y = _X_RE.search(block), _Y_RE.search(block)
-        size = _SIZE_RE.search(block)
-        if not (symbol and x and y and size):
-            return block
-        cx = float(x.group(1)) + 0.36 * float(size.group(1))
-        cy = float(y.group(1)) - 0.35 * float(size.group(1))
-        r = 0.28 * float(size.group(1))
-        stroke = 0.07 * float(size.group(1))
-        # paths rather than <circle>: the on-device renderer draws only the
-        # subset Verovio emits, and a <circle> vanished there
-        ring = (f'M {cx - r} {cy} A {r} {r} 0 1 0 {cx + r} {cy} '
-                f'A {r} {r} 0 1 0 {cx - r} {cy} Z')
-        if symbol.group(1) == "X":
-            shape = f'<path d="{ring}" fill="currentColor" stroke="none" />'
-        elif symbol.group(1) == "O":
-            shape = (f'<path d="{ring}" fill="none" stroke="currentColor" '
-                     f'stroke-width="{stroke}" />')
-        else:
-            shape = (f'<path d="{ring}" fill="none" stroke="currentColor" '
-                     f'stroke-width="{stroke}" />'
-                     f'<path d="M {cx - r} {cy} A {r} {r} 0 0 0 {cx + r} {cy} Z" '
-                     f'fill="currentColor" stroke="none" />')
-        return _TEXT_RE.sub(shape, block, count=1)
+    verses = list(_VERSE_RE.finditer(svg))
+    if not verses:
+        return svg
 
-    return _VERSE_RE.sub(one, svg)
+    parsed = []
+    for match in verses:
+        block = match.group(0)
+        symbol = _SYMBOL_RE.search(block)
+        label = _LABEL_RE.search(block)
+        text = label.group(1) if label else ""
+        parsed.append({
+            "match": match,
+            "block": block,
+            "tagged": text == WHISTLE_TAG,
+            "symbol": symbol.group(1) if symbol else None,
+            # the verse number, which restarts at 1 on each note. Grouping on
+            # this rather than on x: Verovio centres each syllable on its own
+            # width, so "X" and "O" verses of the SAME note sit at different x
+            # and a column of mixed holes never grouped.
+            "number": int(text) if text.isdigit() else None,
+            "text": (_ANY_SYL_RE.search(block).group(1)
+                     if _ANY_SYL_RE.search(block) else None),
+        })
+
+    convert = [bool(v["tagged"] and v["symbol"]) for v in parsed]
+    start = 0
+    while start < len(parsed):
+        end = start
+        while (end + 1 < len(parsed)
+               and parsed[end]["number"] is not None
+               and parsed[end + 1]["number"] is not None
+               and parsed[end + 1]["number"] > parsed[end]["number"]):
+            end += 1
+        run = parsed[start:end + 1]
+        holes = sum(1 for v in run if v["symbol"])
+        # the "+" octave mark belongs to the column but is not a hole; it stays
+        # text. Requiring every verse to be a hole rejected the second octave.
+        only_holes_and_octave = all(v["symbol"] or v["text"] == "+" for v in run)
+        if holes >= WHISTLE_COLUMN and only_holes_and_octave:
+            for i in range(start, end + 1):
+                if parsed[i]["symbol"]:
+                    convert[i] = True
+        start = end + 1
+
+    if not any(convert):
+        return svg
+
+    out, cursor = [], 0
+    for wanted, v in zip(convert, parsed):
+        match = v["match"]
+        out.append(svg[cursor:match.start()])
+        out.append(_draw_hole(v["block"]) if wanted else v["block"])
+        cursor = match.end()
+    out.append(svg[cursor:])
+    return "".join(out)
+
+
+def _draw_hole(block: str) -> str:
+    """One verse, already judged to be a hole."""
+    symbol = _SYMBOL_RE.search(block)
+    x, y = _X_RE.search(block), _Y_RE.search(block)
+    size = _SIZE_RE.search(block)
+    if not (symbol and x and y and size):
+        return block
+    font = float(size.group(1))
+    if font <= 0:
+        return block
+    cx = float(x.group(1)) + 0.36 * font
+    cy = float(y.group(1)) - 0.35 * font
+    r = 0.28 * font
+    stroke = 0.07 * font
+    # paths rather than <circle>: the on-device renderer draws only the
+    # subset Verovio emits, and a <circle> vanished there
+    ring = (f'M {cx - r} {cy} A {r} {r} 0 1 0 {cx + r} {cy} '
+            f'A {r} {r} 0 1 0 {cx - r} {cy} Z')
+    if symbol.group(1) == "X":
+        shape = f'<path d="{ring}" fill="currentColor" stroke="none" />'
+    elif symbol.group(1) == "O":
+        shape = (f'<path d="{ring}" fill="none" stroke="currentColor" '
+                 f'stroke-width="{stroke}" />')
+    else:
+        shape = (f'<path d="{ring}" fill="none" stroke="currentColor" '
+                 f'stroke-width="{stroke}" />'
+                 f'<path d="M {cx - r} {cy} A {r} {r} 0 0 0 {cx + r} {cy} Z" '
+                 f'fill="currentColor" stroke="none" />')
+    return _TEXT_RE.sub(shape, block, count=1)
 
 
 def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,

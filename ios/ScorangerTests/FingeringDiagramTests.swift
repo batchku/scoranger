@@ -71,10 +71,61 @@ final class FingeringDiagramTests: XCTestCase {
 
     // MARK: - What it leaves alone
 
-    func testUntaggedVersesAreNeverTouched() {
+    func testALoneUntaggedLyricIsNeverTouched() {
         // a song whose lyric is the word "O" must stay a word
         let lyric = verse(1, "O", tag: "1")
         XCTAssertEqual(FingeringDiagrams.draw(in: lyric), lyric)
+    }
+
+    /// Ali's build-126 report: fingerings written by build 125 carry no tag,
+    /// because the tag did not exist yet. A renderer that only understands its
+    /// own new output leaves those as letters forever, so a full column of
+    /// holes counts even untagged.
+    func testAnUntaggedColumnFromAnEarlierBuildIsStillDrawn() {
+        // six verses on one note, all single holes, numbered rather than tagged
+        let column = (1...6).map { verse($0, $0 <= 4 ? "X" : "O", tag: "\($0)") }
+            .joined()
+        let out = FingeringDiagrams.draw(in: column)
+        XCTAssertEqual(out.components(separatedBy: "<path").count - 1, 6,
+                       "a 125-era fingering column should draw: \(out)")
+        XCTAssertFalse(out.contains("<text"), "no letters should survive")
+    }
+
+    /// A second-octave note carries seven verses: six holes and a "+". The
+    /// first attempt at the untagged rule required every verse in a run to be a
+    /// hole, which rejected every overblown note in the score — 564 letters
+    /// left on Ali's page after the rest had become circles.
+    func testAnUntaggedColumnWithAnOctaveMarkStillDraws() {
+        var column = (1...6).map { verse($0, "X", tag: "\($0)") }
+        column.append(verse(7, "+", tag: "7"))
+        let out = FingeringDiagrams.draw(in: column.joined())
+        XCTAssertEqual(out.components(separatedBy: "<path").count - 1, 6,
+                       "six holes should draw: \(out)")
+        XCTAssertTrue(out.contains(">+</tspan>"),
+                      "the octave mark stays as text, every font has a plus")
+    }
+
+    func testAShortUntaggedRunIsLeftAsWords() {
+        // four verses is a hymn, not a whistle: below the column threshold
+        let hymn = (1...4).map { verse($0, "O", tag: "\($0)") }.joined()
+        XCTAssertEqual(FingeringDiagrams.draw(in: hymn), hymn,
+                       "four verses is not a fingering column")
+    }
+
+    func testColumnsAreSeparatedByTheirNotePosition() {
+        // two notes, six holes each: twelve shapes, and neither run bleeds
+        let first = (1...6).map { verse($0, "X", tag: "\($0)", x: 2670) }.joined()
+        let second = (1...6).map { verse($0, "O", tag: "\($0)", x: 3360) }.joined()
+        let out = FingeringDiagrams.draw(in: first + second)
+        XCTAssertEqual(out.components(separatedBy: "<path").count - 1, 12)
+    }
+
+    func testAMixedRunOfWordsAndHolesIsNotAColumn() {
+        // five verses on one note but one of them is a word
+        let mixed = (1...5).map { i -> String in
+            verse(i, i == 3 ? "la" : "X", tag: "\(i)")
+        }.joined()
+        XCTAssertEqual(FingeringDiagrams.draw(in: mixed), mixed)
     }
 
     func testTheOctaveMarkStaysAsText() {

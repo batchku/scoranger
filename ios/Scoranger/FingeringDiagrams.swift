@@ -12,9 +12,15 @@ import Foundation
 /// this replaces each tagged verse glyph with an SVG shape at the coordinates
 /// Verovio already chose.
 ///
-/// Only verses tagged by the engine (`<title>wf</title>`, from
-/// `<lyric name="wf">`) are touched, so a song whose lyric is the word "O" is
-/// never turned into an open hole.
+/// Two kinds of verse are converted. Ones the engine tagged (`<title>wf</title>`,
+/// from `<lyric name="wf">`), and ones that are unmistakably a fingering column
+/// even without the tag: five or six verses on the same note, every one of them
+/// a single X, O or /. The second rule exists because fingerings written before
+/// the tag existed are sitting in people's scores, and a renderer that only
+/// understood its own new output would leave those as letters forever.
+///
+/// A song whose lyric happens to be the word "O" is safe either way: one verse
+/// is not a column.
 enum FingeringDiagrams {
     /// The engine's marker, mirrored from ops.WHISTLE_LYRIC_TAG.
     static let tag = "wf"
@@ -22,6 +28,11 @@ enum FingeringDiagrams {
     static let covered = "X"
     static let open = "O"
     static let half = "/"
+    /// The overblown-octave mark. It stays text — it is a "+", which every font
+    /// has — but it belongs to the column, so a run containing it is still a
+    /// fingering. Requiring every verse to be a hole rejected the whole second
+    /// octave.
+    static let octave = "+"
 
     // Proportions of the verse's own font size, so the diagram scales with the
     // engraving at any page size.
@@ -30,32 +41,103 @@ enum FingeringDiagrams {
     private static let radius: CGFloat = 0.28
     private static let strokeWidth: CGFloat = 0.07
 
-    /// Rewrite every tagged verse in a Verovio SVG page.
+    /// Smallest run of same-note verses that reads as a fingering rather than
+    /// as words. Six holes is a full diagram; five allows for an engraver
+    /// dropping an empty verse.
+    static let columnThreshold = 5
+
+    /// One verse, parsed far enough to decide what it is.
+    private struct Verse {
+        let range: NSRange
+        let block: String
+        let tagged: Bool
+        let symbol: String?
+        /// Whatever the verse actually says, hole or not.
+        let text: String?
+        /// The verse's own number, which restarts at 1 on each note. Grouping
+        /// on this rather than on x: Verovio centres each syllable on its own
+        /// width, so an "X" verse and an "O" verse of the SAME note sit at
+        /// different x, and a column of mixed holes never grouped.
+        let number: Int?
+    }
+
+    /// Rewrite every fingering verse in a Verovio SVG page.
     static func draw(in svg: String) -> String {
-        guard svg.contains(">\(tag)<") else { return svg }   // nothing to do
+        guard svg.contains("class=\"verse\"") else { return svg }
         guard let verseRE = try? NSRegularExpression(
                 pattern: "<g[^>]*class=\"verse\">.*?</g>\\s*</g>",
                 options: [.dotMatchesLineSeparators]) else { return svg }
 
         let ns = svg as NSString
+        let verses = verseRE.matches(in: svg, range: NSRange(location: 0, length: ns.length))
+            .map { match -> Verse in
+                let block = ns.substring(with: match.range)
+                let label = value(of: "(?<=<title class=\"labelAttr\">)[^<]*(?=</title>)",
+                                  in: block)
+                return Verse(range: match.range,
+                             block: block,
+                             tagged: label == tag,
+                             symbol: fingeringSymbol(in: block),
+                             text: value(of: "(?<=>)[^<>]{1,3}(?=</tspan>)", in: block),
+                             number: label.flatMap { Int($0) })
+            }
+        guard !verses.isEmpty else { return svg }
+
+        let convertible = columns(in: verses)
+        guard convertible.contains(true) else { return svg }
+
         var out = ""
         var cursor = 0
-        for match in verseRE.matches(in: svg, range: NSRange(location: 0, length: ns.length)) {
-            let block = ns.substring(with: match.range)
+        for (index, verse) in verses.enumerated() {
             out += ns.substring(with: NSRange(location: cursor,
-                                              length: match.range.location - cursor))
-            out += rewrite(block) ?? block
-            cursor = match.range.location + match.range.length
+                                              length: verse.range.location - cursor))
+            out += (convertible[index] ? rewrite(verse.block) : nil) ?? verse.block
+            cursor = verse.range.location + verse.range.length
         }
         out += ns.substring(from: cursor)
         return out
     }
 
-    /// One verse group: a circle if it is a tagged hole, unchanged otherwise.
-    private static func rewrite(_ block: String) -> String? {
-        guard block.contains(">\(tag)</title>") else { return nil }
+    /// Which verses belong to a fingering: tagged ones, and untagged ones that
+    /// sit in a tall column of holes on a single note.
+    private static func columns(in verses: [Verse]) -> [Bool] {
+        var convert = verses.map { $0.tagged && $0.symbol != nil }
+        var runStart = 0
+        while runStart < verses.count {
+            var runEnd = runStart
+            // one note's verses are numbered 1, 2, 3…; the next note starts
+            // over, which is where one column ends and the next begins
+            while runEnd + 1 < verses.count,
+                  let here = verses[runEnd].number,
+                  let next = verses[runEnd + 1].number,
+                  next > here {
+                runEnd += 1
+            }
+            let run = verses[runStart...runEnd]
+            let holes = run.filter { $0.symbol != nil }.count
+            let onlyHolesAndOctave = run.allSatisfy {
+                $0.symbol != nil || $0.text == octave
+            }
+            if holes >= columnThreshold, onlyHolesAndOctave {
+                for i in runStart...runEnd where verses[i].symbol != nil {
+                    convert[i] = true
+                }
+            }
+            runStart = runEnd + 1
+        }
+        return convert
+    }
+
+    /// The hole this verse draws, if it is one.
+    private static func fingeringSymbol(in block: String) -> String? {
         guard let symbol = value(of: "(?<=>)[XO/](?=</tspan>)", in: block),
-              [covered, open, half].contains(symbol),
+              [covered, open, half].contains(symbol) else { return nil }
+        return symbol
+    }
+
+    /// One verse group, already judged to be a hole: draw it.
+    private static func rewrite(_ block: String) -> String? {
+        guard let symbol = fingeringSymbol(in: block),
               let x = number(of: "<text x=\"([-0-9.]+)\"", in: block),
               let y = number(of: "<text[^>]*y=\"([-0-9.]+)\"", in: block),
               // the INNER tspan carries the real size; the enclosing <text> is
