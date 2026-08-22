@@ -22,25 +22,41 @@ final class AppState: ObservableObject {
     /// toggle; flipping it applies a respell op. Defaults to flats.
     @Published var useFlats: [String: Bool] = [:]
 
-    /// Pencil-highlighted measure range on the displayed score (v1 estimate
-    /// from stroke geometry). Injected into chat context so "the highlighted
-    /// passage" resolves to these bars.
-    @Published var highlightedBars: ClosedRange<Int>?
-    /// Where the highlight came from (e.g. "pencil highlight on page 2").
-    @Published var highlightNote: String?
-    /// Highlight-capture mode. Lives here, not in the score pane, because the
-    /// score's gear menu turns it on and the pane only reacts.
-    @Published var highlightMode = false
-    /// The drawn highlight band per page index, in unit (0…1) page coordinates,
-    /// so the yellow band stays visible (across zoom levels) while a highlight
-    /// is active. Cleared together with `highlightedBars`.
-    @Published var highlightBands: [Int: CGRect] = [:]
+    /// What the lasso caught, held by durable address so it survives the
+    /// re-render every engine op triggers. This replaces the yellow-band
+    /// highlight, which inferred bar numbers from where a stroke landed across
+    /// the page — an estimate that was wrong as often as it was right.
+    @Published var selection: ScoreSelection?
+    /// The drawn lasso per page index, in unit (0…1) page coordinates, so the
+    /// outline survives zoom. Cleared with the selection.
+    @Published var selectionPaths: [Int: [CGPoint]] = [:]
+    /// The hit-test model for the engraving currently on screen, built from the
+    /// same Verovio load that drew it.
+    @Published var geometry: ScoreGeometry?
+    /// Bumped to ask the UI to open chat, with text for its input: how a
+    /// finished lasso shows the user that the selection registered.
+    @Published var chatOpenRequest = 0
+    @Published var pendingChatInsert: String?
 
-    /// Drop the active highlight and its drawn bands.
-    func clearHighlight() {
-        highlightedBars = nil
-        highlightNote = nil
-        highlightBands = [:]
+    /// Drop the active selection and its drawn lasso.
+    func clearSelection() {
+        selection = nil
+        selectionPaths = [:]
+    }
+
+    /// A finished lasso: what it caught, drawn where it was drawn, handed to
+    /// chat so the next prompt can refer to it.
+    func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int) {
+        let picked = ScoreSelection(elements)
+        selectionPaths = [page: path]
+        guard !picked.isEmpty else {
+            // the lasso caught nothing addressable: show it, say nothing to chat
+            selection = nil
+            return
+        }
+        selection = picked
+        pendingChatInsert = picked.chatReference
+        chatOpenRequest += 1
     }
 
     /// PDFs currently being converted in the cloud — shown greyed out in the
@@ -396,14 +412,22 @@ final class AppState: ObservableObject {
         defer { loadingPDF = false }
         do {
             let data: Data
+            var model: ScoreGeometry?
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
-                data = try await VerovioRenderer.shared.renderPDF(musicXMLPath: path)
+                // one engrave: the pages drawn and the model hit-tested are the
+                // same Verovio load, or a lasso would select from a stale page
+                let engraving = try await VerovioRenderer.shared.engrave(musicXMLPath: path)
+                data = engraving.pdf
+                model = engraving.geometry
             } else {
                 data = try await client.exportPDF(score: score.slug, version: vid)
             }
             if renderedKey == key {  // selection may have moved while fetching
                 pdfDocument = PDFDocument(data: data)
+                geometry = model
+                // the old lasso described elements of the page just replaced
+                clearSelection()
                 lastError = nil
             }
         } catch let e as EngineError {
@@ -642,8 +666,8 @@ final class AppState: ObservableObject {
     // preferredCompactColumn — no List-selection tricks needed here.
     func select(slug: String, version: String? = nil) {
         if slug != selectedSlug {
-            // a highlight describes bars of the previously shown score
-            clearHighlight()
+            // a selection describes elements of the previously shown score
+            clearSelection()
         }
         selectedSlug = slug
         previewedSlug = slug
@@ -963,18 +987,17 @@ final class AppState: ObservableObject {
             + "to versions or measures."
     }
 
-    /// Chat context plus the active pencil highlight, if any, so prompts can
-    /// say "the highlighted passage" and mean those measures.
+    /// Chat context plus the active selection, if any, so a prompt can say
+    /// "the selection" and mean exactly the elements the user lassoed.
     func chatContextWithHighlight(for slug: String) -> String? {
         var pieces: [String] = []
         if let base = chatContext(for: slug) { pieces.append(base) }
-        if let bars = highlightedBars {
-            pieces.append("A highlight is ACTIVE on measures \(bars.lowerBound)–\(bars.upperBound). "
-                + "Apply every operation ONLY to that range: pass "
-                + "from_measure=\(bars.lowerBound) and to_measure=\(bars.upperBound) to tools "
-                + "that accept them (transpose, respell, octave_shift), and refuse or ask "
-                + "before making whole-piece changes while the highlight is active. Requests "
-                + "referring to 'the highlighted passage/selection' mean exactly those measures.")
+        if let description = selection?.chatDescription {
+            pieces.append(description
+                + " Requests referring to 'the selection' or 'the highlighted "
+                + "passage' mean exactly those bars: pass from_measure/to_measure "
+                + "to tools that accept them, and ask before making whole-piece "
+                + "changes while a selection is active.")
         }
         return pieces.isEmpty ? nil : pieces.joined(separator: " ")
     }

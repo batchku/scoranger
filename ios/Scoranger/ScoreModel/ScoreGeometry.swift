@@ -127,6 +127,42 @@ struct ScorePage {
             .sorted { $0.sessionID < $1.sessionID }
     }
 
+    /// What a drawn path caught, whatever shape the user drew.
+    ///
+    /// A loop selects what it encloses. A stroke — a path with almost no area,
+    /// which is what a quick swipe through a bar produces — selects what its
+    /// band covers instead, thickened so a line drawn along a staff still has
+    /// height to it. Without this a swipe closes into a zero-area polygon and
+    /// selects nothing, which reads as the feature being broken.
+    func elements(caughtBy path: [CGPoint],
+                  kinds: Set<ScoreElementKind>? = nil) -> [ScoreElement] {
+        guard path.count >= 2 else { return [] }
+        let bounds = Self.boundingBox(of: path)
+        let area = abs(Self.signedArea(of: path))
+        let boxArea = bounds.width * bounds.height
+        if path.count >= 3, boxArea > 0, area / boxArea > 0.15 {
+            return elements(inLasso: path, kinds: kinds)
+        }
+        // a stroke: give it a band to catch things with, ~1.5% of the page
+        let minimum = max(size.height * 0.015, 1)
+        let band = bounds.insetBy(dx: bounds.width < minimum ? -(minimum - bounds.width) / 2 : 0,
+                                  dy: bounds.height < minimum ? -(minimum - bounds.height) / 2 : 0)
+        return elements(in: band, kinds: kinds)
+    }
+
+    /// Shoelace: positive or negative by winding, zero for a path that doubles
+    /// back on itself.
+    static func signedArea(of points: [CGPoint]) -> CGFloat {
+        guard points.count >= 3 else { return 0 }
+        var total: CGFloat = 0
+        for i in points.indices {
+            let a = points[i]
+            let b = points[(i + 1) % points.count]
+            total += a.x * b.y - b.x * a.y
+        }
+        return total / 2
+    }
+
     private static func matches(_ element: ScoreElement,
                                 _ kinds: Set<ScoreElementKind>?) -> Bool {
         guard let kinds else { return true }

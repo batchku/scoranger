@@ -41,6 +41,10 @@ final class BoundsAwareScrollView: UIScrollView {
 struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// Layout width for the content at zoom 1.
     let contentWidth: CGFloat
+    /// A finished lasso: the page it was drawn on, and its unit points.
+    var onLasso: ((Int, [CGPoint]) -> Void)?
+    /// Markup mode, for the simulator's finger stand-in only (see LassoArbiter).
+    var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
     /// cover the end of the score. The caller owns the number because it owns
     /// the pill's geometry.
@@ -71,6 +75,17 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         // actually did to the canvas
         scroll.accessibilityValue = "zoom 1.00"
 
+        // Selection is finger-held + Pencil. The recognizer sits here because
+        // it must see touches delivered to any page below it, and it disables
+        // scrolling for the duration so the held finger cannot drag the page
+        // out from under the stroke.
+        let lasso = LassoGestureRecognizer(target: context.coordinator,
+                                           action: #selector(Coordinator.lassoFired(_:)))
+        lasso.arbiter.fingerStandsInForPencil =
+            ProcessInfo.processInfo.arguments.contains("-lassoWithFinger")
+        scroll.addGestureRecognizer(lasso)
+        context.coordinator.lasso = lasso
+
         let host = UIHostingController(rootView: AnyView(content()))
         host.view.backgroundColor = .clear
         scroll.addSubview(host.view)
@@ -81,6 +96,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
+        context.coordinator.lasso?.onEnd = onLasso
+        context.coordinator.lasso?.arbiter.annotationActive = annotationActive
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.bottomChrome = bottomChrome
         scroll.minimumZoomScale = zoomRange.lowerBound
@@ -97,6 +114,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     final class Coordinator: NSObject, UIScrollViewDelegate {
         var host: UIHostingController<AnyView>?
         weak var scroll: UIScrollView?
+        weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
         var bottomChrome: CGFloat = 0
         private var laidOutSize: CGSize = .zero
@@ -184,6 +202,17 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// where the page sits. Re-centre against the bounds we now have.
         func viewportChanged() {
             centreIfNeeded()
+        }
+
+        /// Scrolling is off while a lasso is being drawn: the modifier finger
+        /// is resting on the page, and a page that slid under the stroke would
+        /// make the selection meaningless.
+        @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {
+            switch recognizer.state {
+            case .began: scroll?.isScrollEnabled = false
+            case .ended, .cancelled, .failed: scroll?.isScrollEnabled = true
+            default: break
+            }
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }

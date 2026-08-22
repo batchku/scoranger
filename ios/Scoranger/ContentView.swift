@@ -222,6 +222,11 @@ struct ContentView: View {
         }
         .animation(Theme.Motion.overlay(reduced: reduceMotion), value: libraryOpen)
         .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+        // a finished lasso opens chat: the selection has to be visibly received,
+        // not silently held
+        .onChange(of: state.chatOpenRequest) { _, _ in
+            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = true }
+        }
     }
 
     @ViewBuilder
@@ -968,8 +973,6 @@ struct ContentView: View {
                 state.respell(preferFlats: newValue)
             }))
         if !isCompact {
-            Toggle("Highlight a passage for chat", isOn: Binding(
-                get: { state.highlightMode }, set: { state.highlightMode = $0 }))
             Button {
                 if let score = state.selectedScore, let vid = state.displayedVersionID {
                     DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")

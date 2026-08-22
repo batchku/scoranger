@@ -174,11 +174,24 @@ struct ChatView: View {
         }
     }
 
+    /// Move what the lasso caught into the input, where the user is about to
+    /// type, so the selection is visibly in hand.
+    private func consumePendingInsert() {
+        guard let insert = state.pendingChatInsert, !insert.isEmpty else { return }
+        let sep = draft.isEmpty || draft.hasSuffix(" ") ? "" : " "
+        draft = draft + sep + insert
+        state.pendingChatInsert = nil
+        inputFocused = true
+    }
+
     // MARK: - Input (§7.13)
 
     private var inputBar: some View {
         HStack(spacing: Theme.Metric.s8) {
             TextField(dictation.errorText ?? "Arrange…", text: $draft, axis: .vertical)
+                // a stable name: the placeholder stops identifying the field
+                // the moment there is text in it
+                .accessibilityIdentifier("chat-input")
                 .typeRole(.body)
                 // explicit ink: an unstyled field takes the system foreground,
                 // which is white wherever the OS thinks it is dark
@@ -195,6 +208,11 @@ struct ChatView: View {
                         .stroke(inputFocused ? Theme.Accent.clay : Theme.Line.line2,
                                 lineWidth: 1)
                 }
+                .onChange(of: state.pendingChatInsert) { _, _ in consumePendingInsert() }
+                // and on appear: a lasso sets the text and opens the panel in
+                // the same breath, so the value is already there by the time
+                // this view exists and no change event will ever arrive
+                .onAppear { consumePendingInsert() }
                 .onChange(of: dictation.transcript) {
                     guard !dictation.transcript.isEmpty else { return }
                     let sep = dictationBase.isEmpty || dictationBase.hasSuffix(" ") ? "" : " "

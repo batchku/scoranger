@@ -18,27 +18,17 @@ struct ScorePagesView: View {
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
     @State private var rasterZoom: CGFloat = 1.0
-    /// Chip expanded into steppers for adjusting the estimated range.
-    @State private var chipExpanded = false
     /// Pencil markup: the shared controller, driven from the pill.
     private var annotation: AnnotationController { state.annotation }
 
     private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
 
-    /// Measure count of the displayed version (falls back to the score's
-    /// latest version snapshot) — the basis of the linear bar estimate.
-    private var measureCount: Int {
-        let fromDisplayed = state.displayedVersion?.parts?.first?.measures
-        let fromLatest = state.selectedScore.flatMap { score in
-            score.versions.first { $0.id == score.latest }?.parts?.first?.measures
-        }
-        return max(fromDisplayed ?? fromLatest ?? 0, 1)
-    }
-
     var body: some View {
         GeometryReader { geo in
             let width = min(geo.size.width - 24, 1100)
             ZoomableScroll(contentWidth: max(width + 24, geo.size.width),
+                           onLasso: { page, path in select(path: path, onPage: page) },
+                           annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
                            bottomChrome: Theme.Metric.pillHeight
@@ -51,13 +41,9 @@ struct ScorePagesView: View {
                 pageStack(width: width, viewport: geo.size)
             }
         }
-        .overlay(alignment: .top) { highlightChip }
+        .overlay(alignment: .top) { selectionChip }
         .overlay(alignment: .bottom) {
             if annotation.isOn { AnnotationBar(controller: annotation) }
-        }
-        .onChange(of: state.highlightMode) { _, on in
-            // both modes want the Pencil; only one at a time
-            if on { annotation.isOn = false }
         }
     }
 
@@ -76,37 +62,9 @@ struct ScorePagesView: View {
                              drawingKey: "\(annotationKey)/p\(index)",
                              annotation: annotation)
                         .overlay {
-                            // the committed band stays visible (in unit page
-                            // coordinates, so it survives zoom) while a
-                            // highlight is active
-                            if state.highlightedBars != nil,
-                               let band = state.highlightBands[index] {
-                                GeometryReader { g in
-                                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                        .fill(Theme.Status.highlight)
-                                        .frame(width: band.width * g.size.width,
-                                               height: band.height * g.size.height)
-                                        .offset(x: band.minX * g.size.width,
-                                                y: band.minY * g.size.height)
-                                }
+                            LassoAnchor(pageIndex: index,
+                                        committed: state.selectionPaths[index] ?? [])
                                 .allowsHitTesting(false)
-                            }
-                        }
-                        .overlay {
-                            if state.highlightMode {
-                                HighlightCaptureOverlay(
-                                    pageIndex: index,
-                                    pageCount: max(document.pageCount, 1),
-                                    measures: measureCount
-                                ) { bars, note, bandRect in
-                                    state.highlightedBars = bars
-                                    state.highlightNote = note
-                                    // one band at a time: a new stroke replaces
-                                    // the previous selection
-                                    state.highlightBands = [index: bandRect]
-                                    chipExpanded = false
-                                }
-                            }
                         }
                         .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
                 }
@@ -116,53 +74,43 @@ struct ScorePagesView: View {
         .padding(.vertical, 12)
     }
 
-    // MARK: highlight chip
+    // MARK: selection chip
 
-    /// §7.10: a panel chip with a caps label, mono bar numbers on `well` cells,
-    /// and the sentence that says where the selection goes.
+    /// §7.10 as before, but describing a real selection rather than an
+    /// estimate: what was caught, and a way to drop it.
     @ViewBuilder
-    private var highlightChip: some View {
-        if let bars = state.highlightedBars {
+    private var selectionChip: some View {
+        if let selection = state.selection, !selection.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Metric.s6) {
                 HStack(spacing: Theme.Metric.s8) {
-                    Text("Passage").typeRole(.label)
+                    Text("Selection").typeRole(.label)
                         .foregroundStyle(Theme.Accent.clayStrong)
                     Spacer(minLength: Theme.Metric.s8)
                     Button {
-                        state.clearHighlight()
-                        chipExpanded = false
+                        state.clearSelection()
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Theme.Ink.ink2)
-                            .frame(width: 22, height: 22)
                             .frame(width: Theme.Metric.hitTarget,
                                    height: Theme.Metric.hitTarget)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear highlight")
+                    .accessibilityLabel("Clear selection")
                 }
-                Button { chipExpanded.toggle() } label: {
-                    HStack(spacing: Theme.Metric.s4) {
-                        barCell("\(bars.lowerBound)")
+                HStack(spacing: Theme.Metric.s4) {
+                    let bars = selection.bars
+                    barCell("\(bars.first ?? 0)")
+                    if bars.count > 1 {
                         Text("–").typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        barCell("\(bars.upperBound)")
+                        barCell("\(bars.last ?? 0)")
                     }
-                    .contentShape(Rectangle())
+                    Text("\(selection.addresses.count) elements").typeRole(.meta)
+                        .foregroundStyle(Theme.Ink.ink3)
                 }
-                .buttonStyle(.plain)
                 Text("handed to chat").typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
-                if chipExpanded {
-                    Stepper(value: chipLow, in: 1...bars.upperBound) {
-                        Text("from bar \(bars.lowerBound)").typeRole(.meta)
-                    }
-                    Stepper(value: chipHigh,
-                            in: bars.lowerBound...max(measureCount, bars.upperBound)) {
-                        Text("to bar \(bars.upperBound)").typeRole(.meta)
-                    }
-                }
             }
             .padding(.horizontal, Theme.Metric.s12)
             .padding(.vertical, Theme.Metric.s8)
@@ -173,9 +121,24 @@ struct ScorePagesView: View {
                     .stroke(Theme.Line.line2, lineWidth: 1)
             }
             .modifier(ChipShadow())
-            .padding(.top, Theme.Metric.s8)
-            .frame(maxWidth: 260)
+            .padding(.top, Theme.Metric.s12)
+            .accessibilityIdentifier("selection-chip")
         }
+    }
+
+    /// A finished lasso: everything whose position falls inside it, on this
+    /// page, whatever kind it is — notes, chord symbols, clefs, dynamics.
+    /// Selecting "a bar" is lassoing the notes in it.
+    private func select(path: [CGPoint], onPage index: Int) {
+        guard let page = state.geometry?.page(index) else {
+            state.selectionPaths = [index: path]
+            return
+        }
+        // unit coordinates -> page (SVG user) coordinates
+        let polygon = path.map { CGPoint(x: $0.x * page.size.width,
+                                         y: $0.y * page.size.height) }
+        let caught = page.elements(caughtBy: polygon)
+        state.commitSelection(caught, path: path, page: index)
     }
 
     private func barCell(_ text: String) -> some View {
@@ -189,84 +152,6 @@ struct ScorePagesView: View {
                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                     .stroke(Theme.Line.line2, lineWidth: 1)
             }
-    }
-
-    private var chipLow: Binding<Int> {
-        Binding(
-            get: { state.highlightedBars?.lowerBound ?? 1 },
-            set: { new in
-                guard let bars = state.highlightedBars else { return }
-                state.highlightedBars = min(new, bars.upperBound)...bars.upperBound
-            })
-    }
-
-    private var chipHigh: Binding<Int> {
-        Binding(
-            get: { state.highlightedBars?.upperBound ?? 1 },
-            set: { new in
-                guard let bars = state.highlightedBars else { return }
-                state.highlightedBars = bars.lowerBound...max(new, bars.lowerBound)
-            })
-    }
-}
-
-/// Highlight-mode capture layer over one page: a stroke's horizontal span,
-/// combined with the page's position in the document, maps linearly onto the
-/// score's measure count — a deliberate v1 estimate (hence the "≈" chip).
-private struct HighlightCaptureOverlay: View {
-    let pageIndex: Int
-    let pageCount: Int
-    let measures: Int
-    /// (bar range, provenance note, committed band in unit page coordinates)
-    let onHighlight: (ClosedRange<Int>, String, CGRect) -> Void
-
-    @State private var dragStart: CGPoint?
-    @State private var dragCurrent: CGPoint?
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                if let s = dragStart, let c = dragCurrent {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.yellow.opacity(0.3))
-                        .frame(width: max(abs(c.x - s.x), 8), height: 44)
-                        .position(x: (s.x + c.x) / 2, y: (s.y + c.y) / 2)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 4)
-                    .onChanged { value in
-                        if dragStart == nil { dragStart = value.startLocation }
-                        dragCurrent = value.location
-                    }
-                    .onEnded { value in
-                        defer {
-                            dragStart = nil
-                            dragCurrent = nil
-                        }
-                        guard let s = dragStart else { return }
-                        let pageWidth = max(geo.size.width, 1)
-                        let pageHeight = max(geo.size.height, 1)
-                        let x0 = min(s.x, value.location.x) / pageWidth
-                        let x1 = max(s.x, value.location.x) / pageWidth
-                        // linear position across the whole document, 0…1
-                        let g0 = (Double(pageIndex) + Double(x0)) / Double(pageCount)
-                        let g1 = (Double(pageIndex) + Double(x1)) / Double(pageCount)
-                        let lo = max(1, min(measures, Int(g0 * Double(measures)) + 1))
-                        let hi = max(lo, min(measures, Int((g1 * Double(measures)).rounded(.up))))
-                        // the drawn band, normalized so it can be re-rendered
-                        // at any zoom level
-                        let midY = (s.y + value.location.y) / 2
-                        let band = CGRect(x: x0,
-                                          y: max(0, (midY - 22) / pageHeight),
-                                          width: max(x1 - x0, 8 / pageWidth),
-                                          height: 44 / pageHeight)
-                        onHighlight(lo...hi, "pencil highlight on page \(pageIndex + 1)", band)
-                    }
-            )
-        }
     }
 }
 
