@@ -91,7 +91,7 @@ targets:
         # ships as CFBundleVersion, what App Store Connect records, and what the
         # app's footer shows. Bump with scripts/bump_build.sh (never by hand,
         # never by letting Xcode manage it at upload time).
-        CURRENT_PROJECT_VERSION: 122
+        CURRENT_PROJECT_VERSION: 123
         MARKETING_VERSION: 0.1.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
@@ -120,6 +120,11 @@ targets:
     info:
       path: Scoranger/Info.plist
       properties:
+        # Paper & Clay is light-only by decision (design system 7A): no dark
+        # palette exists, so following the system just turns system-coloured
+        # text white on light surfaces. Declared for UIKit too, not only in
+        # SwiftUI, so hosted views (PencilKit, menus, alerts) agree.
+        UIUserInterfaceStyle: Light
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
@@ -174,6 +179,9 @@ targets:
       - path: ScorangerTests
         excludes: ["Fixtures"]
       - path: Scoranger/ScoreModel
+      # compiled in, not linked: the bundle has no host app, and the PDF
+      # preflight is pure geometry that can be tested the same way
+      - path: Scoranger/PDFPreflight.swift
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources

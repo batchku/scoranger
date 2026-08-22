@@ -22,7 +22,7 @@ from . import ops, workspace
 # (IDs verified 2026-08-15; all tool-calling capable through OpenRouter.)
 MODELS = {
     "gemini-flash": "openrouter:google/gemini-3.7-flash",        # $0.38/$1.88 per 1M
-    "kimi": "openrouter:moonshotai/kimi-k3:exacto",              # $3.00/$15 — :exacto = curated tool-call routing
+    "kimi": "openrouter:moonshotai/kimi-k3",                     # $3.00/$15 (the :exacto route was retired)
     "qwen": "openrouter:qwen/qwen3.8-max",                       # $2.00/$6.00
     "claude": "openrouter:anthropic/claude-sonnet-5",            # $2.00/$10 — best judgment in our bake-off
     "claude-opus": "openrouter:anthropic/claude-opus-5",         # $5.00/$25

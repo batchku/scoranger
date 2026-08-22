@@ -458,6 +458,21 @@ final class DrawingStore {
         try? drawing.dataRepresentation().write(to: url(for: key))
     }
 
+    /// Re-file every drawing of one arrangement under a new slug. The engine
+    /// moves the score's artifacts when a slug is renamed; the user's pencil
+    /// marks live here, keyed by "<slug>/<version>/pN", so they have to move
+    /// too or they are silently orphaned.
+    func rename(fromPrefix old: String, toPrefix new: String) {
+        let from = old.replacingOccurrences(of: "/", with: "_")
+        let to = new.replacingOccurrences(of: "/", with: "_")
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        for f in files where f.lastPathComponent.hasPrefix(from + "_") {
+            let moved = to + String(f.lastPathComponent.dropFirst(from.count))
+            try? FileManager.default.moveItem(at: f, to: dir.appending(path: moved))
+        }
+    }
+
     func clear(prefix: String) {
         let safePrefix = prefix.replacingOccurrences(of: "/", with: "_")
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []

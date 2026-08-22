@@ -278,6 +278,10 @@ def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
 
 
+def cmd_rename_slug(a):
+    _emit(workspace.rename_slug(a.score, a.to))
+
+
 def cmd_set_metadata(a):
     _emit(workspace.set_score_metadata(a.score, title=a.title, composer=a.composer,
                                        arranger=a.arranger))
@@ -504,6 +508,12 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("rename-slug",
+                       help="Change the slug a score is filed under (moves artifacts)")
+    s.add_argument("score")
+    s.add_argument("--to", required=True, help="the new slug (normalized like an import)")
+    s.set_defaults(fn=cmd_rename_slug)
 
     s = sub.add_parser("set-metadata",
                        help="Edit a score's metadata (title engraves on the page)")
