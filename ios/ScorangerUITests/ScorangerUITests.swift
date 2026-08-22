@@ -18,7 +18,12 @@ final class ScorangerUITests: XCTestCase {
         app = XCUIApplication()
         // -resetLibrary so each test starts from the same seeded library: these
         // tests rename things, and the on-device workspace outlives the app.
-        app.launchArguments = ["-resetLibrary", "-seedTestLibrary", "-annotateWithFinger"]
+        // -lassoWithFinger: selection is finger-held + Pencil, and the
+        // simulator has no Pencil. The stand-in lets a finger drag draw the
+        // lasso so the rest of the path (hit-test, chip, chat handoff) is
+        // covered end to end; the arbitration rule itself is unit-tested.
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
+                               "-annotateWithFinger", "-lassoWithFinger"]
         app.launch()
         // the library overlay starts open on iPad; band headers render uppercased
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
@@ -614,6 +619,76 @@ final class ScorangerUITests: XCTestCase {
             "the key fields do not say which key is in use")
         shot("settings-labelled")
         app.buttons["Done"].firstMatch.tap()
+    }
+
+    // MARK: - Selection (build 124)
+
+    /// The old yellow-band highlight is gone, replaced by a real selection.
+    func testTheOldHighlightFeatureIsGone() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
+        app.buttons["pill-options"].tap()
+        XCTAssertFalse(app.buttons["Highlight a passage for chat"].exists,
+                       "the bar-estimate highlight toggle is still in the options menu")
+        XCTAssertTrue(app.buttons["Clear markup"].waitForExistence(timeout: 5),
+                      "the options menu did not open")
+        // dismiss the menu
+        app.buttons["Clear markup"].tap()
+    }
+
+    /// Draw across a bar: the elements under the stroke are
+    /// selected, the chip says what was caught, chat opens by itself, and the
+    /// reference lands in the input ready to be typed against.
+    func testLassoSelectsElementsAndHandsThemToChat() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        // The canvas existing is not the same as *this* score being on it: the
+        // app opens the most recently touched arrangement at launch, so the
+        // first canvas to appear can belong to the other one and the stroke
+        // would land mid-swap. Wait for the engrave this test asked for.
+        sleep(12)
+
+        // A stroke through a system. Which y holds notes depends on where the
+        // page sits, so try a few bands rather than pinning one magic number —
+        // what is being tested is that a lasso selects and reaches chat.
+        let chip = app.staticTexts["Selection"]
+        var caught = false
+        for y in [0.30, 0.20, 0.42, 0.55] where !caught {
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+            let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y))
+            start.press(forDuration: 0.1, thenDragTo: end)
+            caught = chip.waitForExistence(timeout: 8)
+        }
+        XCTAssertTrue(caught, "nothing was selected by any stroke across the page")
+        shot("selection-made")
+
+        // chat opened by itself, carrying the reference
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 20),
+                      "a finished selection should open chat")
+        let input = app.textFields["chat-input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "no chat input")
+        let value = (input.value as? String) ?? ""
+        XCTAssertTrue(value.contains("[selection:"),
+                      "the selection reference did not reach the chat input: \(value)")
+        XCTAssertTrue(value.contains("bar"), "the reference should name bars: \(value)")
+        shot("selection-in-chat")
+    }
+
+    /// The lasso must never cost the gestures that were already there.
+    func testPinchStillZoomsWithTheLassoInstalled() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180))
+        let before = CGFloat(Double((canvas.value as? String)?
+            .replacingOccurrences(of: "zoom ", with: "") ?? "1") ?? 1)
+        for _ in 0..<6 { canvas.pinch(withScale: 3.0, velocity: 2.0) }
+        let after = CGFloat(Double((canvas.value as? String)?
+            .replacingOccurrences(of: "zoom ", with: "") ?? "1") ?? 1)
+        XCTAssertGreaterThan(after, before,
+                             "pinch-zoom stopped working with the lasso installed")
+        shot("lasso-installed-zoom")
     }
 
     /// The piece is metadata as well, and its name was editable nowhere.

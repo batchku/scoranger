@@ -59,7 +59,26 @@ struct ScoreSelection: Equatable {
     var isEmpty: Bool { addresses.isEmpty }
 
     var bars: [Int] { Set(addresses.map(\.measure)).sorted() }
-    var staves: [Int] { Set(addresses.map(\.staff)).sorted() }
+
+    /// Staff 0 is the parser's "not staff-specific" marker — a `<measure>`
+    /// lives outside any `<staff>` — so it is a fact about the model, not a
+    /// staff anyone can be told about. A lasso over one staff caught measures
+    /// too, and reported "staves 0, 4".
+    var staves: [Int] { Set(addresses.map(\.staff)).filter { $0 > 0 }.sorted() }
+
+    /// What is dropped into the chat input when a lasso finishes: short, in the
+    /// user's terms, and visibly about what they just drew.
+    var chatReference: String {
+        guard !isEmpty else { return "" }
+        let bars = self.bars
+        let range = bars.count == 1 ? "bar \(bars[0])"
+                                    : "bars \(bars[0])–\(bars[bars.count - 1])"
+        let staves = self.staves
+        let where_ = staves.isEmpty ? ""
+            : (staves.count == 1 ? ", staff \(staves[0])"
+                                 : ", staves \(staves.map(String.init).joined(separator: ", ")))")
+        return "[selection: \(addresses.count) element(s) in \(range)\(where_)] "
+    }
 
     /// What the chat agent is told, in the terms it already understands:
     /// parts and bar numbers, not pixels. Replaces the linear "≈ bars" estimate
@@ -71,10 +90,12 @@ struct ScoreSelection: Equatable {
         let range = bars.count == 1
             ? "bar \(bars[0])"
             : "bars \(bars[0])–\(bars[bars.count - 1])"
-        let staffPart = staves.count == 1 ? "staff \(staves[0])" : "staves \(staves.map(String.init).joined(separator: ", "))"
         let kinds = Set(addresses.map(\.kind.rawValue)).sorted().joined(separator: ", ")
+        let staffPart = staves.isEmpty ? ""
+            : (staves.count == 1 ? " of staff \(staves[0])"
+                                 : " of staves \(staves.map(String.init).joined(separator: ", ")))")
         return "A selection is ACTIVE: \(addresses.count) element(s) (\(kinds)) "
-            + "in \(range) of \(staffPart). Apply operations only there unless "
+            + "in \(range)\(staffPart). Apply operations only there unless "
             + "told otherwise."
     }
 }

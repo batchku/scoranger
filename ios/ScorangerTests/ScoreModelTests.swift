@@ -288,4 +288,144 @@ final class ScoreModelTests: XCTestCase {
         XCTAssertEqual(SVGTransform.parse(nil), .identity)
         XCTAssertEqual(SVGTransform.parse("nonsense"), .identity)
     }
+
+    // MARK: - What a drawn path catches (build 124)
+
+    func testAStrokeThroughABarSelectsIt() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        let note = try XCTUnwrap(page.elements.first { $0.kind == .note })
+        // a swipe straight through the notehead: zero area, so the lasso test
+        // alone would catch nothing
+        let stroke = [CGPoint(x: note.frame.minX - 5, y: note.frame.midY),
+                      CGPoint(x: note.frame.maxX + 5, y: note.frame.midY)]
+        let caught = page.elements(caughtBy: stroke)
+        XCTAssertTrue(caught.contains { $0.sessionID == note.sessionID },
+                      "a stroke through an element should select it")
+        XCTAssertTrue(page.elements(inLasso: stroke).isEmpty,
+                      "the loop test alone catches nothing here — that is the point")
+    }
+
+    func testALoopStillSelectsWhatItEncloses() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        let note = try XCTUnwrap(page.elements.first { $0.kind == .note })
+        let box = note.frame.insetBy(dx: -12, dy: -12)
+        let loop = [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY),
+                    CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)]
+        XCTAssertTrue(page.elements(caughtBy: loop).contains { $0.sessionID == note.sessionID })
+    }
+
+    func testSignedAreaIsZeroForAPathThatDoublesBack() {
+        let there = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 0, y: 0)]
+        XCTAssertEqual(ScorePage.signedArea(of: there), 0, accuracy: 0.0001)
+        let square = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0),
+                      CGPoint(x: 10, y: 10), CGPoint(x: 0, y: 10)]
+        XCTAssertEqual(abs(ScorePage.signedArea(of: square)), 100, accuracy: 0.0001)
+    }
+
+    func testAUnifiedSelectionMixesKindsRatherThanFilteringThem() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        // the whole page: one selection, every kind on it, no picker
+        let whole = [CGPoint(x: 0, y: 0), CGPoint(x: page.size.width, y: 0),
+                     CGPoint(x: page.size.width, y: page.size.height),
+                     CGPoint(x: 0, y: page.size.height)]
+        let kinds = Set(page.elements(caughtBy: whole).map(\.kind))
+        XCTAssertTrue(kinds.count > 1,
+                      "a lasso over everything should catch more than one kind: \(kinds)")
+    }
+
+    func testSelectionReferenceReadsAsBarsAndStaves() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        let whole = [CGPoint(x: 0, y: 0), CGPoint(x: page.size.width, y: 0),
+                     CGPoint(x: page.size.width, y: page.size.height),
+                     CGPoint(x: 0, y: page.size.height)]
+        let selection = ScoreSelection(page.elements(caughtBy: whole))
+        XCTAssertFalse(selection.isEmpty)
+        let reference = selection.chatReference
+        XCTAssertTrue(reference.hasPrefix("[selection:"), reference)
+        XCTAssertTrue(reference.contains("bar"), reference)
+        XCTAssertTrue(reference.contains("staff") || reference.contains("staves"), reference)
+    }
+
+    func testStaffZeroIsNotReportedAsAStaff() {
+        // a measure sits outside any <staff>, so the parser gives it staff 0
+        let selection = ScoreSelection(addresses: [
+            ScoreAddress(staff: 0, measure: 3, layer: 1, kind: .measure, ordinal: 0),
+            ScoreAddress(staff: 4, measure: 3, layer: 1, kind: .note, ordinal: 0)])
+        XCTAssertEqual(selection.staves, [4], "staff 0 is a marker, not a staff")
+        XCTAssertFalse(selection.chatReference.contains("0"),
+                       selection.chatReference)
+        XCTAssertTrue(selection.chatReference.contains("staff 4"),
+                      selection.chatReference)
+    }
+
+    func testASelectionOfOnlyMeasuresNamesNoStaffAtAll() {
+        let selection = ScoreSelection(addresses: [
+            ScoreAddress(staff: 0, measure: 2, layer: 1, kind: .measure, ordinal: 0)])
+        XCTAssertTrue(selection.staves.isEmpty)
+        let reference = selection.chatReference
+        XCTAssertTrue(reference.contains("bar 2"), reference)
+        XCTAssertFalse(reference.contains("staff"), reference)
+        XCTAssertFalse(reference.contains("staves"), reference)
+    }
+
+    // MARK: - Who gets the touch (build 124)
+
+    /// Pencil alone annotates; a held finger turns the same stroke into a
+    /// selection. Nothing else changes meaning, and nothing is toggled.
+    func testPencilAloneDoesNotLasso() {
+        var arbiter = LassoArbiter()
+        arbiter.pencilDown = true
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: true),
+                       "a Pencil with no finger down is annotation")
+    }
+
+    func testFingerHeldPlusPencilLassos() {
+        var arbiter = LassoArbiter()
+        arbiter.fingers = 1
+        XCTAssertTrue(arbiter.shouldBeginLasso(pencil: true))
+    }
+
+    func testFingersAloneNeverLasso() {
+        var arbiter = LassoArbiter()
+        arbiter.fingers = 1
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: false),
+                       "one finger scrolls")
+        arbiter.fingers = 2
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: false),
+                       "two fingers pinch and pan")
+    }
+
+    func testTheSimulatorStandInIsOffByDefault() {
+        let arbiter = LassoArbiter()
+        XCTAssertFalse(arbiter.fingerStandsInForPencil,
+                       "the finger stand-in is a test hook, never a shipped default")
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: false))
+    }
+
+    func testTheStandInStandsDownWhileMarkupIsOn() {
+        var arbiter = LassoArbiter()
+        arbiter.fingerStandsInForPencil = true
+        arbiter.fingers = 1
+        arbiter.annotationActive = true
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: false),
+                       "under the hook, a finger drawing in markup mode is ink")
+        // the real gesture is unaffected: the finger is the modifier, not the pen
+        var device = LassoArbiter()
+        device.fingers = 1
+        device.annotationActive = true
+        XCTAssertTrue(device.shouldBeginLasso(pencil: true),
+                      "finger + Pencil selects whether or not markup is on")
+    }
+
+    /// The hook must not break what it is meant to verify: a pinch is two
+    /// fingers, and it has to stay a pinch even under the stand-in.
+    func testTheStandInLeavesPinchAlone() {
+        var arbiter = LassoArbiter()
+        arbiter.fingerStandsInForPencil = true
+        arbiter.fingers = 1
+        XCTAssertTrue(arbiter.shouldBeginLasso(pencil: false), "one finger draws under the hook")
+        arbiter.fingers = 2
+        XCTAssertFalse(arbiter.shouldBeginLasso(pencil: false),
+                       "two fingers must still pinch, hook or no hook")
+    }
 }

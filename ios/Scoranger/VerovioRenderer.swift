@@ -44,15 +44,31 @@ actor VerovioRenderer {
         return t
     }
 
-    /// Render a MusicXML file to a multi-page PDF document.
-    func renderPDF(musicXMLPath: String) throws -> Data {
+    /// One engrave: the pages to draw, and the model to hit-test against.
+    ///
+    /// Both come from the same Verovio load, which is the whole point — a
+    /// selection is only meaningful if the geometry it queries is the geometry
+    /// on screen. The PDF is built from the SwiftDraw-flattened SVG; the model
+    /// is built from Verovio's own SVG, which still has the class/id structure
+    /// the parser needs.
+    struct Engraving {
+        let pdf: Data
+        /// nil when the model could not be built. The page still draws: a
+        /// selection that cannot be made is better than a score that cannot be
+        /// read.
+        let geometry: ScoreGeometry?
+    }
+
+    func engrave(musicXMLPath: String) throws -> Engraving {
         let t = try tk()
         guard t.loadFile(musicXMLPath) else {
             throw RenderError.loadFailed(musicXMLPath)
         }
         let document = PDFDocument()
+        var rawPages: [String] = []
         for page in 1...max(t.getPageCount(), 1) {
             let svg = t.renderToSVG(page, true)
+            rawPages.append(svg)
             let prepared = Self.prepareForSwiftDraw(svg)
             guard !prepared.isEmpty, let parsed = SVG(data: Data(prepared.utf8)) else {
                 throw RenderError.emptyPage(page)
@@ -65,7 +81,13 @@ actor VerovioRenderer {
         guard let data = document.dataRepresentation() else {
             throw RenderError.emptyPage(0)
         }
-        return data
+        let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: t.getMEI("{}"))
+        return Engraving(pdf: data, geometry: geometry)
+    }
+
+    /// Pages only, for callers with nothing to select (export, iPhone).
+    func renderPDF(musicXMLPath: String) throws -> Data {
+        try engrave(musicXMLPath: musicXMLPath).pdf
     }
 
     // MARK: SVG preprocessing

@@ -168,7 +168,45 @@ one does not, and this should not be scheduled until two questions are answered:
   MusicXML that survives Verovio's conversion. Settle this before designing any
   move/duplicate toolbar.
 
-## Penny-whistle fingering notation (next build after 123)
+## Next build (collecting — Ali is still listing items)
+
+### Drag to reorder arrangements within a piece
+
+Let the user drag an arrangement up and down inside its piece, and have the
+numbers follow. #N is not decoration: it is how Ali refers to an arrangement in
+chat ("take the violin part from #3"), so a reorder has to move the badge and
+the '#N = ... (ref arr:<slug>)' mapping the chat context is built from, in the
+same breath. Anything that renumbers silently, or renumbers the badge but not
+the refs, is worse than not reordering at all.
+
+Most of the machinery is already there:
+
+- `reorder-piece` (engine op, `workspace.set_piece_order`) takes the piece and
+  the full ordered list of slugs, and validates that every slug belongs to the
+  piece. It is already exposed through the bridge and through
+  `AppState.reorderPiece(piece:order:)`.
+- The context menu already drives it — "Move up (become #2)" / "Move down" in
+  `arrangementMenu` — so the op is proven end to end. This is about the gesture,
+  not the plumbing.
+- Rows already carry `.onDrag` (that is how an arrangement is dragged into a
+  piece), and `pieceRow` already has an `.onDrop`. What is missing is a drop
+  target *between* rows within a piece.
+- `#N` is derived, not stored: `piecesSection` numbers by position and
+  `AppState.placement(of:)` reads the index out of `piece.arrangements`. So a
+  correct reorder needs no numbering code at all — the badge follows the list.
+  The chat refs come from the same list (`AppState`'s numbered context), so they
+  follow too. Worth an assertion in the UI test rather than an assumption.
+
+Watch for: the row-identity trap that bit build 123. Rows keyed by slug alone
+get matched against the row they replace when they move between sections, and
+SwiftUI reuses the old one — which is how a moved arrangement kept a numeral it
+should not have had. The identities are section-scoped now; a reorder inside one
+section will need the same care so a dragged row does not inherit its
+neighbour's number.
+
+Also queued for this build: penny-whistle fingering notation (see below).
+
+## Penny-whistle fingering notation
 
 Requested by Echo, Ali's son, who plays penny whistle: an option to put
 penny-whistle fingerings into a staff — ask for a part to be translated into
