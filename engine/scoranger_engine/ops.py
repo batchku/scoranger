@@ -1016,6 +1016,11 @@ def analyze_harmony(score, names: list[str] | None = None) -> dict:
 # boxes is worse than no chart at all.
 COVERED, OPEN, HALF = "X", "O", "/"
 
+# What the renderer looks for when it replaces these with drawn circles. The
+# letters stay in the notation as the meaning (and as what a plain MusicXML
+# export carries); the diagram is how they are drawn.
+WHISTLE_LYRIC_TAG = "wf"
+
 # pitch class (as a sounding name) -> the six holes, top to bottom.
 # The cross-fingerings for C natural and F natural are the standard ones;
 # half-holed notes are marked HALF on the hole that is half covered.
@@ -1096,10 +1101,15 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
             n.lyrics = []
             continue
         n.lyrics = []
+        # WHISTLE_LYRIC_TAG marks these as fingerings rather than words. It
+        # rides through MusicXML as <lyric name="wf"> and out the far side as a
+        # title on Verovio's verse group, which is what lets the renderer swap
+        # each one for a drawn circle without ever mistaking a sung "O" for an
+        # open hole.
         for hole, symbol in enumerate(_whistle_symbols(pattern), start=1):
-            n.addLyric(symbol, lyricNumber=hole)
+            n.addLyric(symbol, lyricNumber=hole, lyricIdentifier=WHISTLE_LYRIC_TAG)
         if octave_offset == 1:
-            n.addLyric("+", lyricNumber=7)     # overblown
+            n.addLyric("+", lyricNumber=7, lyricIdentifier=WHISTLE_LYRIC_TAG)
         written += 1
 
     return {

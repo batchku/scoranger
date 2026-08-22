@@ -91,7 +91,7 @@ targets:
         # ships as CFBundleVersion, what App Store Connect records, and what the
         # app's footer shows. Bump with scripts/bump_build.sh (never by hand,
         # never by letting Xcode manage it at upload time).
-        CURRENT_PROJECT_VERSION: 125
+        CURRENT_PROJECT_VERSION: 126
         MARKETING_VERSION: 0.1.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
@@ -182,6 +182,8 @@ targets:
       # compiled in, not linked: the bundle has no host app, and the PDF
       # preflight is pure geometry that can be tested the same way
       - path: Scoranger/PDFPreflight.swift
+      # the fingering-diagram rewrite is a pure string transform over SVG
+      - path: Scoranger/FingeringDiagrams.swift
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources
