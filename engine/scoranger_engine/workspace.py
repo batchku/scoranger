@@ -347,6 +347,65 @@ def set_score_metadata(slug: str, title: str | None = None,
             **applied}
 
 
+def rename_slug(slug: str, new_slug: str) -> dict:
+    """Change a score's slug -- the identity it is filed under.
+
+    The slug is not a title: it is the key the artifact directory, the version
+    and source rows, and each piece's ordering are all filed under, and the
+    handle chat uses to refer to a sibling arrangement ('arr:<slug>'). So this
+    is a move, not an edit: the directory is renamed and every reference is
+    rewritten in the same call. Nothing outside the workspace holds a slug
+    except the app's own pencil annotations, which it migrates itself.
+
+    Slugs stay slugs: the requested name is normalized the same way an import
+    would normalize it, and a collision is refused rather than suffixed --
+    the caller asked for a specific handle, so silently getting another one
+    would be worse than an error.
+    """
+    repo = _repo()
+    doc = repo.get_score(slug)
+    if doc is None:
+        available = [s["slug"] for s in repo.list_scores()]
+        raise FileNotFoundError(f"No score '{slug}'. Available: {available}")
+    # slugify falls back to "score" for input with nothing usable in it, which
+    # would quietly file the arrangement under a name nobody asked for
+    if not re.search(r"[a-z0-9]", (new_slug or "").lower()):
+        raise ValueError("A slug needs at least one letter or number")
+    target = slugify(new_slug)
+    if target == slug:
+        return {"score": slug, "previous": slug, "renamed": False}
+    if repo.get_score(target) is not None:
+        raise ValueError(f"The slug '{target}' is already taken by another arrangement")
+
+    src, dst = score_dir(slug), score_dir(target)
+    if dst.exists():
+        raise ValueError(f"{dst} already exists on disk; not overwriting it")
+    if src.exists():
+        src.rename(dst)
+
+    versions = repo.list_versions(slug)
+    sources = repo.list_sources(slug)
+    doc = dict(doc)
+    doc["id"] = doc["slug"] = target
+    repo.set_score(target, doc)
+    for v in versions:
+        repo.add_version(target, v["id"], v["seq"], v)
+    for src_doc in sources:
+        repo.add_source(target, src_doc["id"], src_doc)
+    repo.delete_score(slug)
+
+    # a piece's ordering is a list of score slugs
+    for piece in repo.list_pieces():
+        order = piece.get("order") or []
+        if slug in order:
+            piece["order"] = [target if x == slug else x for x in order]
+            repo.set_piece(piece["slug"], piece)
+
+    rebuild_manifest()
+    return {"score": target, "previous": slug, "renamed": True,
+            "versions": len(versions), "sources": len(sources)}
+
+
 def rename_score(slug: str, new_name: str) -> dict:
     """Rename an arrangement: its library name and its engraved title together.
 

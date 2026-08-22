@@ -100,6 +100,8 @@ def _dispatch(op, a):
         return workspace.assign_score_to_piece(a["score"], None)
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "rename-slug":
+        return workspace.rename_slug(a["score"], a["to"])
     if op == "set-metadata":
         return workspace.set_score_metadata(a["score"], title=a.get("title"),
                                             composer=a.get("composer"),

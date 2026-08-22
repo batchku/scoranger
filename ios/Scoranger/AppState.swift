@@ -148,11 +148,28 @@ final class AppState: ObservableObject {
         return m.scores.filter { !filed.contains($0.slug) }
     }
 
+    /// What is open. Strictly what `selectedSlug` points at: an implicit
+    /// "fall back to the most recently updated score" used to make a row the
+    /// user never picked render as selected, and nothing could clear it —
+    /// moving an arrangement into a piece updates it, so the moved row was the
+    /// one that stuck. The convenience it provided (opening on the last score
+    /// you touched) now happens as a real selection, in `adoptDefaultSelection`.
     var selectedScore: ScoreDoc? {
-        guard let scores = manifest?.scores else { return nil }
-        if let slug = selectedSlug, let s = scores.first(where: { $0.slug == slug }) { return s }
-        // default: most recently updated
-        return scores.max { ($0.versions.last?.time ?? "") < ($1.versions.last?.time ?? "") }
+        guard let scores = manifest?.scores, let slug = selectedSlug else { return nil }
+        return scores.first { $0.slug == slug }
+    }
+
+    /// First manifest of the session: open the most recently updated score, as
+    /// an explicit selection the user can change or clear.
+    private var hasAdoptedDefault = false
+
+    func adoptDefaultSelection() {
+        guard !hasAdoptedDefault, selectedSlug == nil,
+              let scores = manifest?.scores, !scores.isEmpty else { return }
+        hasAdoptedDefault = true
+        selectedSlug = scores.max {
+            ($0.versions.last?.time ?? "") < ($1.versions.last?.time ?? "")
+        }?.slug
     }
 
     /// The score the sidebar's Versions section describes: the previewed one,
@@ -346,6 +363,13 @@ final class AppState: ObservableObject {
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
             manifest = m
             engineOK = true
+            // a selection pointing at a deleted score would otherwise leave the
+            // canvas showing nothing with no row highlighted
+            if let slug = selectedSlug, !m.scores.contains(where: { $0.slug == slug }) {
+                selectedSlug = nil
+                pinnedVersion = nil
+            }
+            adoptDefaultSelection()
             if modelCatalog == nil {
                 if useLocalEngine {
                     modelCatalog = ModelCatalog(default: LocalChat.defaultModel,
@@ -416,6 +440,12 @@ final class AppState: ObservableObject {
             saveToIntake(pdfData, filename: url.lastPathComponent)
             return
         }
+        // Notation software exports pages OMR cannot read: oversized, vector,
+        // no raster layer. Re-render those before they go anywhere.
+        let preflight = PDFPreflight.prepare(pdfData)
+        let uploadData = preflight.data
+        if let note = preflight.note { print("SCORANGER-OMR preflight: \(note)") }
+
         omrBusy = true
         let pending = PendingImport(name: name)
         pendingImports.append(pending)
@@ -427,10 +457,8 @@ final class AppState: ObservableObject {
             do {
                 // stored key if present, baked-in default otherwise; a 401
                 // self-heals below by falling back to the baked key
-                let bakedKey = (Bundle.main.url(forResource: "omr-default-key", withExtension: "txt")
-                    .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                var apiKey = KeychainStore.omrKey.isEmpty ? bakedKey : KeychainStore.omrKey
+                let bakedKey = Self.bakedOMRKey
+                var apiKey = Self.effectiveOMRKey
 
                 // -- 1. submit the job (upload with byte progress) ------------
                 var request = URLRequest(url: endpoint.appending(path: "jobs"))
@@ -455,7 +483,7 @@ final class AppState: ObservableObject {
                         let session = URLSession(configuration: .ephemeral)
                         defer { session.finishTasksAndInvalidate() }
                         let (d, response) = try await session.upload(
-                            for: request, from: pdfData, delegate: progressDelegate)
+                            for: request, from: uploadData, delegate: progressDelegate)
                         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                         let body = (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
                         if code == 202 { submitted = body; break }
@@ -554,7 +582,8 @@ final class AppState: ObservableObject {
                 pinnedVersion = nil
                 await refresh()
             } catch {
-                notice = "PDF conversion of “\(name)” failed: \(error.localizedDescription)"
+                notice = PDFPreflight.advice(name: name, error: error,
+                                             preflight: preflight.note)
             }
         }
     }
@@ -622,6 +651,20 @@ final class AppState: ObservableObject {
         Task { await renderIfNeeded() }
     }
 
+    /// The OMR key baked in at build time (gitignored .omr-api-key), and the
+    /// key the app actually sends: a saved one wins, the built-in one is the
+    /// fallback. Settings tests this value rather than whatever is typed in the
+    /// field, which is empty precisely when the built-in key is in use.
+    static let bakedOMRKey: String =
+        (Bundle.main.url(forResource: "omr-default-key", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    static var effectiveOMRKey: String {
+        let stored = KeychainStore.omrKey
+        return stored.isEmpty ? bakedOMRKey : stored
+    }
+
     /// The metadata as it stands in the notation of a version -- which is what
     /// engraves on the page. The score doc carries a copy, but only versions
     /// written since the projection landed, so the sheet asks the engine.
@@ -677,6 +720,36 @@ final class AppState: ObservableObject {
     @discardableResult
     func renameScore(slug: String, name: String) async -> Bool {
         await setScoreMetadata(slug: slug, title: name)
+    }
+
+    /// Change the slug an arrangement is filed under.
+    ///
+    /// The engine moves the artifacts and rewrites every reference it owns; the
+    /// app owns two things keyed by slug — the current selection and the pencil
+    /// annotations — and moves those here. Returns the slug actually used (it is
+    /// normalized), or nil if the rename was refused.
+    @discardableResult
+    func renameSlug(slug: String, to newSlug: String) async -> String? {
+        let trimmed = newSlug.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            let r = try await local.call(op: "rename-slug",
+                                        args: ["score": slug, "to": trimmed])
+            guard let now = r["score"] as? String else { return nil }
+            if now != slug {
+                DrawingStore.shared.rename(fromPrefix: slug, toPrefix: now)
+                if selectedSlug == slug { selectedSlug = now }
+                if previewedSlug == slug { previewedSlug = now }
+                renderedKey = nil   // the render is keyed by slug/version
+            }
+            await refresh()
+            return now
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return nil
     }
 
     /// Rename a part (the staff label, engraved on every system).

@@ -8,6 +8,13 @@ struct ScorangerApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(state)
+                // Paper & Clay is a single fixed light palette: every surface is
+                // a hard hex value with no dark variant. Left to follow the
+                // system, dark mode kept the light surfaces but handed every
+                // unstyled Text and TextField a white foreground -- which is
+                // how the metadata fields in the arrangement sheet ended up
+                // with invisible text. One palette, one appearance.
+                .preferredColorScheme(.light)
                 .onOpenURL { url in
                     state.receiveFile(at: url)
                 }

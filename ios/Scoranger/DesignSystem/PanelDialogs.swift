@@ -278,6 +278,10 @@ struct PanelField: View {
             }
         }
         .typeRole(isSecure || isMono ? .data : .body)
+        // explicit, never inherited: an unstyled field takes the system's
+        // foreground colour, which is white wherever the OS thinks it is dark
+        .foregroundStyle(Theme.Ink.ink)
+        .tint(Theme.Accent.clay)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($focused)
@@ -288,6 +292,39 @@ struct PanelField: View {
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                 .stroke(focused ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
         }
+    }
+}
+
+/// A `PanelField` with its name above it. Every editable field in a form gets
+/// one: a placeholder disappears the moment there is text in the box, so it
+/// cannot be the only thing naming the field.
+struct LabeledField<Trailing: View>: View {
+    let label: String
+    @Binding var text: String
+    var isMono = false
+    var identifier: String?
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .typeRole(.label)
+                .foregroundStyle(Theme.Ink.ink2)
+            HStack(spacing: Theme.Metric.s8) {
+                PanelField(placeholder: label, text: $text, isMono: isMono)
+                    .accessibilityIdentifier(identifier ?? label)
+                    .accessibilityLabel(label)
+                trailing()
+            }
+        }
+    }
+}
+
+extension LabeledField where Trailing == EmptyView {
+    init(_ label: String, text: Binding<String>, isMono: Bool = false,
+         identifier: String? = nil) {
+        self.init(label: label, text: text, isMono: isMono,
+                  identifier: identifier) { EmptyView() }
     }
 }
 

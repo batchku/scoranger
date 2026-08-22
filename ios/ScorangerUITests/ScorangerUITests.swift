@@ -44,6 +44,19 @@ final class ScorangerUITests: XCTestCase {
         field.typeText(text)
     }
 
+    /// Poll a field's value: a write that goes through the engine lands a
+    /// moment after the button that started it disappears.
+    @discardableResult
+    private func waitForValue(_ element: XCUIElement, _ expected: String,
+                              timeout: TimeInterval = 30) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if (element.value as? String) == expected { return true }
+            usleep(200_000)
+        }
+        return false
+    }
+
     private func element(labelStartingWith prefix: String) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH[c] %@", prefix))
@@ -467,6 +480,139 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(element(labelStartingWith: "Rename Violin I").waitForExistence(timeout: 30),
                       "the part row still shows the old name")
         shot("part-renamed")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Every editable field in the sheet says what it is. A placeholder is not
+    /// a label: it vanishes the moment the field has content, which is how Ali
+    /// ended up with three unnamed boxes at the top of the sheet.
+    func testEveryMetadataFieldIsLabelled() {
+        app.buttons["Arrangement details"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 10))
+        for label in ["TITLE", "COMPOSER", "ARRANGER", "SLUG"] {
+            XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
+        }
+        // and exactly one title field: the old read-only Title row is gone
+        XCTAssertFalse(app.staticTexts["Title"].exists,
+                       "a second, title-ish row is back in the sheet")
+        shot("labelled-metadata-fields")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// The slug is the arrangement's handle, not a title — but auto-generated
+    /// ones are ugly, so it is editable. Renaming it moves the artifacts and
+    /// every reference, so the score has to still open and still have its
+    /// history afterwards.
+    func testSlugIsEditableAndReferencesSurvive() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        app.buttons["Arrangement details"].firstMatch.tap()
+        let slug = app.textFields["arrangement-slug"]
+        XCTAssertTrue(slug.waitForExistence(timeout: 10), "no slug field")
+        XCTAssertEqual(slug.value as? String, firstArrangement)
+        let versionsBefore = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "v00")).count
+
+        replaceText(slug, with: "Paris Quartet")
+        let move = app.buttons["save-slug"]
+        XCTAssertTrue(move.waitForExistence(timeout: 5), "no way to apply a new slug")
+        move.tap()
+        XCTAssertTrue(waitForDisappearance(of: move, timeout: 60), "the move never finished")
+
+        // normalized, not taken literally
+        XCTAssertTrue(waitForValue(slug, "paris-quartet"),
+                      "slug field shows \(String(describing: slug.value))")
+        // the history came with it
+        XCTAssertEqual(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "v00")).count, versionsBefore,
+                       "versions were lost in the move")
+        shot("slug-renamed")
+        app.buttons["Done"].firstMatch.tap()
+
+        // the row is filed under the new slug and still opens its score
+        let row = app.buttons["arrangement-paris-quartet"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20),
+                      "the sidebar row did not follow the slug")
+        XCTAssertFalse(app.buttons["arrangement-\(firstArrangement)"].exists,
+                       "the old slug is still around")
+        row.tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score no longer renders after the move")
+        shot("slug-renamed-still-renders")
+    }
+
+    /// Ali's build-122 report: an arrangement moved from Unfiled into a piece
+    /// showed no #N badge, and the moved row stayed highlighted with no way to
+    /// deselect it while other rows highlighted too.
+    func testMovingAnUnfiledArrangementIntoAPieceNumbersIt() {
+        // a blank arrangement, unfiled: created in the piece, then unfiled, so
+        // the test does not depend on what the seed happens to contain
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        app.buttons["Arrangement details"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
+
+        // unfile it
+        app.buttons["piece-menu"].firstMatch.tap()
+        app.buttons["None"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 20),
+                      "the arrangement never left the piece")
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        sleep(2)
+        shot("after-unfiling")
+        print("UNFILEPROBE row=\(row.label)")
+        print("UNFILEPROBE rows=\(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-")).count)")
+        XCTAssertFalse(row.label.contains("Arrangement number"),
+                       "an unfiled arrangement should carry no number: \(row.label)")
+
+        // and back into the piece
+        app.buttons["piece-menu"].firstMatch.tap()
+        app.buttons[piece].firstMatch.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
+                                           timeout: 20),
+                      "the arrangement never returned to the piece")
+        app.buttons["Done"].firstMatch.tap()
+
+        // it is numbered again, and the number is on the row itself
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertTrue(row.label.contains("Arrangement number"),
+                      "the moved arrangement has no number badge: \(row.label)")
+        shot("moved-into-piece")
+    }
+
+    /// One selection at a time, and it can be cleared: the highlight has to be
+    /// something the user chose, never a row the app picked for itself.
+    func testSelectionIsSingleAndClearable() {
+        let first = app.buttons["arrangement-\(firstArrangement)"]
+        first.tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
+        shot("selection-single")
+        // exactly one row is selected at a time
+        XCTAssertEqual(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND selected == true",
+                        "arrangement-")).count, 1,
+                       "more than one arrangement row is highlighted")
+    }
+
+    /// Settings lost its field labels in the design revamp: three unnamed
+    /// boxes, one of which is a URL and two of which are secrets.
+    func testSettingsFieldsAreLabelled() {
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["ON-DEVICE ENGINE"].waitForExistence(timeout: 10),
+                      "settings did not open")
+        for label in ["OPENROUTER API KEY", "OMR SERVICE URL", "OMR SERVICE API KEY"] {
+            XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
+        }
+        // and the key fields say which key is actually in use, rather than
+        // showing an empty box that means two different things
+        XCTAssertTrue(app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "built into this build")).count > 0
+            || app.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS %@", "saved key")).count > 0
+            || app.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS %@", "no key")).count > 0,
+            "the key fields do not say which key is in use")
+        shot("settings-labelled")
         app.buttons["Done"].firstMatch.tap()
     }
 

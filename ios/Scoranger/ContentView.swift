@@ -472,6 +472,13 @@ struct ContentView: View {
                     ForEach(Array(section.arrangements.enumerated()),
                             id: \.element.slug) { index, score in
                         arrangementRow(score, number: index + 1, inPiece: section)
+                            // Identity has to say which section the row is in.
+                            // Keyed on the slug alone, a row that moves between
+                            // Unfiled and a piece matches the one it replaces
+                            // and SwiftUI reuses it — keeping the numeral it had
+                            // before the move (none, for a row arriving from
+                            // Unfiled) along with its highlight.
+                            .id("piece/\(section.piece.slug)/\(score.slug)")
                         versionRows(for: score)
                     }
                 }
@@ -486,6 +493,7 @@ struct ContentView: View {
                        ? "Arrangements" : "Unfiled arrangements")
             ForEach(state.unfiledScores) { score in
                 arrangementRow(score)
+                    .id("unfiled/\(score.slug)")
                 versionRows(for: score)
             }
         }
@@ -733,6 +741,9 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("arrangement-\(score.slug)")
+            // the highlight is a selection, so say so: VoiceOver announces it
+            // and a test can count how many rows claim to be selected
+            .accessibilityAddTraits(isOpen ? [.isSelected] : [])
 
             PanelIconButton(systemName: "info.circle", label: "Arrangement details",
                             bordered: false, size: 26) { infoScore = score }

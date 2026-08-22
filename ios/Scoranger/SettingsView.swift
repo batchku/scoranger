@@ -10,12 +10,24 @@ struct SettingsView: View {
     @State private var omrKeyDraft = ""
     @State private var omrTestResult = ""
     @State private var omrTestRunning = false
+    /// What is actually in the keychain, so the field can say "saved" without
+    /// the draft being the thing the network layer reads.
+    @State private var savedChatKey = ""
+    @State private var savedOMRKey = ""
 
     /// Send a tiny non-PDF body: 415 back = URL and key both good
     /// (the request passed auth and reached content validation).
+    ///
+    /// `key` must be the key the app would actually send — the saved one, or
+    /// the built-in default when nothing is saved. Testing the *field* instead
+    /// is what reported "the key is wrong" on a perfectly working install: the
+    /// field is empty whenever the built-in key is in use.
     static func testOMR(urlString: String, key: String) async -> String {
         guard let url = URL(string: urlString), !urlString.isEmpty else {
             return "✗ enter the service URL first"
+        }
+        guard !key.isEmpty else {
+            return "✗ no key: this build has no built-in key, so paste one above"
         }
         var req = URLRequest(url: url.appending(path: "omr"))
         req.httpMethod = "POST"
@@ -42,11 +54,12 @@ struct SettingsView: View {
                     PanelToggle(title: "Use on-device engine", isOn: $state.useLocalEngine)
                 }
                 LED(isOn: state.engineOK)
-                PanelField(placeholder: "OpenRouter API key (sk-or-…)",
-                           text: $apiKeyDraft, isSecure: true)
-                    .onChange(of: apiKeyDraft) { _, value in
-                        KeychainStore.openRouterKey = value
-                    }
+                keyField(label: "OpenRouter API key",
+                         draft: $apiKeyDraft, saved: $savedChatKey,
+                         identifier: "openrouter-key",
+                         baked: !LocalChat.bakedKey.isEmpty) { value in
+                    KeychainStore.openRouterKey = value
+                }
                 PanelNote(text: "On: scores live on this iPad; no laptop needed. Off: connect to scor serve on your Mac.")
                 HStack {
                     PanelButton(title: selfTestRunning ? "Running…" : "Run engine self-test") {
@@ -66,8 +79,8 @@ struct SettingsView: View {
             if !state.useLocalEngine {
                 BandHeader("Remote engine")
                 VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-                    PanelField(placeholder: "http://your-mac.local:8765",
-                               text: $urlDraft, isMono: true)
+                    LabeledField("Engine URL", text: $urlDraft, isMono: true,
+                                 identifier: "engine-url")
                         .onChange(of: urlDraft) { _, value in
                             state.engineURLString = value.trimmingCharacters(in: .whitespaces)
                         }
@@ -78,16 +91,17 @@ struct SettingsView: View {
 
             BandHeader("PDF conversion (OMR)")
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-                PanelField(placeholder: "https://scoranger-omr-….run.app",
-                           text: $omrURLDraft, isMono: true)
+                LabeledField("OMR service URL", text: $omrURLDraft, isMono: true,
+                             identifier: "omr-url")
                     .onChange(of: omrURLDraft) { _, value in
                         state.omrURLString = value.trimmingCharacters(in: .whitespaces)
                     }
-                PanelField(placeholder: "OMR service API key",
-                           text: $omrKeyDraft, isSecure: true)
-                    .onChange(of: omrKeyDraft) { _, value in
-                        KeychainStore.omrKey = value
-                    }
+                keyField(label: "OMR service API key",
+                         draft: $omrKeyDraft, saved: $savedOMRKey,
+                         identifier: "omr-key",
+                         baked: !AppState.bakedOMRKey.isEmpty) { value in
+                    KeychainStore.omrKey = value
+                }
                 HStack {
                     PanelButton(title: omrTestRunning ? "Testing…" : "Test connection & key") {
                         omrTestRunning = true
@@ -95,7 +109,7 @@ struct SettingsView: View {
                         Task {
                             omrTestResult = await Self.testOMR(
                                 urlString: omrURLDraft.trimmingCharacters(in: .whitespaces),
-                                key: omrKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+                                key: AppState.effectiveOMRKey)
                             omrTestRunning = false
                         }
                     }
@@ -142,11 +156,54 @@ struct SettingsView: View {
         }
         .onAppear {
             urlDraft = state.engineURLString
-            apiKeyDraft = KeychainStore.openRouterKey
             omrURLDraft = state.omrURLString
-            omrKeyDraft = KeychainStore.omrKey
+            // Key fields start empty and say what is in use underneath them.
+            // Seeding them with the stored secret and writing back on every
+            // keystroke is what let a stray edit clear a working key.
+            savedChatKey = KeychainStore.openRouterKey
+            savedOMRKey = KeychainStore.omrKey
+            apiKeyDraft = ""
+            omrKeyDraft = ""
         }
         .onDisappear { Task { await state.refresh() } }
+    }
+
+    /// A secret field: never pre-filled, saved on demand, and honest about
+    /// which key the app is using right now.
+    @ViewBuilder
+    private func keyField(label: String, draft: Binding<String>, saved: Binding<String>,
+                          identifier: String, baked: Bool,
+                          store: @escaping (String) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledField(label: label, text: draft, isMono: true,
+                         identifier: identifier) {
+                let typed = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !typed.isEmpty {
+                    PanelButton(title: "Save", kind: .primary) {
+                        store(typed)
+                        saved.wrappedValue = typed
+                        draft.wrappedValue = ""
+                    }
+                    .accessibilityIdentifier("save-\(identifier)")
+                } else if !saved.wrappedValue.isEmpty {
+                    PanelButton(title: "Clear") {
+                        store("")
+                        saved.wrappedValue = ""
+                    }
+                    .accessibilityIdentifier("clear-\(identifier)")
+                }
+            }
+            PanelNote(text: keyStatus(saved: saved.wrappedValue, baked: baked))
+        }
+    }
+
+    private func keyStatus(saved: String, baked: Bool) -> String {
+        if !saved.isEmpty {
+            return "Using your saved key (\(String(saved.suffix(4))) …last four). "
+                + "Type a new one to replace it, or Clear to fall back to the built-in key."
+        }
+        return baked ? "Using the key built into this build. Type one above to override it."
+                     : "No key: this build has none built in, so paste one above."
     }
 
     private func runSelfTest() {

@@ -9,7 +9,7 @@ struct LocalChat {
     /// OpenRouter routes only — the iPad always goes through the gateway).
     static let models: [String: String] = [
         "gemini-flash": "google/gemini-3.7-flash",
-        "kimi": "moonshotai/kimi-k3:exacto",
+        "kimi": "moonshotai/kimi-k3",
         "qwen": "qwen/qwen3.8-max",
         "claude": "anthropic/claude-sonnet-5",
         "claude-opus": "anthropic/claude-opus-5",
@@ -52,11 +52,16 @@ struct LocalChat {
         case missingKey
         case http(Int, String)
         case badResponse(String)
+        case network(URLError)
         var errorDescription: String? {
             switch self {
             case .missingKey: return "No OpenRouter API key — none baked into this build; add one in Settings."
             case .http(let code, let body): return "OpenRouter HTTP \(code): \(body.prefix(300))"
             case .badResponse(let why): return "Unexpected OpenRouter response: \(why)"
+            case .network(let error):
+                return "Couldn't reach OpenRouter: \(error.localizedDescription) "
+                    + "(tried 4 times on fresh connections). Check Wi-Fi, and any "
+                    + "VPN or proxy that might be closing the connection."
             }
         }
     }
@@ -404,6 +409,13 @@ struct LocalChat {
         }
     }
 
+    /// Worth another go on a fresh connection: a dropped or timed-out
+    /// connection, not "there is no network" or a cancelled request.
+    static func isTransient(_ error: URLError) -> Bool {
+        [.networkConnectionLost, .timedOut, .cannotConnectToHost,
+         .cannotFindHost, .dnsLookupFailed].contains(error.code)
+    }
+
     private func complete(model: String, messages: [[String: Any]],
                           allowTools: Bool = true) async throws -> [String: Any] {
         // stored key if present, baked-in default otherwise; a 401 self-heals
@@ -426,11 +438,26 @@ struct LocalChat {
 
         var data: Data
         var code: Int
+        var networkAttempt = 0
         while true {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            let (d, response) = try await URLSession.shared.data(for: request)
-            data = d
-            code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            do {
+                // A fresh ephemeral session per attempt, like the OMR upload
+                // path: URLSession.shared pools HTTP/2 connections, and a
+                // pooled one that the far end has dropped fails every retry
+                // with "The network connection was lost" until it is discarded.
+                let session = URLSession(configuration: .ephemeral)
+                defer { session.finishTasksAndInvalidate() }
+                let (d, response) = try await session.data(for: request)
+                data = d
+                code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            } catch let error as URLError where Self.isTransient(error) && networkAttempt < 3 {
+                networkAttempt += 1
+                try await Task.sleep(for: .seconds(networkAttempt))
+                continue
+            } catch let error as URLError {
+                throw ChatError.network(error)
+            }
             if code == 401, !Self.bakedKey.isEmpty, key != Self.bakedKey {
                 // stored key is wrong — self-heal with the baked one, retry once
                 key = Self.bakedKey

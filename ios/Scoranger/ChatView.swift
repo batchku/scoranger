@@ -180,6 +180,10 @@ struct ChatView: View {
         HStack(spacing: Theme.Metric.s8) {
             TextField(dictation.errorText ?? "Arrange…", text: $draft, axis: .vertical)
                 .typeRole(.body)
+                // explicit ink: an unstyled field takes the system foreground,
+                // which is white wherever the OS thinks it is dark
+                .foregroundStyle(Theme.Ink.ink)
+                .tint(Theme.Accent.clay)
                 .lineLimit(1...4)
                 .focused($inputFocused)
                 .onSubmit(send)

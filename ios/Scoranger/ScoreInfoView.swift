@@ -16,8 +16,14 @@ struct ScoreInfoView: View {
     let score: ScoreDoc
     @EnvironmentObject var state: AppState
 
+    /// The slug the sheet is currently looking at. Normally the one it opened
+    /// with — but the slug is editable here, and after a move the opening
+    /// snapshot no longer matches anything in the manifest.
+    @State private var currentSlug: String?
+
     private var live: ScoreDoc {
-        state.manifest?.scores.first { $0.slug == score.slug } ?? score
+        let slug = currentSlug ?? score.slug
+        return state.manifest?.scores.first { $0.slug == slug } ?? score
     }
 
     @State private var draftTitle = ""
@@ -36,6 +42,9 @@ struct ScoreInfoView: View {
     @State private var confirmingDelete = false
     @State private var renamingPiece = false
     @State private var draftPieceName = ""
+    @State private var draftSlug = ""
+    @State private var savedSlug = ""
+    @State private var renamingSlug = false
 
     private func trimmed(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -52,6 +61,10 @@ struct ScoreInfoView: View {
         guard let engravedTitle = engraved?.title, !engravedTitle.isEmpty,
               engravedTitle != trimmed(draftTitle) else { return nil }
         return engravedTitle
+    }
+    private var canRenameSlug: Bool {
+        let want = trimmed(draftSlug)
+        return !renamingSlug && !want.isEmpty && want != savedSlug
     }
     private var currentPieceSlug: String? { live.piece }
     private var currentPiece: PieceDoc? {
@@ -75,7 +88,7 @@ struct ScoreInfoView: View {
             if renamingPiece, let piece = currentPiece {
                 renamePieceField(piece)
             }
-            SheetRow("Slug", live.slug, mono: true)
+            slugEditor
             if let latest = live.latest {
                 SheetRow("Latest version", latest, mono: true)
             }
@@ -143,15 +156,14 @@ struct ScoreInfoView: View {
     @ViewBuilder
     private var metadataEditor: some View {
         VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-            PanelField(placeholder: "Title", text: $draftTitle)
-                .accessibilityIdentifier("arrangement-title")
-                .accessibilityLabel("Arrangement title")
-            PanelField(placeholder: "Composer", text: $draftComposer)
-                .accessibilityIdentifier("arrangement-composer")
-                .accessibilityLabel("Composer")
-            PanelField(placeholder: "Arranger", text: $draftArranger)
-                .accessibilityIdentifier("arrangement-arranger")
-                .accessibilityLabel("Arranger")
+            // One title. It is what the page engraves, what the sidebar lists
+            // and what the sheet header says — there is no second title-ish
+            // field to reconcile it against.
+            LabeledField("Title", text: $draftTitle, identifier: "arrangement-title")
+            LabeledField("Composer", text: $draftComposer,
+                         identifier: "arrangement-composer")
+            LabeledField("Arranger", text: $draftArranger,
+                         identifier: "arrangement-arranger")
             if let engravedTitle = engravedMismatch {
                 PanelNote(text: "The page still engraves \u{201C}\(engravedTitle)\u{201D}. "
                           + "Saving makes the title on the score the same as this one.")
@@ -172,6 +184,30 @@ struct ScoreInfoView: View {
             }
         }
         .padding(Theme.Metric.panelPadding)
+    }
+
+    /// The slug is the arrangement's handle: its folder on disk, the ref chat
+    /// uses for a sibling arrangement. Auto-generated ones can be ugly, so it
+    /// is editable — but it is a move, not a rename, so it saves on its own
+    /// rather than riding along with the title.
+    @ViewBuilder
+    private var slugEditor: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledField(label: "Slug", text: $draftSlug, isMono: true,
+                         identifier: "arrangement-slug") {
+                if renamingSlug {
+                    ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+                } else if canRenameSlug {
+                    PanelButton(title: "Move", kind: .primary, action: commitSlug)
+                        .accessibilityIdentifier("save-slug")
+                }
+            }
+            PanelNote(text: "The handle this arrangement is filed under, and how "
+                      + "chat refers to it (arr:\(savedSlug)). Letters, numbers "
+                      + "and dashes; anything else is folded into dashes.")
+        }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.s12)
     }
 
     @ViewBuilder
@@ -198,6 +234,7 @@ struct ScoreInfoView: View {
                     .typeRole(.body)
                     .foregroundStyle(Theme.Accent.clayStrong)
             }
+            .accessibilityIdentifier("piece-menu")
             if let piece = currentPiece {
                 Button {
                     draftPieceName = piece.name
@@ -215,9 +252,7 @@ struct ScoreInfoView: View {
     @ViewBuilder
     private func renamePieceField(_ piece: PieceDoc) -> some View {
         HStack(spacing: Theme.Metric.s8) {
-            PanelField(placeholder: "Piece name", text: $draftPieceName)
-                .accessibilityIdentifier("piece-name")
-                .accessibilityLabel("Piece name")
+            LabeledField("Piece name", text: $draftPieceName, identifier: "piece-name")
             PanelButton(title: "Cancel") { renamingPiece = false }
             PanelButton(title: "Rename", kind: .primary) {
                 let name = trimmed(draftPieceName)
@@ -238,9 +273,7 @@ struct ScoreInfoView: View {
     private func partRow(_ part: PartDoc) -> some View {
         if renamingPart == part.index {
             HStack(spacing: Theme.Metric.s8) {
-                PanelField(placeholder: "Part name", text: $draftPartName)
-                    .accessibilityIdentifier("part-name")
-                    .accessibilityLabel("Part name")
+                LabeledField("Part name", text: $draftPartName, identifier: "part-name")
                 PanelButton(title: "Cancel") { renamingPart = nil }
                 PanelButton(title: "Rename", kind: .primary) {
                     let name = trimmed(draftPartName)
@@ -301,6 +334,25 @@ struct ScoreInfoView: View {
         saved = AppState.ScoreMetadata(title: draftTitle,
                                        composer: draftComposer,
                                        arranger: draftArranger)
+        currentSlug = doc.slug
+        draftSlug = doc.slug
+        savedSlug = doc.slug
+    }
+
+    private func commitSlug() {
+        guard canRenameSlug else { return }
+        let want = trimmed(draftSlug)
+        renamingSlug = true
+        Task {
+            if let now = await state.renameSlug(slug: live.slug, to: want) {
+                currentSlug = now    // everything the sheet reads follows the move
+                draftSlug = now      // the engine normalizes; show what it used
+                savedSlug = now
+            } else {
+                draftSlug = savedSlug
+            }
+            renamingSlug = false
+        }
     }
 
     private func commitMetadata() {
