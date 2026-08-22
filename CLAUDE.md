@@ -46,8 +46,13 @@ scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:
-  # six holes top to bottom (X covered, O open, / half), a 7th verse "+" for
-  # the overblown octave. Notes the whistle cannot play are reported, not faked.
+  # six holes top to bottom, a 7th verse "+" for the overblown octave. Notes the
+  # whistle cannot play are reported, not faked.
+  # The notation stores letters (X covered, O open, / half) and both renderers
+  # draw them as circles — filled, hollow, half-filled — keyed on the `wf` lyric
+  # tag: render.py::_fingering_diagrams and ios/Scoranger/FingeringDiagrams.swift,
+  # which must stay in step. Circle GLYPHS are not an option: the rasterizers'
+  # fallback font has none and engraves empty boxes.
   # Chart: engine/scripts/check_whistle.py asserts it against the published one.
 scor set-metadata <score> [--title T] [--composer C] [--arranger A]
   # the ONE title: the arrangement's name in the library and the title engraved
