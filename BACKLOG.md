@@ -420,3 +420,49 @@ The flagged risk — a lasso on the right-hand page selecting from its neighbour
 recognizer picks the anchor under the touch.
 `testALassoOnTheRightHandPageSelectsFromThatPage` draws on both halves and
 checks the right one gives later bars.
+
+## Shipped in 0.1.2 (bug-fix build) — rhythm integrity, single version highlight
+
+### The rhythm bug, and what it actually was
+
+Reported as "a prompt that had nothing to do with durations made an eighth note
+dotted and pushed everything after it a sixteenth later". Three wrong suspects
+were ruled out by measurement before the real one turned up:
+
+- **Round-trip rounding: no.** Six consecutive parse/serialize cycles over 6/8
+  with dotted-eighth + sixteenth pairs and triplets came back identical.
+- **The op named in the version history (`pull-part`): no.** Its whole-part
+  branch is a `deepcopy`; it tests clean from clean sources. It faithfully
+  copies whatever the source holds, which is why the damage *appeared* there.
+- **The other ops in the ladder** (`change-instrument`, `whistle-fingerings`,
+  `set-chords`, `limit-part`, `rebuild-part`): all clean, tested.
+
+The fault was the **write**, shared by every entry point including
+`add-source` — which is how a corrupt source file got into the library in the
+first place, before any arrangement op ran.
+
+Two ops were also breaking scores on their own: `absorb_part` read each note's
+offset *after* detaching it (music21 reports 0 for a detached element, so the
+melody piled onto the downbeat) and assumed the target staff had no voices;
+`consolidate_ties` and `_flatten_copy` handed `stripTies` results straight on.
+
+### Worth knowing next time
+
+- **Measure the file, not the intention.** Several hours went into in-memory
+  comparisons that showed nothing, because the score was correct in memory and
+  the writer was the problem. `check_rhythm.py` writes and reads back.
+- **A duration sum is not a length.** Summing a container's durations treats
+  simultaneous notes as sequential, which made a collapsed measure look
+  correct. Compare each voice's END TIME against the bar.
+- **Diffing two event lists by index lies** once an op adds or removes an
+  event: every later pair misaligns and reads as "everything moved". Compare by
+  position, or compare sets.
+- Under-filled bars are legitimate (pickup, partial bar before a repeat, last
+  bar of a piece). Only overflow is corruption; an exact-fill assertion would
+  refuse honest scores.
+
+### Version highlight
+
+A prompt group's steps include the group's own face version, so with the steps
+open both the group row and a step row claimed the highlight. Open groups let
+their step rows own it; collapsed groups stand in for whichever version shows.

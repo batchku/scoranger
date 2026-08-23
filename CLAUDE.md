@@ -15,6 +15,24 @@ editing raw notation corrupt scores; tool calls don't. If an operation you need
 doesn't exist, add it to the engine (`engine/scoranger_engine/ops.py`) rather
 than hand-editing a score file.
 
+**The rhythm is guarded, and the guard is in the write.** Every version, import
+and source goes through `workspace._write_musicxml`, which splits notes at the
+barline (`makeTies`), writes to one side, reads the file back, and refuses to
+keep it if any bar now holds more music than it is long or two notes sound at
+once in one voice (`ops.rhythm_problems`). This exists because music21's
+MusicXML writer emits a note running past its barline *and* the bars it
+swallows, duplicating time -- which turned an eighth note into a dotted eighth
+and pushed the rest of a part a sixteenth later, versions after the op that
+caused it. So:
+
+- An op may leave an over-long note behind; the write splits it. What an op may
+  never do is move music the user did not ask to move.
+- An op that cannot rewrite a part without changing its rhythm should leave the
+  part alone and say so in its report (`consolidate-ties` does).
+- A `RhythmCorruption` error means the op, not the file, is wrong -- fix the op.
+- `engine/scripts/check_rhythm.py` is the regression check. Each fix in it was
+  reverted in turn to confirm the check fails without it.
+
 ## The engine CLI
 
 Always use the venv binary: `engine/.venv/bin/scor` (from the repo root).
