@@ -779,6 +779,69 @@ final class ScorangerUITests: XCTestCase {
                    thenHoldForDuration: 1.2)
     }
 
+    // MARK: - Version selection
+
+    /// Clicking through an arrangement's versions must light exactly one row.
+    /// A prompt group's steps include the group's own face version, so the
+    /// group row and a step row both claimed the highlight and it read as two
+    /// versions being open at once.
+    func testOnlyOneVersionRowIsEverHighlighted() {
+        let arrangement = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(arrangement.waitForExistence(timeout: 20))
+        arrangement.tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        app.buttons["versions-toggle-\(firstArrangement)"].tap()
+
+        func highlighted() -> [String] {
+            let rows = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
+                            "version-\(firstArrangement)", "step-\(firstArrangement)"))
+            return (0..<rows.count).map { rows.element(boundBy: $0) }
+                .filter { $0.exists && $0.isSelected }
+                .map { $0.identifier }
+        }
+
+        // exactly one to begin with
+        var lit = highlighted()
+        XCTAssertEqual(lit.count, 1, "expected one highlighted version row, got \(lit)")
+        shot("version-highlight-initial")
+
+        // open a prompt group's steps: the highlight must not double up
+        let stepsToggle = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@",
+                        "steps-toggle-\(firstArrangement)")).firstMatch
+        if stepsToggle.exists {
+            stepsToggle.tap()
+            lit = highlighted()
+            XCTAssertEqual(lit.count, 1,
+                           "opening a prompt group's steps lit \(lit.count) rows: \(lit)")
+            shot("version-highlight-steps-open")
+        }
+
+        // click through every version row; each click moves the single highlight
+        let rows = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
+                        "version-\(firstArrangement)", "step-\(firstArrangement)"))
+        let count = min(rows.count, 4)
+        XCTAssertGreaterThan(count, 1, "the fixture needs more than one version to click through")
+        for index in 0..<count {
+            let row = rows.element(boundBy: index)
+            guard row.exists, row.isHittable else { continue }
+            let identifier = row.identifier
+            row.tap()
+            sleep(3)
+            lit = highlighted()
+            XCTAssertEqual(lit.count, 1,
+                           "after opening \(identifier), \(lit.count) rows are highlighted: \(lit)")
+            XCTAssertTrue(lit.first?.contains(identifier.replacingOccurrences(
+                            of: "step-", with: "").replacingOccurrences(
+                            of: "version-", with: "")) ?? false,
+                          "the highlight is on \(lit) but \(identifier) was opened")
+        }
+        shot("version-highlight-after-clicks")
+    }
+
     // MARK: - Dragging
 
     /// A set list heading takes an arrangement dropped on it. The picker and

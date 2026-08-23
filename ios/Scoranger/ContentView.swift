@@ -894,7 +894,13 @@ struct ContentView: View {
         let key = "\(score.slug)/\(group.id)"
         let expanded = expandedVersionGroups.contains(key)
         let hasSteps = group.subs.count > 1
+        // Exactly one row in the library may be lit, and it is the row that
+        // stands for the version on screen. A group's steps include its own
+        // face, so while the group is open the step rows own the highlight --
+        // lighting the group as well put two marks on one version, which read
+        // as two versions being open at once.
         let isDisplayed = score.slug == state.selectedScore?.slug
+            && !expanded
             && (group.face.id == state.displayedVersionID
                 || group.subs.contains { $0.id == state.displayedVersionID })
         return HStack(spacing: Theme.Metric.s6) {
@@ -936,6 +942,8 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("version-\(score.slug)-\(group.face.id)")
+            // a highlight nobody can query is a highlight nobody can test
+            .accessibilityAddTraits(isDisplayed ? [.isSelected] : [])
         }
         .padding(.leading, Theme.Metric.versionIndent - 18)
         .padding(.trailing, Theme.Metric.panelPadding)
@@ -967,6 +975,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .background(isDisplayed ? Theme.Surface.well : Color.clear)
         .accessibilityIdentifier("step-\(score.slug)-\(version.id)")
+        .accessibilityAddTraits(isDisplayed ? [.isSelected] : [])
     }
 
     // MARK: - Pill
