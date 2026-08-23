@@ -100,6 +100,16 @@ def _dispatch(op, a):
         return workspace.assign_score_to_piece(a["score"], None)
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "set-structure":
+        score = _load(a["score"], None)
+        details = ops.set_structure(score, a["kind"], measure=a.get("measure"),
+                                    to_measure=a.get("to_measure"),
+                                    number=a.get("number"), times=a.get("times"),
+                                    remove=bool(a.get("remove")),
+                                    move_to=a.get("move_to"))
+        entry = workspace.add_version(a["score"], score, "set-structure",
+                                      {"kind": a["kind"], "measure": a.get("measure")})
+        return {"version": entry["id"], "details": details}
     if op == "whistle-fingerings":
         score = _load(a["score"], None)
         part = _part(score, a["part"])
