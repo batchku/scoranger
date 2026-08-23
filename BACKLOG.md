@@ -466,3 +466,99 @@ melody piled onto the downbeat) and assumed the target staff had no voices;
 A prompt group's steps include the group's own face version, so with the steps
 open both the group row and a step row claimed the highlight. Open groups let
 their step rows own it; collapsed groups stand in for whichever version shows.
+
+
+## Next build — chord symbols shrank (regression, root-caused)
+
+Ali: chord names used to render much bigger and legible; now they are small
+and hard to read. **Found: build 128 did it, and it is a coupling in Verovio's
+options, not anything to do with the chord op.**
+
+Verovio has exactly one text-size option, `lyricSize` (default 4.5), and it
+governs BOTH lyric verses and `<harm>` chord-symbol text. Build 128 ("whistle
+diagrams above the staff, at half size") set `lyricSize` to 2.2 to halve the
+fingering diagrams -- in `render.py` (`WHISTLE_LYRIC_SIZE`) and in
+`VerovioRenderer.swift` (`FingeringDiagrams.lyricSize`) -- and chord symbols
+came along for the ride. Measured on a jig with three chord symbols:
+
+    lyricSize 4.5  ->  chord symbol font-size 405
+    lyricSize 2.2  ->  chord symbol font-size 198     (less than half)
+
+It applies whenever the score carries fingerings, which is exactly Ali's
+Morrison's Jig: whistle fingerings AND chord names, so the names halved. A
+score without fingerings still renders them at 405.
+
+There is no independent harm-size option. `harmDist` and `topMarginHarm` move
+chord symbols; they do not size them. `fingeringScale` (0.75) applies to `<fing>`
+elements, which is not how these fingerings are encoded.
+
+### The fix, and why this one rather than the alternatives
+
+**Stop shrinking `lyricSize`; scale the diagrams ourselves.** Both renderers
+already rewrite each tagged verse glyph into circle paths
+(`render.py::_fingering_diagrams`, `FingeringDiagrams.swift`), and the circle
+radius is a proportion of the verse font-size. Put `lyricSize` back to 4.5 and
+apply the ~0.49 factor inside that pass, so the diagrams stay the size Ali
+approved in 128 while chord symbols go back to full size. Our own drawn glyph
+should not ride on a global text option that also sizes someone else's text.
+
+Watch: Verovio reserves vertical space from `lyricSize`, so at 4.5 there will
+be more room above the staff than the small diagrams need. `lyricTopMinMargin`
+and `lyricHeightFactor` are the knobs for that; check it visually.
+
+Rejected: scaling `g.harm` font-size back up in our SVG pass (a compensation
+layered on the coupling rather than removing it), and re-encoding fingerings as
+`<fing>` elements to use `fingeringScale` (a much larger rewrite).
+
+**A check to add with the fix**: chord-symbol font size must not depend on
+whether the score has fingerings. That is a one-line assertion over two renders
+and it would have caught this.
+
+Ali is resending a screenshot of the small rendering; it may show he wants them
+larger than the 4.5 default, in which case the target size changes but the
+decoupling above does not.
+
+## Next release — size and position for things added to a score (Ali)
+
+When Ali adds something to a score he wants to change its SIZE and its
+LOCATION. Starting with chord symbols, extending to other added text and marks.
+
+This is the other half of the chord-size regression: the reason a global option
+could shrink his chord names is that nothing owns the size of an added element.
+Per-element size and offset would make that impossible by construction.
+
+### Shape of the work
+
+- **Model.** A chord symbol is a `music21.harmony.ChordSymbol` at an offset in a
+  measure. MusicXML `<harmony>` carries `default-x`/`default-y` (and
+  `relative-x`/`relative-y`) for position, and MEI has `@ho`/`@vo` offsets --
+  so both a size and an offset can be stored in the notation rather than in
+  app-side state, which is the rule this project holds to.
+- **Ops.** Something like `scor style-element <score> --part X --measure N
+  [--kind harmony] [--size 1.4] [--offset-x 0 --offset-y -2]`, and a
+  score-or-part-wide default (`chart-style` already exists and is the natural
+  home for "all chord symbols this big").
+- **Verovio.** Per-element size needs the size to reach the engraving. Check
+  early whether Verovio honours `@fontsize` on `<harm>`, or whether it has to
+  be a post-pass in `_fingering_diagrams`' neighbour -- the answer decides
+  whether this is an op-only change or an op plus renderer change.
+- **UI.** This is where it meets the deferred move/duplicate spike. Offset-
+  anchored elements (chord symbols, text) are the tractable case: the lasso
+  already resolves an element to a `ScoreAddress`, so a drag of a selected
+  chord symbol becomes an offset write, and a pinch or a stepper becomes a size
+  write. Notes are the hard case and stay out of scope.
+- **Chat.** "make the chord names bigger", "move that Em up a bit" should reach
+  the same op, so the tool wants a size/offset argument rather than a new verb
+  per adjustment.
+
+### Worth deciding before building
+
+- Whether size is absolute (points) or relative (a multiplier on the engraved
+  default). Relative survives a page-size change; absolute is what a user
+  means when they say "14pt". Lean relative, and say so in the UI.
+- Whether an adjustment belongs to the arrangement (versioned, travels with
+  the score, which is this project's model) or to the view (per-device, not in
+  the notation). Versioned is consistent with everything else here; it does
+  mean an adjustment costs a version.
+- Reset. Any per-element override needs a way back to the default, or scores
+  accumulate nudges nobody can undo.
