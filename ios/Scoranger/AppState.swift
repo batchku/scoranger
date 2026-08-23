@@ -989,6 +989,40 @@ final class AppState: ObservableObject {
         return false
     }
 
+    /// Drop an arrangement into a piece at a chosen position.
+    ///
+    /// Filing and ordering are two engine ops, and the second needs the first
+    /// to have landed — a drag from another piece that fired them in parallel
+    /// reordered a list the arrangement was not in yet, and the row appeared
+    /// at the bottom. `order` is built from the piece as it will be, so the
+    /// call is correct whether the arrangement is already in this piece or is
+    /// arriving from elsewhere.
+    ///
+    /// `before` is the slug the dragged row should displace; nil appends.
+    func placeInPiece(scoreSlug: String, piece: String, before target: String?) {
+        Task {
+            do {
+                // the piece document holds the order; the score list does not
+                let current = (manifest?.pieces ?? [])
+                    .first { $0.slug == piece }?.arrangements ?? []
+                if !current.contains(scoreSlug) {
+                    _ = try await local.call(op: "assign-piece",
+                                             args: ["score": scoreSlug, "piece": piece])
+                }
+                var order = current.filter { $0 != scoreSlug }
+                let index = target.flatMap { order.firstIndex(of: $0) } ?? order.count
+                order.insert(scoreSlug, at: index)
+                _ = try await local.call(op: "reorder-piece",
+                                         args: ["piece": piece, "order": order])
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     /// Persist a piece's arrangement order (the sidebar numbering).
     func reorderPiece(piece: String, order: [String]) {
         Task {

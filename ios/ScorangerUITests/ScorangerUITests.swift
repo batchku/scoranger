@@ -678,7 +678,7 @@ final class ScorangerUITests: XCTestCase {
         let row = app.buttons["arrangement-\(firstArrangement)"]
         let pieceHeading = app.buttons["Collapse \(piece)"]
         XCTAssertTrue(pieceHeading.waitForExistence(timeout: 10))
-        row.press(forDuration: 1.0, thenDragTo: pieceHeading)
+        drag(row, onto: pieceHeading)
 
         XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
                                            timeout: 20),
@@ -761,6 +761,76 @@ final class ScorangerUITests: XCTestCase {
                       "the selection reference did not reach the chat input: \(value)")
         XCTAssertTrue(value.contains("bar"), "the reference should name bars: \(value)")
         shot("selection-in-chat")
+    }
+
+    /// Drag one library row onto another thing.
+    ///
+    /// Not `press(forDuration:thenDragTo:)`: rows carry a context menu, and a
+    /// still press of a second opens the menu instead of lifting the drag —
+    /// which looked exactly like "the drop was never delivered". Moving off
+    /// sooner and holding at the destination is what the drag session needs to
+    /// register the target before the finger lifts.
+    private func drag(_ source: XCUIElement, onto destination: XCUIElement) {
+        source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.6,
+                   thenDragTo: destination.coordinate(
+                    withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                   withVelocity: .slow,
+                   thenHoldForDuration: 1.2)
+    }
+
+    // MARK: - Dragging
+
+    /// A set list heading takes an arrangement dropped on it. The picker and
+    /// the row's "Add to set list…" both still work; this is the shortcut.
+    func testDraggingAnArrangementOntoASetlistAddsIt() {
+        // a set list the seeded arrangements are not already in
+        app.buttons["New setlist"].tap()
+        let field = app.textFields["Setlist name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.typeText("Gig night")
+        app.buttons["Create"].tap()
+        // the picker opens on creation; leave it without adding anything
+        XCTAssertTrue(app.staticTexts["ADD AN ARRANGEMENT"].waitForExistence(timeout: 20))
+        app.buttons["Done"].firstMatch.tap()
+
+        let heading = app.buttons["Collapse setlist Gig night"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 20), "the new set list is not in the sidebar")
+        let row = app.buttons["arrangement-\(firstArrangement)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        drag(row, onto: heading)
+
+        XCTAssertTrue(app.buttons["setlist-gig-night-\(firstArrangement)"]
+                        .waitForExistence(timeout: 25),
+                      "the arrangement dropped on the set list did not join it")
+        shot("dragged-into-setlist")
+
+        // leave the library as we found it
+        heading.press(forDuration: 1.2)
+        if app.buttons["Delete setlist"].waitForExistence(timeout: 10) {
+            app.buttons["Delete setlist"].tap()
+            if app.buttons["Delete"].waitForExistence(timeout: 5) { app.buttons["Delete"].tap() }
+        }
+    }
+
+    /// Dropping one arrangement on another inside a piece puts it in that
+    /// place, and the numerals follow. Same op as "Move up", by hand.
+    func testDraggingOneArrangementOntoAnotherReordersThePiece() {
+        let first = app.buttons["arrangement-\(firstArrangement)"]
+        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20))
+        XCTAssertTrue(second.waitForExistence(timeout: 10))
+        XCTAssertTrue(first.label.contains("Arrangement number 1"), first.label)
+        XCTAssertTrue(second.label.contains("Arrangement number 2"), second.label)
+
+        drag(second, onto: first)
+
+        XCTAssertTrue(waitForLabel(second, contains: "Arrangement number 1"),
+                      "the dragged arrangement did not take the place it was dropped on: "
+                      + second.label)
+        XCTAssertTrue(first.label.contains("Arrangement number 2"),
+                      "the displaced arrangement was not renumbered: \(first.label)")
+        shot("dragged-reorder")
     }
 
     // MARK: - Two pages side by side
