@@ -350,135 +350,73 @@ code that ships and works today with code on an unproven renderer. If Phase B
 is done first, keep the bitmap path behind a flag until the vector path renders
 every score in the library correctly at every zoom level.
 
-## Version 0.1.2 — dragging instead of context menus (Ali)
+## Shipped in 0.1.2 — dragging, repeat signs, two pages side by side
 
-Ali wants drag gestures to replace context-menu actions wherever they can. The
-menu stays as the accessible path; dragging becomes the one people use.
+All three of what were logged as 0.1.2, 0.1.3 and 0.1.4 went out together.
+What is worth keeping from the write-ups:
 
-In priority order:
+### Dragging — the earlier diagnosis was wrong
 
-1. **Drag an arrangement into a set list** to add it. The set list rows and the
-   set list heading are both plausible targets; the heading is the one shape
-   already proven to work (see below).
-2. **Drag an unfiled arrangement into a piece** to file it. This already works
-   when dropped on the piece *heading* — it shipped earlier and now has a test
-   (`testDraggingAnUnfiledArrangementOntoAPieceFilesIt`). Extend it to the
-   piece's rows so the whole section is a target, not just its title.
-3. **Reorder arrangements within a piece** by dragging. This is the one that
-   failed, and the reason 129 is a dedicated build rather than a patch.
-4. Whatever else the arrangement menu offers that reads naturally as a drag:
-   duplicate (drop on empty space in the same piece?), remove from a set list
-   (drag out), assignment to a different piece (drag between pieces).
+Three reorder designs were abandoned in build 125 on the conclusion that "a row
+carrying `.onDrag` does not receive drops". That was not the cause. **A still
+press of a second opens the row's context menu instead of lifting the drag**,
+so under XCUITest the drop was never delivered — while dropping on a piece
+*heading* worked, which is what made the row look guilty. Driving it with
+`press(forDuration: 0.6, thenDragTo:, withVelocity: .slow,
+thenHoldForDuration: 1.2)` delivers the drop to a sibling row in the same
+piece, and the `List` + `.onMove` rewrite the backlog called for is unnecessary.
 
-### What is already known, so nobody re-learns it
+Shipped: a piece heading files an arrangement, a row inside a piece takes its
+place in the order, a set list heading adds to the running order, the Unfiled
+band unfiles. Every one also stays in the context menu.
 
-- **Dropping on a piece heading works** under XCUITest and on device. That was
-  established as a *control* while diagnosing the reorder failure, and it is
-  the shape to copy.
-- **Three reorder designs never received the drop**: the row itself as a target,
-  a `Color.clear` background layer behind the row, and a dedicated insertion
-  strip between rows — tried with both `onDrop` and `dropDestination`.
-  Instrumenting the handler showed it never ran. A 60pt-tall strip failed the
-  same way, so it is not a target-size problem.
-- The likeliest cause is that a row carrying `.onDrag` does not receive drops,
-  and neighbouring strips inherit something from that context. Modifier order
-  (`.onDrop` before `.onDrag`) made no difference.
-- **The plan is a `List` with `.onMove`**: SwiftUI owns reordering there and
-  sidesteps drag sources entirely. The cost is fitting a List into the overlay
-  sidebar's styling — the sidebar is currently a hand-built VStack inside a
-  ScrollView, and List brings its own insets, separators and background that
-  the Paper & Clay panel styling will have to override.
-- **Row identity matters.** Rows keyed by slug alone got matched against the row
-  they replaced when moving between sections, and SwiftUI reused the old view —
-  which is how a moved arrangement kept a numeral it should not have had. The
-  ids are section-scoped now (`piece/<piece>/<slug>`, `unfiled/<slug>`,
-  `setlist/<setlist>/<slug>`); reordering inside one section needs the same care.
-- **#N and the chat refs are derived**, both from `piece.arrangements`, so a
-  correct reorder needs no renumbering code — but assert it, because "the badge
-  moved and the chat ref did not" is exactly the failure to guard against.
-  `testReorderingArrangementsRenumbersThem` and
-  `testChatContextFollowsTheNewOrder` already cover the menu path.
-- **A nested Menu inside a contextMenu hangs the app** (watchdog kill). If any
-  of this work adds submenus, do not.
+Still open, if anyone wants them as drags: duplicate, and dragging *out* of a
+set list to remove. The Unfiled band only exists when something is already in
+it, so dragging an arrangement out of its piece needs an unfiled arrangement to
+aim at; "Remove from piece" in the menu is the path that always works.
 
-## Version 0.1.3 — repeats and structural markings via prompt (Ali)
+### Repeat signs — what the engine now has
 
-Ali tried to change repeat signs by prompt and chat could not do it. Correctly:
-the engine has no op for any of it, and the agent is only allowed to touch
-notation through ops. Nothing in `ops.py` writes a barline, a volta, or a
-navigation mark, so every one of these requests fails no matter how it is
-phrased.
+`scor set-structure <score> --kind K --measure N [--to-measure M] [--number N]
+[--times N] [--remove] [--move-to N]`, wired to the CLI, the app bridge and
+both chat tool lists. Kinds: `repeat-start`, `repeat-end`, `repeat-both`,
+`volta`, and the navigation marks (`segno`, `coda`, `fine`, `da-capo`,
+`da-capo-al-fine`, `da-capo-al-coda`, `dal-segno`, `dal-segno-al-fine`,
+`dal-segno-al-coda`). One op with a `kind`, as the write-up recommended, to
+keep the chat tool list short.
 
-**Ali is sending a screenshot and the exact prompt he tried.** Prioritize
-against those when they arrive; the list below is the scope, not the order.
+`engine/scripts/check_structure.py` engraves every mark and looks for it in the
+MEI Verovio returns. It caught the one that mattered: **music21 merges the two
+staves of a grand staff into a single MusicXML `<part>`, and in that merge the
+second staff's barline replaces the first's — taking the volta's `<ending>`
+with it.** A volta now goes on every staff of the joined group. Repeats already
+went to every part.
 
-### What to add
+`repeat.Expander` is still unused and still the tool for a future "play this
+through as written".
 
-- **Repeat barlines** — open and close repeats on a measure, and the both-ways
-  barline. `music21.bar.Repeat(direction="start"|"end")` on a measure's
-  `leftBarline` / `rightBarline`, with `times` for multi-repeats.
-- **Repeat endings (voltas)** — 1st/2nd/3rd endings over a span of measures.
-  `music21.spanner.RepeatBracket`, which takes the measures it covers and a
-  `number`. This is the fiddliest one: brackets are spanners over measure
-  ranges, so the op needs a measure range argument and has to survive later
-  ops that renumber or remove measures.
-- **Navigation marks** — Segno, Coda, D.C., D.S., D.C. al Fine, D.S. al Coda,
-  Fine. music21 models every one of these as a class in `music21.repeat`
-  (`Segno`, `Coda`, `DaCapo`, `DaCapoAlFine`, `DaCapoAlCoda`, `DalSegno`,
-  `DalSegnoAlCoda`, `DalSegnoAlFine`, `Fine`), inserted at a measure.
-- **Removing and moving them**, not only adding. "Take the repeat off bar 16"
-  is as likely a prompt as putting one on.
+**Ali still owes a screenshot and the exact prompt that failed**, to confirm
+that specific case reaches the new op.
 
-### Worth deciding before building
+### Two pages side by side
 
-- **One op or several?** A single `set-structure` op taking a kind, a measure
-  and optional range keeps the chat tool surface small, which matters — the
-  tool list is already 24 tools and every one is sent with every request. The
-  alternative is `add-repeat` / `add-volta` / `add-navigation`, which reads
-  better in a transcript. Lean to one op with a `kind` argument.
-- **Does Verovio render them?** Check before building, the way the whistle work
-  should have: write each mark, render, and look. MusicXML round-trips these
-  through music21 reasonably well, but a mark that engraves nowhere is worse
-  than a refusal. Barlines and voltas are safe bets; the al-Coda family is
-  worth verifying individually.
-- **`repeat.Expander` exists** and unfolds repeats into a literal playthrough.
-  Not what Ali asked for, but it is the tool for a future "show me this as it
-  is played" and worth knowing about while in this code.
-- Chat wiring goes in both places or it drifts: `LocalChat.swift` (on-device)
-  and `engine/scoranger_engine/chat.py` (host).
+`SpreadLayout` (in `Scoranger/ScoreModel`, so the unit tests compile it in)
+decides page width and which pages share a row; `ScorePagesView` lays out rows
+of one or two. Off by default, under a Reading band in Settings.
 
-## Version 0.1.4 — two-page side-by-side view (Ali)
+Decisions taken, against the questions the write-up left open:
 
-A setting: one page at a time, or two pages side by side. The point is a
-portrait iPad with both panels shut — that is 1032pt of canvas, which is two
-A4-ish pages at ~500pt each with room between them. Design for that case and
-let the others degrade sensibly.
+- **No automatic fallback when a panel opens.** The pages shrink and zoom is
+  the answer. A setting that silently stops applying is worse than a narrow
+  spread the user can see and close a panel to fix.
+- **A spread is not capped at 1100pt** the way a single page is, or a wide
+  display leaves a band of ground down the middle.
+- **The odd last page sits alone**, in the left-hand slot.
+- No orientation special-casing: the layout is width-driven.
+- The pill still says nothing about which pages are showing. Nobody asked.
 
-### Where it goes
-
-- The toggle belongs in Settings beside the other display choices, as
-  `@AppStorage` so it survives a launch (`useLocalEngine` is the pattern).
-- `ScorePagesView` builds a `VStack` of pages, one per `document.page(at:)`,
-  each sized `min(geo.size.width - 24, 1100)`. Two-page mode pairs them: a
-  `VStack` of `HStack`s, two pages per row, each about half the width.
-- `ZoomableScroll` takes `contentWidth` and measures the height it needs, so it
-  does not care how the pages are arranged — but the width it is handed must be
-  the pair's width, not a page's.
-- `LassoAnchor` is per page and carries `pageIndex`; selection maps unit
-  coordinates through the anchor, so it keeps working as long as each page keeps
-  its own anchor. Verify a lasso on the RIGHT-hand page selects from that page
-  and not its neighbour — this is the thing most likely to break.
-
-### Decisions to make
-
-- **What happens when a panel opens.** The canvas becomes 712pt (one panel) or
-  332pt (both). Two pages at 332pt is unreadable. Either fall back to one page
-  automatically below some width, or let the pages shrink and trust zoom. The
-  automatic fallback is kinder but means the setting sometimes lies; say so in
-  the UI if so.
-- **Odd page counts** — the last page sits alone in its row. Left-aligned, or
-  centred? Left, probably, so page positions stay predictable.
-- **Landscape.** Two pages side by side in landscape is the classic reading
-  view and comes free if the layout is width-driven rather than
-  orientation-driven. Do not special-case orientation.
-- Whether the pill's page/version chip should say which pages are showing.
+The flagged risk — a lasso on the right-hand page selecting from its neighbour
+— did not materialise: each page carries its own `LassoAnchor` and the
+recognizer picks the anchor under the touch.
+`testALassoOnTheRightHandPageSelectsFromThatPage` draws on both halves and
+checks the right one gives later bars.

@@ -54,6 +54,14 @@ scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # which must stay in step. Circle GLYPHS are not an option: the rasterizers'
   # fallback font has none and engraves empty boxes.
   # Chart: engine/scripts/check_whistle.py asserts it against the published one.
+scor set-structure <score> --kind KIND --measure N [--to-measure M] [--number N]
+                   [--times N] [--remove] [--move-to N]
+  # repeats, voltas and navigation marks. KIND is repeat-start / repeat-end /
+  # repeat-both / volta / segno / coda / fine / da-capo[-al-fine|-al-coda] /
+  # dal-segno[-al-fine|-al-coda]. A repeat barline goes on every part, and a
+  # volta on every staff of a grand staff -- music21's grand-staff merge drops
+  # a volta written to the top staff alone. --move-to is remove-then-add.
+  # engine/scripts/check_structure.py engraves each mark and checks the MEI.
 scor set-metadata <score> [--title T] [--composer C] [--arranger A]
   # the ONE title: the arrangement's name in the library and the title engraved
   # at the top of the page are the same value. Versioned, like any notation
