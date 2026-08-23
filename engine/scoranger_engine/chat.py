@@ -264,6 +264,24 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
                   {"from": from_ref, "part": part, "replace": replace, "measures": measures}, fn)
 
 
+def set_structure(ctx: RunContext[str], kind: str, measure: int | None = None,
+                  to_measure: int | None = None, number: int | None = None,
+                  times: int | None = None, remove: bool = False,
+                  move_to: int | None = None) -> dict:
+    """Add, remove or move a repeat sign, a volta (1st/2nd ending) or a
+    navigation mark. kind is one of: repeat-start, repeat-end, repeat-both,
+    volta, segno, coda, fine, da-capo, da-capo-al-fine, da-capo-al-coda,
+    dal-segno, dal-segno-al-fine, dal-segno-al-coda. A volta needs measure and
+    to_measure and a number; a repeat-end can take times. Set remove=True to
+    take one off, or move_to to shift it to another measure."""
+    def fn(s):
+        return ops.set_structure(s, kind, measure=measure, to_measure=to_measure,
+                                 number=number, times=times, remove=remove,
+                                 move_to=move_to)
+    return _apply(ctx.deps, "set-structure",
+                  {"kind": kind, "measure": measure, "remove": remove}, fn)
+
+
 def penny_whistle_fingerings(ctx: RunContext[str], part: str, whistle: str = "D",
                              clear: bool = False) -> dict:
     """Write penny-whistle fingerings under every note of a part, as stacked
@@ -299,7 +317,8 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
-         pull_part, set_metadata, penny_whistle_fingerings, assign_to_piece]
+         pull_part, set_metadata, penny_whistle_fingerings, set_structure,
+         assign_to_piece]
 
 
 def resolve_model(alias_or_string: str | None) -> str:

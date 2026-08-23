@@ -1239,6 +1239,186 @@ def _looks_like_a_filename(text: str) -> bool:
     return bool(re.search(r"\.(musicxml|xml|mxl|mid|midi|pdf)$", text.strip(), re.I))
 
 
+
+# ------------------------------------------------------- structural markings
+#
+# Repeats and the navigation marks that go with them. Chat could not touch any
+# of this before: the agent may only change notation through an op, and there
+# was no op, so every phrasing of "put a repeat on bar 16" failed.
+#
+# Every kind below was checked against Verovio before it was offered — a mark
+# the engine writes but nothing engraves is worse than saying no.
+
+# kind -> the music21 class that expresses it
+NAVIGATION_MARKS = {
+    "segno": "Segno",
+    "coda": "Coda",
+    "fine": "Fine",
+    "da-capo": "DaCapo",
+    "da-capo-al-fine": "DaCapoAlFine",
+    "da-capo-al-coda": "DaCapoAlCoda",
+    "dal-segno": "DalSegno",
+    "dal-segno-al-fine": "DalSegnoAlFine",
+    "dal-segno-al-coda": "DalSegnoAlCoda",
+}
+REPEAT_BARLINES = {"repeat-start", "repeat-end", "repeat-both"}
+STRUCTURE_KINDS = sorted(set(NAVIGATION_MARKS) | REPEAT_BARLINES | {"volta"})
+
+
+def _measure_or_raise(part, number: int):
+    measure = part.measure(number)
+    if measure is None:
+        numbers = [m.number for m in part.getElementsByClass(stream.Measure)]
+        raise ValueError(f"No measure {number}. This part has "
+                         f"{numbers[0] if numbers else '?'}–{numbers[-1] if numbers else '?'}.")
+    return measure
+
+
+def set_structure(score, kind: str, measure: int | None = None,
+                  to_measure: int | None = None, number: int | None = None,
+                  times: int | None = None, remove: bool = False,
+                  move_to: int | None = None) -> dict:
+    """Add, remove or move a repeat, a volta, or a navigation mark.
+
+    One op rather than a dozen: the chat tool list is sent with every request,
+    so each extra tool costs on every turn. `kind` says which mark.
+
+    Repeat barlines go on EVERY part, because a repeat is a property of the
+    system and a barline drawn on one staff of a piano score is just wrong.
+    Voltas go on the top part and on every staff joined to it (see
+    `_joined_staves`); navigation marks go on the top part, where they are
+    read from.
+    """
+    from music21 import bar as m21bar
+    from music21 import repeat as m21repeat
+    from music21 import spanner as m21spanner
+
+    if kind not in STRUCTURE_KINDS:
+        raise ValueError(f"Unknown structural mark '{kind}'. "
+                         f"Have: {', '.join(STRUCTURE_KINDS)}")
+    parts = list(score.parts) or [score]
+    top = parts[0]
+
+    # a move is a remove followed by an add, so it cannot half-happen
+    if move_to is not None:
+        set_structure(score, kind, measure=measure, to_measure=to_measure,
+                      number=number, remove=True)
+        span = None if to_measure is None or measure is None else to_measure - measure
+        return set_structure(score, kind, measure=move_to, number=number, times=times,
+                             to_measure=None if span is None else move_to + span)
+
+    if kind == "volta":
+        return _volta(_joined_staves(score, parts), measure, to_measure, number, remove)
+    if kind in REPEAT_BARLINES:
+        return _repeat_barline(parts, kind, measure, times, remove)
+    return _navigation_mark(top, kind, measure, remove)
+
+
+def _repeat_barline(parts, kind: str, measure: int | None,
+                    times: int | None, remove: bool) -> dict:
+    from music21 import bar as m21bar
+
+    if measure is None:
+        raise ValueError("Which measure? A repeat barline needs one.")
+    touched = []
+    for part in parts:
+        m = _measure_or_raise(part, measure)
+        if remove:
+            for side in ("leftBarline", "rightBarline"):
+                existing = getattr(m, side, None)
+                if isinstance(existing, m21bar.Repeat):
+                    setattr(m, side, None)
+        else:
+            if kind in ("repeat-start", "repeat-both"):
+                m.leftBarline = m21bar.Repeat(direction="start")
+            if kind in ("repeat-end", "repeat-both"):
+                end = m21bar.Repeat(direction="end")
+                if times and times > 1:
+                    end.times = times
+                m.rightBarline = end
+        touched.append(part_label(part))
+    return {"kind": kind, "measure": measure, "removed": remove,
+            "times": times, "parts": touched}
+
+
+def _joined_staves(score, parts: list) -> list:
+    """The top part, plus the staves MusicXML export merges into it.
+
+    A grand staff (accordion, piano) parses as two `PartStaff`s in a
+    `StaffGroup`, and music21 writes them out as ONE `<part>` with two staves.
+    In that merge, a barline from the second staff replaces the first staff's
+    barline at the same position — and a volta lives inside a barline as
+    `<ending>`, so a bracket written to the top staff alone silently vanished
+    from the exported file. Writing it to every joined staff survives the
+    merge and still produces exactly one `<ending>` per barline.
+
+    A score of separate instruments has no such group; there the volta stays
+    on the top part, as it is engraved.
+    """
+    from music21 import layout as m21layout
+
+    top = parts[0]
+    for group in score.recurse().getElementsByClass(m21layout.StaffGroup):
+        members = [p for p in parts if p in group.getSpannedElements()]
+        if top in members and len(members) > 1:
+            return members
+    return [top]
+
+
+def _volta(parts: list, measure: int | None, to_measure: int | None,
+           number: int | None, remove: bool) -> dict:
+    from music21 import spanner as m21spanner
+
+    if measure is None:
+        raise ValueError("Which measures? A volta covers a range.")
+    last = to_measure or measure
+
+    dropped = 0
+    for part in parts:
+        covered = [_measure_or_raise(part, n) for n in range(measure, last + 1)]
+        numbers = {m.number for m in covered}
+        if remove:
+            for bracket in list(part.getElementsByClass(m21spanner.RepeatBracket)):
+                spanned = {m.number for m in bracket.getSpannedElements()}
+                if spanned & numbers:
+                    part.remove(bracket)
+                    dropped += 1
+        else:
+            part.insert(0, m21spanner.RepeatBracket(covered, number=number or 1))
+
+    if remove:
+        return {"kind": "volta", "measures": [measure, last], "removed": True,
+                "brackets_removed": dropped}
+    return {"kind": "volta", "measures": [measure, last],
+            "number": number or 1, "removed": False,
+            "staves": len(parts)}
+
+
+def _navigation_mark(part, kind: str, measure: int | None, remove: bool) -> dict:
+    from music21 import repeat as m21repeat
+
+    cls = getattr(m21repeat, NAVIGATION_MARKS[kind])
+    if remove:
+        dropped = 0
+        scope = ([_measure_or_raise(part, measure)] if measure is not None
+                 else list(part.getElementsByClass(stream.Measure)))
+        for m in scope:
+            for existing in list(m.getElementsByClass(cls)):
+                m.remove(existing)
+                dropped += 1
+        return {"kind": kind, "measure": measure, "removed": True, "count": dropped}
+
+    if measure is None:
+        raise ValueError(f"Which measure should the {kind} go on?")
+    m = _measure_or_raise(part, measure)
+    # at the start of the bar for a segno or coda sign, at the end for the
+    # instructions that send the player somewhere else
+    offset = 0.0 if kind in ("segno", "coda") else max(0.0, m.duration.quarterLength - 0.01)
+    m.insert(offset, cls())
+    return {"kind": kind, "measure": measure, "removed": False,
+            "part": part_label(part)}
+
+
 def info(score) -> dict:
     parts = []
     for i, p in enumerate(score.parts):

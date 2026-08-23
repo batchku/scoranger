@@ -278,6 +278,15 @@ def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
 
 
+def cmd_set_structure(a):
+    score = _load(a.score, None)
+    details = ops.set_structure(score, a.kind, measure=a.measure,
+                                to_measure=a.to_measure, number=a.number,
+                                times=a.times, remove=a.remove, move_to=a.move_to)
+    _mutate(a.score, score, "set-structure",
+            {"kind": a.kind, "measure": a.measure, "remove": a.remove}, details)
+
+
 def cmd_whistle_fingerings(a):
     score = _load(a.score, None)
     part = _part(score, a.part)
@@ -516,6 +525,21 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("set-structure",
+                       help="Repeats, voltas and navigation marks (add/remove/move)")
+    s.add_argument("score")
+    s.add_argument("--kind", required=True,
+                   help="repeat-start|repeat-end|repeat-both|volta|segno|coda|fine|"
+                        "da-capo[-al-fine|-al-coda]|dal-segno[-al-fine|-al-coda]")
+    s.add_argument("--measure", type=int)
+    s.add_argument("--to-measure", type=int, dest="to_measure",
+                   help="last measure of a volta")
+    s.add_argument("--number", type=int, help="volta number (1st, 2nd ending)")
+    s.add_argument("--times", type=int, help="play count on a repeat-end")
+    s.add_argument("--move-to", type=int, dest="move_to")
+    s.add_argument("--remove", action="store_true")
+    s.set_defaults(fn=cmd_set_structure)
 
     s = sub.add_parser("whistle-fingerings",
                        help="Write penny-whistle fingerings under a part")

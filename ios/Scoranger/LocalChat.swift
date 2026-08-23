@@ -213,6 +213,17 @@ struct LocalChat {
                                      "measures": str("optional 'A-B' inclusive range")],
                                     required: ["from_ref", "part"]),
                  op: "pull-part", rename: ["from_ref": "from", "as_name": "as"]),
+        ToolSpec(name: "set_structure",
+                 description: "Add, remove or move a repeat sign, a volta (1st/2nd ending) or a navigation mark. Kinds: repeat-start, repeat-end, repeat-both, volta, segno, coda, fine, da-capo, da-capo-al-fine, da-capo-al-coda, dal-segno, dal-segno-al-fine, dal-segno-al-coda. A volta needs measure, to_measure and number; repeat-end can take times. remove=true takes one off; move_to shifts it.",
+                 parameters: params(["kind": str("which mark"),
+                                     "measure": int("the measure it goes on"),
+                                     "to_measure": int("last measure of a volta"),
+                                     "number": int("volta number"),
+                                     "times": int("play count on a repeat-end"),
+                                     "move_to": int("move the mark to this measure"),
+                                     "remove": bool("remove it instead of adding")],
+                                    required: ["kind"]),
+                 op: "set-structure", rename: [:]),
         ToolSpec(name: "penny_whistle_fingerings",
                  description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). Notes the whistle cannot play are reported. Set clear=true to remove them.",
                  parameters: params(["part": str("the part to fingerings"),
@@ -266,6 +277,11 @@ struct LocalChat {
         case "respell": return "Respelling with \(s("prefer") ?? "flats")"
         case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
         case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        case "set_structure":
+            let what = s("kind") ?? "mark"
+            if s("remove") == "true" { return "Removing the \(what)" }
+            if let to = s("move_to") { return "Moving the \(what) to bar \(to)" }
+            return "Adding \(what) at bar \(s("measure") ?? "?")"
         case "penny_whistle_fingerings":
             return s("clear") == "true"
                 ? "Removing whistle fingerings from \(s("part") ?? "the part")"
