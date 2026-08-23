@@ -103,6 +103,65 @@ _LABEL_RE = re.compile(r'<title class="labelAttr">([^<]*)</title>')
 _ANY_SYL_RE = re.compile(r'>([^<>]{1,3})</tspan>')
 
 
+# Fingerings sit above the staff, and small. Verovio ignores MusicXML's
+# lyric placement="above", but honours MEI's place attribute on <verse>, so the
+# move happens on the MEI round trip. Size is a document-wide option: a score
+# carrying fingerings renders ALL its verses small, sung words included. That
+# is the tradeoff for having the diagrams occupy about half the height.
+WHISTLE_LYRIC_SIZE = 2.2          # MEI units; Verovio's default is 4.5
+DEFAULT_LYRIC_SIZE = 4.5
+
+# A chord carries the verses when the fingered note is part of one, so both
+# element names have to be scanned — chord first, so its inner notes are not
+# matched separately.
+_MEI_NOTE_RE = re.compile(r"<(chord|note)\b[^>]*>.*?</\1>", re.S)
+_MEI_VERSE_RE = re.compile(r"<verse\b[^>]*>.*?</verse>", re.S)
+_MEI_SYL_RE = re.compile(r"<syl\b[^>]*>([^<]*)</syl>")
+
+
+def _is_fingering_verse_set(verses: list[str]) -> bool:
+    """Do these verses of one note form a fingering column?
+
+    Same rule as the SVG pass: five or six single holes, with the octave "+"
+    allowed alongside. Applied here so fingerings written before the `wf` tag
+    existed move above the staff too.
+    """
+    holes = 0
+    for verse in verses:
+        syl = _MEI_SYL_RE.search(verse)
+        text = (syl.group(1) if syl else "").strip()
+        if text in ("X", "O", "/"):
+            holes += 1
+        elif text != "+":
+            return False
+    return holes >= WHISTLE_COLUMN
+
+
+def mei_with_fingerings_above(mei: str) -> str | None:
+    """Mark fingering verses `place="above"`. None when there are none."""
+    if "<verse" not in mei:
+        return None
+    changed = False
+
+    def one_note(match: "re.Match[str]") -> str:
+        nonlocal changed
+        block = match.group(0)
+        verses = _MEI_VERSE_RE.findall(block)
+        if len(verses) < WHISTLE_COLUMN:
+            return block
+        tagged = all('label="wf"' in v for v in verses)
+        if not (tagged or _is_fingering_verse_set(verses)):
+            return block
+        changed = True
+        return _MEI_VERSE_RE.sub(
+            lambda v: v.group(0) if 'place=' in v.group(0).split(">")[0]
+            else v.group(0).replace("<verse", '<verse place="above"', 1),
+            block)
+
+    out = _MEI_NOTE_RE.sub(one_note, mei)
+    return out if changed else None
+
+
 def _fingering_diagrams(svg: str) -> str:
     """Replace whistle-fingering glyphs with drawn circles.
 
@@ -237,6 +296,17 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         if not tk.loadFile(src):
             raise RuntimeError(f"Verovio could not load {src}")
         mei = tk.getMEI()
+        # Fingerings go above their staff and render small. Verovio ignores
+        # MusicXML's lyric placement, so the move is made on the MEI and the
+        # document reloaded — the same round trip the chart styling below uses.
+        above = mei_with_fingerings_above(mei)
+        if above is not None:
+            mei = above
+            tk.setOptions({"lyricSize": WHISTLE_LYRIC_SIZE})
+            if not tk.loadData(mei):
+                raise RuntimeError("Verovio could not reload MEI with fingerings above")
+        else:
+            tk.setOptions({"lyricSize": DEFAULT_LYRIC_SIZE})
         if "<harm" in mei:
             # Real Book chord-lane styling, applied semantically in MEI:
             # names ON the staff, centered in the bar, Helvetica bold, and

@@ -4,6 +4,10 @@
 # ships as CFBundleVersion, App Store Connect records it verbatim (ExportOptions
 # has manageAppVersionAndBuildNumber=false), and the app's footer reads it back
 # out of Info.plist at runtime.
+#
+# It does NOT touch MARKETING_VERSION. That names the feature set and is edited
+# by hand in project.yml when a new feature starts — one version per feature,
+# many builds per version as its bugs get fixed. See the comment there.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

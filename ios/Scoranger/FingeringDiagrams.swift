@@ -41,6 +41,12 @@ enum FingeringDiagrams {
     private static let radius: CGFloat = 0.28
     private static let strokeWidth: CGFloat = 0.07
 
+    /// Verse size for a score carrying fingerings, in MEI units (Verovio's
+    /// default is 4.5). Halving it halves the diagram, circles included, since
+    /// every dimension is a proportion of the glyph size it replaces.
+    static let lyricSize = 2.2
+    static let defaultLyricSize = 4.5
+
     /// Smallest run of same-note verses that reads as a fingering rather than
     /// as words. Six holes is a full diagram; five allows for an engraver
     /// dropping an empty verse.
@@ -59,6 +65,64 @@ enum FingeringDiagrams {
         /// width, so an "X" verse and an "O" verse of the SAME note sit at
         /// different x, and a column of mixed holes never grouped.
         let number: Int?
+    }
+
+    /// Mark fingering verses `place="above"` in MEI, or nil when there are none.
+    ///
+    /// Verovio ignores MusicXML's `<lyric placement="above">`, but honours MEI's
+    /// `place` on `<verse>` — so the move happens on an MEI round trip rather
+    /// than in the notation. The same column rule as the SVG pass decides what
+    /// counts, which is what carries fingerings written before the tag existed.
+    static func meiWithFingeringsAbove(_ mei: String) -> String? {
+        guard mei.contains("<verse") else { return nil }
+        // chord first: a fingered note inside a chord hangs its verses off the
+        // chord, and matching the inner <note> separately would miss them
+        guard let noteRE = try? NSRegularExpression(
+                pattern: "<(chord|note)\\b[^>]*>.*?</\\1>",
+                options: [.dotMatchesLineSeparators]),
+              let verseRE = try? NSRegularExpression(
+                pattern: "<verse\\b[^>]*>.*?</verse>",
+                options: [.dotMatchesLineSeparators])
+        else { return nil }
+
+        let ns = mei as NSString
+        var out = ""
+        var cursor = 0
+        var changed = false
+        for match in noteRE.matches(in: mei, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: cursor,
+                                              length: match.range.location - cursor))
+            let block = ns.substring(with: match.range)
+            let blockNS = block as NSString
+            let verses = verseRE.matches(
+                in: block, range: NSRange(location: 0, length: blockNS.length))
+                .map { blockNS.substring(with: $0.range) }
+            if verses.count >= columnThreshold, isFingeringColumn(verses) {
+                changed = true
+                out += verseRE.stringByReplacingMatches(
+                    in: block, range: NSRange(location: 0, length: blockNS.length),
+                    withTemplate: "$0").replacingOccurrences(
+                        of: "<verse ", with: "<verse place=\"above\" ")
+            } else {
+                out += block
+            }
+            cursor = match.range.location + match.range.length
+        }
+        out += ns.substring(from: cursor)
+        return changed ? out : nil
+    }
+
+    /// Five or six single holes on one note, with the octave "+" allowed.
+    private static func isFingeringColumn(_ verses: [String]) -> Bool {
+        var holes = 0
+        for verse in verses {
+            guard let syl = value(of: "(?<=<syl[^<>]{0,200}>)[^<]*(?=</syl>)", in: verse)
+                    ?? value(of: "(?<=<syl>)[^<]*(?=</syl>)", in: verse) else { return false }
+            let text = syl.trimmingCharacters(in: .whitespacesAndNewlines)
+            if [covered, open, half].contains(text) { holes += 1 }
+            else if text != octave { return false }
+        }
+        return holes >= columnThreshold
     }
 
     /// Rewrite every fingering verse in a Verovio SVG page.
