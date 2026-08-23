@@ -265,8 +265,13 @@ def split_bass(score, name: str, bass_name: str, chords_name: str,
             "note": "sustained notes are sliced at each attack (tied where the source was tied)"}
 
 
-def rhythm_problems(score_or_part) -> list[str]:
-    """Everything wrong with a score's rhythm, in the reader's terms.
+def rhythm_faults(score_or_part) -> list[tuple[int, int, str]]:
+    """Everything wrong with a score's rhythm, as (part index, bar, description).
+
+    Structured because the write guard compares one score's faults against
+    another's, and it has to know WHICH bar went wrong: an edit is refused for
+    breaking a bar that was sound before, not for carrying along a bar that was
+    already broken when the music was imported.
 
     One definition, used by the write guard, by the ops that risk breaking it,
     and by engine/scripts/check_rhythm.py — three copies of "sound rhythm"
@@ -285,7 +290,7 @@ def rhythm_problems(score_or_part) -> list[str]:
     """
     from music21 import harmony
 
-    problems = []
+    faults: list[tuple[int, int, str]] = []
     for index, part in enumerate(getattr(score_or_part, "parts", None) or [score_or_part]):
         for measure in part.getElementsByClass(stream.Measure):
             limit = measure.barDuration.quarterLength
@@ -297,17 +302,23 @@ def rhythm_problems(score_or_part) -> list[str]:
                     continue
                 end = max(off + dur for off, dur in events)
                 if end > limit + 1e-6:
-                    problems.append(
-                        f"part {index + 1} bar {measure.number}: {float(end):g} beats "
-                        f"of music in a {float(limit):g}-beat bar")
+                    faults.append((index + 1, measure.number,
+                                   f"{float(end):g} beats of music in a "
+                                   f"{float(limit):g}-beat bar"))
                 for (o1, d1), (o2, _) in zip(events, events[1:]):
                     if o1 + d1 > o2 + 1e-6:
-                        problems.append(
-                            f"part {index + 1} bar {measure.number}: two notes sound "
-                            f"at once in one voice ({float(o1):g}+{float(d1):g} "
-                            f"runs into {float(o2):g})")
+                        faults.append((index + 1, measure.number,
+                                       f"two notes sound at once in one voice "
+                                       f"({float(o1):g}+{float(d1):g} runs into "
+                                       f"{float(o2):g})"))
                         break
-    return problems
+    return faults
+
+
+def rhythm_problems(score_or_part) -> list[str]:
+    """The same faults, phrased for a person to read."""
+    return [f"part {part} bar {bar}: {what}"
+            for part, bar, what in rhythm_faults(score_or_part)]
 
 
 def _strip_ties_safely(part) -> str | None:

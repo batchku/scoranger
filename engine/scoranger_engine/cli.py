@@ -57,7 +57,11 @@ def cmd_import(a):
     # in rather than surfacing as "my-score.mxl" at the top of the page.
     name = ops.clean_imported_metadata(score, name)["title"]
     slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
-    _emit({"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)})
+    out = {"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)}
+    # imperfect sources import and say so; they are never refused
+    if entry.get("rhythm_warnings"):
+        out["rhythm_warnings"] = entry["rhythm_warnings"]
+    _emit(out)
 
 
 def cmd_list(a):
@@ -289,7 +293,10 @@ def cmd_set_structure(a):
 
 def cmd_whistle_fingerings(a):
     score = _load(a.score, None)
-    part = _part(score, a.part)
+    # find_parts, like every other command here: `_part` exists in the app's
+    # bridge but never in the CLI, so this op could not be run from the
+    # command line at all -- it failed with a NameError before touching a note
+    part = ops.find_parts(score, [a.part])[0]
     details = ops.whistle_fingerings(score, part, a.whistle, clear=a.clear)
     _mutate(a.score, score, "whistle-fingerings",
             {"part": a.part, "whistle": a.whistle, "clear": a.clear}, details)

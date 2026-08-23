@@ -30,8 +30,18 @@ caused it. So:
 - An op that cannot rewrite a part without changing its rhythm should leave the
   part alone and say so in its report (`consolidate-ties` does).
 - A `RhythmCorruption` error means the op, not the file, is wrong -- fix the op.
-- `engine/scripts/check_rhythm.py` is the regression check. Each fix in it was
-  reverted in turn to confirm the check fails without it.
+- **Material arriving from outside is accepted as it is.** An import, a source,
+  an OMR'd PDF: `_write_musicxml` is called with no baseline, so odd bars come
+  in and are reported as `rhythm_warnings` on the version. OMR is imperfect by
+  nature and the user brings a score in *so they can fix it* -- refusing the
+  write here meant refusing to open their own music. Only EDITS carry a
+  baseline (the parent version's faults), and an edit is refused only for
+  breaking a bar that was sound before it ran.
+- Four checks guard this, and every fix in them was reverted in turn to confirm
+  the check fails without it:
+  `check_rhythm.py` (ops preserve rhythm), `check_import.py` (release gate:
+  every source imports to a usable v001), `check_workflows.py` (nine end-to-end
+  user journeys), `check_structure.py` and `check_whistle.py` (notation).
 
 ## The engine CLI
 
