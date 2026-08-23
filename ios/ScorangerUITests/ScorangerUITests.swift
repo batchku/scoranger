@@ -925,6 +925,18 @@ final class ScorangerUITests: XCTestCase {
         arrangement.tap()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
+
+        // Make the second version this test needs rather than hoping the seed
+        // left one behind: how many versions a freshly seeded arrangement has
+        // is incidental, and the run where it had one made this test fail for
+        // a reason that had nothing to do with highlighting.
+        app.buttons["pill-options"].tap()
+        let transpose = app.buttons["Transpose up a semitone"]
+        if transpose.waitForExistence(timeout: 10) {
+            transpose.tap()
+            sleep(15)
+        }
+
         app.buttons["versions-toggle-\(firstArrangement)"].tap()
 
         func highlighted() -> [String] {
