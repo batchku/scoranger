@@ -952,8 +952,14 @@ final class ScorangerUITests: XCTestCase {
         let blank = app.buttons["New blank arrangement"]
         XCTAssertTrue(blank.waitForExistence(timeout: 10), "add menu did not open")
         blank.tap()
+        // Alphabetically first, so this is the suite's cold start: it pays for
+        // the app launch, the Python engine's first import, the library reset
+        // and re-seed, and the engrave of whatever the app opens by itself —
+        // and only then waits for another engine round trip. 60s was marginal
+        // and eventually lost the race; the rest of the suite allows 180 for an
+        // engine round trip. The assertion is unchanged.
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 3")
-                        .waitForExistence(timeout: 60),
+                        .waitForExistence(timeout: 180),
                       "the new arrangement did not appear as #3 of the piece")
     }
 

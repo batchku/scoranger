@@ -69,6 +69,64 @@ final class FingeringDiagramTests: XCTestCase {
         XCTAssertEqual(large / small, 4, accuracy: 0.01)
     }
 
+    // MARK: - Above the staff (build 128)
+
+    private func meiNote(_ syls: [String], label: String = "wf",
+                         element: String = "note") -> String {
+        let verses = syls.enumerated().map { index, syl in
+            "<verse xml:id=\"v\(index)\" label=\"\(label)\" n=\"\(index + 1)\">"
+                + "<syl xml:id=\"s\(index)\">\(syl)</syl></verse>"
+        }.joined()
+        return "<\(element) xml:id=\"n1\" dur=\"4\" oct=\"4\" pname=\"d\">"
+            + verses + "</\(element)>"
+    }
+
+    func testFingeringVersesAreMovedAboveTheStaff() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"]) + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei),
+                               "a fingering column should be moved")
+        XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
+    }
+
+    /// Fingerings written before the tag existed have to move too, or Ali's
+    /// score keeps them below the staff for ever.
+    func testAnUntaggedColumnIsAlsoMovedAbove() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "X", "X", "O"], label: "1") + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
+    }
+
+    /// A fingered note inside a chord hangs its verses off the <chord>, which is
+    /// most of a piano or accordion part — scanning only <note> missed them all.
+    func testVersesOnAChordAreMovedToo() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"], element: "chord")
+            + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
+    }
+
+    func testTheOctaveMarkTravelsWithItsColumn() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "X", "X", "X", "+"]) + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 7,
+                       "the + belongs to the column and moves with it")
+    }
+
+    func testASungLyricIsNotMoved() {
+        let mei = "<music>" + meiNote(["Glo"], label: "1") + "</music>"
+        XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove(mei))
+    }
+
+    func testAScoreWithNoVersesIsLeftAlone() {
+        XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove("<music><note pname=\"d\"/></music>"))
+    }
+
+    func testTheDiagramSizeIsHalfVerovioDefault() {
+        XCTAssertLessThan(FingeringDiagrams.lyricSize,
+                          FingeringDiagrams.defaultLyricSize / 1.9,
+                          "Ali asked for about half the height")
+    }
+
     // MARK: - What it leaves alone
 
     func testALoneUntaggedLyricIsNeverTouched() {

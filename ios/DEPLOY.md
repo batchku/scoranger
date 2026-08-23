@@ -141,6 +141,25 @@ dependency on Apple's signing service at every build.
 - Update `ASC_KEY_ID` in `ios/.deploy.env`. The **Issuer ID** is shown once at
   the top of that same page and is the same for every key on the team.
 
+## Version and build numbers
+
+Two numbers, two jobs, both in `project.yml`:
+
+- **`MARKETING_VERSION`** (what the user sees: `v0.1.1`) names the **feature
+  set**. One bump per feature, edited by hand when that feature starts. Several
+  builds share a version while its bugs are fixed.
+- **`CURRENT_PROJECT_VERSION`** (the build number: `b128`) counts **uploads**.
+  Every ship takes the next one, bug fixes included. `scripts/bump_build.sh`
+  owns it; nothing else may touch it, and Xcode must never manage it at upload
+  time (`ExportOptions.plist` sets `manageAppVersionAndBuildNumber=false`).
+
+So a feature's life looks like `0.1.1 (b128)`, then `0.1.1 (b129)` if it needs
+a fix, then `0.1.2 (b130)` when the next feature starts. Report both when you
+ship: the version says what it is, the build says which upload.
+
+The version ladder is recorded in `project.yml` beside the setting, and each
+planned feature's version is in `BACKLOG.md`.
+
 ## (b) What is automated in the repo
 
 | File | Role |

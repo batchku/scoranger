@@ -35,13 +35,20 @@ actor VerovioRenderer {
         // pads every page to full A4 height (29700 units regardless of what is
         // on it), so a partly-filled page renders as a tall white void that
         // reads as broken layout rather than as a page break.
-        _ = t.setOptions("""
-            {"scale": 45, "footer": "none", "adjustPageHeight": true,
-             "pageMarginTop": 100, "pageMarginBottom": 100,
-             "pageMarginLeft": 120, "pageMarginRight": 120}
-            """)
+        _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
         toolkit = t
         return t
+    }
+
+    /// The full option set every time: passing a partial one risks the rest
+    /// reverting to Verovio's defaults, which would quietly change page size.
+    private static func options(lyricSize: Double) -> String {
+        """
+        {"scale": 45, "footer": "none", "adjustPageHeight": true,
+         "pageMarginTop": 100, "pageMarginBottom": 100,
+         "pageMarginLeft": 120, "pageMarginRight": 120,
+         "lyricSize": \(lyricSize)}
+        """
     }
 
     /// One engrave: the pages to draw, and the model to hit-test against.
@@ -64,6 +71,17 @@ actor VerovioRenderer {
         guard t.loadFile(musicXMLPath) else {
             throw RenderError.loadFailed(musicXMLPath)
         }
+        // Whistle fingerings belong above their staff and at half size.
+        // Verovio ignores MusicXML's lyric placement, so the move is made on
+        // the MEI and the document reloaded before anything is drawn.
+        var mei = t.getMEI("{}")
+        if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
+            mei = above
+            _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.lyricSize))
+            guard t.loadData(mei) else { throw RenderError.loadFailed(musicXMLPath) }
+        } else {
+            _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
+        }
         let document = PDFDocument()
         var rawPages: [String] = []
         for page in 1...max(t.getPageCount(), 1) {
@@ -81,7 +99,8 @@ actor VerovioRenderer {
         guard let data = document.dataRepresentation() else {
             throw RenderError.emptyPage(0)
         }
-        let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: t.getMEI("{}"))
+        // the same MEI the pages were drawn from, so addresses line up
+        let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: mei)
         return Engraving(pdf: data, geometry: geometry)
     }
 
