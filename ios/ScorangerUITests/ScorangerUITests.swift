@@ -763,6 +763,88 @@ final class ScorangerUITests: XCTestCase {
         shot("selection-in-chat")
     }
 
+    // MARK: - Two pages side by side
+
+    /// The risk in a spread is that the right-hand page selects from its
+    /// neighbour: two pages now share a row, and a lasso has to resolve to the
+    /// page it was actually drawn on. Bars run forward through the score, so
+    /// the right page must give higher bar numbers than the left.
+    func testALassoOnTheRightHandPageSelectsFromThatPage() {
+        setTwoPageSpread(on: true)
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        shot("two-page-spread")
+
+        guard let left = lassoBars(on: canvas, from: 0.08, to: 0.34) else {
+            return XCTFail("nothing was selected anywhere on the left-hand page")
+        }
+        // chat opened over the canvas; put it away before drawing again
+        if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
+        sleep(2)
+        guard let right = lassoBars(on: canvas, from: 0.66, to: 0.92) else {
+            return XCTFail("nothing was selected anywhere on the right-hand page")
+        }
+        XCTAssertGreaterThan(right, left,
+                             "the right-hand page selected bar \(right), which is not "
+                             + "later than the left-hand page's bar \(left) — the lasso "
+                             + "resolved to the wrong page")
+        shot("spread-right-page-selected")
+    }
+
+    func testTheSpreadToggleIsInSettingsAndOffByDefault() {
+        app.buttons["Settings"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["READING"].waitForExistence(timeout: 10),
+                      "settings has no Reading band")
+        let toggle = app.switches["Two pages side by side"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "no two-page toggle")
+        XCTAssertEqual(toggle.value as? String, "0",
+                       "one page at a time is the default")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    private func setTwoPageSpread(on: Bool) {
+        app.buttons["Settings"].firstMatch.tap()
+        let toggle = app.switches["Two pages side by side"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no two-page toggle in settings")
+        if (toggle.value as? String == "1") != on { toggle.tap() }
+        XCTAssertEqual(toggle.value as? String, on ? "1" : "0")
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Drag a lasso across a horizontal band and return the first bar number
+    /// of whatever it caught. Which y holds notes depends on where the page
+    /// sits, so try a few bands rather than pinning one magic number.
+    private func lassoBars(on canvas: XCUIElement,
+                           from dxStart: CGFloat, to dxEnd: CGFloat) -> Int? {
+        let input = app.textFields["chat-input"]
+        let before = (input.exists ? (input.value as? String) ?? "" : "")
+        for dy in [0.30, 0.20, 0.42, 0.55, 0.12] {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: dxStart, dy: dy))
+                .press(forDuration: 0.1,
+                       thenDragTo: canvas.coordinate(
+                        withNormalizedOffset: CGVector(dx: dxEnd, dy: dy)))
+            guard app.staticTexts["Selection"].waitForExistence(timeout: 8) else { continue }
+            guard input.waitForExistence(timeout: 20) else { continue }
+            let now = (input.value as? String) ?? ""
+            guard now.count > before.count, let bar = lastBarNumber(in: now) else { continue }
+            return bar
+        }
+        return nil
+    }
+
+    /// The newest selection reference is the last one in the input, since a
+    /// reference is appended rather than replacing what is there.
+    private func lastBarNumber(in text: String) -> Int? {
+        let pattern = try? NSRegularExpression(pattern: "bars? ([0-9]+)")
+        let ns = text as NSString
+        guard let match = pattern?.matches(
+            in: text, range: NSRange(location: 0, length: ns.length)).last else { return nil }
+        return Int(ns.substring(with: match.range(at: 1)))
+    }
+
     /// The lasso must never cost the gestures that were already there.
     func testPinchStillZoomsWithTheLassoInstalled() {
         app.buttons["arrangement-\(firstArrangement)"].tap()

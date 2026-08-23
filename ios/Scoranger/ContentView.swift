@@ -71,6 +71,7 @@ struct ContentView: View {
         .background(Theme.Surface.ground)
         .task {
             Theme.verifyFontsRegistered()
+            state.resetViewPreferencesForTesting()
             state.startPolling()
         }
         .onChange(of: state.notice) { _, notice in

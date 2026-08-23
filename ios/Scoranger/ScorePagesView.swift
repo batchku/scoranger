@@ -25,8 +25,10 @@ struct ScorePagesView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let width = min(geo.size.width - 24, 1100)
-            ZoomableScroll(contentWidth: max(width + 24, geo.size.width),
+            let spread = state.twoPageSpread
+            let width = SpreadLayout.pageWidth(viewport: geo.size.width, spread: spread)
+            ZoomableScroll(contentWidth: SpreadLayout.contentWidth(viewport: geo.size.width,
+                                                                  spread: spread),
                            onLasso: { page, path in select(path: path, onPage: page) },
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
@@ -52,26 +54,44 @@ struct ScorePagesView: View {
         // VStack, not LazyVStack: inside a hosted view there is no scroll
         // container to be lazy about, and the eager version at least lays out
         // deterministically. PDFPageImage caps its raster size to compensate.
-        VStack(spacing: 12) {
-            ForEach(0..<document.pageCount, id: \.self) { index in
-                if let page = document.page(at: index) {
-                    PageView(page: page,
-                             width: width,
-                             rasterZoom: rasterZoom,
-                             drawingStore: DrawingStore.shared,
-                             drawingKey: "\(annotationKey)/p\(index)",
-                             annotation: annotation)
-                        .overlay {
-                            LassoAnchor(pageIndex: index,
-                                        committed: state.selectionPaths[index] ?? [])
-                                .allowsHitTesting(false)
+        let rows = SpreadLayout.rows(pageCount: document.pageCount,
+                                     spread: state.twoPageSpread)
+        VStack(spacing: SpreadLayout.gutter) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                // .top: a spread's two pages can differ in height (the last
+                // page of a score is often short), and they should share a
+                // top edge rather than float about a common centre
+                HStack(alignment: .top, spacing: SpreadLayout.gutter) {
+                    ForEach(row, id: \.self) { index in
+                        if let page = document.page(at: index) {
+                            pageView(page, index: index, width: width)
                         }
-                        .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
+                    }
                 }
             }
         }
-        .frame(width: max(width + 24, viewport.width))
-        .padding(.vertical, 12)
+        .frame(width: SpreadLayout.contentWidth(viewport: viewport.width,
+                                                spread: state.twoPageSpread))
+        .padding(.vertical, SpreadLayout.gutter)
+    }
+
+    /// One page, with its own lasso anchor. The anchor is what makes a lasso
+    /// land on the page it was drawn on: the recognizer picks the anchor whose
+    /// frame contains the touch, so the right-hand page of a spread selects
+    /// from itself and not from its neighbour.
+    private func pageView(_ page: PDFPage, index: Int, width: CGFloat) -> some View {
+        PageView(page: page,
+                 width: width,
+                 rasterZoom: rasterZoom,
+                 drawingStore: DrawingStore.shared,
+                 drawingKey: "\(annotationKey)/p\(index)",
+                 annotation: annotation)
+            .overlay {
+                LassoAnchor(pageIndex: index,
+                            committed: state.selectionPaths[index] ?? [])
+                    .allowsHitTesting(false)
+            }
+            .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
     }
 
     // MARK: selection chip
