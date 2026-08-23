@@ -265,20 +265,96 @@ def split_bass(score, name: str, bass_name: str, chords_name: str,
             "note": "sustained notes are sliced at each attack (tied where the source was tied)"}
 
 
+def rhythm_problems(score_or_part) -> list[str]:
+    """Everything wrong with a score's rhythm, in the reader's terms.
+
+    One definition, used by the write guard, by the ops that risk breaking it,
+    and by engine/scripts/check_rhythm.py — three copies of "sound rhythm"
+    would drift apart.
+
+    Two faults:
+
+    - a bar holding more music than it is long. Measured on each voice's END
+      TIME, never the sum of its durations: notes sounding together sum to more
+      than they occupy, and summing made a collapsed measure look correct.
+      Under-fill is fine (a pickup, a partial bar before a repeat, a last bar).
+    - two things sounding at once inside ONE voice. A voice is a single line;
+      simultaneous pitches are a chord, which is one object. `stripTies` leaves
+      such pairs behind, and while they look harmless in memory the writer lays
+      them end to end, which is how a bar silently grows.
+    """
+    from music21 import harmony
+
+    problems = []
+    for index, part in enumerate(getattr(score_or_part, "parts", None) or [score_or_part]):
+        for measure in part.getElementsByClass(stream.Measure):
+            limit = measure.barDuration.quarterLength
+            for container in (list(measure.voices) or [measure]):
+                events = sorted((el.offset, el.quarterLength)
+                                for el in container.notesAndRests
+                                if not isinstance(el, harmony.Harmony))
+                if not events:
+                    continue
+                end = max(off + dur for off, dur in events)
+                if end > limit + 1e-6:
+                    problems.append(
+                        f"part {index + 1} bar {measure.number}: {float(end):g} beats "
+                        f"of music in a {float(limit):g}-beat bar")
+                for (o1, d1), (o2, _) in zip(events, events[1:]):
+                    if o1 + d1 > o2 + 1e-6:
+                        problems.append(
+                            f"part {index + 1} bar {measure.number}: two notes sound "
+                            f"at once in one voice ({float(o1):g}+{float(d1):g} "
+                            f"runs into {float(o2):g})")
+                        break
+    return problems
+
+
+def _strip_ties_safely(part) -> str | None:
+    """`stripTies`, but only when the result survives inspection.
+
+    music21's `stripTies` is the right tool and usually correct, but on some
+    material it leaves two notes sounding at once in one voice, which becomes a
+    longer bar the moment the score is written. Rather than corrupt the part,
+    rehearse the whole thing on a copy — strip, re-tie at the barlines, check —
+    and only touch the real part if it came out sound.
+
+    Returns None when applied, or the reason it was left alone.
+    """
+    trial = copy.deepcopy(part)
+    try:
+        trial.stripTies(inPlace=True, matchByPitch=True)
+        trial.makeTies(inPlace=True)
+    except Exception as e:  # noqa: BLE001 — any failure means "do not touch it"
+        return f"{type(e).__name__}: {e}"
+    problems = rhythm_problems(trial)
+    if problems:
+        return problems[0]
+    part.stripTies(inPlace=True, matchByPitch=True)
+    return None
+
+
 def consolidate_ties(score, names: list[str]) -> list[dict]:
     """Merge runs of tied same-pitch notes into single notes of combined duration.
 
     A quarter tied to a half becomes a dotted half; notes genuinely spanning a
     barline get re-tied at the barline on export. Pitch content and total
     durations are unchanged — this is purely notational cleanup.
+
+    A part whose ties music21 cannot merge cleanly is reported and left as it
+    was, rather than rewritten into something that no longer plays the same.
     """
     report = []
     for p in find_parts(score, names):
         before = len(list(p.recurse().notes))
-        p.stripTies(inPlace=True, matchByPitch=True)
+        skipped = _strip_ties_safely(p)
         after = len(list(p.recurse().notes))
-        report.append({"part": part_label(p), "events_before": before,
-                       "events_after": after, "merged": before - after})
+        entry = {"part": part_label(p), "events_before": before,
+                 "events_after": after, "merged": before - after}
+        if skipped:
+            entry["skipped"] = ("left unchanged: consolidating would have changed "
+                                f"the rhythm ({skipped})")
+        report.append(entry)
     return report
 
 
@@ -546,7 +622,12 @@ def absorb_part(score, source_name: str, target_name: str, rules: dict | None = 
         sm = src_measures.get(tm.number)
         if sm is None or not any(getattr(el, "pitches", None) for el in _sounding(sm)):
             continue
-        melody = [(el.offset, el.offset + el.quarterLength, el) for el in _sounding(tm)
+        # the melody may sit directly in the measure or inside voices; look in
+        # both, or the below-melody and doubling rules see nothing to work
+        # against on a staff that already has voices
+        melody_containers = list(tm.voices) or [tm]
+        melody = [(el.offset, el.offset + el.quarterLength, el)
+                  for c in melody_containers for el in _sounding(c)
                   if getattr(el, "pitches", None)]
 
         v2 = stream.Voice(id="2")
@@ -593,14 +674,33 @@ def absorb_part(score, source_name: str, target_name: str, rules: dict | None = 
             else:
                 v2.insert(off, m21note.Rest(quarterLength=dur))
 
-        v1 = stream.Voice(id="1")
-        for el in list(tm.notesAndRests):
-            if "Harmony" in el.classes:
-                continue
-            tm.remove(el)
-            v1.insert(el.offset, el)
-        tm.insert(0.0, v1)
-        tm.insert(0.0, v2)
+        existing = list(tm.voices)
+        if existing:
+            # The staff already sings in voices -- an OMR'd piano or accordion
+            # part usually does. Leave them be and give the absorbed line an id
+            # of its own: inserting another "1" and "2" alongside them left two
+            # voices sharing each id, and the writer folds same-id voices
+            # together, so their notes came back sounding on top of each other.
+            used = {str(v.id) for v in existing}
+            spare = 1
+            while str(spare) in used:
+                spare += 1
+            v2.id = str(spare)
+            tm.insert(0.0, v2)
+        else:
+            v1 = stream.Voice(id="1")
+            for el in list(tm.notesAndRests):
+                if "Harmony" in el.classes:
+                    continue
+                # read the offset BEFORE detaching: music21's .offset is relative
+                # to the element's active site, so a removed element reports 0 and
+                # the whole melody collapsed onto the downbeat -- which the writer
+                # then laid out end to end, making every bar as long as its notes
+                off = el.offset
+                tm.remove(el)
+                v1.insert(off, el)
+            tm.insert(0.0, v1)
+            tm.insert(0.0, v2)
 
     return {"source": part_label(src), "target": part_label(tgt), "rules": rules, **stats}
 
@@ -847,10 +947,10 @@ def _flatten_copy(part) -> stream.Part:
     for h in list(work.recurse().getElementsByClass("Harmony")):
         work.remove(h, recurse=True)
     sliced = work.chordify(addTies=True)
-    try:
-        sliced.stripTies(inPlace=True, matchByPitch=True)
-    except Exception:
-        pass
+    # the same rehearsal consolidate_ties uses: strip only if the result holds
+    # up, since a flattened part that no longer plays the same is worse than an
+    # unflattened one
+    _strip_ties_safely(sliced)
 
     new_part = stream.Part()
     new_part.partName = part.partName

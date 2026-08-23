@@ -144,12 +144,53 @@ _M21_COMPOSER_STAMP = re.compile(
     r'[ \t]*<creator type="composer">Music21</creator>\r?\n?')
 
 
+class RhythmCorruption(RuntimeError):
+    """A write was refused because it would have changed the music's rhythm."""
+
+
 def _write_musicxml(m21_score, path: Path) -> None:
-    m21_score.write("musicxml", fp=str(path))
-    text = path.read_text(encoding="utf-8")
+    """The one place a score becomes a file -- and the one place to guard it.
+
+    Every version, every import and every source goes through here, so this is
+    where the golden rule gets teeth. Two steps:
+
+    1. `makeTies` splits any note running past its barline and ties it. Ops are
+       allowed to leave such notes behind (`stripTies` produces them by design);
+       what is not allowed is writing them, because music21's MusicXML writer
+       emits the over-long note AND the bars it swallows, duplicating time and
+       shifting everything after it.
+    2. The bars are then checked, and a write that would still corrupt the
+       rhythm is refused. A loud failure at the op that caused it beats a
+       silent one that surfaces fifteen versions later in someone's score.
+    """
+    from music21 import converter, stream as m21stream
+
+    for part in (m21_score.parts or []):
+        if part.getElementsByClass(m21stream.Measure):
+            part.makeTies(inPlace=True)
+
+    # Write to one side first and check what actually came out. Checking the
+    # score in memory is not enough: the writer introduces overflow of its own,
+    # so the only trustworthy subject is the file. Verify the artifact, not the
+    # intention.
+    # keep the .musicxml suffix: music21 picks its parser from the extension
+    staging = path.with_name(path.stem + ".writing" + path.suffix)
+    m21_score.write("musicxml", fp=str(staging))
+    text = staging.read_text(encoding="utf-8")
     cleaned = _M21_COMPOSER_STAMP.sub("", text)
     if cleaned != text:
-        path.write_text(cleaned, encoding="utf-8")
+        staging.write_text(cleaned, encoding="utf-8")
+
+    from . import ops
+    bad = ops.rhythm_problems(converter.parse(str(staging), forceSource=True))
+    if bad:
+        staging.unlink(missing_ok=True)
+        shown = "; ".join(bad[:4])
+        more = f" (and {len(bad) - 4} more)" if len(bad) > 4 else ""
+        raise RhythmCorruption(
+            f"refusing to write {path.name}: it would change the music's "
+            f"rhythm -- {shown}{more}")
+    staging.replace(path)
 
 
 def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None) -> dict:
@@ -214,7 +255,10 @@ def add_source(slug: str, m21_score, name: str, origin: str) -> dict:
     src_dir = score_dir(slug) / "sources"
     src_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{sid}.musicxml"
-    m21_score.write("musicxml", fp=str(src_dir / fname))
+    # through the guarded write, not a bare one: a source is pulled from later,
+    # so a source written with a corrupted rhythm hands that corruption to
+    # every arrangement that pulls a part out of it
+    _write_musicxml(m21_score, src_dir / fname)
     doc = {"id": sid, "name": name, "origin": origin, "file": f"sources/{fname}",
            "time": _now(), "parts": _parts_snapshot(m21_score)}
     repo.add_source(slug, sid, doc)
