@@ -48,6 +48,15 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            BandHeader("Reading")
+            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                PanelToggle(title: "Two pages side by side",
+                            isOn: $state.twoPageSpread)
+                PanelNote(text: "Two pages at once, the way a score sits on a stand. "
+                          + "Best with the panels closed; one page at a time is larger.")
+            }
+            .padding(Theme.Metric.panelPadding)
+
             BandHeader("On-device engine")
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 HStack(spacing: Theme.Metric.s12) {

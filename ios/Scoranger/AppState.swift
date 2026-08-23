@@ -102,6 +102,10 @@ final class AppState: ObservableObject {
     @AppStorage("useLocalEngine") var useLocalEngine = true
     /// Guards the one-time rename of the old seeded "Samples" setlist.
     @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
+    /// Two pages side by side, the way a score sits on a stand. Off by
+    /// default: on one page the music is twice the size, which is what you
+    /// want while arranging and not what you want while playing.
+    @AppStorage("twoPageSpread") var twoPageSpread = false
     /// Cloud OMR service base URL (Audiveris on Cloud Run); empty = disabled.
     @AppStorage("omrURL") var omrURLString =
         (Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String) ?? ""
@@ -243,6 +247,14 @@ final class AppState: ObservableObject {
             }
         }
         return groups.reversed()
+    }
+
+    /// Test fixture only, alongside `-resetLibrary`: view preferences outlive
+    /// the workspace, so without this a test that turns the two-page spread on
+    /// leaves it on for every test that launches after it.
+    func resetViewPreferencesForTesting() {
+        guard ProcessInfo.processInfo.arguments.contains("-resetLibrary") else { return }
+        twoPageSpread = false
     }
 
     func startPolling() {
