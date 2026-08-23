@@ -127,42 +127,43 @@ for sample in samples:
 if not samples:
     print("    note: no real samples in testdata/app-samples -- synthetic only")
 
-# -- and the guard must still hold for EDITS ------------------------------------
-# The point of narrowing the invariant was not to switch it off. An op that
-# breaks a bar which was sound must still be refused.
+# -- and a damaging edit must still be CAUGHT, in development ------------------
+# The runtime no longer refuses anything. What has to hold is that a bad
+# transformation is detectable here, before a release, rather than in a user's
+# score afterwards.
 with tempfile.TemporaryDirectory() as tmp:
     workspace, ops = fresh_workspace(tmp)
     from music21 import converter, note as m21note
 
-    slug, _ = workspace.create_score("guard still holds", fixtures.jig())
-    score = converter.parse(str(workspace.resolve_path(slug)), forceSource=True)
-    # jam an extra beat into a bar that was fine: this is an edit, and it must fail
-    score.parts[0].measure(4).append(m21note.Note("C5", quarterLength=1))
-    try:
-        workspace.add_version(slug, score, "deliberate-damage", {})
-        FAILURES.append("an edit that broke a sound bar was accepted")
-    except workspace.RhythmCorruption as e:
-        if "bar 4" not in str(e):
-            FAILURES.append(f"the refusal does not name the bar it broke: {e}")
+    slug, _ = workspace.create_score("damage is detectable", fixtures.jig())
+    sound = converter.parse(str(workspace.resolve_path(slug)), forceSource=True)
+    if ops.rhythm_faults(sound):
+        FAILURES.append("the clean fixture is not clean")
 
-    # while an edit that leaves an ALREADY-odd bar alone must be allowed through
-    try:
-        slug2, entry2 = workspace.create_score("odd source", fixtures.omr_jig())
-        if not entry2.get("rhythm_warnings"):
-            FAILURES.append("importing an odd source produced no warning")
-        score2 = converter.parse(str(workspace.resolve_path(slug2)), forceSource=True)
-        ops.transpose(score2, "M2", None)
-        workspace.add_version(slug2, score2, "transpose", {"interval": "M2"})
-    except workspace.RhythmCorruption as e:
-        # the failure this whole file exists to prevent: reported, not raised,
-        # so the gate says what went wrong instead of printing a traceback
-        FAILURES.append(f"an imperfect source was refused rather than imported "
-                        f"and warned about: {e}")
+    sound.parts[0].measure(4).append(m21note.Note("C5", quarterLength=1))
+    entry = workspace.add_version(slug, sound, "deliberate-damage", {})
+    written = converter.parse(str(workspace.resolve_path(slug)), forceSource=True)
+    faults = ops.rhythm_faults(written)
+    if not any(bar == 4 for _, bar, _ in faults):
+        FAILURES.append("an op that added a beat to a sound bar went undetected")
+    if not entry.get("rhythm_warnings"):
+        FAILURES.append("the damaged version carries no warning for the app to show")
+
+    # and an edit that inherits an odd bar is ordinary work, not an error
+    slug2, entry2 = workspace.create_score("odd source", fixtures.omr_jig())
+    if not entry2.get("rhythm_warnings"):
+        FAILURES.append("importing an odd source produced no warning")
+    inherited = len(entry2["rhythm_warnings"])
+    score2 = converter.parse(str(workspace.resolve_path(slug2)), forceSource=True)
+    ops.set_structure(score2, "repeat-end", measure=8)
+    entry3 = workspace.add_version(slug2, score2, "set-structure", {"kind": "repeat-end"})
+    if len(entry3.get("rhythm_warnings") or []) > inherited:
+        FAILURES.append("adding a repeat to an OMR score made its odd bars worse")
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} import gate check(s) failed")
     for line in FAILURES:
         print("   ", line)
     sys.exit(1)
-print(f"OK: {len(CHECKED)} source(s) import to a usable v001, "
-      "imperfect ones with warnings, and edits are still guarded")
+print(f"OK: {len(CHECKED)} source(s) import to a usable v001, imperfect ones "
+      "with warnings, and a damaging edit is still detectable in development")

@@ -12,6 +12,11 @@ past its barline AND the bars it swallows, duplicating time and pushing
 everything after it later. That is how an eighth note became a dotted eighth
 in someone's jig, fifteen versions after the op that caused it.
 
+This file is a DEVELOPMENT gate, not a runtime one. The app no longer refuses
+to save anything: refusing blocked a user from importing an imperfect scan and
+then from adding a repeat to a score that had inherited an odd bar. The ops are
+where correctness belongs; this is where it is proven, before a release.
+
 Fixtures are synthetic: the repository is public, so no committed fixture may
 carry copyrighted music. They are shaped like the material that broke --
 6/8 with dotted rhythms, ties across barlines, and staves that sing in voices.
@@ -30,6 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from music21 import (clef, converter, harmony, instrument,  # noqa: E402
                      key, meter, note as m21note, stream, tie)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import fixtures  # noqa: E402
 from scoranger_engine import ops, workspace  # noqa: E402
 
 FAILURES: list[str] = []
@@ -128,22 +136,19 @@ def total_length(score) -> list:
     return [Fraction(p.highestTime).limit_denominator(10 ** 6) for p in (score.parts or [score])]
 
 
-def write_and_read(score, name: str, baseline=()):
-    """Through the real write path, then back off disk. None if it was refused.
+def write_and_read(score, name: str):
+    """Through the real write path, then back off disk.
 
-    `baseline` is what the music looked like before the op ran, and every
-    fixture here starts sound -- so the default is an empty baseline, meaning
-    "nothing was wrong before, so nothing may be wrong now". Passing no
-    baseline at all would put the write in ingestion mode, where imperfect
-    material is accepted on purpose; that path is covered by check_import.py.
+    The write no longer refuses anything -- refusing at runtime blocked users
+    from importing imperfect scans and from adding repeats to scores that had
+    inherited an odd bar. Correctness is the ops' job; proving it is this
+    file's job, and this file runs before a release, not in front of a user.
+    Returns (score read back, the odd bars the file has).
     """
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{name}.musicxml"
-        try:
-            workspace._write_musicxml(score, path, baseline=list(baseline))
-        except workspace.RhythmCorruption as refusal:
-            return None, str(refusal)
-        return converter.parse(str(path), forceSource=True), None
+        warnings = workspace._write_musicxml(score, path)
+        return converter.parse(str(path), forceSource=True), warnings
 
 
 def expect_rhythm_survives(label: str, build, mutate, *, may_skip: bool = False):
@@ -159,11 +164,7 @@ def expect_rhythm_survives(label: str, build, mutate, *, may_skip: bool = False)
     except Exception as e:  # noqa: BLE001 — the check is the point
         FAILURES.append(f"{label}: op raised {type(e).__name__}: {e}")
         return
-    written, refusal = write_and_read(score, label.replace(" ", "-"))
-    if written is None:
-        FAILURES.append(f"{label}: the write was refused -- {refusal}")
-        return
-
+    written, _ = write_and_read(score, label.replace(" ", "-"))
     problems = ops.rhythm_problems(written)
     if problems:
         FAILURES.append(f"{label}: the file it wrote is unsound -- {problems[0]}")
@@ -230,19 +231,18 @@ expect_rhythm_survives("pull a part in", two_staff,
 expect_rhythm_survives("split bass", two_staff,
                        lambda sc: ops.split_bass(sc, "#0", "Bass", "Chords", None))
 
-# -- the guard itself must be able to fail -----------------------------------
-# A check that cannot fail is worse than no check. This score holds a note
-# running three bars past its barline; the write has to refuse it.
+# -- the detector itself must be able to fail --------------------------------
+# A check that cannot fail is worse than no check. The runtime no longer
+# refuses anything, so what has to work is the DETECTION: a damaged score must
+# be reported by ops.rhythm_faults, which is what makes every check above real.
 def corrupt() -> stream.Score:
     part = stream.Part()
     for bar in (1, 2, 3):
         measure = stream.Measure(number=bar)
         if bar == 1:
             measure.append(meter.TimeSignature("3/4"))
-            first = m21note.Note("C5", quarterLength=3)
-            second = m21note.Note("C5", quarterLength=Fraction(7, 3))
-            measure.insert(0, first)
-            measure.insert(0, second)      # two notes at once in one voice
+            measure.insert(0, m21note.Note("C5", quarterLength=3))
+            measure.insert(0, m21note.Note("C5", quarterLength=Fraction(7, 3)))
         else:
             measure.insert(0, m21note.Note("D5", quarterLength=3))
         part.append(measure)
@@ -251,9 +251,18 @@ def corrupt() -> stream.Score:
     return score
 
 
+damaged, warnings = write_and_read(corrupt(), "corrupt")
+if not ops.rhythm_faults(damaged):
+    FAILURES.append("a score whose bars do not hold their music was reported as sound")
+if not warnings:
+    FAILURES.append("the write reported no warning for a damaged score")
+elif not any("bar" in w for w in warnings):
+    FAILURES.append(f"the warning does not name a bar: {warnings[:1]}")
+
+
 # A note running past its barline is legal in memory -- stripTies produces
-# them by design -- and the write is what has to split and re-tie it. Without
-# that step the writer emits the note AND the bars it swallows.
+# them by design -- and the write is what splits and re-ties it. This is the
+# prevention that stays: correct by construction, not caught afterwards.
 def over_long() -> stream.Score:
     part = stream.Part()
     for bar in (1, 2, 3):
@@ -266,20 +275,53 @@ def over_long() -> stream.Score:
     score.insert(0, part)
     return score
 
-split, refusal = write_and_read(over_long(), "over-long")
-if split is None:
-    FAILURES.append(f"a note crossing the barline should be split on write, not refused: {refusal}")
-elif total_length(split) != [Fraction(9)]:
+
+split, _ = write_and_read(over_long(), "over-long")
+if total_length(split) != [Fraction(9)]:
     FAILURES.append(f"splitting a 9-beat note across 3-beat bars gave "
                     f"{total_length(split)} beats, not 9")
+if ops.rhythm_faults(split):
+    FAILURES.append(f"the split left the bars unsound: {ops.rhythm_problems(split)[:1]}")
 
-written, refusal = write_and_read(corrupt(), "corrupt")
-if written is not None:
-    FAILURES.append("the write guard accepted a score whose bars do not hold their music")
 
-# and it must say something a person can act on
-if refusal and "bar" not in refusal:
-    FAILURES.append(f"the refusal does not name a bar: {refusal}")
+# -- structural marks may never touch a note ---------------------------------
+# Repeats, endings and navigation marks are notation ABOUT the music, not the
+# music. Adding one must leave every note exactly where it was -- which is why
+# the write blocking such an edit was a false positive, not a rhythm bug.
+for kind, kwargs in (("repeat-start", {"measure": 3}),
+                     ("repeat-end", {"measure": 4}),
+                     ("repeat-both", {"measure": 5}),
+                     ("volta", {"measure": 3, "to_measure": 4, "number": 1}),
+                     ("segno", {"measure": 2}),
+                     ("coda", {"measure": 6}),
+                     ("fine", {"measure": 8}),
+                     ("da-capo-al-fine", {"measure": 8}),
+                     ("dal-segno-al-coda", {"measure": 8})):
+    for shape, build in (("jig", jig), ("grand staff", two_staff)):
+        score = build()
+        before = profile(score)
+        try:
+            ops.set_structure(score, kind, **kwargs)
+        except ValueError:
+            continue                     # bar out of range for this fixture
+        written, _ = write_and_read(score, f"structure-{kind}-{shape}".replace(" ", "-"))
+        if profile(written) != before:
+            moved = [(b, a) for b, a in zip(before, profile(written)) if b != a][:1]
+            FAILURES.append(f"{kind} on the {shape} moved a note: {moved}")
+    # And on a score that arrived with an odd bar -- an OMR'd scan, which is
+    # what Ali's jig is -- the mark must still apply, and must not make the odd
+    # bar any odder. This is the case the write used to refuse outright.
+    odd = fixtures.omr_jig()
+    odd_before = ops.rhythm_faults(odd)
+    try:
+        ops.set_structure(odd, kind, **kwargs)
+    except ValueError:
+        continue
+    odd_written, _ = write_and_read(odd, f"structure-odd-{kind}".replace(" ", "-"))
+    if len(ops.rhythm_faults(odd_written)) > len(odd_before):
+        FAILURES.append(f"{kind} on an OMR score made its odd bars worse: "
+                        f"{len(odd_before)} -> {len(ops.rhythm_faults(odd_written))}")
+
 
 # -- the guard must cover the ways music ENTERS the library ------------------
 # Ali's score was corrupted on the way in, not by an arrangement op: a source
@@ -296,4 +338,5 @@ if FAILURES:
     for line in FAILURES:
         print("   ", line)
     sys.exit(1)
-print("OK: rhythm survives every op, and the write refuses what would break it")
+print("OK: rhythm survives every op, structural marks move no note, "
+      "and damage is still detectable")

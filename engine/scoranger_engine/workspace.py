@@ -144,40 +144,29 @@ _M21_COMPOSER_STAMP = re.compile(
     r'[ \t]*<creator type="composer">Music21</creator>\r?\n?')
 
 
-class RhythmCorruption(RuntimeError):
-    """A write was refused because it would have changed the music's rhythm."""
-
-
-def _write_musicxml(m21_score, path: Path, *,
-                    baseline: list[tuple[int, int, str]] | None = None) -> list[str]:
-    """The one place a score becomes a file -- and the one place to guard it.
+def _write_musicxml(m21_score, path: Path) -> list[str]:
+    """The one place a score becomes a file.
 
     `makeTies` first: it splits any note running past its barline and ties it.
-    Ops are allowed to leave such notes behind (`stripTies` produces them by
-    design); what is not allowed is writing them, because music21's MusicXML
-    writer emits the over-long note AND the bars it swallows, duplicating time
-    and shifting everything after it.
+    Some ops leave such notes behind (`stripTies` produces them by design), and
+    music21's MusicXML writer emits an over-long note AND the bars it swallows,
+    duplicating that time and shifting everything after it. Splitting here is
+    the fix that makes the write correct rather than merely checked.
 
-    Then the file is written to one side and read back, because checking the
-    score in memory is not enough -- the writer introduces faults of its own.
-    Verify the artifact, not the intention.
+    The file is then written to one side, read back, and moved into place. The
+    read-back reports whatever odd bars the music has -- as WARNINGS, returned
+    to the caller and recorded on the version. It never refuses.
 
-    What happens next depends on where the music came from, and getting this
-    wrong cost a release:
+    There was a refusal here once, and it was the wrong mechanism twice over:
+    it blocked importing a scanned score whose bars were imperfect, and then
+    blocked adding a repeat to a score that had inherited such a bar -- a bar
+    the repeat never touched. Detecting damage after the fact and refusing to
+    save is a band-aid over a transformation that should not damage anything.
+    Correctness belongs in the ops, and the proof that they are correct belongs
+    in engine/scripts/check_rhythm.py, which runs before a release rather than
+    standing between a user and their own music.
 
-    - `baseline=None` means MUSIC ARRIVING FROM OUTSIDE: an import, a source,
-      a PDF that has been through optical recognition. OMR output is imperfect
-      by nature -- a scanned jig comes out with an over-full bar -- and the
-      whole point of the app is that you bring your PDF in and then fix it.
-      So the score is accepted as it is and its faults are RETURNED as
-      warnings. Refusing here meant refusing to import the score at all.
-    - `baseline` given means an EDIT, and the baseline is what the music looked
-      like before the op ran. The op may carry an already-broken bar along; it
-      may not break a bar that was sound. That is the guarantee worth having,
-      and it is the one that catches a rhythm being corrupted by an op that had
-      no business touching it.
-
-    Returns the faults the written file still has, phrased for a person.
+    Returns the odd bars the written file has, phrased for a person.
     """
     from music21 import converter, stream as m21stream
 
@@ -195,41 +184,8 @@ def _write_musicxml(m21_score, path: Path, *,
 
     from . import ops
     faults = ops.rhythm_faults(converter.parse(str(staging), forceSource=True))
-
-    if baseline is not None:
-        was_sound = {(part, bar) for part, bar, _ in baseline}
-        introduced = [f for f in faults if (f[0], f[1]) not in was_sound]
-        if introduced:
-            staging.unlink(missing_ok=True)
-            shown = "; ".join(f"part {p} bar {b}: {w}" for p, b, w in introduced[:4])
-            more = f" (and {len(introduced) - 4} more)" if len(introduced) > 4 else ""
-            raise RhythmCorruption(
-                f"refusing to write {path.name}: this would change the music's "
-                f"rhythm -- {shown}{more}")
-
     staging.replace(path)
     return [f"part {p} bar {b}: {w}" for p, b, w in faults]
-
-
-def _rhythm_baseline(slug: str, parent: str | None) -> list[tuple[int, int, str]] | None:
-    """What the music's rhythm looked like before this op ran.
-
-    None means there is nothing to measure against -- the first version of an
-    imported score -- and the write accepts whatever came in. An unreadable
-    parent is treated the same way: without a baseline there is no honest
-    definition of "worse", and refusing on that basis would block the user
-    from working on their own score.
-    """
-    from music21 import converter
-
-    from . import ops
-    if parent is None:
-        return None
-    try:
-        return ops.rhythm_faults(
-            converter.parse(str(version_path(slug, parent)), forceSource=True))
-    except Exception:
-        return None
 
 
 def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None) -> dict:
@@ -240,8 +196,7 @@ def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None
     vid = f"v{seq:03d}"
     fname = f"{vid}.musicxml"
     score_dir(slug).mkdir(parents=True, exist_ok=True)
-    warnings = _write_musicxml(m21_score, score_dir(slug) / fname,
-                               baseline=_rhythm_baseline(slug, parent))
+    warnings = _write_musicxml(m21_score, score_dir(slug) / fname)
     doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": _parts_snapshot(m21_score)}
     if warnings:

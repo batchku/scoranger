@@ -310,27 +310,73 @@ with Journey("version history stays addressable") as j:
 
 
 # =============================================================================
-# 8. The guard, in the middle of a real session
+# 8. A damaging op is caught in development, and never blocks the user
 # =============================================================================
-with Journey("an op that would break the rhythm is refused mid-session") as j:
+with Journey("damage is detected, not refused") as j:
     slug, _ = j.workspace.create_score("Guarded", fixtures.jig(bars=8))
     j.do(slug, "transpose", lambda sc: j.ops.transpose(sc, "M2", None))
-    before = len(j.workspace.load_meta(slug)["versions"])
 
     from music21 import note as m21note
     score = j.load(slug)
     score.parts[0].measure(3).append(m21note.Note("C5", quarterLength=1))
-    try:
-        j.workspace.add_version(slug, score, "damage", {})
-        j.fail("an op that added a beat to a sound bar was accepted")
-    except j.workspace.RhythmCorruption:
-        pass
-    after = len(j.workspace.load_meta(slug)["versions"])
-    if after != before:
-        j.fail(f"a refused write still added a version ({before} -> {after})")
-    # and the score is still usable afterwards
-    if any(j.ops.rhythm_faults(j.load(slug))):
-        j.fail("the refused write left the score damaged")
+    entry = j.workspace.add_version(slug, score, "damage", {})
+
+    # the write goes through -- the app never stands between a user and a save --
+    # and the damage is both recorded on the version and visible to the checks
+    if not entry.get("rhythm_warnings"):
+        j.fail("a damaging op left no warning on the version")
+    if not any(bar == 3 for _, bar, _ in j.rhythm_of(slug)):
+        j.fail("a damaging op went undetected by the rhythm check")
+
+    # the user can still work: the next op succeeds
+    j.do(slug, "transpose", lambda sc: j.ops.transpose(sc, "-M2", None))
+
+
+# =============================================================================
+# 8b. Structural marks are notation about the music, not the music
+# =============================================================================
+with Journey("repeats and endings on an OMR score") as j:
+    slug, entry = j.workspace.create_score("Scanned jig", fixtures.omr_jig())
+    inherited = len(entry.get("rhythm_warnings") or [])
+    if not inherited:
+        j.fail("the OMR fixture should arrive with an odd bar")
+    before = j.lengths(slug)
+
+    # the sequence Ali was blocked on, end to end
+    for kind, kwargs in (("repeat-start", {"measure": 5}),
+                         ("repeat-end", {"times": 2, "measure": 12}),
+                         ("volta", {"measure": 11, "to_measure": 12, "number": 1}),
+                         ("segno", {"measure": 2}),
+                         ("coda", {"measure": 17}),
+                         ("dal-segno-al-coda", {"measure": 20})):
+        try:
+            e, _ = j.do(slug, "set-structure",
+                        lambda sc, k=kind, kw=kwargs: j.ops.set_structure(sc, k, **kw),
+                        {"kind": kind})
+        except Exception as ex:  # noqa: BLE001
+            j.fail(f"{kind} was blocked: {type(ex).__name__}: {ex}")
+            continue
+        if len(e.get("rhythm_warnings") or []) > inherited:
+            j.fail(f"{kind} made the inherited odd bars worse")
+
+    if j.lengths(slug) != before:
+        j.fail(f"marking up the structure changed the music's length: "
+               f"{before} -> {j.lengths(slug)}")
+
+    # and every mark reached the engraving
+    import re as _re
+    import verovio
+    toolkit = verovio.toolkit()
+    toolkit.setOptions({"scale": 40, "footer": "none"})
+    toolkit.loadFile(str(j.workspace.resolve_path(slug)))
+    mei = toolkit.getMEI("{}")
+    for what, pattern in (("repeat start", r'left="rptstart"'),
+                          ("repeat end", r'right="rptend"'),
+                          ("volta", r"<ending"),
+                          ("segno", r"(?i)segno"),
+                          ("coda", r"(?i)coda")):
+        if not _re.search(pattern, mei):
+            j.fail(f"the {what} never reached the engraving")
 
 
 # =============================================================================
