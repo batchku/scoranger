@@ -1261,12 +1261,23 @@ final class ScorangerUITests: XCTestCase {
             Int((canvas.value as? String)?
                 .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
         }
+        // The canvas exists before the page under it has finished engraving, and
+        // a stroke drawn in that window lands nowhere. Wait for the count to be
+        // readable, then allow the stroke one retry.
         func draw() {
-            let a = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
-            let b = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45))
-            a.press(forDuration: 0.05, thenDragTo: b)
+            let before = strokes()
+            for _ in 0..<3 {
+                canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
+                    .press(forDuration: 0.05,
+                           thenDragTo: canvas.coordinate(
+                            withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
+                if strokes() > before { return }
+                sleep(3)
+            }
         }
 
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
         XCTAssertEqual(strokes(), 0, "canvas should start empty")
         draw()
         XCTAssertEqual(strokes(), 1, "the stroke did not land")

@@ -255,6 +255,11 @@ final class AppState: ObservableObject {
     func resetViewPreferencesForTesting() {
         guard ProcessInfo.processInfo.arguments.contains("-resetLibrary") else { return }
         twoPageSpread = false
+        // Pencil marks live in Documents, keyed by score and version, and so
+        // outlive the workspace that -resetLibrary throws away. A stroke left
+        // by one run turned up on a later run's canvas and read as a drawing
+        // leaking between versions.
+        DrawingStore.shared.clear(prefix: "")
     }
 
     func startPolling() {
