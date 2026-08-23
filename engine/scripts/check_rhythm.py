@@ -128,12 +128,19 @@ def total_length(score) -> list:
     return [Fraction(p.highestTime).limit_denominator(10 ** 6) for p in (score.parts or [score])]
 
 
-def write_and_read(score, name: str):
-    """Through the real write path, then back off disk. None if it was refused."""
+def write_and_read(score, name: str, baseline=()):
+    """Through the real write path, then back off disk. None if it was refused.
+
+    `baseline` is what the music looked like before the op ran, and every
+    fixture here starts sound -- so the default is an empty baseline, meaning
+    "nothing was wrong before, so nothing may be wrong now". Passing no
+    baseline at all would put the write in ingestion mode, where imperfect
+    material is accepted on purpose; that path is covered by check_import.py.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{name}.musicxml"
         try:
-            workspace._write_musicxml(score, path)
+            workspace._write_musicxml(score, path, baseline=list(baseline))
         except workspace.RhythmCorruption as refusal:
             return None, str(refusal)
         return converter.parse(str(path), forceSource=True), None

@@ -73,7 +73,13 @@ def _dispatch(op, a):
         piece = None
         if a.get("piece"):
             piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
-        return {"score": slug, "version": entry["id"], "piece": piece}
+        # Odd bars in an imported score are reported, never fatal. OMR output is
+        # imperfect by nature and the user brings the score in so they can fix
+        # it; refusing the import left them unable to open their own music.
+        out = {"score": slug, "version": entry["id"], "piece": piece}
+        if entry.get("rhythm_warnings"):
+            out["rhythm_warnings"] = entry["rhythm_warnings"]
+        return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))
     if op == "versions":

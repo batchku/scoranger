@@ -779,6 +779,140 @@ final class ScorangerUITests: XCTestCase {
                    thenHoldForDuration: 1.2)
     }
 
+    // MARK: - Multi-step journeys
+    //
+    // The single-feature tests above each guard one thing. These walk chains,
+    // because that is where the bugs that reached TestFlight actually lived: a
+    // selection that survived a version switch, a drawing filed under the wrong
+    // key, a numeral that followed the slug instead of the row.
+
+    /// Make an arrangement and put it in a set list: two engine round trips
+    /// and three views of the same thing, which is where numbering and
+    /// membership have disagreed before.
+    func testANewArrangementCanBeAddedToASetList() {
+        app.buttons["Add an arrangement to \(piece)"].tap()
+        let blank = app.buttons["New blank arrangement"]
+        guard blank.waitForExistence(timeout: 10) else {
+            return XCTFail("the add menu does not offer a blank arrangement")
+        }
+        blank.tap()
+
+        // it lands as #3 of the piece (the seed files two). Match the BUTTON:
+        // the label also appears on non-interactive descendants, and a long
+        // press on one of those opens no context menu.
+        let row = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Arrangement number 3")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 180),
+                      "the new arrangement never appeared in the piece")
+        shot("journey-new-arrangement")
+
+        // into a set list from its own row
+        row.press(forDuration: 1.2)
+        let addToSet = app.buttons["Add to set list…"]
+        guard addToSet.waitForExistence(timeout: 15) else {
+            return XCTFail("the row menu does not offer Add to set list")
+        }
+        addToSet.tap()
+        let chooser = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND NOT identifier CONTAINS %@",
+                        "chooser-", "new-setlist")).firstMatch
+        guard chooser.waitForExistence(timeout: 15) else {
+            return XCTFail("no existing set list offered to add it to")
+        }
+        let setlistName = chooser.label
+            .replacingOccurrences(of: "Add to ", with: "")
+            .replacingOccurrences(of: "Remove from ", with: "")
+        chooser.tap()
+        app.buttons["Done"].firstMatch.tap()
+
+        // and it now shows under that set list as well as under its piece
+        let inSet = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "setlist-")).firstMatch
+        XCTAssertTrue(inSet.waitForExistence(timeout: 40),
+                      "nothing is listed under set list \(setlistName)")
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Arrangement number 3")).firstMatch.exists,
+                      "the arrangement lost its place in the piece when it joined a set list")
+        shot("journey-in-setlist")
+    }
+
+    /// A drawing belongs to the version it was made on. Switching versions must
+    /// not carry someone's pencil marks onto a different engraving.
+    func testAnnotationsBelongToTheVersionTheyWereMadeOn() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        sleep(10)
+        app.buttons["pill-markup"].tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
+
+        let canvas = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20), "no annotation canvas")
+        func strokes() -> Int {
+            Int((canvas.value as? String)?
+                .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+        }
+        let firstKey = canvas.identifier
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
+            .press(forDuration: 0.05,
+                   thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
+        XCTAssertEqual(strokes(), 1, "the stroke did not land")
+        app.buttons["pill-markup"].tap()   // leave markup mode
+
+        // switch to an earlier version
+        app.buttons["versions-toggle-\(firstArrangement)"].tap()
+        let rows = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "version-\(firstArrangement)"))
+        guard rows.count > 1 else {
+            return XCTFail("need more than one version to switch between")
+        }
+        rows.element(boundBy: rows.count - 1).tap()
+        sleep(12)
+
+        let other = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(other.waitForExistence(timeout: 60), "the other version never engraved")
+        XCTAssertNotEqual(other.identifier, firstKey,
+                          "switching versions did not change which canvas is on screen")
+        let carried = Int((other.value as? String)?
+            .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+        XCTAssertEqual(carried, 0,
+                       "a drawing made on one version showed up on another (\(carried) strokes)")
+        shot("journey-annotation-per-version")
+    }
+
+    /// A selection is about the engraving it was drawn on: changing version
+    /// must not leave a stale selection pointing at bars of a different score.
+    func testSwitchingVersionClearsAStaleSelection() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(12)
+
+        var caught = false
+        for y in [0.30, 0.20, 0.42] where !caught {
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+            start.press(forDuration: 0.1,
+                        thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
+            caught = app.staticTexts["Selection"].waitForExistence(timeout: 8)
+        }
+        guard caught else { return XCTFail("nothing was selected on the page") }
+        if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
+
+        app.buttons["versions-toggle-\(firstArrangement)"].tap()
+        let rows = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "version-\(firstArrangement)"))
+        guard rows.count > 1 else { return XCTFail("need two versions") }
+        rows.element(boundBy: rows.count - 1).tap()
+
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["Selection"], timeout: 40),
+                      "the selection from the previous version is still showing")
+        shot("journey-selection-cleared-on-version-switch")
+    }
+
     // MARK: - Version selection
 
     /// Clicking through an arrangement's versions must light exactly one row.
