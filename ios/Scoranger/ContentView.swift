@@ -37,7 +37,9 @@ struct ContentView: View {
     /// The arrangement being put into a set list from its own row.
     @State private var setlistChooserScore: ScoreDoc?
     @State private var setlistRenameDraft = ""
-    @State private var dropTargetPiece: String?
+    /// Which target the dragged arrangement is currently over. One piece of
+    /// state for all of them, so exactly one thing can be lit at a time.
+    @State private var dropTarget: DropTarget?
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -535,9 +537,16 @@ struct ContentView: View {
 
     @ViewBuilder
     private var unfiledSection: some View {
+        // The band exists only when something is in it, so dragging OUT of a
+        // piece works when there is already an unfiled arrangement to aim at
+        // and not otherwise. "Remove from piece" stays in the row's context
+        // menu, which is the way that always works.
         if !state.unfiledScores.isEmpty {
             BandHeader((state.manifest?.pieces ?? []).isEmpty
                        ? "Arrangements" : "Unfiled arrangements")
+                .acceptsArrangementDrop(.unfiled, target: $dropTarget) { slug in
+                    state.assignToPiece(scoreSlug: slug, piece: nil)
+                }
             ForEach(state.unfiledScores) { score in
                 arrangementRow(score)
                     .id("unfiled/\(score.slug)")
@@ -596,6 +605,9 @@ struct ContentView: View {
             Button(role: .destructive) { alertRequest = .deleteSetlist(setlist) } label: {
                 Label("Delete setlist", systemImage: "trash")
             }
+        }
+        .acceptsArrangementDrop(.setlist(setlist.slug), target: $dropTarget) { slug in
+            Task { await state.addToSetlist(setlist: setlist.slug, score: slug) }
         }
     }
 
@@ -683,23 +695,8 @@ struct ContentView: View {
         .padding(.vertical, Theme.Metric.rowVertical)
         .frame(minHeight: Theme.Metric.rowMinHeight)
         .background(RowSelectionBackground(isSelected: false))
-        .overlay {
-            if dropTargetPiece == piece.slug {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .strokeBorder(Theme.Accent.clay, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
-                    .background(Theme.Accent.clayTint.opacity(0.6))
-            }
-        }
-        .onDrop(of: [.plainText], isTargeted: Binding(
-            get: { dropTargetPiece == piece.slug },
-            set: { dropTargetPiece = $0 ? piece.slug : nil }
-        )) { providers in
-            guard let provider = providers.first else { return false }
-            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-                guard let slug = object as? String else { return }
-                Task { @MainActor in state.assignToPiece(scoreSlug: slug, piece: piece.slug) }
-            }
-            return true
+        .acceptsArrangementDrop(.piece(piece.slug), target: $dropTarget) { slug in
+            state.assignToPiece(scoreSlug: slug, piece: piece.slug)
         }
     }
 
@@ -800,6 +797,9 @@ struct ContentView: View {
         .background(RowSelectionBackground(isSelected: isOpen))
         .onDrag { NSItemProvider(object: score.slug as NSString) }
         .contextMenu { arrangementMenu(score, number: number, inPiece: section) }
+        // outside the context menu, which swallows the drop when it wraps it
+        .modifier(RowDrop(section: section, score: score,
+                          target: $dropTarget, state: state))
     }
 
     @ViewBuilder
@@ -1040,6 +1040,95 @@ struct ContentView: View {
         if isCompact {
             withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { libraryOpen = false }
         }
+    }
+}
+
+/// What a dragged arrangement is hovering over.
+///
+/// Every row in the library drags (it carries its slug), and four kinds of
+/// thing accept a drop: a piece heading files it, a row inside a piece places
+/// it at that position, a setlist heading adds it to the running order, and
+/// the Unfiled band takes it out of its piece. Every one of those also stays
+/// in the context menu — a drag that will not start on someone's iPad must
+/// never be the only way to do something.
+enum DropTarget: Equatable {
+    case piece(String)
+    case setlist(String)
+    /// Insert before this arrangement, in this piece.
+    case row(piece: String, before: String)
+    case unfiled
+}
+
+/// The dashed outline that says "let go here".
+private struct DropHighlight: ViewModifier {
+    let active: Bool
+    /// A row inserts *between* rows, so it marks the gap rather than the row.
+    let asInsertionLine: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: asInsertionLine ? .top : .center) {
+            if active {
+                if asInsertionLine {
+                    Capsule().fill(Theme.Accent.clay)
+                        .frame(height: 2)
+                        .padding(.horizontal, Theme.Metric.panelPadding)
+                } else {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .strokeBorder(Theme.Accent.clay,
+                                      style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                        .background(Theme.Accent.clayTint.opacity(0.6))
+                }
+            }
+        }
+    }
+}
+
+/// A row inside a piece is a drop target: what lands on it takes its place in
+/// the running order and everything below shifts down, which is the #N
+/// renumbering the user sees. A row in Unfiled has no order to join, so it
+/// accepts nothing.
+private struct RowDrop: ViewModifier {
+    let section: (piece: PieceDoc, arrangements: [ScoreDoc])?
+    let score: ScoreDoc
+    @Binding var target: DropTarget?
+    let state: AppState
+
+    func body(content: Content) -> some View {
+        if let section {
+            content.acceptsArrangementDrop(
+                .row(piece: section.piece.slug, before: score.slug),
+                target: $target,
+                insertionLine: true
+            ) { slug in
+                guard slug != score.slug else { return }
+                state.placeInPiece(scoreSlug: slug, piece: section.piece.slug,
+                                   before: score.slug)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// Accept an arrangement dragged from anywhere in the library.
+    ///
+    /// The payload is the arrangement's slug as plain text, which is what the
+    /// rows already hand out. `isTargeted` writes into one shared piece of
+    /// state so only the zone under the finger lights up.
+    func acceptsArrangementDrop(_ zone: DropTarget,
+                                target: Binding<DropTarget?>,
+                                insertionLine: Bool = false,
+                                perform: @escaping (String) -> Void) -> some View {
+        modifier(DropHighlight(active: target.wrappedValue == zone,
+                               asInsertionLine: insertionLine))
+            .dropDestination(for: String.self) { slugs, _ in
+                guard let slug = slugs.first else { return false }
+                perform(slug)
+                return true
+            } isTargeted: { over in
+                target.wrappedValue = over ? zone : nil
+            }
     }
 }
 
