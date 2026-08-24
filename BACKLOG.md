@@ -562,3 +562,49 @@ Per-element size and offset would make that impossible by construction.
   mean an adjustment costs a version.
 - Reset. Any per-element override needs a way back to the default, or scores
   accumulate nudges nobody can undo.
+
+
+## Order of work, set by Ali (2026-08-23)
+
+1. **Chord-name fix** — shipped, 0.2.2 build 133, VALID.
+2. **Selection rework** — in progress. 0.2.3 carries steps 1–3 (the
+   finger+Pencil scheme scratched, two-finger-tap undo restored, hold-then-drag
+   lasso); 0.2.4 carries steps 4–5 (Replace/Add/Subtract chip with
+   tap-to-drop-one, and sidebar drop targets that show themselves on lift plus
+   the reordered menu). Per the confirmed spec in
+   `docs/hold-then-drag-spec.md`.
+3. **Size and position for added elements** — chord names first, then other
+   added text and marks, adjustable by drag/pinch and by chat. Analysis first,
+   then TDD. Scoped earlier in this file.
+4. **Awaiting Ali's explicit go-ahead — do NOT start without it**: direct vector
+   rendering (Phase B), then re-basing selection on it; and move/duplicate of
+   non-note elements, which shares the offset/identity problem with item 3 and
+   should be tackled alongside it.
+5. **The testing push — AFTER the feature work above, not before.**
+
+## After feature work — the dedicated testing push
+
+Queued deliberately at the end. These are the gaps in the honest coverage
+audit: everything below is covered by nothing today, and each is a place a
+user-visible failure has either already happened or would go unnoticed.
+
+- **Chat / the LLM path.** Zero automated coverage, on a chat-driven app. The
+  headless hook exists (`inbox-chat` / `outbox-chat`, `scripts/test_chat_e2e.sh`)
+  and needs a network and a key, so the work is deciding what can be asserted
+  without one: tool-call dispatch and argument shaping can be tested against a
+  stubbed model; only the model's judgement needs the real thing.
+- **OMR / Audiveris.** Zero. `PDFPreflightTests` covers the step *before* OMR
+  with synthetic PDFs. The pipeline that produced Ali's Morrison's Jig has never
+  been exercised by a test.
+- **The `scor` CLI binary.** Zero. Every engine check calls Python functions
+  directly, never the process. This gap has already cost us:
+  `scor whistle-fingerings` was completely dead with a NameError and no test
+  noticed — it was found by hand, twice, months apart.
+- **`bridge.py`**, the app's dispatch layer: only exercised incidentally through
+  UI tests.
+- **Apple Pencil, and any real device.** The simulator has no Pencil; annotation
+  tests use a finger stand-in. Nothing runs on hardware.
+- **Visual/engraving regression.** `check_render.py` measures font sizes and
+  radii; nothing asserts the page *looks* right, so a layout could break with
+  every test green.
+- **Export from the app UI** (the engine-side export is covered).
