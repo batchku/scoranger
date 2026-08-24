@@ -60,7 +60,9 @@ final class FingeringDiagramTests: XCTestCase {
         let out = FingeringDiagrams.draw(in: verse(1, "X", size: 405))
         let r = try XCTUnwrap(radius(of: out), "no arc in \(out)")
         XCTAssertGreaterThan(r, 1, "radius must come from the tspan's 405px, not the text's 0px")
-        XCTAssertEqual(r, 405 * 0.28, accuracy: 1)
+        // scaled in our own pass now: Verovio's text size stays at its default
+        // so chord symbols keep their size, and the diagram is shrunk here
+        XCTAssertEqual(r, 405 * 0.28 * FingeringDiagrams.diagramScale, accuracy: 1)
     }
 
     func testDiagramScalesWithTheEngraving() throws {
@@ -121,9 +123,13 @@ final class FingeringDiagramTests: XCTestCase {
         XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove("<music><note pname=\"d\"/></music>"))
     }
 
-    func testTheDiagramSizeIsHalfVerovioDefault() {
-        XCTAssertLessThan(FingeringDiagrams.lyricSize,
-                          FingeringDiagrams.defaultLyricSize / 1.9,
+    func testTheDiagramSizeIsHalfTheTextItReplaces() {
+        // Ali asked for about half the height. It used to come from halving
+        // Verovio's shared text size, which also halved every chord name; the
+        // scale lives in our own drawing pass now and the text size does not move.
+        XCTAssertEqual(FingeringDiagrams.defaultLyricSize, 4.5,
+                       "the engraving's text size stays at Verovio's default")
+        XCTAssertLessThan(FingeringDiagrams.diagramScale, 1 / 1.9,
                           "Ali asked for about half the height")
     }
 
@@ -203,5 +209,47 @@ final class FingeringDiagramTests: XCTestCase {
         XCTAssertEqual(out.components(separatedBy: "<path").count - 1, 6,
                        "all six holes should be drawn")
         XCTAssertFalse(out.contains("<text"), "no glyphs should survive")
+    }
+
+    // MARK: - The diagram is scaled here, not by Verovio's shared text size
+
+    /// Build 128 shrank the diagrams by halving Verovio's `lyricSize`, which is
+    /// the same option that sizes chord symbols -- so every chord name on a
+    /// fingered score rendered at less than half size. The scale belongs here.
+    func testTheDiagramIsAboutHalfTheGlyphItReplaces() {
+        XCTAssertGreaterThan(FingeringDiagrams.diagramScale, 0.4)
+        XCTAssertLessThan(FingeringDiagrams.diagramScale, 0.6)
+    }
+
+    func testTheDiagramSizeIsUnchangedFromWhatShipped() {
+        // what a hole measured when the option was 2.2 and the proportion 0.28
+        let asShipped = 198 * 0.28
+        let now = try? XCTUnwrap(radius(of: FingeringDiagrams.draw(in: verse(1, "X", size: 405))))
+        XCTAssertEqual(now ?? 0, asShipped, accuracy: 1.5,
+                       "the diagrams must look the same size as they did at lyricSize 2.2")
+    }
+
+    /// The octave "+" stays text, so it would render at the engraving's full
+    /// text size while the circles beside it are scaled -- twice the height of
+    /// its own column. It is scaled with them.
+    func testTheOctaveMarkScalesWithTheCircles() {
+        let column = (1...6).map { verse($0, "X", size: 405) }.joined()
+            + verse(7, "+", size: 405)
+        let out = FingeringDiagrams.draw(in: column)
+        let plus = try? XCTUnwrap(
+            out.range(of: "font-size=\"[0-9.]+px\">\\+", options: .regularExpression))
+        XCTAssertNotNil(plus, "the octave mark should still be text: \(out)")
+        let sizes = matches(of: "font-size=\"([0-9.]+)px\">\\+", in: out)
+        XCTAssertEqual(sizes.first ?? 0, 405 * FingeringDiagrams.diagramScale, accuracy: 1,
+                       "the octave mark did not scale with its holes")
+    }
+
+    private func matches(of pattern: String, in text: String) -> [CGFloat] {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = text as NSString
+        return re.matches(in: text, range: NSRange(location: 0, length: ns.length))
+            .compactMap { m in
+                m.numberOfRanges > 1 ? CGFloat(Double(ns.substring(with: m.range(at: 1))) ?? 0) : nil
+            }
     }
 }

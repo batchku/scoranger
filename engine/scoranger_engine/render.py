@@ -105,11 +105,35 @@ _ANY_SYL_RE = re.compile(r'>([^<>]{1,3})</tspan>')
 
 # Fingerings sit above the staff, and small. Verovio ignores MusicXML's
 # lyric placement="above", but honours MEI's place attribute on <verse>, so the
-# move happens on the MEI round trip. Size is a document-wide option: a score
-# carrying fingerings renders ALL its verses small, sung words included. That
-# is the tradeoff for having the diagrams occupy about half the height.
-WHISTLE_LYRIC_SIZE = 2.2          # MEI units; Verovio's default is 4.5
-DEFAULT_LYRIC_SIZE = 4.5
+# move happens on the MEI round trip.
+#
+# The SIZE is ours to decide, not Verovio's. `lyricSize` is a single
+# document-wide text size and it governs <harm> chord symbols as well as lyric
+# verses, so halving it to shrink the diagrams also halved every chord name on
+# the page -- unreadable, on exactly the scores a whistle player uses. So the
+# option stays at its default and the diagrams are scaled here, in the pass
+# that draws them. DIAGRAM_SCALE is the same 2.2-in-4.5 the diagrams shipped
+# at, expressed where it belongs.
+DEFAULT_LYRIC_SIZE = 4.5          # Verovio's default, in MEI units
+DIAGRAM_SCALE = 2.2 / 4.5         # what the diagrams were shrunk to, ~0.49
+
+# Circle geometry as proportions of the verse glyph they replace, before the
+# diagram scale is applied. Mirrored in ios/Scoranger/FingeringDiagrams.swift.
+HOLE_CENTRE_X = 0.36              # half a glyph advance
+HOLE_CENTRE_Y = -0.35             # above the text baseline
+HOLE_RADIUS = 0.28
+HOLE_STROKE = 0.07
+
+
+def lyric_size_for(fingerings: bool) -> float:
+    """The text size to render at. One answer, whatever the score carries.
+
+    Kept as a function because it used to return something smaller for fingered
+    scores, and the whole point of the fix is that it no longer does. A caller
+    that asks is told the default; a future caller that wants to shrink text
+    has to come through here and read why not.
+    """
+    return DEFAULT_LYRIC_SIZE
 
 # A chord carries the verses when the fingered note is part of one, so both
 # element names have to be scanned — chord first, so its inner notes are not
@@ -225,14 +249,32 @@ def _fingering_diagrams(svg: str) -> str:
     if not any(convert):
         return svg
 
+    # A column's octave "+" stays text -- every font has it, unlike the circle
+    # glyphs -- but it belongs to the diagram, so it is scaled with the holes
+    # rather than left at the engraving's full text size. The engine tags every
+    # whistle verse including the "+", so the tag identifies it directly; the
+    # verse-number grouping above cannot, because a tagged verse carries the tag
+    # in the label where a number would otherwise be.
     out, cursor = [], 0
     for wanted, v in zip(convert, parsed):
         match = v["match"]
         out.append(svg[cursor:match.start()])
-        out.append(_draw_hole(v["block"]) if wanted else v["block"])
+        if wanted:
+            out.append(_draw_hole(v["block"]))
+        elif v["tagged"] and v["text"] == "+":
+            out.append(_scale_text(v["block"]))
+        else:
+            out.append(v["block"])
         cursor = match.end()
     out.append(svg[cursor:])
     return "".join(out)
+
+
+def _scale_text(block: str) -> str:
+    """Shrink a verse's glyph to the diagram scale, leaving it as text."""
+    def shrink(m):
+        return f'<tspan font-size="{float(m.group(1)) * DIAGRAM_SCALE:g}px">'
+    return _SIZE_RE.sub(shrink, block, count=1)
 
 
 def _draw_hole(block: str) -> str:
@@ -245,10 +287,12 @@ def _draw_hole(block: str) -> str:
     font = float(size.group(1))
     if font <= 0:
         return block
-    cx = float(x.group(1)) + 0.36 * font
-    cy = float(y.group(1)) - 0.35 * font
-    r = 0.28 * font
-    stroke = 0.07 * font
+    # the glyph is full size now; the diagram drawn in its place is not
+    drawn = font * DIAGRAM_SCALE
+    cx = float(x.group(1)) + HOLE_CENTRE_X * drawn
+    cy = float(y.group(1)) + HOLE_CENTRE_Y * drawn
+    r = HOLE_RADIUS * drawn
+    stroke = HOLE_STROKE * drawn
     # paths rather than <circle>: the on-device renderer draws only the
     # subset Verovio emits, and a <circle> vanished there
     ring = (f'M {cx - r} {cy} A {r} {r} 0 1 0 {cx + r} {cy} '
@@ -300,13 +344,11 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         # MusicXML's lyric placement, so the move is made on the MEI and the
         # document reloaded — the same round trip the chart styling below uses.
         above = mei_with_fingerings_above(mei)
+        tk.setOptions({"lyricSize": lyric_size_for(fingerings=above is not None)})
         if above is not None:
             mei = above
-            tk.setOptions({"lyricSize": WHISTLE_LYRIC_SIZE})
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with fingerings above")
-        else:
-            tk.setOptions({"lyricSize": DEFAULT_LYRIC_SIZE})
         if "<harm" in mei:
             # Real Book chord-lane styling, applied semantically in MEI:
             # names ON the staff, centered in the bar, Helvetica bold, and
