@@ -41,9 +41,12 @@ final class BoundsAwareScrollView: UIScrollView {
 struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// Layout width for the content at zoom 1.
     let contentWidth: CGFloat
-    /// A finished lasso: the page it was drawn on, and its unit points.
-    var onLasso: ((Int, [CGPoint]) -> Void)?
-    /// Markup mode, for the simulator's finger stand-in only (see LassoArbiter).
+    /// A finished lasso: the page it was drawn on, its unit points, and
+    /// whether it adds to the existing selection.
+    var onLasso: ((Int, [CGPoint], Bool) -> Void)?
+    /// Two fingers tapped without moving: undo the last ink stroke.
+    var onUndoTap: (() -> Void)?
+    /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
     /// cover the end of the score. The caller owns the number because it owns
@@ -75,14 +78,12 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         // actually did to the canvas
         scroll.accessibilityValue = "zoom 1.00"
 
-        // Selection is finger-held + Pencil. The recognizer sits here because
-        // it must see touches delivered to any page below it, and it disables
-        // scrolling for the duration so the held finger cannot drag the page
-        // out from under the stroke.
+        // Hold-then-drag selects. The recognizer sits here because it must see
+        // touches delivered to any page below it. Scrolling is NOT made to wait
+        // for it: a drag that starts moving scrolls at once, and a finger held
+        // still moves nothing, so when the hold fires there is nothing to undo.
         let lasso = LassoGestureRecognizer(target: context.coordinator,
                                            action: #selector(Coordinator.lassoFired(_:)))
-        lasso.arbiter.fingerStandsInForPencil =
-            ProcessInfo.processInfo.arguments.contains("-lassoWithFinger")
         scroll.addGestureRecognizer(lasso)
         context.coordinator.lasso = lasso
 
@@ -97,7 +98,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.lasso?.onEnd = onLasso
-        context.coordinator.lasso?.arbiter.annotationActive = annotationActive
+        context.coordinator.lasso?.onUndoTap = onUndoTap
+        context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.bottomChrome = bottomChrome
         scroll.minimumZoomScale = zoomRange.lowerBound

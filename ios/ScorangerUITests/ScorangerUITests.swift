@@ -18,12 +18,10 @@ final class ScorangerUITests: XCTestCase {
         app = XCUIApplication()
         // -resetLibrary so each test starts from the same seeded library: these
         // tests rename things, and the on-device workspace outlives the app.
-        // -lassoWithFinger: selection is finger-held + Pencil, and the
-        // simulator has no Pencil. The stand-in lets a finger drag draw the
-        // lasso so the rest of the path (hit-test, chip, chat handoff) is
-        // covered end to end; the arbitration rule itself is unit-tested.
+        // No selection stand-in any more: the lasso is hold-then-drag with a
+        // finger, so a test performs exactly what a person performs.
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
-                               "-annotateWithFinger", "-lassoWithFinger"]
+                               "-annotateWithFinger"]
         app.launch()
         // the library overlay starts open on iPad; band headers render uppercased
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
@@ -745,7 +743,8 @@ final class ScorangerUITests: XCTestCase {
         for y in [0.30, 0.20, 0.42, 0.55] where !caught {
             let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
             let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y))
-            start.press(forDuration: 0.1, thenDragTo: end)
+            // hold past the threshold, then drag: the gesture a person makes
+            start.press(forDuration: 0.6, thenDragTo: end)
             caught = chip.waitForExistence(timeout: 8)
         }
         XCTAssertTrue(caught, "nothing was selected by any stroke across the page")
@@ -777,6 +776,75 @@ final class ScorangerUITests: XCTestCase {
                     withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
                    withVelocity: .slow,
                    thenHoldForDuration: 1.2)
+    }
+
+    // MARK: - Hold-then-drag, and what it must not break
+
+    /// The whole point of the threshold: a drag that starts moving straight
+    /// away scrolls, and selects nothing. If this fails the score is unreadable
+    /// -- every attempt to scroll would lasso instead.
+    func testAQuickDragScrollsAndSelectsNothing() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(12)
+
+        for dy in [0.55, 0.45] {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy))
+                .press(forDuration: 0.05,
+                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy - 0.3)))
+        }
+        XCTAssertFalse(app.staticTexts["Selection"].waitForExistence(timeout: 4),
+                       "a quick drag selected something; it should have scrolled")
+        shot("quick-drag-scrolls")
+    }
+
+    /// Two fingers, tapped and gone, undo the last stroke -- and it must work
+    /// with markup mode OFF, which is where it was lost: the recognizer used to
+    /// live on the PencilKit canvas, which only takes touches while markup is on.
+    func testTwoFingerTapUndoesEvenWithMarkupOff() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        sleep(10)
+        app.buttons["pill-markup"].tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
+
+        let canvas = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20), "no annotation canvas")
+        func strokes() -> Int {
+            Int((canvas.value as? String)?
+                .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+        }
+        for _ in 0..<3 where strokes() < 1 {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
+                .press(forDuration: 0.05,
+                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
+            if strokes() >= 1 { break }
+            sleep(2)
+        }
+        XCTAssertEqual(strokes(), 1, "the stroke did not land")
+
+        // leave markup mode: this is where the gesture used to stop working
+        app.buttons["pill-markup"].tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 10),
+                      "markup mode did not close")
+
+        // the library panel overlaps the canvas, and a two-finger tap cannot be
+        // computed on a partly occluded element -- close it, as a reader would
+        if app.staticTexts["PIECES"].exists { app.buttons["pill-library"].tap() }
+        _ = waitForDisappearance(of: app.staticTexts["PIECES"], timeout: 10)
+        // tap on the page, not the scroll view: XCUITest cannot compute a
+        // two-finger gesture on a scroll view element. The touches land on the
+        // recognizer either way -- it lives on the scroll view beneath.
+        canvas.twoFingerTap()
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline && strokes() != 0 { usleep(200_000) }
+        XCTAssertEqual(strokes(), 0,
+                       "two-finger tap did not undo the stroke with markup off")
+        shot("two-finger-undo-outside-markup")
     }
 
     // MARK: - Multi-step journeys
@@ -895,7 +963,7 @@ final class ScorangerUITests: XCTestCase {
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {
             let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
-            start.press(forDuration: 0.1,
+            start.press(forDuration: 0.6,
                         thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
             caught = app.staticTexts["Selection"].waitForExistence(timeout: 8)
         }
@@ -1102,7 +1170,7 @@ final class ScorangerUITests: XCTestCase {
         let before = (input.exists ? (input.value as? String) ?? "" : "")
         for dy in [0.30, 0.20, 0.42, 0.55, 0.12] {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: dxStart, dy: dy))
-                .press(forDuration: 0.1,
+                .press(forDuration: 0.6,
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: dxEnd, dy: dy)))
             guard app.staticTexts["Selection"].waitForExistence(timeout: 8) else { continue }

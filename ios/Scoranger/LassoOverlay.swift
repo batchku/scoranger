@@ -1,22 +1,34 @@
 import SwiftUI
 import UIKit
 
-/// Recognizes the finger-held Pencil lasso.
+/// Recognizes the hold-then-drag lasso, and the two-finger undo tap.
 ///
 /// It lives on the scroll view rather than on a page, because a recognizer only
 /// sees touches delivered into its own view tree and the scroll view is the one
-/// ancestor of everything on the canvas. `cancelsTouchesInView` is on: once the
+/// ancestor of everything on the canvas. That is also why the undo tap lives
+/// here now: on the PencilKit canvas it only saw touches while markup mode was
+/// on, which is why it felt lost. `cancelsTouchesInView` is on: once the
 /// lasso takes over, the PencilKit canvas underneath is sent `touchesCancelled`
 /// and no ink is left behind by a gesture that meant "select".
 final class LassoGestureRecognizer: UIGestureRecognizer {
-    /// Called once, when the lasso closes: (page index, unit (0…1) points).
+    /// Called once, when the lasso closes: (page index, unit (0…1) points,
+    /// whether this stroke adds to what is already selected).
     /// There is deliberately no per-sample callback — see LassoAnchorView.
-    var onEnd: ((Int, [CGPoint]) -> Void)?
-    var arbiter = LassoArbiter()
+    var onEnd: ((Int, [CGPoint], Bool) -> Void)?
+    /// Called when two fingers tap without moving: undo the last ink stroke.
+    var onUndoTap: (() -> Void)?
+    /// Markup mode. It changes what the PENCIL does and nothing else.
+    var annotationActive = false
 
-    private var pencilTouch: UITouch?
+    /// The touch drawing the lasso, once one has been chosen.
+    private var drawing: UITouch?
+    /// Every touch currently down, with where and when it landed, so the gate
+    /// can be asked what the user is doing.
+    private var down: [UITouch: (origin: CGPoint, time: TimeInterval)] = [:]
     private var points: [CGPoint] = []
     private var anchor: LassoAnchorView?
+    private var holdTimer: Timer?
+    private var adding = false
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
@@ -25,40 +37,95 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         delaysTouchesEnded = false
     }
 
+    /// How far a touch has travelled from where it landed.
+    private func travel(_ touch: UITouch) -> CGFloat {
+        guard let root = view, let start = down[touch]?.origin else { return 0 }
+        let now = touch.location(in: root)
+        return hypot(now.x - start.x, now.y - start.y)
+    }
+
+    private func elapsed(_ touch: UITouch) -> TimeInterval {
+        guard let started = down[touch]?.time else { return 0 }
+        return touch.timestamp - started
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches where touch.type == .direct && pencilTouch == nil {
-            arbiter.fingers += 1
-        }
-        guard pencilTouch == nil else { return }
+        guard let root = view else { return }
         for touch in touches {
-            let isPencil = touch.type == .pencil
-            guard arbiter.shouldBeginLasso(pencil: isPencil) else { continue }
-            guard let anchor = anchor(under: touch) else { continue }
-            self.anchor = anchor
-            pencilTouch = touch
-            points = [touch.location(in: anchor)]
-            state = .began
-            draw()
+            down[touch] = (touch.location(in: root), touch.timestamp)
+        }
+        // A Pencil in markup mode is a pen; leave it alone.
+        if let pencil = touches.first(where: { $0.type == .pencil }),
+           LassoGate.pencilLassos(markupActive: annotationActive),
+           drawing == nil {
+            armHold(for: pencil)
             return
+        }
+        if drawing == nil, down.count == 1, let finger = touches.first {
+            armHold(for: finger)
         }
     }
 
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let pencilTouch, touches.contains(pencilTouch), let anchor else { return }
-        points.append(pencilTouch.location(in: anchor))
-        state = .changed
+    /// Wake up when the hold threshold passes and see whether the finger stayed
+    /// put. A timer rather than a check on move, because a finger that never
+    /// moves sends no further touches — the gesture has to start on its own.
+    private func armHold(for touch: UITouch) {
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: LassoGate.holdThreshold,
+                                         repeats: false) { [weak self, weak touch] _ in
+            guard let self, let touch, self.down[touch] != nil else { return }
+            guard LassoGate.shouldBeginLasso(elapsed: LassoGate.holdThreshold,
+                                             movement: self.travel(touch),
+                                             touches: self.down.count) else { return }
+            self.beginLasso(with: touch, adding: false)
+        }
+    }
+
+    private func beginLasso(with touch: UITouch, adding: Bool) {
+        guard let anchor = anchor(under: touch) else { return }
+        self.anchor = anchor
+        self.adding = adding
+        drawing = touch
+        points = [touch.location(in: anchor)]
+        state = .began
+        // the moment of lift, felt rather than guessed
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         draw()
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches where touch.type == .direct {
-            arbiter.fingers = max(0, arbiter.fingers - 1)
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let drawing, touches.contains(drawing), let anchor {
+            points.append(drawing.location(in: anchor))
+            state = .changed
+            draw()
+            return
         }
-        guard let pencil = pencilTouch, touches.contains(pencil) else { return }
-        if let anchor { points.append(pencil.location(in: anchor)) }
-        // a dot is not a lasso
-        if points.count > 2, let anchor {
-            onEnd?(anchor.pageIndex, unitPoints(in: anchor))
+        // Two fingers, one of them parked: the moving one draws and adds. Both
+        // moving is a pinch, which belongs to the scroll view — so this stays
+        // undecided until one of them commits.
+        guard drawing == nil, down.count == 2 else { return }
+        let ordered = down.keys.sorted { (down[$0]?.time ?? 0) < (down[$1]?.time ?? 0) }
+        guard let first = ordered.first, let second = ordered.last, first != second else { return }
+        if LassoGate.combine(firstMovement: travel(first),
+                             secondMovement: travel(second)) == .add {
+            beginLasso(with: second, adding: true)
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        // two fingers tapped and gone, having barely moved: undo
+        if drawing == nil, down.count == 2,
+           let sample = touches.first,
+           LassoGate.isUndoTap(touches: down.count,
+                               movement: down.keys.map(travel).max() ?? 0,
+                               elapsed: elapsed(sample)) {
+            onUndoTap?()
+        }
+        defer { for touch in touches { down[touch] = nil } }
+        guard let drawing, touches.contains(drawing) else { return }
+        if let anchor { points.append(drawing.location(in: anchor)) }
+        if points.count > 2, let anchor {          // a dot is not a lasso
+            onEnd?(anchor.pageIndex, unitPoints(in: anchor), adding)
         } else {
             anchor?.show([])
         }
@@ -66,26 +133,31 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        for touch in touches where touch.type == .direct {
-            arbiter.fingers = max(0, arbiter.fingers - 1)
-        }
-        guard let pencil = pencilTouch, touches.contains(pencil) else { return }
+        defer { for touch in touches { down[touch] = nil } }
+        guard let drawing, touches.contains(drawing) else { return }
         anchor?.show([])
         finish(.cancelled)
     }
 
     override func reset() {
         super.reset()
-        pencilTouch = nil
+        holdTimer?.invalidate()
+        holdTimer = nil
+        drawing = nil
         points = []
         anchor = nil
+        adding = false
+        down.removeAll()
     }
 
     private func finish(_ end: UIGestureRecognizer.State) {
         state = end
-        pencilTouch = nil
+        holdTimer?.invalidate()
+        holdTimer = nil
+        drawing = nil
         points = []
         anchor = nil
+        adding = false
     }
 
     /// Live feedback, straight into the layer.

@@ -46,16 +46,29 @@ final class AppState: ObservableObject {
 
     /// A finished lasso: what it caught, drawn where it was drawn, handed to
     /// chat so the next prompt can refer to it.
-    func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int) {
+    func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int,
+                         adding: Bool = false) {
         let picked = ScoreSelection(elements)
-        selectionPaths = [page: path]
+        selectionPaths = adding
+            ? selectionPaths.merging([page: path]) { _, new in new }
+            : [page: path]
         guard !picked.isEmpty else {
             // the lasso caught nothing addressable: show it, say nothing to chat
-            selection = nil
+            if !adding { selection = nil }
             return
         }
-        selection = picked
-        pendingChatInsert = picked.chatReference
+        if adding, let existing = selection {
+            // union by address, so lassoing over something already caught does
+            // not list it twice
+            var merged = existing.addresses
+            for address in picked.addresses where !merged.contains(address) {
+                merged.append(address)
+            }
+            selection = ScoreSelection(addresses: merged)
+        } else {
+            selection = picked
+        }
+        pendingChatInsert = selection?.chatReference
         chatOpenRequest += 1
     }
 

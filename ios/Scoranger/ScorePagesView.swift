@@ -29,7 +29,10 @@ struct ScorePagesView: View {
             let width = SpreadLayout.pageWidth(viewport: geo.size.width, spread: spread)
             ZoomableScroll(contentWidth: SpreadLayout.contentWidth(viewport: geo.size.width,
                                                                   spread: spread),
-                           onLasso: { page, path in select(path: path, onPage: page) },
+                           onLasso: { page, path, adding in
+                               select(path: path, onPage: page, adding: adding)
+                           },
+                           onUndoTap: { _ = annotation.undo() },
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
@@ -149,7 +152,7 @@ struct ScorePagesView: View {
     /// A finished lasso: everything whose position falls inside it, on this
     /// page, whatever kind it is — notes, chord symbols, clefs, dynamics.
     /// Selecting "a bar" is lassoing the notes in it.
-    private func select(path: [CGPoint], onPage index: Int) {
+    private func select(path: [CGPoint], onPage index: Int, adding: Bool) {
         guard let page = state.geometry?.page(index) else {
             state.selectionPaths = [index: path]
             return
@@ -158,7 +161,7 @@ struct ScorePagesView: View {
         let polygon = path.map { CGPoint(x: $0.x * page.size.width,
                                          y: $0.y * page.size.height) }
         let caught = page.elements(caughtBy: polygon)
-        state.commitSelection(caught, path: path, page: index)
+        state.commitSelection(caught, path: path, page: index, adding: adding)
     }
 
     private func barCell(_ text: String) -> some View {
