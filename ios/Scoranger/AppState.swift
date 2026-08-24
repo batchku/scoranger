@@ -37,6 +37,10 @@ final class AppState: ObservableObject {
     /// finished lasso shows the user that the selection registered.
     @Published var chatOpenRequest = 0
     @Published var pendingChatInsert: String?
+    /// How the next lasso combines with what is already selected. Replace until
+    /// the user says otherwise; the two-finger add shortcut overrides it for
+    /// one stroke without disturbing it.
+    @Published var combineMode: SelectionCombine = .replace
 
     /// Drop the active selection and its drawn lasso.
     func clearSelection() {
@@ -48,28 +52,44 @@ final class AppState: ObservableObject {
     /// chat so the next prompt can refer to it.
     func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int,
                          adding: Bool = false) {
-        let picked = ScoreSelection(elements)
-        selectionPaths = adding
-            ? selectionPaths.merging([page: path]) { _, new in new }
-            : [page: path]
-        guard !picked.isEmpty else {
-            // the lasso caught nothing addressable: show it, say nothing to chat
-            if !adding { selection = nil }
-            return
+        // the two-finger shortcut adds for this stroke only; the chip's mode is
+        // what the user set and is left alone
+        let mode: SelectionCombine = adding ? .add : combineMode
+        let caught = elements.compactMap(\.address)
+        let combined = (selection ?? ScoreSelection(addresses: []))
+            .combining(caught, mode: mode)
+
+        switch mode {
+        case .replace:
+            selectionPaths = [page: path]
+        case .add, .subtract:
+            // keep the outlines already drawn: they are what the user built up
+            selectionPaths = selectionPaths.merging([page: path]) { _, new in new }
         }
-        if adding, let existing = selection {
-            // union by address, so lassoing over something already caught does
-            // not list it twice
-            var merged = existing.addresses
-            for address in picked.addresses where !merged.contains(address) {
-                merged.append(address)
-            }
-            selection = ScoreSelection(addresses: merged)
-        } else {
-            selection = picked
-        }
-        pendingChatInsert = selection?.chatReference
+
+        selection = combined.isEmpty ? nil : combined
+        if combined.isEmpty { selectionPaths = [:] }
+        guard let selection, !selection.isEmpty else { return }
+        pendingChatInsert = selection.chatReference
         chatOpenRequest += 1
+    }
+
+    /// Tapping a selected element drops just that one — the single correction
+    /// a whole-region subtract is too blunt for.
+    /// Returns true when something was dropped, so the caller knows the tap was
+    /// used rather than passed through.
+    @discardableResult
+    func dropFromSelection(at point: CGPoint, onPage index: Int) -> Bool {
+        guard let selection, !selection.isEmpty,
+              let page = geometry?.page(index) else { return false }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        guard let hit = page.element(at: scaled)?.address,
+              selection.addresses.contains(hit) else { return false }
+        let left = selection.dropping(hit)
+        self.selection = left.isEmpty ? nil : left
+        if left.isEmpty { selectionPaths = [:] }
+        pendingChatInsert = left.isEmpty ? nil : left.chatReference
+        return true
     }
 
     /// PDFs currently being converted in the cloud — shown greyed out in the

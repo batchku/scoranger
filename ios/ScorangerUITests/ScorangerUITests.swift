@@ -847,6 +847,42 @@ final class ScorangerUITests: XCTestCase {
         shot("two-finger-undo-outside-markup")
     }
 
+    /// The chip's three modes are what make removal unambiguous: a lasso takes
+    /// things away only when the user said so.
+    func testTheSelectionChipOffersReplaceAddAndSubtract() {
+        app.buttons["arrangement-\(firstArrangement)"].tap()
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(12)
+
+        var caught = false
+        for y in [0.30, 0.20, 0.42] where !caught {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+                .press(forDuration: 0.6,
+                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
+            caught = app.staticTexts["Selection"].waitForExistence(timeout: 8)
+        }
+        guard caught else { return XCTFail("nothing was selected") }
+        if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
+
+        let replace = app.buttons["combine-replace"]
+        let add = app.buttons["combine-add"]
+        let subtract = app.buttons["combine-subtract"]
+        XCTAssertTrue(replace.waitForExistence(timeout: 10), "no Replace on the chip")
+        XCTAssertTrue(add.exists, "no Add on the chip")
+        XCTAssertTrue(subtract.exists, "no Subtract on the chip")
+        XCTAssertTrue(replace.isSelected, "Replace should be the mode until told otherwise")
+
+        subtract.tap()
+        XCTAssertTrue(subtract.isSelected, "Subtract did not take")
+        XCTAssertFalse(replace.isSelected, "two modes were active at once")
+        shot("selection-subtract-mode")
+
+        add.tap()
+        XCTAssertTrue(add.isSelected)
+        XCTAssertFalse(subtract.isSelected)
+    }
+
     // MARK: - Multi-step journeys
     //
     // The single-feature tests above each guard one thing. These walk chains,

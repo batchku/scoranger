@@ -33,6 +33,9 @@ struct ScorePagesView: View {
                                select(path: path, onPage: page, adding: adding)
                            },
                            onUndoTap: { _ = annotation.undo() },
+                           onTap: { page, point in
+                               state.dropFromSelection(at: point, onPage: page)
+                           },
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
@@ -91,7 +94,8 @@ struct ScorePagesView: View {
                  annotation: annotation)
             .overlay {
                 LassoAnchor(pageIndex: index,
-                            committed: state.selectionPaths[index] ?? [])
+                            committed: state.selectionPaths[index] ?? [],
+                            subtracting: state.combineMode == .subtract)
                     .allowsHitTesting(false)
             }
             .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
@@ -108,6 +112,11 @@ struct ScorePagesView: View {
                 HStack(spacing: Theme.Metric.s8) {
                     Text("Selection").typeRole(.label)
                         .foregroundStyle(Theme.Accent.clayStrong)
+                        // named here rather than on the container: an
+                        // identifier on a container is inherited by every
+                        // child, which left the mode buttons all called
+                        // "selection-chip" and unfindable by their own names
+                        .accessibilityIdentifier("selection-chip")
                     Spacer(minLength: Theme.Metric.s8)
                     Button {
                         state.clearSelection()
@@ -132,7 +141,8 @@ struct ScorePagesView: View {
                     Text("\(selection.addresses.count) elements").typeRole(.meta)
                         .foregroundStyle(Theme.Ink.ink3)
                 }
-                Text("handed to chat").typeRole(.meta)
+                combineModes
+                Text("tap an element to drop it").typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
             }
             .padding(.horizontal, Theme.Metric.s12)
@@ -145,7 +155,34 @@ struct ScorePagesView: View {
             }
             .modifier(ChipShadow())
             .padding(.top, Theme.Metric.s12)
-            .accessibilityIdentifier("selection-chip")
+        }
+    }
+
+    /// What the next lasso does to this selection. A mode, not a gesture: a
+    /// lasso that removes has to be something the user chose, because over a
+    /// region holding both selected and unselected elements there is no way to
+    /// guess which they meant.
+    private var combineModes: some View {
+        HStack(spacing: Theme.Metric.s2) {
+            ForEach(SelectionCombine.allCases, id: \.self) { mode in
+                let active = state.combineMode == mode
+                Button { state.combineMode = mode } label: {
+                    Text(mode.label)
+                        .typeRole(.meta)
+                        .foregroundStyle(active ? Theme.Surface.paper : Theme.Ink.ink2)
+                        .padding(.vertical, Theme.Metric.s2)
+                        .padding(.horizontal, Theme.Metric.s6)
+                        .background(active
+                                    ? (mode.strokeIsWarning ? Theme.Status.danger
+                                                            : Theme.Accent.clay)
+                                    : Theme.Surface.well)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("combine-\(mode.rawValue)")
+                .accessibilityAddTraits(active ? [.isSelected] : [])
+            }
         }
     }
 

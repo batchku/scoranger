@@ -40,6 +40,16 @@ struct ContentView: View {
     /// Which target the dragged arrangement is currently over. One piece of
     /// state for all of them, so exactly one thing can be lit at a time.
     @State private var dropTarget: DropTarget?
+    /// The arrangement currently lifted, if any. Every place it could be
+    /// dropped shows itself while it is in the air — before this, the highlight
+    /// only appeared once the finger was already over a target, so lifting a
+    /// row taught the user nothing about where it could go.
+    ///
+    /// SwiftUI's `.onDrag` has no "session ended" callback, so a drag the user
+    /// abandons in mid-air is cleared by the timeout below rather than by an
+    /// event. A drop clears it immediately.
+    @State private var lifted: String?
+    @State private var liftTimeout: Task<Void, Never>?
 
     private static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
@@ -486,6 +496,25 @@ struct ContentView: View {
         }
     }
 
+    /// Remember what is in the air, and stop remembering if nothing comes of it.
+    private func beginLift(_ slug: String) {
+        lifted = slug
+        liftTimeout?.cancel()
+        liftTimeout = Task {
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { lifted = nil }
+        }
+    }
+
+    private func endLift() {
+        liftTimeout?.cancel()
+        liftTimeout = nil
+        lifted = nil
+    }
+
+    /// A drop target's appearance: lit when the finger is over it, and shown
+    /// more quietly whenever something is in the air that it could accept.
     @ViewBuilder
     private var setlistsSection: some View {
         BandHeader(title: "Setlists") {
@@ -544,7 +573,9 @@ struct ContentView: View {
         if !state.unfiledScores.isEmpty {
             BandHeader((state.manifest?.pieces ?? []).isEmpty
                        ? "Arrangements" : "Unfiled arrangements")
-                .acceptsArrangementDrop(.unfiled, target: $dropTarget) { slug in
+                .acceptsArrangementDrop(.unfiled, target: $dropTarget,
+                                        available: lifted != nil) { slug in
+                    endLift()
                     state.assignToPiece(scoreSlug: slug, piece: nil)
                 }
             ForEach(state.unfiledScores) { score in
@@ -606,7 +637,9 @@ struct ContentView: View {
                 Label("Delete setlist", systemImage: "trash")
             }
         }
-        .acceptsArrangementDrop(.setlist(setlist.slug), target: $dropTarget) { slug in
+        .acceptsArrangementDrop(.setlist(setlist.slug), target: $dropTarget,
+                                available: lifted != nil) { slug in
+            endLift()
             Task { await state.addToSetlist(setlist: setlist.slug, score: slug) }
         }
     }
@@ -695,7 +728,9 @@ struct ContentView: View {
         .padding(.vertical, Theme.Metric.rowVertical)
         .frame(minHeight: Theme.Metric.rowMinHeight)
         .background(RowSelectionBackground(isSelected: false))
-        .acceptsArrangementDrop(.piece(piece.slug), target: $dropTarget) { slug in
+        .acceptsArrangementDrop(.piece(piece.slug), target: $dropTarget,
+                                available: lifted != nil) { slug in
+            endLift()
             state.assignToPiece(scoreSlug: slug, piece: piece.slug)
         }
     }
@@ -795,16 +830,36 @@ struct ContentView: View {
         .padding(.vertical, Theme.Metric.rowVertical)
         .frame(minHeight: Theme.Metric.rowMinHeight)
         .background(RowSelectionBackground(isSelected: isOpen))
-        .onDrag { NSItemProvider(object: score.slug as NSString) }
+        .onDrag {
+            beginLift(score.slug)
+            return NSItemProvider(object: score.slug as NSString)
+        }
         .contextMenu { arrangementMenu(score, number: number, inPiece: section) }
         // outside the context menu, which swallows the drop when it wraps it
         .modifier(RowDrop(section: section, score: score,
-                          target: $dropTarget, state: state))
+                          target: $dropTarget, lifted: lifted,
+                          onDrop: { endLift() }, state: state))
     }
 
     @ViewBuilder
     private func arrangementMenu(_ score: ScoreDoc, number: Int?,
                                  inPiece section: (piece: PieceDoc, arrangements: [ScoreDoc])?) -> some View {
+        // Non-spatial first: these have no drag and the menu is the only way to
+        // reach them. The spatial actions below the divider all have a
+        // hold-then-drag equivalent, and stay here as the reachable path —
+        // a drag-only action is unusable with VoiceOver or Switch Control.
+        Button {
+            Task { await state.duplicateScore(slug: score.slug, name: "\(score.name) copy") }
+        } label: { Label("Duplicate arrangement", systemImage: "plus.square.on.square") }
+        Button { infoScore = score } label: {
+            Label("Rename, credits and parts…", systemImage: "info.circle")
+        }
+        Button(role: .destructive) { alertRequest = .deleteArrangement(score) } label: {
+            Label("Delete arrangement", systemImage: "trash")
+        }
+
+        Divider()
+
         // A flat action, not a nested Menu: a Menu inside a contextMenu hung
         // the app hard enough for the watchdog to kill it.
         Button {
@@ -826,9 +881,6 @@ struct ContentView: View {
                 } label: { Label("Move down (become #\(number + 1))", systemImage: "arrow.down") }
             }
         }
-        Button {
-            Task { await state.duplicateScore(slug: score.slug, name: "\(score.name) copy") }
-        } label: { Label("Duplicate arrangement", systemImage: "plus.square.on.square") }
         Menu("Move to piece") {
             ForEach(state.manifest?.pieces ?? []) { piece in
                 Button {
@@ -836,25 +888,22 @@ struct ContentView: View {
                 } label: {
                     if score.piece == piece.slug {
                         Label(piece.name, systemImage: "checkmark")
-                    } else { Text(piece.name) }
+                    } else {
+                        Text(piece.name)
+                    }
                 }
             }
-            Divider()
-            Button("New piece…") {
-                newPieceName = ""
-                alertRequest = .newPiece(score)
+            Button { alertRequest = .newPiece(score) } label: {
+                Label("New piece…", systemImage: "plus")
             }
         }
         if score.piece != nil {
-            Button("Remove from piece") {
-                state.assignToPiece(scoreSlug: score.slug, piece: nil)
+            Button { state.assignToPiece(scoreSlug: score.slug, piece: nil) } label: {
+                Label("Remove from piece", systemImage: "tray.and.arrow.up")
             }
         }
-        Divider()
-        Button(role: .destructive) { alertRequest = .deleteArrangement(score) } label: {
-            Label("Delete arrangement", systemImage: "trash")
-        }
     }
+
 
     private func arrangementSubtitle(_ score: ScoreDoc) -> String {
         var bits: [String] = []
@@ -1071,11 +1120,25 @@ enum DropTarget: Equatable {
 /// The dashed outline that says "let go here".
 private struct DropHighlight: ViewModifier {
     let active: Bool
+    /// Something is in the air that this target could accept: shown quietly, so
+    /// lifting a row reveals where it can go.
+    let available: Bool
     /// A row inserts *between* rows, so it marks the gap rather than the row.
     let asInsertionLine: Bool
 
     func body(content: Content) -> some View {
         content.overlay(alignment: asInsertionLine ? .top : .center) {
+            if !active && available {
+                if asInsertionLine {
+                    Capsule().fill(Theme.Accent.clay.opacity(0.35))
+                        .frame(height: 2)
+                        .padding(.horizontal, Theme.Metric.panelPadding)
+                } else {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .strokeBorder(Theme.Accent.clay.opacity(0.35),
+                                      style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                }
+            }
             if active {
                 if asInsertionLine {
                     Capsule().fill(Theme.Accent.clay)
@@ -1100,6 +1163,10 @@ private struct RowDrop: ViewModifier {
     let section: (piece: PieceDoc, arrangements: [ScoreDoc])?
     let score: ScoreDoc
     @Binding var target: DropTarget?
+    /// What is in the air, if anything. A row never advertises itself as a
+    /// place to drop the row that is already it.
+    let lifted: String?
+    let onDrop: () -> Void
     let state: AppState
 
     func body(content: Content) -> some View {
@@ -1107,8 +1174,10 @@ private struct RowDrop: ViewModifier {
             content.acceptsArrangementDrop(
                 .row(piece: section.piece.slug, before: score.slug),
                 target: $target,
+                available: lifted != nil && lifted != score.slug,
                 insertionLine: true
             ) { slug in
+                onDrop()
                 guard slug != score.slug else { return }
                 state.placeInPiece(scoreSlug: slug, piece: section.piece.slug,
                                    before: score.slug)
@@ -1127,9 +1196,11 @@ extension View {
     /// state so only the zone under the finger lights up.
     func acceptsArrangementDrop(_ zone: DropTarget,
                                 target: Binding<DropTarget?>,
+                                available: Bool = false,
                                 insertionLine: Bool = false,
                                 perform: @escaping (String) -> Void) -> some View {
         modifier(DropHighlight(active: target.wrappedValue == zone,
+                               available: available,
                                asInsertionLine: insertionLine))
             .dropDestination(for: String.self) { slugs, _ in
                 guard let slug = slugs.first else { return false }

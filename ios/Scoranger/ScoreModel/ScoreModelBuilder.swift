@@ -47,6 +47,29 @@ enum ScoreModelBuilder {
 ///
 /// Held by durable address rather than by session id, so it survives the
 /// re-render that every engine op triggers.
+/// How a new lasso combines with the selection already on the page.
+///
+/// A mode rather than a toggle-by-overlap: lassoing selected things to remove
+/// them reads differently depending on what was caught before, so neither a
+/// user nor a test can say what it will do over a mixed region.
+enum SelectionCombine: String, CaseIterable, Equatable {
+    case replace
+    case add
+    case subtract
+
+    /// Whether the lasso is drawn in the removing colour, so the gesture that
+    /// takes things away never looks like the one that adds them.
+    var strokeIsWarning: Bool { self == .subtract }
+
+    var label: String {
+        switch self {
+        case .replace: return "Replace"
+        case .add: return "Add"
+        case .subtract: return "Subtract"
+        }
+    }
+}
+
 struct ScoreSelection: Equatable {
     var addresses: [ScoreAddress]
 
@@ -55,6 +78,29 @@ struct ScoreSelection: Equatable {
     }
 
     init(addresses: [ScoreAddress]) { self.addresses = addresses }
+
+    /// This selection, combined with what a new lasso caught.
+    ///
+    /// Order is the order things were selected in, so the chat reference reads
+    /// the way the user built it up rather than jumping about.
+    func combining(_ caught: [ScoreAddress], mode: SelectionCombine) -> ScoreSelection {
+        switch mode {
+        case .replace:
+            return ScoreSelection(addresses: caught)
+        case .add:
+            var merged = addresses
+            for address in caught where !merged.contains(address) { merged.append(address) }
+            return ScoreSelection(addresses: merged)
+        case .subtract:
+            let removing = Set(caught)
+            return ScoreSelection(addresses: addresses.filter { !removing.contains($0) })
+        }
+    }
+
+    /// Drop one element, for a single correction rather than a whole region.
+    func dropping(_ address: ScoreAddress) -> ScoreSelection {
+        ScoreSelection(addresses: addresses.filter { $0 != address })
+    }
 
     var isEmpty: Bool { addresses.isEmpty }
 

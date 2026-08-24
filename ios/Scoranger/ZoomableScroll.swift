@@ -46,6 +46,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onLasso: ((Int, [CGPoint], Bool) -> Void)?
     /// Two fingers tapped without moving: undo the last ink stroke.
     var onUndoTap: (() -> Void)?
+    /// A single tap on a page: (page index, unit point). Used to drop one
+    /// element from the selection.
+    var onTap: ((Int, CGPoint) -> Void)?
     /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
@@ -87,6 +90,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addGestureRecognizer(lasso)
         context.coordinator.lasso = lasso
 
+        // A plain tap: drops one element from the selection. It never blocks
+        // anything else -- a tap has no movement, so scrolling and pinching
+        // cannot be waiting on it.
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.tapped(_:)))
+        tap.cancelsTouchesInView = false
+        scroll.addGestureRecognizer(tap)
+
         let host = UIHostingController(rootView: AnyView(content()))
         host.view.backgroundColor = .clear
         scroll.addSubview(host.view)
@@ -99,6 +110,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.lasso?.onEnd = onLasso
         context.coordinator.lasso?.onUndoTap = onUndoTap
+        context.coordinator.onTap = onTap
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.bottomChrome = bottomChrome
@@ -209,6 +221,15 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// Scrolling is off while a lasso is being drawn: the modifier finger
         /// is resting on the page, and a page that slid under the stroke would
         /// make the selection meaningless.
+        var onTap: ((Int, CGPoint) -> Void)?
+
+        @objc func tapped(_ recognizer: UITapGestureRecognizer) {
+            guard let root = recognizer.view else { return }
+            let point = recognizer.location(in: root)
+            guard let hit = LassoGestureRecognizer.page(at: point, in: root) else { return }
+            onTap?(hit.index, hit.unit)
+        }
+
         @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {
             switch recognizer.state {
             case .began: scroll?.isScrollEnabled = false

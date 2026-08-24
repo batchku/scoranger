@@ -182,6 +182,20 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         }
     }
 
+    /// The page under a point in the recognizer's own view, and where in that
+    /// page the point falls, in unit (0…1) coordinates. Shared with the tap
+    /// that drops one element from the selection.
+    static func page(at point: CGPoint, in root: UIView) -> (index: Int, unit: CGPoint)? {
+        for anchor in anchors(in: root) {
+            let frame = anchor.convert(anchor.bounds, to: root)
+            guard frame.contains(point), frame.width > 0, frame.height > 0 else { continue }
+            return (anchor.pageIndex,
+                    CGPoint(x: (point.x - frame.minX) / frame.width,
+                            y: (point.y - frame.minY) / frame.height))
+        }
+        return nil
+    }
+
     private static func anchors(in view: UIView) -> [LassoAnchorView] {
         var found: [LassoAnchorView] = []
         if let anchor = view as? LassoAnchorView { found.append(anchor) }
@@ -199,6 +213,11 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
 /// written once, when the lasso closes.
 final class LassoAnchorView: UIView {
     var pageIndex: Int = 0
+    /// A lasso that removes is drawn in the removing colour, so the gesture
+    /// never looks like the one that adds.
+    var isSubtracting = false {
+        didSet { if isSubtracting != oldValue { applyColours() } }
+    }
 
     private let shape = CAShapeLayer()
     /// Unit (0…1) points, live or committed.
@@ -208,15 +227,20 @@ final class LassoAnchorView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        shape.fillColor = UIColor(Theme.Accent.clay).withAlphaComponent(0.10).cgColor
-        shape.strokeColor = UIColor(Theme.Accent.clay).cgColor
         shape.lineWidth = 1.5
         shape.lineDashPattern = [6, 3]
         shape.lineJoin = .round
+        applyColours()
         layer.addSublayer(shape)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func applyColours() {
+        let tint = UIColor(isSubtracting ? Theme.Status.danger : Theme.Accent.clay)
+        shape.fillColor = tint.withAlphaComponent(0.10).cgColor
+        shape.strokeColor = tint.cgColor
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -250,15 +274,19 @@ struct LassoAnchor: UIViewRepresentable {
     let pageIndex: Int
     /// The committed lasso for this page, if any.
     let committed: [CGPoint]
+    /// Whether the next lasso removes rather than adds.
+    var subtracting: Bool = false
 
     func makeUIView(context: Context) -> LassoAnchorView {
         let view = LassoAnchorView()
         view.pageIndex = pageIndex
+        view.isSubtracting = subtracting
         return view
     }
 
     func updateUIView(_ view: LassoAnchorView, context: Context) {
         view.pageIndex = pageIndex
+        view.isSubtracting = subtracting
         view.show(committed)
     }
 }
