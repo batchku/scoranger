@@ -537,10 +537,15 @@ final class ScorangerUITests: XCTestCase {
         // normalized, not taken literally
         XCTAssertTrue(waitForValue(slug, "paris-quartet"),
                       "slug field shows \(String(describing: slug.value))")
-        // the history came with it
-        XCTAssertEqual(app.staticTexts.matching(
+        // The history came with it. Not an equality: this counts v00* labels
+        // anywhere on screen, and after the rename the sidebar shows the
+        // arrangement's version rows as well as the sheet, so the number can
+        // legitimately grow. What must never happen is losing one -- the engine
+        // side of that invariant is check_workflows' "version history stays
+        // addressable" journey.
+        XCTAssertGreaterThanOrEqual(app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "v00")).count, versionsBefore,
-                       "versions were lost in the move")
+                                    "versions were lost in the move")
         shot("slug-renamed")
         app.buttons["Done"].firstMatch.tap()
 
@@ -569,7 +574,9 @@ final class ScorangerUITests: XCTestCase {
         // unfile it
         app.buttons["piece-menu"].firstMatch.tap()
         app.buttons["None"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 20),
+        // 60s, like the suite's other engine round trips: 20 was enough alone
+        // and not enough with the whole suite competing for the machine
+        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 60),
                       "the arrangement never left the piece")
         let row = app.buttons["arrangement-\(firstArrangement)"]
         sleep(2)
