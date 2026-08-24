@@ -41,11 +41,13 @@ enum FingeringDiagrams {
     private static let radius: CGFloat = 0.28
     private static let strokeWidth: CGFloat = 0.07
 
-    /// Verse size for a score carrying fingerings, in MEI units (Verovio's
-    /// default is 4.5). Halving it halves the diagram, circles included, since
-    /// every dimension is a proportion of the glyph size it replaces.
-    static let lyricSize = 2.2
+    /// The engraving's one text size, in MEI units. It stays at Verovio's
+    /// default because `lyricSize` also sizes `<harm>` chord symbols: shrinking
+    /// it to shrink the diagrams halved every chord name on a fingered score.
     static let defaultLyricSize = 4.5
+    /// How much smaller the drawn diagram is than the glyph it replaces -- the
+    /// same 2.2-in-4.5 the diagrams shipped at, applied here instead.
+    static let diagramScale: CGFloat = 2.2 / 4.5
 
     /// Smallest run of same-note verses that reads as a fingering rather than
     /// as words. Six holes is a full diagram; five allows for an engraver
@@ -155,7 +157,15 @@ enum FingeringDiagrams {
         for (index, verse) in verses.enumerated() {
             out += ns.substring(with: NSRange(location: cursor,
                                               length: verse.range.location - cursor))
-            out += (convertible[index] ? rewrite(verse.block) : nil) ?? verse.block
+            if convertible[index], let drawn = rewrite(verse.block) {
+                out += drawn
+            } else if verse.tagged, verse.text == octave {
+                // it belongs to the column, so it shrinks with it -- left at
+                // full text size it stands twice as tall as its own holes
+                out += scaleText(verse.block) ?? verse.block
+            } else {
+                out += verse.block
+            }
             cursor = verse.range.location + verse.range.length
         }
         out += ns.substring(from: cursor)
@@ -212,9 +222,11 @@ enum FingeringDiagrams {
               size > 0
         else { return nil }
 
-        let cx = x + centreX * size
-        let cy = y + centreY * size
-        let r = radius * size
+        // the glyph is full size now; the diagram drawn in its place is not
+        let drawn = size * diagramScale
+        let cx = x + centreX * drawn
+        let cy = y + centreY * drawn
+        let r = radius * drawn
         // Paths, not <circle>: SwiftDraw renders the subset Verovio emits, and
         // Verovio emits only paths and glyph <use>s — a <circle> came out of
         // the on-device renderer as nothing at all.
@@ -225,16 +237,30 @@ enum FingeringDiagrams {
             shape = "<path d=\"\(ring)\" fill=\"currentColor\" stroke=\"none\" />"
         case open:
             shape = "<path d=\"\(ring)\" fill=\"none\" stroke=\"currentColor\" "
-                + "stroke-width=\"\(strokeWidth * size)\" />"
+                + "stroke-width=\"\(strokeWidth * drawn)\" />"
         default:
             // half-holed: an open ring with its lower half filled
             shape = "<path d=\"\(ring)\" fill=\"none\" stroke=\"currentColor\" "
-                + "stroke-width=\"\(strokeWidth * size)\" />"
+                + "stroke-width=\"\(strokeWidth * drawn)\" />"
                 + "<path d=\"M \(cx - r) \(cy) A \(r) \(r) 0 0 0 \(cx + r) \(cy) Z\" "
                 + "fill=\"currentColor\" stroke=\"none\" />"
         }
         // keep the group (and its title) so nothing downstream loses its footing
         return replacingText(in: block, with: shape)
+    }
+
+    /// Shrink a verse's glyph to the diagram scale, leaving it as text.
+    private static func scaleText(_ block: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: "<tspan font-size=\"([0-9.]+)px\">"),
+              let m = re.firstMatch(in: block,
+                                    range: NSRange(location: 0, length: (block as NSString).length)),
+              m.numberOfRanges > 1
+        else { return nil }
+        let ns = block as NSString
+        let size = CGFloat(Double(ns.substring(with: m.range(at: 1))) ?? 0)
+        guard size > 0 else { return nil }
+        return ns.replacingCharacters(
+            in: m.range, with: "<tspan font-size=\"\(size * diagramScale)px\">")
     }
 
     /// A full circle as two arcs, which every SVG renderer draws.

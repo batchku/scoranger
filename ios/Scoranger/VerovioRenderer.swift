@@ -71,16 +71,17 @@ actor VerovioRenderer {
         guard t.loadFile(musicXMLPath) else {
             throw RenderError.loadFailed(musicXMLPath)
         }
-        // Whistle fingerings belong above their staff and at half size.
-        // Verovio ignores MusicXML's lyric placement, so the move is made on
-        // the MEI and the document reloaded before anything is drawn.
+        // Whistle fingerings belong above their staff. Verovio ignores
+        // MusicXML's lyric placement, so the move is made on the MEI and the
+        // document reloaded before anything is drawn.
         var mei = t.getMEI("{}")
+        // One text size, whatever the score carries: `lyricSize` also sizes
+        // chord symbols, so shrinking it for the diagrams halved every chord
+        // name on a fingered score. The diagrams are scaled in our own pass.
+        _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
         if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
             mei = above
-            _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.lyricSize))
             guard t.loadData(mei) else { throw RenderError.loadFailed(musicXMLPath) }
-        } else {
-            _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
         }
         let document = PDFDocument()
         var rawPages: [String] = []
