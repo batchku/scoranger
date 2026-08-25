@@ -24,6 +24,19 @@ final class ScorangerUITests: XCTestCase {
         // the library overlay starts open on iPad; band headers render uppercased
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
                       "the library overlay never showed its Pieces band")
+        // ...and then wait for the SEED to finish, which is not the same thing.
+        //
+        // seedLibraryIfEmpty imports the sample scores and only afterwards
+        // assigns them to a set list, while the Pieces band appears as soon as
+        // the FIRST import lands. Tests that started there were racing the rest
+        // of the fixture: two builds running, a different early-alphabetical
+        // test failed each time -- one could not find the arrangement it had
+        // just made, the next could not find the set list the seed had not
+        // reached yet. Waiting for the arrangement every test goes on to use
+        // waits for the imports; nothing here retries an assertion.
+        XCTAssertTrue(app.buttons["arrangement-\(firstArrangement)"]
+                        .waitForExistence(timeout: 180),
+                      "the seeded library never finished importing")
     }
 
     /// Relaunch with the Pencil stand-in, so a finger can drive the selection
@@ -1024,6 +1037,14 @@ final class ScorangerUITests: XCTestCase {
     }
 
     func testANewArrangementCanBeAddedToASetList() {
+        // The seed assigns set lists only after every import, so this waits for
+        // the fixture it depends on. The assertion below is unchanged.
+        let seededSetlist = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "setlist-"))
+            .firstMatch
+        XCTAssertTrue(seededSetlist.waitForExistence(timeout: 180),
+                      "the seed never created a set list to add to")
+
         app.buttons["Add an arrangement to \(piece)"].tap()
         let blank = app.buttons["New blank arrangement"]
         guard blank.waitForExistence(timeout: 10) else {
