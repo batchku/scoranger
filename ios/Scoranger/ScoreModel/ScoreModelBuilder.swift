@@ -61,6 +61,20 @@ enum SelectionCombine: String, CaseIterable, Equatable {
     /// takes things away never looks like the one that adds them.
     var strokeIsWarning: Bool { self == .subtract }
 
+    /// The mode the NEXT lasso should use.
+    ///
+    /// With nothing selected there is nothing to add to or take from, so the
+    /// only mode that means anything is replace. Without this the app had an
+    /// unrecoverable state: Subtract empties the selection, an empty selection
+    /// hides the chip, and the chip is the only way to change the mode -- so
+    /// every later lasso subtracted from nothing and caught nothing, across
+    /// score switches and version switches, until the app was relaunched.
+    /// Ali reported it as "I draw the lasso and nothing gets selected".
+    static func modeAfter(_ mode: SelectionCombine,
+                          selectionIsEmpty: Bool) -> SelectionCombine {
+        selectionIsEmpty ? .replace : mode
+    }
+
     var label: String {
         switch self {
         case .replace: return "Replace"

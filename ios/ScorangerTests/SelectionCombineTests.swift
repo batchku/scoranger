@@ -86,6 +86,40 @@ final class SelectionCombineTests: XCTestCase {
 
     // MARK: - The modes are distinguishable to the eye
 
+    // MARK: - The mode may not outlive the selection it applies to
+
+    /// Ali got stuck in Subtract and could not get out. The trap closes on
+    /// itself: subtract empties the selection, an empty selection hides the
+    /// chip, and the chip is the only way to change the mode -- so every
+    /// later lasso subtracted from nothing and selected nothing, through
+    /// score switches and version switches, until the app was relaunched.
+    ///
+    /// The rule that closes it: with nothing selected there is nothing to add
+    /// to or take from, so the only mode that means anything is replace.
+    func testAnEmptySelectionAlwaysReturnsToReplace() {
+        XCTAssertEqual(SelectionCombine.modeAfter(.subtract, selectionIsEmpty: true),
+                       .replace,
+                       "subtract survived the selection it emptied")
+        XCTAssertEqual(SelectionCombine.modeAfter(.add, selectionIsEmpty: true), .replace)
+    }
+
+    func testAChosenModeSurvivesWhileSomethingIsStillSelected() {
+        XCTAssertEqual(SelectionCombine.modeAfter(.subtract, selectionIsEmpty: false),
+                       .subtract)
+        XCTAssertEqual(SelectionCombine.modeAfter(.add, selectionIsEmpty: false), .add)
+    }
+
+    /// The state the second screenshot shows: nothing selected, and a lasso
+    /// that catches notes still yields nothing. It must be unreachable.
+    func testALassoAlwaysSelectsSomethingWhenNothingWasSelectedBefore() {
+        for mode in SelectionCombine.allCases {
+            let effective = SelectionCombine.modeAfter(mode, selectionIsEmpty: true)
+            let result = ScoreSelection(addresses: []).combining([address(15)], mode: effective)
+            XCTAssertEqual(result.addresses, [address(15)],
+                           "a lasso selected nothing with mode \(mode) and an empty selection")
+        }
+    }
+
     func testSubtractIsDrawnDifferentlyFromTheOthers() {
         XCTAssertNotEqual(SelectionCombine.subtract.strokeIsWarning,
                           SelectionCombine.add.strokeIsWarning,

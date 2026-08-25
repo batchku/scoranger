@@ -21,7 +21,10 @@ struct ScorePagesView: View {
     /// Pencil markup: the shared controller, driven from the pill.
     private var annotation: AnnotationController { state.annotation }
 
-    private static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
+    /// Up to 12x: Ali wants to go all the way in on a single notehead to check
+    /// it, and 3x stopped well short of that -- the canvas simply sprang back.
+    /// The pages re-raster at the settled scale, so the note stays sharp.
+    private static let zoomRange: ClosedRange<CGFloat> = 0.5...12.0
 
     var body: some View {
         GeometryReader { geo in
@@ -121,7 +124,8 @@ struct ScorePagesView: View {
     /// Addresses are durable across re-renders; the frames are looked up fresh
     /// from whatever geometry is on screen now.
     private func selectedFrames(onPage index: Int) -> [CGRect] {
-        guard let selection = state.selection, let geometry = state.geometry else { return [] }
+        guard let selection = state.activeSelection,
+              let geometry = state.geometry else { return [] }
         return selection.addresses.compactMap { address in
             guard let element = geometry.element(at: address),
                   element.pageIndex == index else { return nil }
@@ -135,7 +139,7 @@ struct ScorePagesView: View {
     /// estimate: what was caught, and a way to drop it.
     @ViewBuilder
     private var selectionChip: some View {
-        if let selection = state.selection, !selection.isEmpty {
+        if let selection = state.activeSelection, !selection.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Metric.s6) {
                 HStack(spacing: Theme.Metric.s8) {
                     Text("Selection").typeRole(.label)

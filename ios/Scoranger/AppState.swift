@@ -27,6 +27,23 @@ final class AppState: ObservableObject {
     /// highlight, which inferred bar numbers from where a stroke landed across
     /// the page — an estimate that was wrong as often as it was right.
     @Published var selection: ScoreSelection?
+    /// Which "<slug>/<version>" the current selection was made on, and which
+    /// one the loaded geometry describes.
+    ///
+    /// Ali saw a selection made in one arrangement appear in its duplicate.
+    /// The engine's copy is genuinely independent -- `duplicate` writes a new
+    /// slug, a new row and its own v001 -- and every key here is already
+    /// slug-scoped, so the mechanism is still unexplained. This makes the
+    /// symptom impossible regardless of the cause: a selection is only ever
+    /// drawn against the engraving it was made on.
+    @Published private(set) var selectionKey: String?
+    private var geometryKey: String?
+
+    /// The selection, but only if it belongs to what is on screen now.
+    var activeSelection: ScoreSelection? {
+        guard let selection, selectionKey != nil, selectionKey == geometryKey else { return nil }
+        return selection
+    }
     /// The drawn lasso per page index, in unit (0…1) page coordinates, so the
     /// outline survives zoom. Cleared with the selection.
     @Published var selectionPaths: [Int: [CGPoint]] = [:]
@@ -43,9 +60,14 @@ final class AppState: ObservableObject {
     @Published var combineMode: SelectionCombine = .replace
 
     /// Drop the active selection and its drawn lasso.
+    ///
+    /// The mode goes with it: it is meaningless without a selection, and
+    /// leaving it set is what trapped the user in Subtract.
     func clearSelection() {
         selection = nil
         selectionPaths = [:]
+        selectionKey = nil
+        combineMode = .replace
     }
 
     /// A finished lasso: what it caught, drawn where it was drawn, handed to
@@ -68,7 +90,12 @@ final class AppState: ObservableObject {
         }
 
         selection = combined.isEmpty ? nil : combined
+        selectionKey = combined.isEmpty ? nil : geometryKey
         if combined.isEmpty { selectionPaths = [:] }
+        // the chip vanishes with the selection, so a mode left set here could
+        // never be changed back
+        combineMode = SelectionCombine.modeAfter(combineMode,
+                                                 selectionIsEmpty: combined.isEmpty)
         guard let selection, !selection.isEmpty else { return }
         pendingChatInsert = selection.chatReference
         chatOpenRequest += 1
@@ -486,6 +513,14 @@ final class AppState: ObservableObject {
         renderedKey = key
         loadingPDF = true
         defer { loadingPDF = false }
+        // A render that does not finish must not claim the key. `renderedKey`
+        // is set before the work so a second call cannot start the same
+        // engrave, but if the work throws, the key names a render that never
+        // happened -- and `key != renderedKey` is then false for ever, so the
+        // geometry can never refresh. Stale geometry is exactly what a lasso
+        // that draws but catches nothing looks like.
+        var rendered = false
+        defer { if !rendered && renderedKey == key { renderedKey = nil } }
         do {
             let data: Data
             var model: ScoreGeometry?
@@ -500,8 +535,10 @@ final class AppState: ObservableObject {
                 data = try await client.exportPDF(score: score.slug, version: vid)
             }
             if renderedKey == key {  // selection may have moved while fetching
+                rendered = true
                 pdfDocument = PDFDocument(data: data)
                 geometry = model
+                geometryKey = key
                 // the old lasso described elements of the page just replaced
                 clearSelection()
                 lastError = nil
@@ -1113,7 +1150,7 @@ final class AppState: ObservableObject {
     func chatContextWithHighlight(for slug: String) -> String? {
         var pieces: [String] = []
         if let base = chatContext(for: slug) { pieces.append(base) }
-        if let description = selection?.chatDescription {
+        if let description = activeSelection?.chatDescription {
             pieces.append(description
                 + " Requests referring to 'the selection' or 'the highlighted "
                 + "passage' mean exactly those bars: pass from_measure/to_measure "

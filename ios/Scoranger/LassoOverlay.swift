@@ -257,8 +257,11 @@ final class LassoAnchorView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        shape.lineWidth = 1.5
-        shape.lineDashPattern = [6, 3]
+        // Fine rather than crude: at 1.5pt with 6pt dashes the outline read as
+        // a marquee drawn over the music. A hairline with short dashes sits
+        // with the engraving instead of on top of it.
+        shape.lineWidth = 0.75
+        shape.lineDashPattern = [2.5, 2.5]
         shape.lineJoin = .round
         applyColours()
         layer.addSublayer(shape)
