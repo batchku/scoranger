@@ -785,6 +785,47 @@ final class ScorangerUITests: XCTestCase {
                    thenHoldForDuration: 1.2)
     }
 
+    // MARK: - An arrangement with nothing in it
+
+    /// Ali's device grew a "Morrison's jig" with ZERO versions. Tapping it sat
+    /// on "Opening…" for ever: `renderIfNeeded` returns at its guard when there
+    /// is no version to display, so nothing was ever in flight and the spinner
+    /// was simply the fallback branch with no way out.
+    func testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted() {
+        app.terminate()
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
+                               "-annotateWithFinger", "-seedBrokenArrangement"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90))
+
+        let broken = app.buttons["arrangement-broken-arrangement"]
+        XCTAssertTrue(broken.waitForExistence(timeout: 60),
+                      "the version-less arrangement is not in the library")
+        XCTAssertTrue(broken.label.contains("0 versions"),
+                      "expected it to admit it has no versions: \(broken.label)")
+        broken.tap()
+
+        // it must say what is wrong rather than spin
+        XCTAssertTrue(app.staticTexts["Nothing to show"].waitForExistence(timeout: 30),
+                      "a version-less arrangement should explain itself, not spin")
+        XCTAssertFalse(app.staticTexts["Opening…"].exists,
+                       "still showing the spinner for an arrangement that can never load")
+        shot("version-less-arrangement")
+
+        // and there is a way out, right there
+        // found by label: an identifier on the StateView container would be
+        // inherited by this button, which is what hid the chip's mode buttons
+        let delete = app.buttons["Delete this arrangement"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10),
+                      "no way to delete it from the screen that tells you it is broken")
+        delete.tap()
+        if app.buttons["Delete"].waitForExistence(timeout: 10) { app.buttons["Delete"].tap() }
+
+        XCTAssertTrue(waitForDisappearance(of: broken, timeout: 40),
+                      "the broken arrangement is still in the library after deleting it")
+        shot("version-less-arrangement-deleted")
+    }
+
     // MARK: - Hold-then-drag, and what it must not break
 
     /// The whole point of the threshold: a drag that starts moving straight

@@ -369,6 +369,15 @@ final class AppState: ObservableObject {
                                                 "score": score.slug])
             }
             print("SCORANGER-SEED imported \(files.count) sample score(s)")
+            // A version-less arrangement, for the test that proves such a thing
+            // explains itself instead of spinning on "Opening…". It cannot be
+            // made through the normal path any more -- create_score rolls back
+            // -- so the fixture writes the row directly.
+            if ProcessInfo.processInfo.arguments.contains("-seedBrokenArrangement") {
+                _ = try? await local.call(op: "debug-orphan-arrangement",
+                                          args: ["slug": "broken-arrangement",
+                                                 "name": "Morrison's jig"])
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")

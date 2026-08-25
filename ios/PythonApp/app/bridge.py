@@ -145,6 +145,20 @@ def _dispatch(op, a):
         return workspace.rename_setlist(a["setlist"], a["name"])
     if op == "delete-setlist":
         return workspace.delete_setlist(a["setlist"])
+    if op == "debug-orphan-arrangement":
+        # TEST FIXTURE ONLY, and the only way to produce this shape any more:
+        # create_score now rolls the row back if the version does not land, so
+        # an arrangement with no versions cannot be made through the normal
+        # path. The app calls this solely under -seedBrokenArrangement, to
+        # prove that such an arrangement explains itself rather than spinning.
+        slug = a.get("slug") or "broken-arrangement"
+        workspace._repo().set_score(slug, {
+            "id": slug, "slug": slug, "name": a.get("name") or "Morrison's jig",
+            "title": a.get("name") or "Morrison's jig", "composer": None,
+            "arranger": None, "created": workspace._now(), "latest": None,
+        })
+        workspace.rebuild_manifest()
+        return {"score": slug, "versions": 0}
     if op == "create-arrangement":
         # a minimal valid score: one part, one 4/4 measure with a whole rest
         from music21 import clef, meter, metadata, note, stream

@@ -290,6 +290,17 @@ struct ContentView: View {
             } else {
                 ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
             }
+        } else if score.versions.isEmpty {
+            // An arrangement with no versions has no version to display, so
+            // renderIfNeeded returns at its guard and nothing is ever in
+            // flight. Saying so beats a spinner that can never finish.
+            StateView(systemImage: "questionmark.square.dashed",
+                      title: "Nothing to show",
+                      message: "This arrangement has no versions — nothing was ever "
+                             + "written to it. That usually means an import stopped "
+                             + "part way. You can delete it and import the score again.",
+                      actionTitle: "Delete this arrangement",
+                      action: { alertRequest = .deleteArrangement(score) })
         } else if state.loadingPDF {
             StateView(systemImage: "music.note.list", title: "Engraving…",
                       message: "Verovio is setting the page.")

@@ -160,6 +160,43 @@ with tempfile.TemporaryDirectory() as tmp:
     if len(entry3.get("rhythm_warnings") or []) > inherited:
         FAILURES.append("adding a repeat to an OMR score made its odd bars worse")
 
+# -- a half-finished import must leave nothing behind ---------------------------
+# Ali's device grew a "Morrison's jig" arrangement with ZERO versions: tapping
+# it sat on "Opening…" forever, because an arrangement with no versions has no
+# version to display. create_score wrote the score row first and the version
+# second, so anything that went wrong in between -- a write error, a parse
+# failure building the parts snapshot, the app being killed -- left the row
+# behind with nothing in it. An arrangement that holds no music should not
+# exist.
+with tempfile.TemporaryDirectory() as tmp:
+    workspace, ops = fresh_workspace(tmp)
+
+    real_write = workspace._write_musicxml
+
+    def explode(score, path, **kwargs):
+        raise OSError("disk full, or any other reason a write does not finish")
+
+    workspace._write_musicxml = explode
+    try:
+        workspace.create_score("doomed import", fixtures.jig())
+        FAILURES.append("a failed write still created an arrangement")
+    except OSError:
+        pass
+    finally:
+        workspace._write_musicxml = real_write
+
+    leftover = [s["slug"] for s in workspace._repo().list_scores()]
+    if leftover:
+        FAILURES.append(f"a failed import left an arrangement behind: {leftover}")
+    if (Path(tmp) / "doomed-import").exists():
+        FAILURES.append("a failed import left its directory behind")
+
+    # and the library never contains an arrangement with no versions
+    workspace.create_score("good one", fixtures.jig())
+    for doc in workspace._repo().list_scores():
+        if not workspace._repo().list_versions(doc["slug"]):
+            FAILURES.append(f"{doc['slug']} exists with no versions")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} import gate check(s) failed")
     for line in FAILURES:

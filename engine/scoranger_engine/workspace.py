@@ -236,7 +236,21 @@ def create_score(name: str, m21_score, op: str = "import", args: dict | None = N
         "arranger": meta["arranger"],
         "created": _now(), "latest": None,
     })
-    entry = _write_version(slug, m21_score, op, args or {}, parent=None)
+    # An arrangement that holds no music must not exist. The row has to be
+    # written first -- _write_version updates it -- so if the version does not
+    # land, the row goes with it. Without this, anything that interrupted the
+    # write (a disk error, a parse failure building the parts snapshot, the app
+    # being killed) left an arrangement of zero versions in the library, which
+    # has no version to display and so sat on "Opening…" for ever.
+    try:
+        entry = _write_version(slug, m21_score, op, args or {}, parent=None)
+    except BaseException:
+        import shutil
+        repo.delete_score(slug)
+        if score_dir(slug).exists():
+            shutil.rmtree(score_dir(slug), ignore_errors=True)
+        rebuild_manifest()
+        raise
     return slug, entry
 
 
