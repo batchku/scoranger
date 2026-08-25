@@ -44,6 +44,29 @@ enum LassoGate {
         touches == 1 && elapsed >= holdThreshold && movement <= moveSlop
     }
 
+    /// Has this touch already committed to scrolling?
+    ///
+    /// A finger that travels before the threshold is dragging the page, and
+    /// must keep dragging it however long it stays down afterwards. Without
+    /// this, a slow continuous drag would cross the threshold mid-scroll and
+    /// turn into a lasso under the user's hand.
+    static func disqualifiesLasso(elapsed: TimeInterval, movement: CGFloat) -> Bool {
+        elapsed < holdThreshold && movement > moveSlop
+    }
+
+    /// The decision, made when the finger starts moving.
+    ///
+    /// This replaces a timer. 0.2.3 timed the hold with `Timer.scheduledTimer`,
+    /// which installs into the run loop's DEFAULT mode -- and while a finger is
+    /// down on a scroll view, UIKit runs the loop in TRACKING mode, where such
+    /// a timer does not fire. On a real device the hold never elapsed and the
+    /// lasso could not begin at all. Nothing here depends on the run loop.
+    static func shouldBeginLassoOnMove(heldFor: TimeInterval,
+                                       touches: Int,
+                                       disqualified: Bool) -> Bool {
+        touches == 1 && !disqualified && heldFor >= holdThreshold
+    }
+
     /// With two fingers down, what is the user doing?
     enum Combine: Equatable {
         /// One finger parked, the other drawing: add to the selection.
@@ -72,4 +95,15 @@ enum LassoGate {
     /// Markup mode changes what the PENCIL does, and nothing else. A finger
     /// hold-then-drag lassos in either mode.
     static func pencilLassos(markupActive: Bool) -> Bool { !markupActive }
+
+    /// May this touch begin a lasso at all?
+    ///
+    /// The Pencil is a finger for selection, only steadier: outside markup mode
+    /// it draws the same hold-then-drag lasso, adds the same way, and is
+    /// governed by the same threshold. Inside markup mode it is a pen, and must
+    /// not be claimed -- the recognizer cancels touches in the views below it,
+    /// so claiming a Pencil stroke there would delete the ink as it was drawn.
+    static func touchMayLasso(isPencil: Bool, markupActive: Bool) -> Bool {
+        !isPencil || pencilLassos(markupActive: markupActive)
+    }
 }

@@ -29,6 +29,9 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     private var anchor: LassoAnchorView?
     private var holdTimer: Timer?
     private var adding = false
+    /// Touches that started moving before the hold elapsed: they are dragging
+    /// the page, and must go on dragging it however long they stay down.
+    private var scrolling: Set<UITouch> = []
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
@@ -54,31 +57,37 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         for touch in touches {
             down[touch] = (touch.location(in: root), touch.timestamp)
         }
-        // A Pencil in markup mode is a pen; leave it alone.
-        if let pencil = touches.first(where: { $0.type == .pencil }),
-           LassoGate.pencilLassos(markupActive: annotationActive),
-           drawing == nil {
-            armHold(for: pencil)
-            return
-        }
-        if drawing == nil, down.count == 1, let finger = touches.first {
-            armHold(for: finger)
-        }
+        // The Pencil is a finger for selection, only steadier -- outside markup
+        // mode it holds and drags exactly as a finger does. Inside markup mode
+        // it is a pen and is left alone.
+        guard drawing == nil, down.count == 1, let touch = touches.first,
+              LassoGate.touchMayLasso(isPencil: touch.type == .pencil,
+                                      markupActive: annotationActive)
+        else { return }
+        armHold(for: touch)
     }
 
-    /// Wake up when the hold threshold passes and see whether the finger stayed
-    /// put. A timer rather than a check on move, because a finger that never
-    /// moves sends no further touches — the gesture has to start on its own.
+    /// A haptic at the moment the hold takes, and nothing else.
+    ///
+    /// The decision itself is made in `touchesMoved`, because a timer cannot be
+    /// relied on here: `Timer.scheduledTimer` installs into the run loop's
+    /// DEFAULT mode, and while a finger is down on a scroll view UIKit runs the
+    /// loop in TRACKING mode, where it never fires. That is why selection did
+    /// not work on a real device in 0.2.3 while passing in the simulator, whose
+    /// synthesized events take a different path. This timer is scheduled in
+    /// `.common` so it fires during tracking too -- but if it were starved
+    /// again, the only thing lost would be the tap on the wrist.
     private func armHold(for touch: UITouch) {
         holdTimer?.invalidate()
-        holdTimer = Timer.scheduledTimer(withTimeInterval: LassoGate.holdThreshold,
-                                         repeats: false) { [weak self, weak touch] _ in
-            guard let self, let touch, self.down[touch] != nil else { return }
-            guard LassoGate.shouldBeginLasso(elapsed: LassoGate.holdThreshold,
-                                             movement: self.travel(touch),
-                                             touches: self.down.count) else { return }
-            self.beginLasso(with: touch, adding: false)
+        let timer = Timer(timeInterval: LassoGate.holdThreshold, repeats: false) {
+            [weak self, weak touch] _ in
+            guard let self, let touch, self.down[touch] != nil,
+                  self.drawing == nil, !self.scrolling.contains(touch),
+                  self.travel(touch) <= LassoGate.moveSlop else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        holdTimer = timer
     }
 
     private func beginLasso(with touch: UITouch, adding: Bool) {
@@ -88,8 +97,6 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         drawing = touch
         points = [touch.location(in: anchor)]
         state = .began
-        // the moment of lift, felt rather than guessed
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         draw()
     }
 
@@ -99,6 +106,23 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
             state = .changed
             draw()
             return
+        }
+
+        // The hold is judged here, when the finger starts moving, because a
+        // timer is starved while the scroll view is tracking. A touch that
+        // travelled before the threshold is scrolling and stays scrolling.
+        if drawing == nil, down.count == 1, let touch = touches.first, down[touch] != nil,
+           LassoGate.touchMayLasso(isPencil: touch.type == .pencil,
+                                   markupActive: annotationActive) {
+            if LassoGate.disqualifiesLasso(elapsed: elapsed(touch),
+                                           movement: travel(touch)) {
+                scrolling.insert(touch)
+            } else if LassoGate.shouldBeginLassoOnMove(heldFor: elapsed(touch),
+                                                       touches: down.count,
+                                                       disqualified: scrolling.contains(touch)) {
+                beginLasso(with: touch, adding: false)
+                return
+            }
         }
         // Two fingers, one of them parked: the moving one draws and adds. Both
         // moving is a pinch, which belongs to the scroll view — so this stays
@@ -121,7 +145,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
                                elapsed: elapsed(sample)) {
             onUndoTap?()
         }
-        defer { for touch in touches { down[touch] = nil } }
+        defer { for touch in touches { down[touch] = nil; scrolling.remove(touch) } }
         guard let drawing, touches.contains(drawing) else { return }
         if let anchor { points.append(drawing.location(in: anchor)) }
         if points.count > 2, let anchor {          // a dot is not a lasso
@@ -148,6 +172,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         anchor = nil
         adding = false
         down.removeAll()
+        scrolling.removeAll()
     }
 
     private func finish(_ end: UIGestureRecognizer.State) {

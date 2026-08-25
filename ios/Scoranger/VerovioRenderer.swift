@@ -79,14 +79,31 @@ actor VerovioRenderer {
         // chord symbols, so shrinking it for the diagrams halved every chord
         // name on a fingered score. The diagrams are scaled in our own pass.
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
+
+        // The user's chord-symbol adjustments live in the MusicXML, and
+        // Verovio's importer drops them, so they are carried across here.
+        let source = (try? String(contentsOfFile: musicXMLPath, encoding: .utf8)) ?? ""
+        let adjustments = ChordAdjustments.adjustments(inMusicXML: source)
+
+        var reload = false
         if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
             mei = above
+            reload = true
+        }
+        if let placed = ChordAdjustments.meiWithAdjustments(mei, adjustments: adjustments) {
+            mei = placed
+            reload = true
+        }
+        if reload {
             guard t.loadData(mei) else { throw RenderError.loadFailed(musicXMLPath) }
         }
         let document = PDFDocument()
         var rawPages: [String] = []
         for page in 1...max(t.getPageCount(), 1) {
-            let svg = t.renderToSVG(page, true)
+            // size is applied to the drawn glyph, because Verovio has no
+            // per-element text size to ask for
+            let svg = ChordAdjustments.applySizes(t.renderToSVG(page, true),
+                                                  adjustments: adjustments)
             rawPages.append(svg)
             let prepared = Self.prepareForSwiftDraw(svg)
             guard !prepared.isEmpty, let parsed = SVG(data: Data(prepared.utf8)) else {

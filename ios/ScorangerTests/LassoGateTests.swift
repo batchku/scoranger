@@ -98,4 +98,68 @@ final class LassoGateTests: XCTestCase {
     func testThePencilLassosWhenMarkupIsOff() {
         XCTAssertTrue(LassoGate.pencilLassos(markupActive: false))
     }
+
+    // MARK: - Deciding at the moment of movement, not on a timer
+
+    /// 0.2.3 timed the hold with `Timer.scheduledTimer`, which installs into the
+    /// run loop's DEFAULT mode. While a finger is down on a scroll view UIKit
+    /// runs the loop in TRACKING mode, so that timer never fired on a real
+    /// device and the lasso could not begin at all — with any number of fingers.
+    /// The decision is made when the finger starts moving instead, which cannot
+    /// be starved.
+
+    func testAFingerThatHeldLongEnoughThenMovesLassos() {
+        XCTAssertTrue(LassoGate.shouldBeginLassoOnMove(
+            heldFor: 0.5, touches: 1, disqualified: false))
+    }
+
+    func testAFingerThatMovedTooSoonScrolls() {
+        XCTAssertFalse(LassoGate.shouldBeginLassoOnMove(
+            heldFor: 0.1, touches: 1, disqualified: false))
+    }
+
+    /// The case a plain "has it been 0.35s?" test would get wrong: someone
+    /// dragging slowly from the first instant crosses the threshold while still
+    /// moving. That is a scroll, and it must stay one.
+    func testASlowContinuousDragNeverBecomesALasso() {
+        XCTAssertTrue(LassoGate.disqualifiesLasso(elapsed: 0.2, movement: 40),
+                      "movement before the threshold means the user is scrolling")
+        XCTAssertFalse(LassoGate.shouldBeginLassoOnMove(
+            heldFor: 0.6, touches: 1, disqualified: true),
+                       "a touch that already scrolled must not turn into a lasso")
+    }
+
+    func testAWobbleWithinTheSlopDoesNotDisqualify() {
+        XCTAssertFalse(LassoGate.disqualifiesLasso(elapsed: 0.2,
+                                                   movement: LassoGate.moveSlop - 1))
+    }
+
+    func testMovementAfterTheThresholdNeverDisqualifies() {
+        // by then the lasso has begun; moving is the whole point
+        XCTAssertFalse(LassoGate.disqualifiesLasso(elapsed: 0.9, movement: 300))
+    }
+
+    func testTwoFingersDoNotStartABaseLassoOnMovement() {
+        XCTAssertFalse(LassoGate.shouldBeginLassoOnMove(
+            heldFor: 1.0, touches: 2, disqualified: false),
+                       "two fingers are a pinch or an add, never a plain lasso")
+    }
+
+    // MARK: - The Pencil is a finger for selection, only steadier
+
+    func testThePencilLassosLikeAFingerOutsideMarkupMode() {
+        XCTAssertTrue(LassoGate.touchMayLasso(isPencil: true, markupActive: false),
+                      "outside markup the Pencil selects exactly as a finger does")
+    }
+
+    func testThePencilIsLeftAloneInsideMarkupMode() {
+        // the recognizer cancels touches in the views below it, so claiming a
+        // Pencil stroke here would delete the ink as it was being drawn
+        XCTAssertFalse(LassoGate.touchMayLasso(isPencil: true, markupActive: true))
+    }
+
+    func testAFingerLassosInEitherMode() {
+        XCTAssertTrue(LassoGate.touchMayLasso(isPencil: false, markupActive: true))
+        XCTAssertTrue(LassoGate.touchMayLasso(isPencil: false, markupActive: false))
+    }
 }

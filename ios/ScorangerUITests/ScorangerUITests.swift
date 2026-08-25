@@ -785,6 +785,35 @@ final class ScorangerUITests: XCTestCase {
                    thenHoldForDuration: 1.2)
     }
 
+    /// Ali turns edit mode off from the PILL, and the ink bar stayed on screen.
+    /// The existing test switches it off with the bar's own "Finish annotating"
+    /// button, which is a different path -- and the bar's visibility is decided
+    /// by a view that reads the annotation controller without observing it, so
+    /// it only updated when something else happened to redraw the score pane.
+    func testTheInkBarFollowsThePillToggleBothWays() {
+        let markup = app.buttons["pill-markup"]
+        XCTAssertTrue(markup.waitForExistence(timeout: 60))
+        XCTAssertFalse(app.buttons["Draw"].exists, "the ink bar should start hidden")
+
+        markup.tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10),
+                      "the ink bar did not appear when edit mode was turned on")
+
+        markup.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 10),
+                      "the ink bar is still on screen after edit mode was turned off")
+        XCTAssertFalse(app.buttons["Erase"].exists, "the eraser outlived the mode")
+        XCTAssertFalse(app.buttons["Red pen"].exists, "the colours outlived the mode")
+        shot("ink-bar-hidden-with-mode-off")
+
+        // and it comes back
+        markup.tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10),
+                      "the ink bar did not come back when edit mode was turned on again")
+        markup.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 10))
+    }
+
     // MARK: - An arrangement with nothing in it
 
     /// Ali's device grew a "Morrison's jig" with ZERO versions. Tapping it sat

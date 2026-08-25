@@ -50,9 +50,14 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .top) { selectionChip }
-        .overlay(alignment: .bottom) {
-            if annotation.isOn { AnnotationBar(controller: annotation) }
-        }
+        // Wrapped in a child that OBSERVES the controller. This view reads
+        // `state.annotation` through AppState, which publishes nothing when the
+        // controller's own state changes -- so the bar's visibility only
+        // updated when something else happened to redraw the score pane, and
+        // turning edit mode off from the pill left the tools on screen. The
+        // pill itself has observed the controller since it was written; this is
+        // the same fix, in the one place that was missing it.
+        .overlay(alignment: .bottom) { AnnotationBarLayer(controller: annotation) }
     }
 
     @ViewBuilder
@@ -93,12 +98,32 @@ struct ScorePagesView: View {
                  drawingKey: "\(annotationKey)/p\(index)",
                  annotation: annotation)
             .overlay {
+                // What was caught, drawn over the page. Until this, a working
+                // selection looked like nothing had happened: the only signs
+                // were the lasso outline, a chip at the top, and chat opening.
+                SelectionHighlight(frames: selectedFrames(onPage: index),
+                                   pageSize: state.geometry?.page(index)?.size ?? .zero)
+                    .allowsHitTesting(false)
+            }
+            .overlay {
                 LassoAnchor(pageIndex: index,
                             committed: state.selectionPaths[index] ?? [],
                             subtracting: state.combineMode == .subtract)
                     .allowsHitTesting(false)
             }
             .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
+    }
+
+    /// The frames of everything selected on one page, in page coordinates.
+    /// Addresses are durable across re-renders; the frames are looked up fresh
+    /// from whatever geometry is on screen now.
+    private func selectedFrames(onPage index: Int) -> [CGRect] {
+        guard let selection = state.selection, let geometry = state.geometry else { return [] }
+        return selection.addresses.compactMap { address in
+            guard let element = geometry.element(at: address),
+                  element.pageIndex == index else { return nil }
+            return element.frame
+        }
     }
 
     // MARK: selection chip
@@ -212,6 +237,50 @@ struct ScorePagesView: View {
                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                     .stroke(Theme.Line.line2, lineWidth: 1)
             }
+    }
+}
+
+/// The ink tools, on screen only while edit mode is on.
+///
+/// Its whole reason for existing is `@ObservedObject`: the bar has to appear and
+/// disappear with the mode, and only a view that observes the controller is
+/// redrawn when the mode changes.
+/// Boxes over the selected elements, scaled from page coordinates to the size
+/// the page is drawn at.
+private struct SelectionHighlight: View {
+    let frames: [CGRect]
+    let pageSize: CGSize
+
+    var body: some View {
+        GeometryReader { geo in
+            if !frames.isEmpty, pageSize.width > 0, pageSize.height > 0 {
+                let sx = geo.size.width / pageSize.width
+                let sy = geo.size.height / pageSize.height
+                ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Theme.Accent.clay.opacity(0.22))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 2)
+                                .stroke(Theme.Accent.clayStrong.opacity(0.65), lineWidth: 1)
+                        }
+                        // a hair of padding so a notehead's box reads as a
+                        // highlight rather than a tight outline
+                        .frame(width: max(frame.width * sx, 6) + 3,
+                               height: max(frame.height * sy, 6) + 3)
+                        .position(x: frame.midX * sx, y: frame.midY * sy)
+                }
+            }
+        }
+    }
+}
+
+private struct AnnotationBarLayer: View {
+    @ObservedObject var controller: AnnotationController
+
+    var body: some View {
+        if controller.isOn {
+            AnnotationBar(controller: controller)
+        }
     }
 }
 

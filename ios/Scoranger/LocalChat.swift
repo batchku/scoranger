@@ -82,6 +82,8 @@ struct LocalChat {
     private static func str(_ d: String) -> [String: Any] { ["type": "string", "description": d] }
     private static func int(_ d: String) -> [String: Any] { ["type": "integer", "description": d] }
     private static func bool(_ d: String) -> [String: Any] { ["type": "boolean", "description": d] }
+    /// A fractional number — a point size or a nudge, which integers cannot say.
+    private static func num(_ d: String) -> [String: Any] { ["type": "number", "description": d] }
     private static func strArr(_ d: String) -> [String: Any] {
         ["type": "array", "items": ["type": "string"], "description": d]
     }
@@ -224,6 +226,19 @@ struct LocalChat {
                                      "remove": bool("remove it instead of adding")],
                                     required: ["kind"]),
                  op: "set-structure", rename: [:]),
+        ToolSpec(name: "adjust_element",
+                 description: "Change the size or position of an added element — chord symbols today. size is an absolute point size (12 is the default); offset_x and offset_y nudge it sideways and up in MusicXML tenths, positive y being up. Address one with measure (plus ordinal when a bar has several), or set all=true for every chord symbol in the part. reset=true puts them back.",
+                 parameters: params(["part": str("the part the element is on"),
+                                     "measure": int("the bar it is in"),
+                                     "kind": str("what kind of element (harm)"),
+                                     "ordinal": int("which one, when a bar has several"),
+                                     "size": num("absolute point size"),
+                                     "offset_x": num("sideways nudge, in tenths"),
+                                     "offset_y": num("upward nudge, in tenths"),
+                                     "all": bool("every element of that kind in the part"),
+                                     "reset": bool("put it back where it was")],
+                                    required: ["part"]),
+                 op: "adjust-element", rename: [:]),
         ToolSpec(name: "penny_whistle_fingerings",
                  description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). Notes the whistle cannot play are reported. Set clear=true to remove them.",
                  parameters: params(["part": str("the part to fingerings"),
@@ -282,6 +297,10 @@ struct LocalChat {
             if s("remove") == "true" { return "Removing the \(what)" }
             if let to = s("move_to") { return "Moving the \(what) to bar \(to)" }
             return "Adding \(what) at bar \(s("measure") ?? "?")"
+        case "adjust_element":
+            if s("reset") == "true" { return "Putting the chord name back" }
+            if let size = s("size") { return "Setting the chord name to \(size)pt" }
+            return "Moving the chord name"
         case "penny_whistle_fingerings":
             return s("clear") == "true"
                 ? "Removing whistle fingerings from \(s("part") ?? "the part")"
