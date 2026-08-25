@@ -96,6 +96,34 @@ enum LassoGate {
     /// hold-then-drag lassos in either mode.
     static func pencilLassos(markupActive: Bool) -> Bool { !markupActive }
 
+    /// How a touch of this kind begins a lasso.
+    enum Begin: Equatable {
+        /// A Pencil outside markup: the moment it moves. It cannot be confused
+        /// with a scroll, because the Pencil is not allowed to scroll.
+        case immediately
+        /// A finger: only after it has rested. A finger DOES scroll, and that
+        /// is the only thing distinguishing the two intentions.
+        case afterHold
+        /// A Pencil in markup mode is a pen. Claiming it would cancel the ink.
+        case never
+    }
+
+    static func lassoStart(isPencil: Bool, markupActive: Bool) -> Begin {
+        guard isPencil else { return .afterHold }
+        return markupActive ? .never : .immediately
+    }
+
+    /// How many touches count, given what is on the glass.
+    ///
+    /// A Pencil outweighs any number of resting fingers. Outside markup the
+    /// PencilKit canvas takes no touches, so ITS palm rejection is not running
+    /// -- a hand resting beside the Pencil arrives here as an ordinary direct
+    /// touch. Requiring exactly one touch is what made Pencil selection
+    /// unreachable on a real iPad while passing in a simulator that has no palm.
+    static func effectiveTouchCount(fingers: Int, pencilDown: Bool) -> Int {
+        pencilDown ? 1 : fingers
+    }
+
     /// May this touch begin a lasso at all?
     ///
     /// The Pencil is a finger for selection, only steadier: outside markup mode

@@ -50,6 +50,9 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .top) { selectionChip }
+        .overlay(alignment: .topLeading) {
+            TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)
+        }
         // Wrapped in a child that OBSERVES the controller. This view reads
         // `state.annotation` through AppState, which publishes nothing when the
         // controller's own state changes -- so the bar's visibility only

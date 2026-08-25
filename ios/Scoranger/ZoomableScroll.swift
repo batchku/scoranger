@@ -90,6 +90,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addGestureRecognizer(lasso)
         context.coordinator.lasso = lasso
 
+        // The Pencil never scrolls the score. Every drawing app on this device
+        // works that way, and it is what lets a Pencil drag mean exactly one
+        // thing: by default a scroll view pans with the Pencil too, so a Pencil
+        // lasso was competing with a scroll it could not win.
+        scroll.panGestureRecognizer.allowedTouchTypes = [
+            NSNumber(value: UITouch.TouchType.direct.rawValue)
+        ]
+
         // A plain tap: drops one element from the selection. It never blocks
         // anything else -- a tap has no movement, so scrolling and pinching
         // cannot be waiting on it.

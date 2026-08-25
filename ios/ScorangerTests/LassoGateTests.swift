@@ -162,4 +162,48 @@ final class LassoGateTests: XCTestCase {
         XCTAssertTrue(LassoGate.touchMayLasso(isPencil: false, markupActive: true))
         XCTAssertTrue(LassoGate.touchMayLasso(isPencil: false, markupActive: false))
     }
+
+    // MARK: - The Pencil on real hardware
+
+    /// Ali could not select with the Pencil on device through two builds. Three
+    /// gates combined to make it unreachable, and none could be seen in a
+    /// simulator that has neither a Pencil nor a palm.
+
+    func testThePencilLassosTheMomentItMovesOutsideMarkup() {
+        // it needs no hold: a Pencil cannot be confused with a scroll, because
+        // the Pencil is not allowed to scroll
+        XCTAssertEqual(LassoGate.lassoStart(isPencil: true, markupActive: false), .immediately)
+    }
+
+    func testAFingerStillHasToRestFirst() {
+        XCTAssertEqual(LassoGate.lassoStart(isPencil: false, markupActive: false), .afterHold)
+        XCTAssertEqual(LassoGate.lassoStart(isPencil: false, markupActive: true), .afterHold)
+    }
+
+    func testThePencilIsAPenInMarkupMode() {
+        XCTAssertEqual(LassoGate.lassoStart(isPencil: true, markupActive: true), .never)
+    }
+
+    /// The gate that actually killed it: a hand rests on the glass beside the
+    /// Pencil, and outside markup mode PencilKit is not there to reject it.
+    func testARestingPalmDoesNotStopThePencil() {
+        XCTAssertEqual(LassoGate.effectiveTouchCount(fingers: 1, pencilDown: true), 1,
+                       "a palm beside the Pencil must not count as a second touch")
+        XCTAssertEqual(LassoGate.effectiveTouchCount(fingers: 3, pencilDown: true), 1,
+                       "nor a whole hand")
+    }
+
+    func testFingersCountNormallyWhenThereIsNoPencil() {
+        XCTAssertEqual(LassoGate.effectiveTouchCount(fingers: 1, pencilDown: false), 1)
+        XCTAssertEqual(LassoGate.effectiveTouchCount(fingers: 2, pencilDown: false), 2)
+    }
+
+    func testAPencilWithAPalmStillPassesTheMovementGate() {
+        // one effective touch, held long enough: this is the combination that
+        // returned false through two shipped builds
+        XCTAssertTrue(LassoGate.shouldBeginLassoOnMove(
+            heldFor: 0.5,
+            touches: LassoGate.effectiveTouchCount(fingers: 1, pencilDown: true),
+            disqualified: false))
+    }
 }

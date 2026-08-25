@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("touchDiagnostics") private var showTouchDiagnostics = false
     @EnvironmentObject var state: AppState
     @State private var urlDraft = ""
     @State private var selfTestResult = ""
@@ -54,6 +55,16 @@ struct SettingsView: View {
                             isOn: $state.twoPageSpread)
                 PanelNote(text: "Two pages at once, the way a score sits on a stand. "
                           + "Best with the panels closed; one page at a time is larger.")
+            }
+            .padding(Theme.Metric.panelPadding)
+
+            BandHeader("Diagnostics")
+            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                PanelToggle(title: "Show what the canvas is receiving",
+                            isOn: $showTouchDiagnostics)
+                PanelNote(text: "Prints every touch on the score — pencil or finger, how many "
+                          + "are down, how long they were held, and whether a selection "
+                          + "started. For reporting a gesture that is not working.")
             }
             .padding(Theme.Metric.panelPadding)
 

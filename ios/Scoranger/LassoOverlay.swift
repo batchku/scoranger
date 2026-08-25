@@ -47,6 +47,34 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         return hypot(now.x - start.x, now.y - start.y)
     }
 
+    /// The Pencil currently down, if any. It outranks every finger: outside
+    /// markup mode PencilKit takes no touches, so a hand resting beside the
+    /// Pencil arrives here as an ordinary direct touch and would otherwise
+    /// count as a second finger.
+    private var pencilTouch: UITouch? {
+        down.keys.first { $0.type == .pencil }
+    }
+
+    private var fingerCount: Int {
+        down.keys.filter { $0.type == .direct }.count
+    }
+
+    private var effectiveTouches: Int {
+        LassoGate.effectiveTouchCount(fingers: fingerCount, pencilDown: pencilTouch != nil)
+    }
+
+    private func report(_ touch: UITouch, phase: String, began: Bool = false) {
+        let kind = touch.type == .pencil ? "pencil" : "finger"
+        let line = TouchDiagnostics.describe(
+            kind: kind, phase: phase, fingers: fingerCount,
+            pencilDown: pencilTouch != nil, heldFor: elapsed(touch),
+            markupActive: annotationActive, began: began)
+        Task { @MainActor in
+            TouchDiagnostics.shared.record(line)
+            TouchDiagnostics.shared.setCurrent(line)
+        }
+    }
+
     private func elapsed(_ touch: UITouch) -> TimeInterval {
         guard let started = down[touch]?.time else { return 0 }
         return touch.timestamp - started
@@ -57,12 +85,14 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         for touch in touches {
             down[touch] = (touch.location(in: root), touch.timestamp)
         }
-        // The Pencil is a finger for selection, only steadier -- outside markup
-        // mode it holds and drags exactly as a finger does. Inside markup mode
-        // it is a pen and is left alone.
-        guard drawing == nil, down.count == 1, let touch = touches.first,
-              LassoGate.touchMayLasso(isPencil: touch.type == .pencil,
-                                      markupActive: annotationActive)
+        for touch in touches { report(touch, phase: "began") }
+
+        // The deciding touch is the Pencil if there is one -- never
+        // `touches.first`, which is an arbitrary member of an unordered set.
+        guard drawing == nil, let touch = pencilTouch ?? touches.first(where: { $0.type == .direct }),
+              LassoGate.lassoStart(isPencil: touch.type == .pencil,
+                                   markupActive: annotationActive) != .never,
+              effectiveTouches == 1
         else { return }
         armHold(for: touch)
     }
@@ -108,22 +138,36 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
             return
         }
 
-        // The hold is judged here, when the finger starts moving, because a
-        // timer is starved while the scroll view is tracking. A touch that
-        // travelled before the threshold is scrolling and stays scrolling.
-        if drawing == nil, down.count == 1, let touch = touches.first, down[touch] != nil,
-           LassoGate.touchMayLasso(isPencil: touch.type == .pencil,
-                                   markupActive: annotationActive) {
-            if LassoGate.disqualifiesLasso(elapsed: elapsed(touch),
-                                           movement: travel(touch)) {
-                scrolling.insert(touch)
-            } else if LassoGate.shouldBeginLassoOnMove(heldFor: elapsed(touch),
-                                                       touches: down.count,
-                                                       disqualified: scrolling.contains(touch)) {
+        // The hold is judged here, when the touch starts moving, because a
+        // timer is starved while the scroll view is tracking. A finger that
+        // travelled before the threshold is scrolling and stays scrolling; a
+        // Pencil has nothing to disambiguate from, because it cannot scroll.
+        if drawing == nil, effectiveTouches == 1,
+           let touch = pencilTouch ?? touches.first(where: { $0.type == .direct }),
+           down[touch] != nil, touches.contains(touch) {
+            switch LassoGate.lassoStart(isPencil: touch.type == .pencil,
+                                        markupActive: annotationActive) {
+            case .never:
+                break
+            case .immediately:
+                report(touch, phase: "moved", began: true)
                 beginLasso(with: touch, adding: false)
                 return
+            case .afterHold:
+                if LassoGate.disqualifiesLasso(elapsed: elapsed(touch),
+                                               movement: travel(touch)) {
+                    scrolling.insert(touch)
+                    report(touch, phase: "moved(scrolling)")
+                } else if LassoGate.shouldBeginLassoOnMove(
+                            heldFor: elapsed(touch), touches: effectiveTouches,
+                            disqualified: scrolling.contains(touch)) {
+                    report(touch, phase: "moved", began: true)
+                    beginLasso(with: touch, adding: false)
+                    return
+                }
             }
         }
+
         // Two fingers, one of them parked: the moving one draws and adds. Both
         // moving is a pinch, which belongs to the scroll view — so this stays
         // undecided until one of them commits.
@@ -145,6 +189,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
                                elapsed: elapsed(sample)) {
             onUndoTap?()
         }
+        for touch in touches { report(touch, phase: "ended") }
         defer { for touch in touches { down[touch] = nil; scrolling.remove(touch) } }
         guard let drawing, touches.contains(drawing) else { return }
         if let anchor { points.append(drawing.location(in: anchor)) }
