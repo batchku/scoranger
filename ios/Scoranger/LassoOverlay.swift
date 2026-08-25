@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Recognizes the hold-then-drag lasso, and the two-finger undo tap.
+/// Recognizes the Pencil lasso, and the two-finger undo tap.
 ///
 /// It lives on the scroll view rather than on a page, because a recognizer only
 /// sees touches delivered into its own view tree and the scroll view is the one
@@ -14,24 +14,40 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// Called once, when the lasso closes: (page index, unit (0…1) points,
     /// whether this stroke adds to what is already selected).
     /// There is deliberately no per-sample callback — see LassoAnchorView.
+    /// `adding` is always false now: what a lasso does to the existing
+    /// selection is the chip's Replace/Add/Subtract mode, not a second finger.
     var onEnd: ((Int, [CGPoint], Bool) -> Void)?
     /// Called when two fingers tap without moving: undo the last ink stroke.
     var onUndoTap: (() -> Void)?
+    /// A Pencil went down or came up. The canvas freezes while it is down, so
+    /// the resting hand cannot pan the page out from under the stroke.
+    var onPencilPresence: ((Bool) -> Void)?
     /// Markup mode. It changes what the PENCIL does and nothing else.
     var annotationActive = false
 
+    /// Lets a UI test drive the selection pipeline with a finger.
+    ///
+    /// Stated plainly, because a stand-in like this is how the previous scheme
+    /// fooled itself: with this on, the tests exercise everything downstream of
+    /// touch classification — which page the lasso landed on, the unit points,
+    /// the hit test, the selection, the chip, the handoff to chat — and they do
+    /// NOT exercise Pencil input, which no simulator can produce. The
+    /// classification itself is covered by `LassoGateTests`.
+    static let fingerStandsInForPencil =
+        ProcessInfo.processInfo.arguments.contains("-uiTestPencil")
+
+    private func isPencil(_ touch: UITouch) -> Bool {
+        touch.type == .pencil || (Self.fingerStandsInForPencil && touch.type == .direct)
+    }
+
     /// The touch drawing the lasso, once one has been chosen.
     private var drawing: UITouch?
-    /// Every touch currently down, with where and when it landed, so the gate
-    /// can be asked what the user is doing.
+    /// Every touch currently down, with where and when it landed.
     private var down: [UITouch: (origin: CGPoint, time: TimeInterval)] = [:]
     private var points: [CGPoint] = []
     private var anchor: LassoAnchorView?
-    private var holdTimer: Timer?
-    private var adding = false
-    /// Touches that started moving before the hold elapsed: they are dragging
-    /// the page, and must go on dragging it however long they stay down.
-    private var scrolling: Set<UITouch> = []
+    /// What the canvas was last told, so the freeze is reported on change only.
+    private var canvasFrozen = false
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
@@ -47,24 +63,21 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         return hypot(now.x - start.x, now.y - start.y)
     }
 
-    /// The Pencil currently down, if any. It outranks every finger: outside
-    /// markup mode PencilKit takes no touches, so a hand resting beside the
-    /// Pencil arrives here as an ordinary direct touch and would otherwise
-    /// count as a second finger.
     private var pencilTouch: UITouch? {
-        down.keys.first { $0.type == .pencil }
+        down.keys.first { isPencil($0) }
     }
 
     private var fingerCount: Int {
-        down.keys.filter { $0.type == .direct }.count
+        down.keys.filter { !isPencil($0) }.count
     }
 
-    private var effectiveTouches: Int {
-        LassoGate.effectiveTouchCount(fingers: fingerCount, pencilDown: pencilTouch != nil)
+    private func elapsed(_ touch: UITouch) -> TimeInterval {
+        guard let started = down[touch]?.time else { return 0 }
+        return touch.timestamp - started
     }
 
     private func report(_ touch: UITouch, phase: String, began: Bool = false) {
-        let kind = touch.type == .pencil ? "pencil" : "finger"
+        let kind = isPencil(touch) ? "pencil" : "finger"
         let line = TouchDiagnostics.describe(
             kind: kind, phase: phase, fingers: fingerCount,
             pencilDown: pencilTouch != nil, heldFor: elapsed(touch),
@@ -75,9 +88,19 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         }
     }
 
-    private func elapsed(_ touch: UITouch) -> TimeInterval {
-        guard let started = down[touch]?.time else { return 0 }
-        return touch.timestamp - started
+    /// Freeze the canvas while a Pencil is selecting, thaw it after.
+    ///
+    /// This is the palm rejection. Outside markup mode PencilKit is not taking
+    /// touches, so it is not rejecting anything either, and the hand resting
+    /// beside the Pencil reaches the scroll view as an ordinary finger. Turning
+    /// scrolling off also cancels a pan already in flight, so a palm that
+    /// landed first cannot keep dragging the page once the Pencil arrives.
+    private func syncCanvasFreeze() {
+        let frozen = !LassoGate.canvasMayMove(pencilDown: pencilTouch != nil,
+                                              markupActive: annotationActive)
+        guard frozen != canvasFrozen else { return }
+        canvasFrozen = frozen
+        onPencilPresence?(frozen)
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -85,45 +108,13 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         for touch in touches {
             down[touch] = (touch.location(in: root), touch.timestamp)
         }
+        syncCanvasFreeze()
         for touch in touches { report(touch, phase: "began") }
-
-        // The deciding touch is the Pencil if there is one -- never
-        // `touches.first`, which is an arbitrary member of an unordered set.
-        guard drawing == nil, let touch = pencilTouch ?? touches.first(where: { $0.type == .direct }),
-              LassoGate.lassoStart(isPencil: touch.type == .pencil,
-                                   markupActive: annotationActive) != .never,
-              effectiveTouches == 1
-        else { return }
-        armHold(for: touch)
     }
 
-    /// A haptic at the moment the hold takes, and nothing else.
-    ///
-    /// The decision itself is made in `touchesMoved`, because a timer cannot be
-    /// relied on here: `Timer.scheduledTimer` installs into the run loop's
-    /// DEFAULT mode, and while a finger is down on a scroll view UIKit runs the
-    /// loop in TRACKING mode, where it never fires. That is why selection did
-    /// not work on a real device in 0.2.3 while passing in the simulator, whose
-    /// synthesized events take a different path. This timer is scheduled in
-    /// `.common` so it fires during tracking too -- but if it were starved
-    /// again, the only thing lost would be the tap on the wrist.
-    private func armHold(for touch: UITouch) {
-        holdTimer?.invalidate()
-        let timer = Timer(timeInterval: LassoGate.holdThreshold, repeats: false) {
-            [weak self, weak touch] _ in
-            guard let self, let touch, self.down[touch] != nil,
-                  self.drawing == nil, !self.scrolling.contains(touch),
-                  self.travel(touch) <= LassoGate.moveSlop else { return }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        holdTimer = timer
-    }
-
-    private func beginLasso(with touch: UITouch, adding: Bool) {
+    private func beginLasso(with touch: UITouch) {
         guard let anchor = anchor(under: touch) else { return }
         self.anchor = anchor
-        self.adding = adding
         drawing = touch
         points = [touch.location(in: anchor)]
         state = .began
@@ -138,63 +129,35 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
             return
         }
 
-        // The hold is judged here, when the touch starts moving, because a
-        // timer is starved while the scroll view is tracking. A finger that
-        // travelled before the threshold is scrolling and stays scrolling; a
-        // Pencil has nothing to disambiguate from, because it cannot scroll.
-        if drawing == nil, effectiveTouches == 1,
-           let touch = pencilTouch ?? touches.first(where: { $0.type == .direct }),
-           down[touch] != nil, touches.contains(touch) {
-            switch LassoGate.lassoStart(isPencil: touch.type == .pencil,
-                                        markupActive: annotationActive) {
-            case .never:
-                break
-            case .immediately:
-                report(touch, phase: "moved", began: true)
-                beginLasso(with: touch, adding: false)
-                return
-            case .afterHold:
-                if LassoGate.disqualifiesLasso(elapsed: elapsed(touch),
-                                               movement: travel(touch)) {
-                    scrolling.insert(touch)
-                    report(touch, phase: "moved(scrolling)")
-                } else if LassoGate.shouldBeginLassoOnMove(
-                            heldFor: elapsed(touch), touches: effectiveTouches,
-                            disqualified: scrolling.contains(touch)) {
-                    report(touch, phase: "moved", began: true)
-                    beginLasso(with: touch, adding: false)
-                    return
-                }
-            }
-        }
-
-        // Two fingers, one of them parked: the moving one draws and adds. Both
-        // moving is a pinch, which belongs to the scroll view — so this stays
-        // undecided until one of them commits.
-        guard drawing == nil, down.count == 2 else { return }
-        let ordered = down.keys.sorted { (down[$0]?.time ?? 0) < (down[$1]?.time ?? 0) }
-        guard let first = ordered.first, let second = ordered.last, first != second else { return }
-        if LassoGate.combine(firstMovement: travel(first),
-                             secondMovement: travel(second)) == .add {
-            beginLasso(with: second, adding: true)
-        }
+        // The Pencil lassos the moment it moves. There is nothing to wait for:
+        // it cannot pan the canvas, so a Pencil drag has exactly one meaning.
+        // Fingers are not consulted at all -- however many are resting on the
+        // glass, and whatever they are doing.
+        guard drawing == nil, let touch = pencilTouch, touches.contains(touch),
+              LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive)
+        else { return }
+        report(touch, phase: "moved", began: true)
+        beginLasso(with: touch)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         // two fingers tapped and gone, having barely moved: undo
-        if drawing == nil, down.count == 2,
+        if drawing == nil, fingerCount == 2, pencilTouch == nil,
            let sample = touches.first,
-           LassoGate.isUndoTap(touches: down.count,
+           LassoGate.isUndoTap(touches: fingerCount,
                                movement: down.keys.map(travel).max() ?? 0,
                                elapsed: elapsed(sample)) {
             onUndoTap?()
         }
         for touch in touches { report(touch, phase: "ended") }
-        defer { for touch in touches { down[touch] = nil; scrolling.remove(touch) } }
+        defer {
+            for touch in touches { down[touch] = nil }
+            syncCanvasFreeze()
+        }
         guard let drawing, touches.contains(drawing) else { return }
         if let anchor { points.append(drawing.location(in: anchor)) }
         if points.count > 2, let anchor {          // a dot is not a lasso
-            onEnd?(anchor.pageIndex, unitPoints(in: anchor), adding)
+            onEnd?(anchor.pageIndex, unitPoints(in: anchor), false)
         } else {
             anchor?.show([])
         }
@@ -202,7 +165,10 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        defer { for touch in touches { down[touch] = nil } }
+        defer {
+            for touch in touches { down[touch] = nil }
+            syncCanvasFreeze()
+        }
         guard let drawing, touches.contains(drawing) else { return }
         anchor?.show([])
         finish(.cancelled)
@@ -210,24 +176,18 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
 
     override func reset() {
         super.reset()
-        holdTimer?.invalidate()
-        holdTimer = nil
         drawing = nil
         points = []
         anchor = nil
-        adding = false
         down.removeAll()
-        scrolling.removeAll()
+        syncCanvasFreeze()
     }
 
     private func finish(_ end: UIGestureRecognizer.State) {
         state = end
-        holdTimer?.invalidate()
-        holdTimer = nil
         drawing = nil
         points = []
         anchor = nil
-        adding = false
     }
 
     /// Live feedback, straight into the layer.

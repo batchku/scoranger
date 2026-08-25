@@ -81,29 +81,37 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         // actually did to the canvas
         scroll.accessibilityValue = "zoom 1.00"
 
-        // Hold-then-drag selects. The recognizer sits here because it must see
-        // touches delivered to any page below it. Scrolling is NOT made to wait
-        // for it: a drag that starts moving scrolls at once, and a finger held
-        // still moves nothing, so when the hold fires there is nothing to undo.
+        // The Pencil selects. The recognizer sits here because it must see
+        // touches delivered to any page below it. Scrolling is never made to
+        // wait for it: fingers pan at once, and the Pencil is not allowed to
+        // pan at all, so the two can never be waiting on each other.
         let lasso = LassoGestureRecognizer(target: context.coordinator,
                                            action: #selector(Coordinator.lassoFired(_:)))
         scroll.addGestureRecognizer(lasso)
         context.coordinator.lasso = lasso
 
-        // The Pencil never scrolls the score. Every drawing app on this device
-        // works that way, and it is what lets a Pencil drag mean exactly one
-        // thing: by default a scroll view pans with the Pencil too, so a Pencil
-        // lasso was competing with a scroll it could not win.
+        // Fingers pan; the Pencil never does. By default a scroll view pans
+        // with the Pencil too, so a Pencil lasso was competing with a scroll it
+        // could not win. This is also what makes the split clean enough to need
+        // no arbitration: the two instruments cannot want the same thing.
         scroll.panGestureRecognizer.allowedTouchTypes = [
             NSNumber(value: UITouch.TouchType.direct.rawValue)
         ]
+        context.coordinator.lasso?.onPencilPresence = {
+            [weak coordinator] frozen in coordinator?.freezeCanvas(frozen)
+        }
 
-        // A plain tap: drops one element from the selection. It never blocks
-        // anything else -- a tap has no movement, so scrolling and pinching
-        // cannot be waiting on it.
+        // A Pencil tap: drops one element from the selection. Pencil only,
+        // because dropping an element is a selection edit and the hand does not
+        // edit selections. It never blocks anything else -- a tap has no
+        // movement, so scrolling and pinching cannot be waiting on it.
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.tapped(_:)))
         tap.cancelsTouchesInView = false
+        tap.allowedTouchTypes = LassoGestureRecognizer.fingerStandsInForPencil
+            ? [NSNumber(value: UITouch.TouchType.pencil.rawValue),
+               NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
         scroll.addGestureRecognizer(tap)
 
         let host = UIHostingController(rootView: AnyView(content()))
@@ -118,6 +126,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.lasso?.onEnd = onLasso
         context.coordinator.lasso?.onUndoTap = onUndoTap
+        context.coordinator.lasso?.onPencilPresence = {
+            [weak coordinator = context.coordinator] frozen in
+            coordinator?.freezeCanvas(frozen)
+        }
         context.coordinator.onTap = onTap
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.onZoomSettled = onZoomSettled
@@ -226,10 +238,20 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             centreIfNeeded()
         }
 
-        /// Scrolling is off while a lasso is being drawn: the modifier finger
-        /// is resting on the page, and a page that slid under the stroke would
-        /// make the selection meaningless.
         var onTap: ((Int, CGPoint) -> Void)?
+
+        /// Pan and zoom are off while a Pencil is down to select.
+        ///
+        /// Both of them: disabling scrolling alone still leaves the pinch live,
+        /// and a hand steadying the iPad next to the Pencil is two fingers on
+        /// the glass. Turning scrolling off also cancels a pan already in
+        /// flight, so a palm that landed before the Pencil stops dragging the
+        /// page the moment the Pencil arrives.
+        func freezeCanvas(_ frozen: Bool) {
+            guard let scroll else { return }
+            scroll.isScrollEnabled = !frozen
+            scroll.pinchGestureRecognizer?.isEnabled = !frozen
+        }
 
         @objc func tapped(_ recognizer: UITapGestureRecognizer) {
             guard let root = recognizer.view else { return }
@@ -238,13 +260,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             onTap?(hit.index, hit.unit)
         }
 
-        @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {
-            switch recognizer.state {
-            case .began: scroll?.isScrollEnabled = false
-            case .ended, .cancelled, .failed: scroll?.isScrollEnabled = true
-            default: break
-            }
-        }
+        /// The lasso's own state changes need do nothing to the canvas: the
+        /// freeze is keyed on the Pencil being DOWN, which starts earlier (the
+        /// moment it touches) and ends later (when it lifts) than the stroke.
+        @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {}
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }
 

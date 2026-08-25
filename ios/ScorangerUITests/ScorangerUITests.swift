@@ -18,14 +18,36 @@ final class ScorangerUITests: XCTestCase {
         app = XCUIApplication()
         // -resetLibrary so each test starts from the same seeded library: these
         // tests rename things, and the on-device workspace outlives the app.
-        // No selection stand-in any more: the lasso is hold-then-drag with a
-        // finger, so a test performs exactly what a person performs.
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger"]
         app.launch()
         // the library overlay starts open on iPad; band headers render uppercased
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
                       "the library overlay never showed its Pieces band")
+    }
+
+    /// Relaunch with the Pencil stand-in, so a finger can drive the selection
+    /// pipeline.
+    ///
+    /// Said plainly, because a stand-in is how the FIRST selection scheme
+    /// fooled itself into looking tested: this exercises everything downstream
+    /// of touch classification — which page the lasso landed on, the unit
+    /// points, the hit test, the selection, the chip, the handoff to chat — and
+    /// it does NOT exercise Pencil input, which no simulator can produce.
+    /// Whether a Pencil reaches the recognizer at all is settled by
+    /// `LassoGateTests` and by a person holding an iPad.
+    ///
+    /// It is per-test, never in `setUp`: with it on, every finger drag on the
+    /// canvas is a lasso, which would break the pan and zoom tests.
+    private func withPencilStandIn() {
+        app.terminate()
+        // -resetLibrary is dropped: the library was seeded by the first launch
+        // and re-seeding costs another engrave
+        app.launchArguments = ["-seedTestLibrary", "-annotateWithFinger",
+                               "-uiTestPencil"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
+                      "the library never came back after the relaunch")
     }
 
     private func shot(_ name: String) {
@@ -732,6 +754,7 @@ final class ScorangerUITests: XCTestCase {
     /// selected, the chip says what was caught, chat opens by itself, and the
     /// reference lands in the input ready to be typed against.
     func testLassoSelectsElementsAndHandsThemToChat() {
+        withPencilStandIn()
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180),
@@ -857,23 +880,28 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Hold-then-drag, and what it must not break
 
-    /// The whole point of the threshold: a drag that starts moving straight
-    /// away scrolls, and selects nothing. If this fails the score is unreadable
-    /// -- every attempt to scroll would lasso instead.
-    func testAQuickDragScrollsAndSelectsNothing() {
+    /// A finger never selects, at any speed or duration. The hand moves the
+    /// paper and nothing else; only the Pencil selects. If this fails the score
+    /// is unreadable — every attempt to scroll would lasso instead.
+    ///
+    /// Launched WITHOUT the Pencil stand-in, so these really are fingers.
+    func testAFingerNeverSelectsHoweverItDrags() {
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
 
-        for dy in [0.55, 0.45] {
+        // quick drags (a scroll), and slow held ones (what the old finger
+        // lasso needed) -- neither may select
+        for (hold, dy) in [(0.05, 0.55), (0.05, 0.45), (0.6, 0.40), (1.0, 0.35)] {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy))
-                .press(forDuration: 0.05,
-                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy - 0.3)))
+                .press(forDuration: hold,
+                       thenDragTo: canvas.coordinate(
+                        withNormalizedOffset: CGVector(dx: 0.85, dy: dy)))
         }
         XCTAssertFalse(app.staticTexts["Selection"].waitForExistence(timeout: 4),
-                       "a quick drag selected something; it should have scrolled")
-        shot("quick-drag-scrolls")
+                       "a finger selected something; fingers only pan and zoom")
+        shot("finger-never-selects")
     }
 
     /// Two fingers, tapped and gone, undo the last stroke -- and it must work
@@ -927,6 +955,7 @@ final class ScorangerUITests: XCTestCase {
     /// The chip's three modes are what make removal unambiguous: a lasso takes
     /// things away only when the user said so.
     func testTheSelectionChipOffersReplaceAddAndSubtract() {
+        withPencilStandIn()
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
@@ -1068,6 +1097,7 @@ final class ScorangerUITests: XCTestCase {
     /// A selection is about the engraving it was drawn on: changing version
     /// must not leave a stale selection pointing at bars of a different score.
     func testSwitchingVersionClearsAStaleSelection() {
+        withPencilStandIn()
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
@@ -1230,6 +1260,7 @@ final class ScorangerUITests: XCTestCase {
     /// page it was actually drawn on. Bars run forward through the score, so
     /// the right page must give higher bar numbers than the left.
     func testALassoOnTheRightHandPageSelectsFromThatPage() {
+        withPencilStandIn()
         setTwoPageSpread(on: true)
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
