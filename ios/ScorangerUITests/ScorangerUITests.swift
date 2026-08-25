@@ -996,13 +996,25 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(headline.lowercased().contains("bar"),
                       "the chip should name the bar: \(headline)")
 
-        // staff and voice, which were in every address and never shown
+        // Staff and voice, which were in every address and never shown.
+        //
+        // Staff is always there. Voice is not asserted here, and deliberately:
+        // layer 0 is the parser's "not layer-specific" marker, and elements
+        // that live under the <measure> rather than inside a <layer> -- chord
+        // symbols, dynamics -- legitimately have no voice. A lasso can catch
+        // only those, and did on this arrangement. That the voice is FORMATTED
+        // correctly when there is one is settled by SelectionCombineTests,
+        // which can state the addresses exactly instead of hoping a stroke
+        // catches the right kind of thing.
         XCTAssertTrue(app.staticTexts["selection-place"].exists,
-                      "the chip should say which staff and voice")
+                      "the chip should say where the selection is")
         let place = app.staticTexts["selection-place"].label
         XCTAssertTrue(place.contains("staff") || place.contains("staves"),
                       "no staff in the chip: \(place)")
-        XCTAssertTrue(place.contains("voice"), "no voice in the chip: \(place)")
+        if place.contains("voice") {
+            XCTAssertTrue(place.contains("staff") && place.contains("·"),
+                          "the place line is malformed: \(place)")
+        }
 
         // the modes are gone, and with them the trap
         for mode in ["combine-replace", "combine-add", "combine-subtract"] {
@@ -1330,6 +1342,11 @@ final class ScorangerUITests: XCTestCase {
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: dxEnd, dy: dy)))
             guard app.staticTexts["selection-chip"].waitForExistence(timeout: 8) else { continue }
+            // Nothing reaches the input until the selection is confirmed (#4c),
+            // so the reference this reads has to be asked for.
+            let confirm = app.buttons["selection-confirm"]
+            guard confirm.waitForExistence(timeout: 8) else { continue }
+            confirm.tap()
             guard input.waitForExistence(timeout: 20) else { continue }
             let now = (input.value as? String) ?? ""
             guard now.count > before.count, let bar = lastBarNumber(in: now) else { continue }

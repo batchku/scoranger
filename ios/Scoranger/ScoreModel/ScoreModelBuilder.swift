@@ -174,6 +174,18 @@ struct ScoreSelection: Equatable {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// May a selection made on `from` be carried onto `to`?
+    ///
+    /// Yes only within one arrangement, and only when the version changed by
+    /// itself -- which means an op produced a new one. A version the user
+    /// picked is them looking somewhere else, and a different arrangement is
+    /// the bleed between a score and its copy that must never happen.
+    static func survivesReRender(from: String?, to: String,
+                                 userPickedVersion: Bool) -> Bool {
+        guard let from, !userPickedVersion else { return false }
+        return from.split(separator: "/").first == to.split(separator: "/").first
+    }
+
     /// The addresses themselves, for an op that must touch exactly these
     /// elements and nothing else.
     var addressList: [String] { addresses.map(\.description) }

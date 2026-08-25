@@ -190,4 +190,34 @@ final class SelectionCombineTests: XCTestCase {
             ScoreAddress(staff: 1, measure: 15, layer: 1, kind: .note, ordinal: 3)])
         XCTAssertEqual(s.addressList, ["s1/m15/l1/note#3"])
     }
+
+    // MARK: - When a selection may outlive a re-engrave (#8)
+
+    /// #8 asks for the selection to survive an op, so a second op can be run
+    /// on the same notes. It must NOT survive being taken somewhere else --
+    /// and both arrive at the renderer as "the version changed".
+    ///
+    /// The rule: same arrangement, and the user did not ask for the version.
+
+    func testASelectionSurvivesANewVersionOfTheSameScore() {
+        XCTAssertTrue(ScoreSelection.survivesReRender(
+            from: "morrisons/v007", to: "morrisons/v008", userPickedVersion: false))
+    }
+
+    func testASelectionDoesNotSurviveADeliberateVersionSwitch() {
+        XCTAssertFalse(ScoreSelection.survivesReRender(
+            from: "morrisons/v007", to: "morrisons/v003", userPickedVersion: true),
+                       "looking at an older version is a different subject")
+    }
+
+    func testASelectionDoesNotSurviveSwitchingArrangement() {
+        XCTAssertFalse(ScoreSelection.survivesReRender(
+            from: "morrisons/v007", to: "morrisons-copy/v001", userPickedVersion: false),
+                       "this is exactly the bleed between a score and its copy")
+    }
+
+    func testASelectionWithNoPriorEngravingDoesNotSurvive() {
+        XCTAssertFalse(ScoreSelection.survivesReRender(
+            from: nil, to: "morrisons/v008", userPickedVersion: false))
+    }
 }

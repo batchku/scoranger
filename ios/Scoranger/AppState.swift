@@ -72,8 +72,9 @@ final class AppState: ObservableObject {
     private func carrySelection(from previous: String?, to key: String,
                                 into model: ScoreGeometry?) {
         guard let selection, !selection.isEmpty,
-              let previous, selectionKey == previous,
-              previous.split(separator: "/").first == key.split(separator: "/").first,
+              selectionKey == previous,
+              ScoreSelection.survivesReRender(from: previous, to: key,
+                                              userPickedVersion: pinnedVersion != nil),
               let model else {
             clearSelection()
             return
@@ -872,8 +873,16 @@ final class AppState: ObservableObject {
     // Navigation on compact is driven explicitly by ContentView's
     // preferredCompactColumn — no List-selection tricks needed here.
     func select(slug: String, version: String? = nil) {
-        if slug != selectedSlug {
-            // a selection describes elements of the previously shown score
+        // A selection describes elements of the engraving it was drawn on, so
+        // it goes when the subject changes: another arrangement, or a version
+        // the user deliberately picked.
+        //
+        // The distinction #8 needs, and which this is half of: a selection
+        // SURVIVES the new version an op produces, because that is the same
+        // passage a moment later and the user is likely to run another op on
+        // it. It does NOT survive being taken somewhere else. Both arrive as
+        // "the version changed"; only this path is the user asking for it.
+        if slug != selectedSlug || version != nil {
             clearSelection()
         }
         selectedSlug = slug
