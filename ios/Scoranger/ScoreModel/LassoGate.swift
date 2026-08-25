@@ -54,6 +54,36 @@ enum LassoGate {
         !(pencilDown && !markupActive)
     }
 
+    // MARK: - Telling a deliberate modifier finger from the resting palm
+    //
+    // Approved for 0.3.0 (finger-held = add to selection). The rule is stated
+    // and tested here, and the numbers it depends on are printed in the touch
+    // diagnostics, so the thresholds can be set from real measurements off
+    // Ali's hand rather than guessed. NOTHING READS IT YET -- 0.2.6 still
+    // ignores fingers entirely while the Pencil is down, which is what makes
+    // Pencil selection work at all.
+
+    /// Above this contact width a touch is a palm, not a fingertip. A
+    /// fingertip reports roughly 5-12pt; a resting hand is much broader.
+    /// PROVISIONAL: to be set from Ali's reported numbers.
+    static let palmRadius: CGFloat = 18
+
+    /// Nearer than this to the Pencil tip, a contact is the hand holding the
+    /// Pencil. The modifier finger is the OTHER hand and lands well away.
+    /// PROVISIONAL: to be set from Ali's reported numbers.
+    static let modifierMinDistance: CGFloat = 160
+
+    /// Is this finger a deliberate "add to the selection" modifier?
+    ///
+    /// Both signals are required, because either alone is wrong: a palm can
+    /// land far from the tip when the hand is turned, and a fingertip of the
+    /// Pencil hand can rest close to it. Small AND far is the combination that
+    /// only the other hand produces.
+    static func isDeliberateModifierFinger(radius: CGFloat,
+                                           distanceFromPencil: CGFloat) -> Bool {
+        radius < palmRadius && distanceFromPencil >= modifierMinDistance
+    }
+
     /// Two fingers down, gone again, having barely moved: undo the last stroke.
     /// A tap has no movement, so it can never be read as a pinch.
     static func isUndoTap(touches: Int, movement: CGFloat, elapsed: TimeInterval) -> Bool {

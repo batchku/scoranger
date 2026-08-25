@@ -48,12 +48,28 @@ final class TouchDiagnostics: ObservableObject {
     /// can be tested without a device.
     nonisolated static func describe(kind: String, phase: String, fingers: Int,
                                      pencilDown: Bool, heldFor: TimeInterval,
-                                     markupActive: Bool, began: Bool) -> String {
+                                     markupActive: Bool, began: Bool,
+                                     radius: CGFloat? = nil,
+                                     distanceFromPencil: CGFloat? = nil) -> String {
         let held = String(format: "%.2fs", heldFor)
         let touching = pencilDown ? "pencil+\(fingers)f" : "\(fingers)f"
-        return "\(kind) \(phase) · \(touching) · held \(held) · "
+        var line = "\(kind) \(phase) · \(touching) · held \(held) · "
             + "markup \(markupActive ? "on" : "off") · "
             + (began ? "LASSO STARTED" : "no lasso")
+        // The two numbers 0.3.0's finger-add rule will be tuned on. Printed for
+        // every finger so the thresholds come from a real hand rather than a
+        // guess: a fingertip should read small and far, a resting palm broad
+        // and near.
+        if let radius {
+            line += String(format: " · r %.1f", radius)
+            if let distanceFromPencil {
+                line += String(format: " d %.0f", distanceFromPencil)
+                line += LassoGate.isDeliberateModifierFinger(
+                    radius: radius, distanceFromPencil: distanceFromPencil)
+                    ? " → MODIFIER" : " → palm"
+            }
+        }
+        return line
     }
 }
 

@@ -76,12 +76,22 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         return touch.timestamp - started
     }
 
+    /// How far this touch is from the Pencil tip, when both are down.
+    private func distanceFromPencil(_ touch: UITouch) -> CGFloat? {
+        guard let root = view, let pencil = pencilTouch, pencil != touch else { return nil }
+        let a = touch.location(in: root), b = pencil.location(in: root)
+        return hypot(a.x - b.x, a.y - b.y)
+    }
+
     private func report(_ touch: UITouch, phase: String, began: Bool = false) {
-        let kind = isPencil(touch) ? "pencil" : "finger"
+        let isPen = isPencil(touch)
+        let kind = isPen ? "pencil" : "finger"
         let line = TouchDiagnostics.describe(
             kind: kind, phase: phase, fingers: fingerCount,
             pencilDown: pencilTouch != nil, heldFor: elapsed(touch),
-            markupActive: annotationActive, began: began)
+            markupActive: annotationActive, began: began,
+            radius: isPen ? nil : touch.majorRadius,
+            distanceFromPencil: isPen ? nil : distanceFromPencil(touch))
         Task { @MainActor in
             TouchDiagnostics.shared.record(line)
             TouchDiagnostics.shared.setCurrent(line)

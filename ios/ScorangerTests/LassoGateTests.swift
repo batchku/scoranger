@@ -61,6 +61,52 @@ final class LassoGateTests: XCTestCase {
         XCTAssertTrue(LassoGate.canvasMayMove(pencilDown: true, markupActive: true))
     }
 
+    // MARK: - Telling a deliberate modifier finger from the resting palm
+    //
+    // The rule 0.3.0's finger-add will run on. Ali approved the approach:
+    // contact size AND distance from the Pencil tip, both required. The
+    // thresholds are provisional until he reports real numbers off the
+    // diagnostics readout — these tests pin the SHAPE of the rule, which is
+    // what must not drift, and use offsets from the constants so that
+    // retuning a threshold does not silently invert a case.
+
+    func testASmallContactFarFromThePencilIsTheOtherHand() {
+        XCTAssertTrue(LassoGate.isDeliberateModifierFinger(
+            radius: LassoGate.palmRadius - 8,
+            distanceFromPencil: LassoGate.modifierMinDistance + 100))
+    }
+
+    func testABroadContactIsAPalmEvenFarFromThePencil() {
+        // a hand turned sideways rests well away from the tip and is still
+        // a palm -- which is why distance alone will not do
+        XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
+            radius: LassoGate.palmRadius + 6,
+            distanceFromPencil: LassoGate.modifierMinDistance + 200))
+    }
+
+    func testAFingertipBesideThePencilIsTheHandHoldingIt() {
+        // and why size alone will not do either
+        XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
+            radius: LassoGate.palmRadius - 8,
+            distanceFromPencil: LassoGate.modifierMinDistance - 60))
+    }
+
+    func testBothSignalsAreRequired() {
+        XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
+            radius: LassoGate.palmRadius + 6,
+            distanceFromPencil: LassoGate.modifierMinDistance - 60),
+                       "a broad contact beside the Pencil is the clearest palm there is")
+    }
+
+    /// 0.2.6 ships the rule and the measurements and acts on NEITHER: while a
+    /// Pencil is down, a lasso begins regardless of what fingers are doing.
+    /// That is what makes Pencil selection work, and it must not regress while
+    /// the rule waits for its numbers.
+    func testAFingerDoesNotChangeWhatThePencilDoesYet() {
+        XCTAssertTrue(LassoGate.lassoBegins(isPencil: true, markupActive: false))
+        XCTAssertFalse(LassoGate.lassoBegins(isPencil: false, markupActive: false))
+    }
+
     // MARK: - The two-finger undo tap
 
     func testATwoFingerTapIsAnUndo() {
