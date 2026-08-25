@@ -39,8 +39,9 @@ struct ScorePagesView: View {
                                select(path: path, onPage: page, adding: adding)
                            },
                            onUndoTap: { _ = annotation.undo() },
-                           onTap: { page, point, taps in
-                               state.handleTap(at: point, onPage: page, taps: taps)
+                           onTap: { page, point, taps, fingerHeld in
+                               state.handleTap(at: point, onPage: page, taps: taps,
+                                               modifierFingerDown: fingerHeld)
                            },
                            onWillReplaceSelection: { state.clearSelection() },
                            annotationActive: annotation.isOn,

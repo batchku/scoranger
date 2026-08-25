@@ -229,6 +229,48 @@ struct ScoreGeometry {
     /// Used to expand "this bar" into the elements it holds.
     var addresses: [ScoreAddress] { Array(byAddress.keys) }
 
+    /// Which staff a point falls on, given the elements of one bar.
+    ///
+    /// Needed because a `<measure>` lives OUTSIDE any `<staff>` in MEI, so the
+    /// bar element's own address carries staff 0 -- the parser's
+    /// "not staff-specific" marker. Asking it which staff it is on returns a
+    /// staff no real element has, which is why a double-tap selected nothing
+    /// and only a triple-tap (all staves) ever appeared to work.
+    ///
+    /// The staff is therefore taken from where the Pencil actually is: the
+    /// staff whose elements span the tapped y, or failing that the nearest one,
+    /// so a tap in the gap between two staves still resolves to the closer.
+    /// Pure, so it can be tested without a page.
+    static func staff(at y: CGFloat, among bands: [(staff: Int, span: ClosedRange<CGFloat>)]) -> Int? {
+        guard !bands.isEmpty else { return nil }
+        if let hit = bands.first(where: { $0.span.contains(y) }) { return hit.staff }
+        return bands.min(by: { distance(from: y, to: $0.span) < distance(from: y, to: $1.span) })?.staff
+    }
+
+    private static func distance(from y: CGFloat, to span: ClosedRange<CGFloat>) -> CGFloat {
+        if span.contains(y) { return 0 }
+        return y < span.lowerBound ? span.lowerBound - y : y - span.upperBound
+    }
+
+    /// The vertical extent of each staff's elements within one measure, on one
+    /// page. Bar-like elements are excluded: their frame spans every staff and
+    /// would swallow the distinction this exists to make.
+    func staffBands(inMeasure measure: Int,
+                    onPage index: Int) -> [(staff: Int, span: ClosedRange<CGFloat>)] {
+        guard let page = page(index) else { return [] }
+        var extents: [Int: (min: CGFloat, max: CGFloat)] = [:]
+        for element in page.elements {
+            guard let address = element.address, address.measure == measure,
+                  address.staff > 0,
+                  !ScoreElementKind.barLike.contains(address.kind) else { continue }
+            let current = extents[address.staff]
+            extents[address.staff] = (min(current?.min ?? element.frame.minY, element.frame.minY),
+                                      max(current?.max ?? element.frame.maxY, element.frame.maxY))
+        }
+        return extents.map { (staff: $0.key, span: $0.value.min...$0.value.max) }
+            .sorted { $0.span.lowerBound < $1.span.lowerBound }
+    }
+
     func page(_ index: Int) -> ScorePage? {
         pages.first { $0.index == index }
     }

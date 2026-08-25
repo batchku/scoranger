@@ -369,4 +369,60 @@ final class ScoreModelTests: XCTestCase {
     }
 
     // MARK: - Who gets the touch (build 124)
+
+    // MARK: - Which staff a bar tap lands on (0.3.1 #3)
+
+    /// A <measure> lives OUTSIDE any <staff> in MEI, so the bar element's own
+    /// address carries staff 0 -- the parser's "not staff-specific" marker.
+    /// Selecting "the bar on that staff" by comparing against it matched no
+    /// element at all, so a double-tap selected nothing and only the
+    /// triple-tap (all staves) ever appeared to work. The staff has to come
+    /// from where the Pencil is.
+
+    private let bands: [(staff: Int, span: ClosedRange<CGFloat>)] = [
+        (staff: 1, span: 100...180),
+        (staff: 2, span: 220...300),
+        (staff: 3, span: 340...420),
+    ]
+
+    func testATapOnTheMiddleStaffPicksTheMiddleStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 260, among: bands), 2)
+    }
+
+    func testATapOnTheTopStaffPicksTheTopStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 140, among: bands), 1)
+    }
+
+    func testATapOnTheBottomStaffPicksTheBottomStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 400, among: bands), 3)
+    }
+
+    /// Staves have gaps between them, and a bar's empty space -- which is
+    /// exactly where the user is told to tap -- often falls in one.
+    func testATapInTheGapPicksTheNearerStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 200, among: bands), 1,
+                       "200 is 20 below staff 1 and 20 above staff 2, ties to the first")
+        XCTAssertEqual(ScoreGeometry.staff(at: 215, among: bands), 2)
+        XCTAssertEqual(ScoreGeometry.staff(at: 310, among: bands), 2)
+    }
+
+    func testATapAboveEverythingPicksTheTopStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 10, among: bands), 1)
+    }
+
+    func testATapBelowEverythingPicksTheBottomStaff() {
+        XCTAssertEqual(ScoreGeometry.staff(at: 900, among: bands), 3)
+    }
+
+    func testNoStavesMeansNoAnswerRatherThanAGuess() {
+        XCTAssertNil(ScoreGeometry.staff(at: 100, among: []))
+    }
+
+    /// The single-staff answer must never be staff 0: that is the marker the
+    /// bar element itself carries, and using it is the bug.
+    func testTheAnswerIsNeverTheNotStaffSpecificMarker() {
+        for y in stride(from: CGFloat(0), through: 600, by: 37) {
+            XCTAssertNotEqual(ScoreGeometry.staff(at: y, among: bands), 0)
+        }
+    }
 }

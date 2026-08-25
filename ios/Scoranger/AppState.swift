@@ -5,6 +5,14 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
     @Published var manifest: Manifest?
+    /// Whether the library has been looked for yet.
+    ///
+    /// Distinct from "the library is empty": at launch the manifest is nil and
+    /// the engine has not answered, which looked exactly like a user with no
+    /// scores -- so the empty state flashed up for a moment before the library
+    /// arrived, and on the remote-engine path it was the alarming one ("Engine
+    /// unreachable"). Nil means unknown; this says whether we have looked.
+    @Published private(set) var libraryLoaded = false
     @Published var selectedSlug: String?
     /// Sidebar preview: the score whose versions the sidebar shows. Set by a
     /// plain row tap; does NOT navigate (that's `select(slug:)`).
@@ -157,9 +165,15 @@ final class AppState: ObservableObject {
     /// lasso or a stray single tap, because bar-like kinds are filtered out of
     /// everything else (#9, #10a). Asking for a bar is the only way to get one.
     @discardableResult
-    func handleTap(at point: CGPoint, onPage index: Int, taps: Int) -> Bool {
+    func handleTap(at point: CGPoint, onPage index: Int, taps: Int,
+                   modifierFingerDown: Bool = false) -> Bool {
         switch LassoGate.tap(count: taps) {
         case .dropElement:
+            // A held finger turns a tap into "add this one", the same way it
+            // turns a drag into "add what I enclose".
+            if LassoGate.singleTap(modifierFingerDown: modifierFingerDown) == .addElement {
+                return addToSelection(at: point, onPage: index)
+            }
             return dropFromSelection(at: point, onPage: index)
         case .selectBar:
             return selectBar(at: point, onPage: index, allStaves: false)
@@ -181,16 +195,41 @@ final class AppState: ObservableObject {
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let bar = page.element(at: scaled, kinds: ScoreElementKind.barLike)?.address
         else { return false }
+
+        // NOT bar.staff: a <measure> lives outside any <staff> in MEI, so its
+        // address carries staff 0 and comparing against it matched no element
+        // at all. A double-tap therefore selected nothing, and only the
+        // triple-tap (every staff) ever appeared to work. The staff comes from
+        // where the Pencil is instead.
+        let wanted: Int? = allStaves ? nil
+            : ScoreGeometry.staff(at: scaled.y,
+                                  among: geometry.staffBands(inMeasure: bar.measure,
+                                                             onPage: index))
+        if !allStaves && wanted == nil { return false }
+
         let members = geometry.addresses.filter { address in
             guard address.measure == bar.measure,
                   !ScoreElementKind.barLike.contains(address.kind) else { return false }
-            return allStaves || address.staff == bar.staff
+            return allStaves || address.staff == wanted
         }
         guard !members.isEmpty else { return false }
         selection = ScoreSelection(addresses: members)
         selectionKey = geometryKey
         selectionPaths = [:]
         combineMode = .replace
+        return true
+    }
+
+    /// Add the one element under the Pencil to the selection.
+    @discardableResult
+    func addToSelection(at point: CGPoint, onPage index: Int) -> Bool {
+        guard let page = geometry?.page(index) else { return false }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        guard let hit = page.element(at: scaled)?.address,
+              !ScoreElementKind.barLike.contains(hit.kind) else { return false }
+        selection = (selection ?? ScoreSelection(addresses: []))
+            .combining([hit], mode: .add)
+        selectionKey = geometryKey
         return true
     }
 
@@ -565,6 +604,8 @@ final class AppState: ObservableObject {
     #endif
 
     func refresh() async {
+        // whatever happens below, we will have looked
+        defer { libraryLoaded = true }
         scanInbox()
         #if DEBUG
         scanChatInbox()

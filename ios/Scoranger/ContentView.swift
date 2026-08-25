@@ -315,7 +315,16 @@ struct ContentView: View {
 
     @ViewBuilder
     private var emptyState: some View {
-        if !state.engineOK && !state.useLocalEngine {
+        if !state.libraryLoaded {
+            // Still looking. Nothing here is known yet -- not whether there are
+            // scores, and not whether the engine is reachable -- so neither
+            // message below can be told the truth, and both were shown for a
+            // moment at every launch.
+            StateView(systemImage: "music.note.list",
+                      title: "Opening your library…",
+                      message: "")
+                .accessibilityIdentifier("library-loading")
+        } else if !state.engineOK && !state.useLocalEngine {
             StateView(systemImage: "bolt.horizontal.circle",
                       title: "Engine unreachable",
                       message: "Check the URL in Settings and that the engine is running on your Mac.",

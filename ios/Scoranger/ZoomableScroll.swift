@@ -49,7 +49,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// A Pencil tap on a page: (page index, unit point, how many taps).
     /// One drops an element; two select the bar on that staff; three select the
     /// bar across every staff.
-    var onTap: ((Int, CGPoint, Int) -> Void)?
+    var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
     /// The Pencil landed and this stroke replaces the selection.
     var onWillReplaceSelection: (() -> Void)?
     /// Markup mode. It changes what the Pencil does, and nothing else.
@@ -271,7 +271,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             centreIfNeeded()
         }
 
-        var onTap: ((Int, CGPoint, Int) -> Void)?
+        var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
 
         /// Pan and zoom are off while a Pencil is down to select.
         ///
@@ -290,7 +290,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             guard let root = recognizer.view else { return }
             let point = recognizer.location(in: root)
             guard let hit = LassoGestureRecognizer.page(at: point, in: root) else { return }
-            onTap?(hit.index, hit.unit, recognizer.numberOfTapsRequired)
+            onTap?(hit.index, hit.unit, recognizer.numberOfTapsRequired,
+                   lasso?.isModifierFingerDown ?? false)
         }
 
         /// The lasso's own state changes need do nothing to the canvas: the

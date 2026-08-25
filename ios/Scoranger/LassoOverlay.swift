@@ -61,6 +61,27 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         cancelsTouchesInView = true
         delaysTouchesBegan = false
         delaysTouchesEnded = false
+        // Recognize alongside the scroll view's own gestures rather than
+        // competing with them.
+        //
+        // With no finger down this never mattered: the Pencil cannot pan, so
+        // nothing was contending and the lasso began unopposed. Hold a finger
+        // first, though, and the scroll view's pan is already tracking that
+        // finger when the Pencil lands -- and two recognizers on one view do
+        // not both recognize unless something says they may. That is a whole
+        // class of "the Pencil does nothing while I hold a finger", and it
+        // costs nothing to rule out: the Pencil cannot pan, and panning is off
+        // entirely while it is down, so there is no gesture left to conflict.
+        delegate = simultaneous
+    }
+
+    private let simultaneous = SimultaneousDelegate()
+
+    private final class SimultaneousDelegate: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
     }
 
     /// How far a touch has travelled from where it landed.
@@ -91,6 +112,10 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// beside it. Thresholds are provisional (see LassoGate) until measured on
     /// real hardware -- the diagnostics readout prints both numbers for
     /// exactly that.
+    /// Readable from outside so a TAP can mean "add this element" while a
+    /// finger is held, the same way a drag means "add what I enclose".
+    var isModifierFingerDown: Bool { modifierFingerDown }
+
     private var modifierFingerDown: Bool {
         guard let root = view, let pencil = pencilTouch else { return false }
         let tip = pencil.location(in: root)

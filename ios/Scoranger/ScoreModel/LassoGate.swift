@@ -63,15 +63,22 @@ enum LassoGate {
     // ignores fingers entirely while the Pencil is down, which is what makes
     // Pencil selection work at all.
 
-    /// Above this contact width a touch is a palm, not a fingertip. A
-    /// fingertip reports roughly 5-12pt; a resting hand is much broader.
-    /// PROVISIONAL: to be set from Ali's reported numbers.
-    static let palmRadius: CGFloat = 18
+    /// Above this contact width a touch is a palm, not a fingertip.
+    ///
+    /// STILL PROVISIONAL, and widened from 18 after Ali could not make the add
+    /// work at all. 18 was too strict in the direction that hurts: a firm
+    /// fingertip reports 15-20pt on this hardware, so a deliberate press could
+    /// be read as a palm, while a real resting hand is broader still. The two
+    /// errors are not equal -- calling a palm a finger only makes a lasso add
+    /// when it should replace, which the user sees and can undo, whereas
+    /// calling a finger a palm makes the feature appear not to exist.
+    static let palmRadius: CGFloat = 26
 
     /// Nearer than this to the Pencil tip, a contact is the hand holding the
     /// Pencil. The modifier finger is the OTHER hand and lands well away.
-    /// PROVISIONAL: to be set from Ali's reported numbers.
-    static let modifierMinDistance: CGFloat = 160
+    /// PROVISIONAL, widened from 160 for the same reason: a finger held near
+    /// the passage being lassoed is closer to the tip than a whole arm's reach.
+    static let modifierMinDistance: CGFloat = 110
 
     /// Is this finger a deliberate "add to the selection" modifier?
     ///
@@ -134,5 +141,18 @@ enum LassoGate {
         case 2:  return .selectBar
         default: return .selectBarAllStaves
         }
+    }
+
+    /// What a single Pencil tap means when a finger is being held.
+    ///
+    /// Ali held a finger and TAPPED, and nothing happened -- correctly, by the
+    /// old rule: a plain tap drops the element under it, and there was nothing
+    /// selected to drop. But holding a finger says "add", and the tap says
+    /// which element, so the two together are a clear instruction and should be
+    /// obeyed. Adding one at a time is also the natural way to build a chord up.
+    enum TapWithFinger: Equatable { case addElement, dropElement }
+
+    static func singleTap(modifierFingerDown: Bool) -> TapWithFinger {
+        modifierFingerDown ? .addElement : .dropElement
     }
 }

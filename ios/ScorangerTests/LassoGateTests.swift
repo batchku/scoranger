@@ -194,4 +194,66 @@ final class LassoGateTests: XCTestCase {
     func testThreeTapsSelectTheBarEverywhere() {
         XCTAssertEqual(LassoGate.tap(count: 3), .selectBarAllStaves)
     }
+
+    // MARK: - A held finger must never break Pencil selection (0.3.1 #2)
+
+    /// Ali held a finger and reported the Pencil "does nothing". The rule that
+    /// has to hold whatever the classifier decides: a Pencil DRAG still lassos.
+    /// A misclassified finger may cost the user the add; it may never cost
+    /// them selection itself.
+    func testAPencilDragLassosWhateverTheFingerIsDoing() {
+        for held in [true, false] {
+            XCTAssertTrue(LassoGate.lassoBegins(isPencil: true, markupActive: false),
+                          "the lasso must not depend on finger state (held: \(held))")
+            XCTAssertNotEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                                modifierFingerDown: held),
+                              .leaveAlone,
+                              "a held finger must not make the Pencil inert")
+        }
+    }
+
+    /// The two outcomes differ only in what happens to the EXISTING selection.
+    func testTheFingerOnlyDecidesAddVersusReplace() {
+        XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                         modifierFingerDown: true), .addToExisting)
+        XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                         modifierFingerDown: false), .replaceNow)
+    }
+
+    /// What Ali actually did: held a finger and TAPPED. By the old rule that
+    /// dropped the element under the Pencil, and nothing was selected to drop,
+    /// so nothing happened -- correct, and useless.
+    func testAHeldFingerTurnsATapIntoAnAdd() {
+        XCTAssertEqual(LassoGate.singleTap(modifierFingerDown: true), .addElement)
+    }
+
+    func testATapWithNoFingerStillDrops() {
+        XCTAssertEqual(LassoGate.singleTap(modifierFingerDown: false), .dropElement)
+    }
+
+    /// The thresholds are provisional, so what is pinned is the DIRECTION they
+    /// must err in. Calling a palm a finger makes a lasso add when it should
+    /// replace: visible, and undone by lassoing again. Calling a finger a palm
+    /// makes the feature look like it does not exist, which is what happened.
+    func testAFirmFingertipIsNotMistakenForAPalm() {
+        XCTAssertTrue(LassoGate.isDeliberateModifierFinger(
+            radius: 20, distanceFromPencil: 200),
+                      "a firm fingertip reads around 15-20pt and must still count")
+    }
+
+    func testAFingerHeldNearThePassageStillCounts() {
+        XCTAssertTrue(LassoGate.isDeliberateModifierFinger(
+            radius: 11, distanceFromPencil: 130),
+                      "a finger does not have to be an arm's reach away")
+    }
+
+    func testABroadRestingContactIsStillAPalm() {
+        XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
+            radius: 34, distanceFromPencil: 200))
+    }
+
+    func testAContactRightBesideTheTipIsStillTheDrawingHand() {
+        XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
+            radius: 11, distanceFromPencil: 40))
+    }
 }
