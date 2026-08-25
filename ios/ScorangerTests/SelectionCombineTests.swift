@@ -127,4 +127,67 @@ final class SelectionCombineTests: XCTestCase {
         XCTAssertEqual(SelectionCombine.replace.strokeIsWarning,
                        SelectionCombine.add.strokeIsWarning)
     }
+
+    // MARK: - A lasso never catches the bar it is drawn inside (#9, #10a)
+
+    private func measureAddress(_ m: Int, staff: Int = 1) -> ScoreAddress {
+        ScoreAddress(staff: staff, measure: m, layer: 1, kind: .measure, ordinal: 0)
+    }
+
+    /// A <measure> element's frame spans the whole bar across every staff, so
+    /// a lasso over three notes caught the measure too and lit the entire bar
+    /// (#9). One cause; the stray whole-bar selection from tapping empty space
+    /// (#10a) is the same element caught the same way.
+    func testALassoDropsTheBarAndKeepsTheNotes() {
+        let caught = [address(15, 0), measureAddress(15), address(15, 1)]
+        XCTAssertEqual(ScoreSelection.selectable(caught),
+                       [address(15, 0), address(15, 1)])
+    }
+
+    func testALassoOverEmptySpaceCatchesNothingRatherThanTheWholeBar() {
+        XCTAssertTrue(ScoreSelection.selectable([measureAddress(15)]).isEmpty)
+    }
+
+    func testNotesAreUntouchedByTheFilter() {
+        let notes = [address(1), address(2), address(3)]
+        XCTAssertEqual(ScoreSelection.selectable(notes), notes)
+    }
+
+    // MARK: - What the chip says (#4a, #4b)
+
+    func testTheHeadlineCountsAndNamesTheBar() {
+        XCTAssertEqual(selection([15, 15, 15]).headline, "3 elements from bar 15")
+    }
+
+    func testOneElementIsNotPluralised() {
+        XCTAssertEqual(selection([15]).headline, "1 element from bar 15")
+    }
+
+    func testASelectionSpanningBarsSaysSo() {
+        XCTAssertEqual(selection([15, 16, 17]).headline, "3 elements from bars 15–17")
+    }
+
+    func testTheChipNamesTheStaffAndVoice() {
+        let s = ScoreSelection(addresses: [
+            ScoreAddress(staff: 3, measure: 15, layer: 2, kind: .note, ordinal: 0)])
+        XCTAssertEqual(s.placeLine, "staff 3 · voice 2")
+    }
+
+    func testASelectionAcrossStavesListsThem() {
+        let s = ScoreSelection(addresses: [
+            ScoreAddress(staff: 1, measure: 15, layer: 1, kind: .note, ordinal: 0),
+            ScoreAddress(staff: 2, measure: 15, layer: 1, kind: .note, ordinal: 0)])
+        XCTAssertEqual(s.placeLine, "staves 1, 2 · voice 1")
+    }
+
+    // MARK: - The addresses an op is scoped to (#7)
+
+    /// The list handed to the engine has to be exactly what was selected, in
+    /// the engine's own address syntax -- this is the string that decides
+    /// which notes get transposed.
+    func testTheAddressListIsTheEnginesSyntax() {
+        let s = ScoreSelection(addresses: [
+            ScoreAddress(staff: 1, measure: 15, layer: 1, kind: .note, ordinal: 3)])
+        XCTAssertEqual(s.addressList, ["s1/m15/l1/note#3"])
+    }
 }

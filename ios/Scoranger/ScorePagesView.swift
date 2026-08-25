@@ -18,6 +18,9 @@ struct ScorePagesView: View {
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
     @State private var rasterZoom: CGFloat = 1.0
+    /// The viewport in content coordinates, and the rows worth drawing at
+    /// depth. Everything else renders at a cheap scale.
+    @State private var visibleRect: CGRect = .zero
     /// Pencil markup: the shared controller, driven from the pill.
     private var annotation: AnnotationController { state.annotation }
 
@@ -36,20 +39,29 @@ struct ScorePagesView: View {
                                select(path: path, onPage: page, adding: adding)
                            },
                            onUndoTap: { _ = annotation.undo() },
-                           onTap: { page, point in
-                               state.dropFromSelection(at: point, onPage: page)
+                           onTap: { page, point, taps in
+                               state.handleTap(at: point, onPage: page, taps: taps)
                            },
+                           onWillReplaceSelection: { state.clearSelection() },
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
                            bottomChrome: Theme.Metric.pillHeight
                                + Theme.Metric.s20 + Theme.Metric.s12,
+                           onVisibleRectChange: { visibleRect = $0 },
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
-                let stepped = (settled * 2).rounded() / 2
+                // finer steps than before: at 12x, half-scale rounding threw
+                // away most of the resolution the zoom had asked for
+                let stepped = (settled * 4).rounded() / 4
                 if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
                 pageStack(width: width, viewport: geo.size)
+            }
+            .onAppear {
+                if visibleRect == .zero {
+                    visibleRect = CGRect(origin: .zero, size: geo.size)
+                }
             }
         }
         .overlay(alignment: .top) { selectionChip }
@@ -73,15 +85,24 @@ struct ScorePagesView: View {
         // deterministically. PDFPageImage caps its raster size to compensate.
         let rows = SpreadLayout.rows(pageCount: document.pageCount,
                                      spread: state.twoPageSpread)
+        let heights = rows.map { row -> CGFloat in
+            row.compactMap { index -> CGFloat? in
+                guard let page = document.page(at: index) else { return nil }
+                let bounds = page.bounds(for: .mediaBox)
+                return width * bounds.height / max(bounds.width, 1)
+            }.max() ?? width
+        }
+        let drawn = SpreadLayout.visibleRows(heights: heights, visible: visibleRect)
         VStack(spacing: SpreadLayout.gutter) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                 // .top: a spread's two pages can differ in height (the last
                 // page of a score is often short), and they should share a
                 // top edge rather than float about a common centre
                 HStack(alignment: .top, spacing: SpreadLayout.gutter) {
                     ForEach(row, id: \.self) { index in
                         if let page = document.page(at: index) {
-                            pageView(page, index: index, width: width)
+                            pageView(page, index: index, width: width,
+                                     atDepth: drawn.contains(rowIndex))
                         }
                     }
                 }
@@ -96,10 +117,11 @@ struct ScorePagesView: View {
     /// land on the page it was drawn on: the recognizer picks the anchor whose
     /// frame contains the touch, so the right-hand page of a spread selects
     /// from itself and not from its neighbour.
-    private func pageView(_ page: PDFPage, index: Int, width: CGFloat) -> some View {
+    private func pageView(_ page: PDFPage, index: Int, width: CGFloat,
+                          atDepth: Bool) -> some View {
         PageView(page: page,
                  width: width,
-                 rasterZoom: rasterZoom,
+                 rasterZoom: atDepth ? rasterZoom : 1,
                  drawingStore: DrawingStore.shared,
                  drawingKey: "\(annotationKey)/p\(index)",
                  annotation: annotation)
@@ -113,8 +135,7 @@ struct ScorePagesView: View {
             }
             .overlay {
                 LassoAnchor(pageIndex: index,
-                            committed: state.selectionPaths[index] ?? [],
-                            subtracting: state.combineMode == .subtract)
+                            committed: state.selectionPaths[index] ?? [])
                     .allowsHitTesting(false)
             }
             .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
@@ -135,19 +156,25 @@ struct ScorePagesView: View {
 
     // MARK: selection chip
 
-    /// §7.10 as before, but describing a real selection rather than an
-    /// estimate: what was caught, and a way to drop it.
+    /// What is selected, in the user's terms, and what can be done with it.
+    ///
+    /// The Replace/Add/Subtract modes are gone. Adding is a finger of the other
+    /// hand held down while the Pencil draws -- a thing the hands do rather
+    /// than a mode to be in -- and the modes were a trap: Subtract emptied the
+    /// selection, an empty selection hid the chip, and the chip was the only
+    /// way back out.
+    ///
+    /// Nothing reaches the chat box until "Use in chat" is tapped. A lasso is
+    /// not a request to start typing.
     @ViewBuilder
     private var selectionChip: some View {
         if let selection = state.activeSelection, !selection.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Metric.s6) {
                 HStack(spacing: Theme.Metric.s8) {
-                    Text("Selection").typeRole(.label)
+                    Text(selection.headline).typeRole(.label)
                         .foregroundStyle(Theme.Accent.clayStrong)
                         // named here rather than on the container: an
-                        // identifier on a container is inherited by every
-                        // child, which left the mode buttons all called
-                        // "selection-chip" and unfindable by their own names
+                        // identifier on a container is inherited by every child
                         .accessibilityIdentifier("selection-chip")
                     Spacer(minLength: Theme.Metric.s8)
                     Button {
@@ -163,18 +190,25 @@ struct ScorePagesView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear selection")
                 }
-                HStack(spacing: Theme.Metric.s4) {
-                    let bars = selection.bars
-                    barCell("\(bars.first ?? 0)")
-                    if bars.count > 1 {
-                        Text("–").typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        barCell("\(bars.last ?? 0)")
-                    }
-                    Text("\(selection.addresses.count) elements").typeRole(.meta)
+                if let place = selection.placeLine {
+                    Text(place).typeRole(.meta)
                         .foregroundStyle(Theme.Ink.ink3)
+                        .accessibilityIdentifier("selection-place")
                 }
-                combineModes
-                Text("tap an element to drop it").typeRole(.meta)
+                if let note = state.selectionCarryNote {
+                    Text(note).typeRole(.meta)
+                        .foregroundStyle(Theme.Status.warn)
+                        .accessibilityIdentifier("selection-carry-note")
+                }
+                HStack(spacing: Theme.Metric.s8) {
+                    PanelButton(title: "Use in chat", kind: .primary) {
+                        state.confirmSelectionForChat()
+                    }
+                    .accessibilityIdentifier("selection-confirm")
+                    Spacer(minLength: 0)
+                }
+                Text("Hold a finger down to add · tap an element to drop it")
+                    .typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
             }
             .padding(.horizontal, Theme.Metric.s12)
@@ -190,37 +224,6 @@ struct ScorePagesView: View {
         }
     }
 
-    /// What the next lasso does to this selection. A mode, not a gesture: a
-    /// lasso that removes has to be something the user chose, because over a
-    /// region holding both selected and unselected elements there is no way to
-    /// guess which they meant.
-    private var combineModes: some View {
-        HStack(spacing: Theme.Metric.s2) {
-            ForEach(SelectionCombine.allCases, id: \.self) { mode in
-                let active = state.combineMode == mode
-                Button { state.combineMode = mode } label: {
-                    Text(mode.label)
-                        .typeRole(.meta)
-                        .foregroundStyle(active ? Theme.Surface.paper : Theme.Ink.ink2)
-                        .padding(.vertical, Theme.Metric.s2)
-                        .padding(.horizontal, Theme.Metric.s6)
-                        .background(active
-                                    ? (mode.strokeIsWarning ? Theme.Status.danger
-                                                            : Theme.Accent.clay)
-                                    : Theme.Surface.well)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("combine-\(mode.rawValue)")
-                .accessibilityAddTraits(active ? [.isSelected] : [])
-            }
-        }
-    }
-
-    /// A finished lasso: everything whose position falls inside it, on this
-    /// page, whatever kind it is — notes, chord symbols, clefs, dynamics.
-    /// Selecting "a bar" is lassoing the notes in it.
     private func select(path: [CGPoint], onPage index: Int, adding: Bool) {
         guard let page = state.geometry?.page(index) else {
             state.selectionPaths = [index: path]
@@ -233,18 +236,6 @@ struct ScorePagesView: View {
         state.commitSelection(caught, path: path, page: index, adding: adding)
     }
 
-    private func barCell(_ text: String) -> some View {
-        Text(text)
-            .typeRole(.data)
-            .foregroundStyle(Theme.Ink.ink)
-            .padding(.vertical, Theme.Metric.s2)
-            .padding(.horizontal, Theme.Metric.s6)
-            .background(Theme.Surface.well)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
-    }
 }
 
 /// The ink tools, on screen only while edit mode is on.
@@ -332,11 +323,20 @@ private struct PDFPageImage: View {
             .frame(width: size.width, height: size.height)
     }
 
+    /// The widest a page may be rastered, in pixels.
+    ///
+    /// This was 3000 while EVERY page rastered at the settled zoom: eight of
+    /// them at that width is around 380MB, and the watchdog has killed this app
+    /// for less. Now only the rows near the viewport draw at depth (see
+    /// SpreadLayout.visibleRows), so the budget buys resolution where it can be
+    /// seen instead of spreading it over pages that are off screen. Three rows
+    /// at 5200px is roughly 320MB in the worst case and typically far less,
+    /// while the pages nobody is looking at cost about 2MB each.
+    private static let maxRasterWidth: CGFloat = 5200
+
     private func render() -> UIImage {
-        // 2x for crispness, scaled up with the settled zoom, but bounded: an
-        // unbounded raster across a zoomed multi-page score runs to hundreds of
-        // megabytes.
-        let scale = min(2.0 * rasterZoom, 3000 / max(size.width, 1))
+        // 2x for crispness, scaled up with the settled zoom, still bounded.
+        let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
         return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
                               for: .mediaBox)
     }

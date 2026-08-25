@@ -67,4 +67,65 @@ final class SpreadLayoutTests: XCTestCase {
         XCTAssertGreaterThan(SpreadLayout.pageWidth(viewport: 1, spread: true), 0)
         XCTAssertGreaterThan(SpreadLayout.pageWidth(viewport: 0, spread: false), 0)
     }
+
+    // MARK: - Which rows get rastered
+
+    /// Deep zoom is only affordable if most pages are NOT drawn at full
+    /// resolution. Every page used to raster eagerly at the same scale, which
+    /// is why the cap had to stay low and why the score went soft past about
+    /// 2.5x. This decides which rows are worth the pixels.
+
+    private let heights: [CGFloat] = [800, 800, 800, 800]
+
+    func testTheRowUnderTheViewportIsVisible() {
+        let rows = SpreadLayout.visibleRows(
+            heights: heights, visible: CGRect(x: 0, y: 0, width: 600, height: 500))
+        XCTAssertTrue(rows.contains(0))
+    }
+
+    func testAViewportInTheMiddleOfTheStackPicksThatRow() {
+        // row 2 spans roughly y 1624...2424 with a 12pt gutter
+        let rows = SpreadLayout.visibleRows(
+            heights: heights, visible: CGRect(x: 0, y: 1800, width: 600, height: 300))
+        XCTAssertTrue(rows.contains(2), "the row under the viewport was not drawn")
+    }
+
+    func testNeighboursAreIncludedSoScrollingNeverMeetsABlankPage() {
+        let rows = SpreadLayout.visibleRows(
+            heights: heights, visible: CGRect(x: 0, y: 1800, width: 600, height: 300))
+        XCTAssertTrue(rows.contains(1), "the row above was not pre-drawn")
+        XCTAssertTrue(rows.contains(3), "the row below was not pre-drawn")
+    }
+
+    func testFarAwayRowsAreLeftOut() {
+        // the whole point: a four-page score must not draw all four at depth
+        let rows = SpreadLayout.visibleRows(
+            heights: [800, 800, 800, 800, 800, 800, 800, 800],
+            visible: CGRect(x: 0, y: 0, width: 600, height: 400))
+        XCTAssertFalse(rows.contains(5))
+        XCTAssertLessThan(rows.count, 8, "every row was drawn; nothing was saved")
+    }
+
+    func testAViewportOutsideTheContentStillDrawsSomething() {
+        // happens mid-resize: better a page than a blank canvas
+        let rows = SpreadLayout.visibleRows(
+            heights: heights, visible: CGRect(x: 0, y: 99_000, width: 600, height: 400))
+        XCTAssertFalse(rows.isEmpty)
+    }
+
+    func testAnEmptyDocumentAsksForNothing() {
+        XCTAssertTrue(SpreadLayout.visibleRows(
+            heights: [], visible: CGRect(x: 0, y: 0, width: 600, height: 400)).isEmpty)
+    }
+
+    func testZoomingInNarrowsTheViewportAndSoTheRowSet() {
+        let wide = SpreadLayout.visibleRows(
+            heights: [800, 800, 800, 800, 800, 800],
+            visible: CGRect(x: 0, y: 0, width: 600, height: 2400))
+        let deep = SpreadLayout.visibleRows(
+            heights: [800, 800, 800, 800, 800, 800],
+            visible: CGRect(x: 0, y: 0, width: 600, height: 200))
+        XCTAssertLessThan(deep.count, wide.count,
+                          "zooming in should shrink the set of pages worth drawing")
+    }
 }

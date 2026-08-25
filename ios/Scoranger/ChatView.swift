@@ -9,6 +9,24 @@ struct ChatView: View {
     @StateObject private var dictation = SpeechDictation()
     /// Draft text at the moment dictation started; recognized speech appends to it.
     @State private var dictationBase = ""
+    /// How tall the input box is, in lines of text. Six by default: three was
+    /// enough for "transpose down a third" and not for anything a person
+    /// actually wants to say about a selection.
+    @AppStorage("chatInputLines") private var inputLines: Double = 6
+    /// Live drag offset, applied on top of `inputLines` until the grip is let go.
+    @State private var dragLines: Double = 0
+
+    /// The range the grip can drag through. Two lines is still usable; above
+    /// about fourteen the transcript has no room left on an iPad in a panel.
+    private static let lineRange: ClosedRange<Double> = 2...14
+    /// One line of the input's body text, near enough for the drag to feel
+    /// like it is moving lines rather than pixels.
+    private static let lineHeight: CGFloat = 21
+
+    private var effectiveLines: Int {
+        Int(min(max(inputLines + dragLines, Self.lineRange.lowerBound),
+                Self.lineRange.upperBound).rounded())
+    }
 
     private var slug: String? { state.selectedScore?.slug }
     /// How many arrangements the open one shares its piece with (1 = it's alone,
@@ -45,6 +63,7 @@ struct ChatView: View {
                     proxy.scrollTo("live-progress", anchor: .bottom)
                 }
             }
+            inputGrip
             inputBar
         }
         .background(Theme.Surface.panel)
@@ -184,6 +203,46 @@ struct ChatView: View {
         inputFocused = true
     }
 
+    /// The divider between the transcript and the input, draggable.
+    ///
+    /// Dragging UP makes the box taller, which is why the sign is inverted: the
+    /// grip is at the box's top edge, so moving it up grows the box downward
+    /// into the space the transcript gives back.
+    private var inputGrip: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Theme.Line.line2)
+                .frame(height: 1)
+            Capsule()
+                .fill(Theme.Ink.ink3.opacity(0.55))
+                .frame(width: 34, height: 3)
+                .padding(.vertical, Theme.Metric.s6)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.Surface.panel)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { value in
+                    dragLines = Double(-value.translation.height / Self.lineHeight)
+                }
+                .onEnded { _ in
+                    inputLines = Double(effectiveLines)
+                    dragLines = 0
+                }
+        )
+        .accessibilityIdentifier("chat-input-grip")
+        .accessibilityLabel("Resize the message box")
+        .accessibilityValue("\(effectiveLines) lines")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: inputLines = min(inputLines + 1, Self.lineRange.upperBound)
+            case .decrement: inputLines = max(inputLines - 1, Self.lineRange.lowerBound)
+            @unknown default: break
+            }
+        }
+    }
+
     // MARK: - Input (§7.13)
 
     private var inputBar: some View {
@@ -197,7 +256,9 @@ struct ChatView: View {
                 // which is white wherever the OS thinks it is dark
                 .foregroundStyle(Theme.Ink.ink)
                 .tint(Theme.Accent.clay)
-                .lineLimit(1...4)
+                .lineLimit(1...effectiveLines)
+                .frame(minHeight: CGFloat(effectiveLines) * Self.lineHeight,
+                       alignment: .topLeading)
                 .focused($inputFocused)
                 .onSubmit(send)
                 .padding(.vertical, 9)

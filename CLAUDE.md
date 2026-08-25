@@ -36,11 +36,12 @@ So:
 - **Material arriving from outside is accepted as it is.** OMR is imperfect by
   nature and the user brings a score in *so they can fix it*.
 - **Proof belongs in the checks, which run before a release, not in front of a
-  user.** Five of them, and every fix in them was reverted in turn to confirm
+  user.** Eight of them, and every fix in them was reverted in turn to confirm
   the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
   marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
-  `check_structure.py` and `check_whistle.py` (notation).
+  `check_structure.py` and `check_whistle.py` (notation), and
+  `check_addresses.py` (a selection-scoped op touches only what was selected).
 
 ## The engine CLI
 
@@ -56,6 +57,15 @@ scor versions <score>                   # version history with the op that made 
 scor keep-parts <score> --parts "Violin I,Viola"
 scor remove-parts <score> --parts "Piano"
 scor transpose <score> --interval M2 [--parts "..."]     # m2/M2/P4/P5/-M2/P8...
+scor transpose-elements <score> --interval M2 --elements "s1/m15/l1/note#0,s1/m15/l1/note#1"
+  # transpose ONLY those elements. An address is staff/measure/layer/kind#ordinal,
+  # as the iPad's lasso produces it from Verovio's MEI. Use this, never a measure
+  # range, when the user means a selection: a range moves every note in the bar.
+  # The MEI->music21 join is proven in engine/scripts/check_addresses.py, which
+  # engraves fixtures with the real Verovio and asserts each address resolves to
+  # the pitch the MEI names (226/226). The subtle part: MEI counts a chord's
+  # notes individually, music21 holds a chord as ONE object -- resolving by
+  # stream position lands on the wrong pitch from the first chord onwards.
 scor merge-parts <score> --parts "Viola,Violoncello" --name "Accordion L.H." --clef bass
 scor split-bass <score> --part "Accordion L.H." --bass-name "Acc. Bass" --chords-name "Acc. Chords" [--instrument Accordion]
 scor consolidate-ties <score> --parts "Acc. Bass,Acc. Chords"

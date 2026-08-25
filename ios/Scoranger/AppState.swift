@@ -59,6 +59,50 @@ final class AppState: ObservableObject {
     /// one stroke without disturbing it.
     @Published var combineMode: SelectionCombine = .replace
 
+    /// Carry a selection across a re-engrave, or drop it.
+    ///
+    /// An op makes a NEW VERSION of the same score, and the notes the user
+    /// selected are still there -- so clearing the selection every time meant
+    /// running two operations on the same passage required lassoing it twice.
+    /// Addresses are durable by design (staff/measure/layer/kind#ordinal, not a
+    /// rendered id), so they are simply looked up again in the new engraving.
+    ///
+    /// Only within one score: switching arrangement, or to an unrelated
+    /// version, is a different subject and the selection goes.
+    private func carrySelection(from previous: String?, to key: String,
+                                into model: ScoreGeometry?) {
+        guard let selection, !selection.isEmpty,
+              let previous, selectionKey == previous,
+              previous.split(separator: "/").first == key.split(separator: "/").first,
+              let model else {
+            clearSelection()
+            return
+        }
+        let survived = selection.addresses.filter { model.element(at: $0) != nil }
+        guard !survived.isEmpty else {
+            clearSelection()
+            selectionCarryNote = "The selection is gone: the edit removed everything in it."
+            return
+        }
+        let lost = selection.addresses.count - survived.count
+        self.selection = ScoreSelection(addresses: survived)
+        selectionKey = key
+        selectionPaths = [:]   // the drawn outline described the old engraving
+        selectionCarryNote = lost == 0 ? nil
+            : "\(lost) of \(selection.addresses.count) selected elements no longer exist."
+    }
+
+    /// Said once, on the chip, when an edit did not leave the selection whole.
+    @Published var selectionCarryNote: String?
+
+    /// Hand the finished selection to chat. Called by the chip's confirm
+    /// button, never by a gesture.
+    func confirmSelectionForChat() {
+        guard let selection = activeSelection, !selection.isEmpty else { return }
+        pendingChatInsert = selection.chatReference
+        chatOpenRequest += 1
+    }
+
     /// Drop the active selection and its drawn lasso.
     ///
     /// The mode goes with it: it is meaningless without a selection, and
@@ -96,9 +140,57 @@ final class AppState: ObservableObject {
         // never be changed back
         combineMode = SelectionCombine.modeAfter(combineMode,
                                                  selectionIsEmpty: combined.isEmpty)
-        guard let selection, !selection.isEmpty else { return }
-        pendingChatInsert = selection.chatReference
-        chatOpenRequest += 1
+        // Nothing is inserted into the chat box here any more (#4c). The user
+        // builds the selection up -- lasso, add with a held finger, drop what
+        // they did not mean -- and hands it over when it is right, by tapping
+        // Use in chat on the chip. Auto-inserting on every lasso appended a
+        // line each time and filled the box with references to selections that
+        // had already been replaced. Chat is not opened either: a lasso is not
+        // a request to start typing.
+    }
+
+    /// A Pencil tap on the page. One drops an element, two select the bar on
+    /// that staff, three select the bar across all staves (#10b).
+    ///
+    /// Deliberate, and only deliberate: a bar can no longer be caught by a
+    /// lasso or a stray single tap, because bar-like kinds are filtered out of
+    /// everything else (#9, #10a). Asking for a bar is the only way to get one.
+    @discardableResult
+    func handleTap(at point: CGPoint, onPage index: Int, taps: Int) -> Bool {
+        switch LassoGate.tap(count: taps) {
+        case .dropElement:
+            return dropFromSelection(at: point, onPage: index)
+        case .selectBar:
+            return selectBar(at: point, onPage: index, allStaves: false)
+        case .selectBarAllStaves:
+            return selectBar(at: point, onPage: index, allStaves: true)
+        }
+    }
+
+    /// The bar under a point, as a selection of everything in it.
+    ///
+    /// A bar selection is expressed as the ELEMENTS of the bar, not as the
+    /// measure element itself: that is what makes it usable by an op scoped to
+    /// addresses, and what keeps the highlight on the notes rather than
+    /// painting a block over the system.
+    @discardableResult
+    private func selectBar(at point: CGPoint, onPage index: Int,
+                           allStaves: Bool) -> Bool {
+        guard let geometry, let page = geometry.page(index) else { return false }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        guard let bar = page.element(at: scaled, kinds: ScoreElementKind.barLike)?.address
+        else { return false }
+        let members = geometry.addresses.filter { address in
+            guard address.measure == bar.measure,
+                  !ScoreElementKind.barLike.contains(address.kind) else { return false }
+            return allStaves || address.staff == bar.staff
+        }
+        guard !members.isEmpty else { return false }
+        selection = ScoreSelection(addresses: members)
+        selectionKey = geometryKey
+        selectionPaths = [:]
+        combineMode = .replace
+        return true
     }
 
     /// Tapping a selected element drops just that one — the single correction
@@ -115,7 +207,9 @@ final class AppState: ObservableObject {
         let left = selection.dropping(hit)
         self.selection = left.isEmpty ? nil : left
         if left.isEmpty { selectionPaths = [:] }
-        pendingChatInsert = left.isEmpty ? nil : left.chatReference
+        selectionKey = left.isEmpty ? nil : selectionKey
+        combineMode = SelectionCombine.modeAfter(combineMode,
+                                                 selectionIsEmpty: left.isEmpty)
         return true
     }
 
@@ -538,9 +632,9 @@ final class AppState: ObservableObject {
                 rendered = true
                 pdfDocument = PDFDocument(data: data)
                 geometry = model
+                let previousKey = geometryKey
                 geometryKey = key
-                // the old lasso described elements of the page just replaced
-                clearSelection()
+                carrySelection(from: previousKey, to: key, into: model)
                 lastError = nil
             }
         } catch let e as EngineError {
@@ -1150,12 +1244,25 @@ final class AppState: ObservableObject {
     func chatContextWithHighlight(for slug: String) -> String? {
         var pieces: [String] = []
         if let base = chatContext(for: slug) { pieces.append(base) }
-        if let description = activeSelection?.chatDescription {
-            pieces.append(description
-                + " Requests referring to 'the selection' or 'the highlighted "
-                + "passage' mean exactly those bars: pass from_measure/to_measure "
-                + "to tools that accept them, and ask before making whole-piece "
-                + "changes while a selection is active.")
+        if let selection = activeSelection, !selection.isEmpty {
+            // The addresses themselves, not a bar range.
+            //
+            // This used to say "pass from_measure/to_measure", which is why
+            // Ali selected one chord, asked to move those notes up, and the
+            // whole bar moved: the selection was degraded to its bar number
+            // before the model ever saw it, and the op did exactly what it was
+            // told. The addresses are what the lasso actually caught.
+            let list = selection.addressList.joined(separator: ", ")
+            pieces.append(
+                "The user has selected \(selection.headline)"
+                + (selection.placeLine.map { " (\($0))" } ?? "") + ". "
+                + "Their addresses are: \(list). "
+                + "'The selection', 'these notes' and 'the highlighted passage' mean "
+                + "EXACTLY those elements. Use transpose_elements with that exact list "
+                + "of addresses. Do NOT use transpose with from_measure/to_measure for a "
+                + "selection: that moves every note in the bar, including ones the user "
+                + "did not select. Ask before making whole-piece changes while a "
+                + "selection is active.")
         }
         return pieces.isEmpty ? nil : pieces.joined(separator: " ")
     }

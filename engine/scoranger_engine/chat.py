@@ -123,6 +123,19 @@ def transpose(ctx: RunContext[str], interval: str, parts: list[str] | None = Non
                   lambda s: ops.transpose(s, interval, parts, from_measure, to_measure))
 
 
+def transpose_elements(ctx: RunContext[str], interval: str, elements: list[str]) -> dict:
+    """Transpose ONLY the given elements, by their addresses.
+
+    Use this -- never plain `transpose` with from_measure/to_measure -- whenever the user
+    refers to a selection and the context lists selected element addresses. An address looks
+    like 's1/m15/l1/note#3' (staff/measure/layer/kind#ordinal); pass exactly the ones the
+    context gives you, unchanged. `transpose` with a measure range moves EVERY note in those
+    bars, which is wrong when the user selected particular notes."""
+    return _apply(ctx.deps, "transpose-elements",
+                  {"interval": interval, "elements": elements},
+                  lambda s: ops.transpose_elements(s, interval, elements))
+
+
 def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None = None,
             from_measure: int | None = None, to_measure: int | None = None) -> dict:
     """Respell accidentals enharmonically: prefer='flats' turns G# into Ab (right for flat keys
@@ -332,6 +345,7 @@ def assign_to_piece(ctx: RunContext[str], piece_name: str) -> dict:
 
 
 TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
+         transpose_elements,
          respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,

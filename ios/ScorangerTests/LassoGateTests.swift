@@ -131,4 +131,67 @@ final class LassoGateTests: XCTestCase {
                                           movement: LassoGate.moveSlop - 1,
                                           elapsed: 0.1))
     }
+
+    // MARK: - What the Pencil landing does to the selection already there (#1, #3)
+
+    /// #1: the previous selection goes the INSTANT the Pencil touches down.
+    /// Watching an old highlight sit under a new lasso until the stroke closed
+    /// read as the app having missed the gesture entirely.
+    func testAPencilLandingWithNoFingerHeldReplacesAtOnce() {
+        XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                         modifierFingerDown: false),
+                       .replaceNow)
+    }
+
+    /// #3: a finger of the other hand already down means this stroke adds.
+    /// Decided from state, so putting the finger down and the Pencil straight
+    /// after works -- there is no delay to wait out.
+    func testAFingerAlreadyDownMakesTheStrokeAdd() {
+        XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                         modifierFingerDown: true),
+                       .addToExisting)
+    }
+
+    func testTheSelectionIsNotTouchedInMarkupMode() {
+        for held in [true, false] {
+            XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: true,
+                                             modifierFingerDown: held),
+                           .leaveAlone,
+                           "drawing ink must not disturb the selection")
+        }
+    }
+
+    func testAFingerLandingDoesNothingAtAll() {
+        XCTAssertEqual(LassoGate.landing(isPencil: false, markupActive: false,
+                                         modifierFingerDown: false),
+                       .leaveAlone,
+                       "a finger neither selects nor clears; it pans")
+    }
+
+    /// The regression this pairing could cause: a resting palm read as a
+    /// modifier turns every lasso into an add, which looks exactly like #1
+    /// being broken. The palm rule is what stands between those.
+    func testAPalmDoesNotSilentlyTurnEveryLassoIntoAnAdd() {
+        let palmIsModifier = LassoGate.isDeliberateModifierFinger(
+            radius: LassoGate.palmRadius + 6,
+            distanceFromPencil: LassoGate.modifierMinDistance - 40)
+        XCTAssertFalse(palmIsModifier)
+        XCTAssertEqual(LassoGate.landing(isPencil: true, markupActive: false,
+                                         modifierFingerDown: palmIsModifier),
+                       .replaceNow)
+    }
+
+    // MARK: - Taps (#10b)
+
+    func testOneTapDropsAnElement() {
+        XCTAssertEqual(LassoGate.tap(count: 1), .dropElement)
+    }
+
+    func testTwoTapsSelectTheBarOnThatStaff() {
+        XCTAssertEqual(LassoGate.tap(count: 2), .selectBar)
+    }
+
+    func testThreeTapsSelectTheBarEverywhere() {
+        XCTAssertEqual(LassoGate.tap(count: 3), .selectBarAllStaves)
+    }
 }

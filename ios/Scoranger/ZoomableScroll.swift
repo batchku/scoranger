@@ -46,15 +46,21 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onLasso: ((Int, [CGPoint], Bool) -> Void)?
     /// Two fingers tapped without moving: undo the last ink stroke.
     var onUndoTap: (() -> Void)?
-    /// A single tap on a page: (page index, unit point). Used to drop one
-    /// element from the selection.
-    var onTap: ((Int, CGPoint) -> Void)?
+    /// A Pencil tap on a page: (page index, unit point, how many taps).
+    /// One drops an element; two select the bar on that staff; three select the
+    /// bar across every staff.
+    var onTap: ((Int, CGPoint, Int) -> Void)?
+    /// The Pencil landed and this stroke replaces the selection.
+    var onWillReplaceSelection: (() -> Void)?
     /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
     /// cover the end of the score. The caller owns the number because it owns
     /// the pill's geometry.
     var bottomChrome: CGFloat = 0
+    /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
+    /// What it is for: deciding which pages are worth rastering at depth.
+    var onVisibleRectChange: ((CGRect) -> Void)?
     let zoomRange: ClosedRange<CGFloat>
     /// Called with the absolute zoom scale once a pinch settles.
     let onZoomSettled: (CGFloat) -> Void
@@ -108,10 +114,33 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.tapped(_:)))
         tap.cancelsTouchesInView = false
-        tap.allowedTouchTypes = LassoGestureRecognizer.fingerStandsInForPencil
+        let pencilTouchTypes: [NSNumber] =
+            LassoGestureRecognizer.fingerStandsInForPencil
             ? [NSNumber(value: UITouch.TouchType.pencil.rawValue),
                NSNumber(value: UITouch.TouchType.direct.rawValue)]
             : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+        tap.allowedTouchTypes = pencilTouchTypes
+
+        // Two taps in empty space select that bar; three select it across every
+        // staff. The single tap has to wait for both to fail, which costs it
+        // about a third of a second -- the price of the bar gesture existing at
+        // all, and paid only by the tap that drops one element.
+        let doubleTap = UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.cancelsTouchesInView = false
+        doubleTap.allowedTouchTypes = pencilTouchTypes
+        scroll.addGestureRecognizer(doubleTap)
+
+        let tripleTap = UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        tripleTap.numberOfTapsRequired = 3
+        tripleTap.cancelsTouchesInView = false
+        tripleTap.allowedTouchTypes = pencilTouchTypes
+        scroll.addGestureRecognizer(tripleTap)
+
+        tap.require(toFail: doubleTap)
+        doubleTap.require(toFail: tripleTap)
         scroll.addGestureRecognizer(tap)
 
         let host = UIHostingController(rootView: AnyView(content()))
@@ -131,8 +160,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             coordinator?.freezeCanvas(frozen)
         }
         context.coordinator.onTap = onTap
+        context.coordinator.lasso?.onWillReplaceSelection = onWillReplaceSelection
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.onZoomSettled = onZoomSettled
+        context.coordinator.onVisibleRectChange = onVisibleRectChange
         context.coordinator.bottomChrome = bottomChrome
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
@@ -150,7 +181,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         weak var scroll: UIScrollView?
         weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
+        var onVisibleRectChange: ((CGRect) -> Void)?
         var bottomChrome: CGFloat = 0
+        private var lastReportedVisible: CGRect = .zero
         private var laidOutSize: CGSize = .zero
         /// A size measured while zoomed, applied once zoom returns to 1.
         private var pendingSize: CGSize?
@@ -238,7 +271,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             centreIfNeeded()
         }
 
-        var onTap: ((Int, CGPoint) -> Void)?
+        var onTap: ((Int, CGPoint, Int) -> Void)?
 
         /// Pan and zoom are off while a Pencil is down to select.
         ///
@@ -257,7 +290,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             guard let root = recognizer.view else { return }
             let point = recognizer.location(in: root)
             guard let hit = LassoGestureRecognizer.page(at: point, in: root) else { return }
-            onTap?(hit.index, hit.unit)
+            onTap?(hit.index, hit.unit, recognizer.numberOfTapsRequired)
         }
 
         /// The lasso's own state changes need do nothing to the canvas: the
@@ -270,6 +303,30 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             recentre()
             publishZoom(scrollView)
+            reportVisible(scrollView)
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            reportVisible(scrollView)
+        }
+
+        /// The viewport in content coordinates: what is on screen divided by
+        /// the zoom, because the hosted view is scaled by a transform and its
+        /// own geometry never changes.
+        private func reportVisible(_ scrollView: UIScrollView) {
+            let scale = max(scrollView.zoomScale, 0.0001)
+            let rect = CGRect(x: scrollView.contentOffset.x / scale,
+                              y: scrollView.contentOffset.y / scale,
+                              width: scrollView.bounds.width / scale,
+                              height: scrollView.bounds.height / scale)
+            // Only on a real move: this fires continuously through a pan, and
+            // re-rendering the page stack on every frame is what the eager
+            // layout was avoiding in the first place.
+            guard abs(rect.minY - lastReportedVisible.minY) > 24
+                    || abs(rect.height - lastReportedVisible.height) > 24
+                    || lastReportedVisible == .zero else { return }
+            lastReportedVisible = rect
+            onVisibleRectChange?(rect)
         }
 
         private func publishZoom(_ scrollView: UIScrollView) {

@@ -89,4 +89,50 @@ enum LassoGate {
     static func isUndoTap(touches: Int, movement: CGFloat, elapsed: TimeInterval) -> Bool {
         touches == 2 && movement <= moveSlop && elapsed <= tapWindow
     }
+
+    // MARK: - What a Pencil touchdown does to the selection already on the page
+
+    /// What happens to the existing selection the moment the Pencil lands.
+    enum Landing: Equatable {
+        /// Nothing was being held: this is a fresh selection, so the old one
+        /// goes NOW rather than when the stroke finishes. Watching the previous
+        /// highlight sit there through a whole new lasso read as the app having
+        /// missed the gesture.
+        case replaceNow
+        /// A finger of the other hand is down: this lasso adds to what is
+        /// already selected.
+        case addToExisting
+        /// Markup mode: the Pencil is a pen and the selection is not its
+        /// business.
+        case leaveAlone
+    }
+
+    /// Decided at touchdown, from state alone -- no timer, no threshold, no
+    /// waiting. Ali's requirement was explicit: put the finger down and the
+    /// Pencil straight after, and it must already be an add.
+    static func landing(isPencil: Bool, markupActive: Bool,
+                        modifierFingerDown: Bool) -> Landing {
+        guard isPencil, !markupActive else { return .leaveAlone }
+        return modifierFingerDown ? .addToExisting : .replaceNow
+    }
+
+    // MARK: - Bar selection by tapping empty space
+
+    /// What a Pencil tap on a page means, by how many taps.
+    enum Tap: Equatable {
+        /// One: drop the element under it, if it is selected.
+        case dropElement
+        /// Two, on empty space in a bar: select that bar, on that staff.
+        case selectBar
+        /// Three: select that bar across every staff.
+        case selectBarAllStaves
+    }
+
+    static func tap(count: Int) -> Tap {
+        switch count {
+        case 1:  return .dropElement
+        case 2:  return .selectBar
+        default: return .selectBarAllStaves
+        }
+    }
 }

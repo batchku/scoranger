@@ -88,7 +88,22 @@ struct ScoreSelection: Equatable {
     var addresses: [ScoreAddress]
 
     init(_ elements: [ScoreElement]) {
-        addresses = elements.compactMap(\.address)
+        addresses = Self.selectable(elements.compactMap(\.address))
+    }
+
+    /// What a lasso or a tap is allowed to catch.
+    ///
+    /// Never the bar itself. A `<measure>` element's frame spans the whole bar
+    /// across every staff, so lassoing three notes caught the measure too and
+    /// lit up the entire bar (Ali's #9), and tapping empty space caught the
+    /// measure alone and selected the whole bar out of nowhere (#10a). One
+    /// cause, two symptoms.
+    ///
+    /// Bars are still selectable -- deliberately, by double- or triple-tapping
+    /// an empty part of one (#10b), which is the only way to ask for a bar and
+    /// so the only way to get one.
+    static func selectable(_ addresses: [ScoreAddress]) -> [ScoreAddress] {
+        addresses.filter { !ScoreElementKind.barLike.contains($0.kind) }
     }
 
     init(addresses: [ScoreAddress]) { self.addresses = addresses }
@@ -128,6 +143,41 @@ struct ScoreSelection: Equatable {
 
     /// What is dropped into the chat input when a lasso finishes: short, in the
     /// user's terms, and visibly about what they just drew.
+    /// The voices (MEI layers) the selection spans. Layer 0 is the parser's
+    /// "not layer-specific" marker, the same convention `staves` uses.
+    var voices: [Int] { Set(addresses.map(\.layer)).filter { $0 > 0 }.sorted() }
+
+    /// The chip's headline: how many things, and where. "3 elements from bar 15".
+    var headline: String {
+        let n = addresses.count
+        let unit = n == 1 ? "element" : "elements"
+        let bars = self.bars
+        guard let first = bars.first else { return "\(n) \(unit)" }
+        let where_ = bars.count == 1 ? "bar \(first)"
+                                     : "bars \(first)–\(bars[bars.count - 1])"
+        return "\(n) \(unit) from \(where_)"
+    }
+
+    /// The second line: which staff, which voice. Both are in every address
+    /// already; the chip simply never showed them.
+    var placeLine: String? {
+        let staves = self.staves, voices = self.voices
+        var parts: [String] = []
+        if staves.count == 1 { parts.append("staff \(staves[0])") }
+        else if staves.count > 1 {
+            parts.append("staves " + staves.map(String.init).joined(separator: ", "))
+        }
+        if voices.count == 1 { parts.append("voice \(voices[0])") }
+        else if voices.count > 1 {
+            parts.append("voices " + voices.map(String.init).joined(separator: ", "))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The addresses themselves, for an op that must touch exactly these
+    /// elements and nothing else.
+    var addressList: [String] { addresses.map(\.description) }
+
     var chatReference: String {
         guard !isEmpty else { return "" }
         let bars = self.bars

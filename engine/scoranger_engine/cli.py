@@ -98,6 +98,14 @@ def cmd_transpose(a):
     _mutate(a.score, score, "transpose", {"interval": a.interval, "parts": a.parts}, details)
 
 
+def cmd_transpose_elements(a):
+    score = _load(a.score, None)
+    addresses = [t.strip() for t in a.elements.split(",") if t.strip()]
+    details = ops.transpose_elements(score, a.interval, addresses)
+    _mutate(a.score, score, "transpose-elements",
+            {"interval": a.interval, "elements": addresses}, details)
+
+
 def cmd_duplicate(a):
     score = _load(a.score, None)
     name = a.name or f"{a.score} copy"
@@ -387,6 +395,14 @@ def main() -> None:
     s.add_argument("--interval", required=True, help="e.g. M2, m3, P4, -M2, P8")
     s.add_argument("--parts")
     s.set_defaults(fn=cmd_transpose)
+
+    s = sub.add_parser("transpose-elements",
+                       help="Transpose ONLY the named elements (from a lasso selection)")
+    s.add_argument("score")
+    s.add_argument("--interval", required=True)
+    s.add_argument("--elements", required=True,
+                   help="comma-separated addresses, e.g. 's1/m15/l1/note#0,s1/m15/l1/note#1'")
+    s.set_defaults(fn=cmd_transpose_elements)
 
     s = sub.add_parser("duplicate", help="Copy a score (its latest version becomes the copy's v001)")
     s.add_argument("score")

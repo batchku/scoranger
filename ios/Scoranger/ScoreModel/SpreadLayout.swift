@@ -48,4 +48,36 @@ enum SpreadLayout {
             Array(start..<min(start + 2, pageCount))
         }
     }
+
+    /// Which rows of the page stack are on screen.
+    ///
+    /// Pure so the decision that governs what gets rastered can be tested
+    /// without a scroll view. `heights` are the row heights in content
+    /// (unzoomed) points, in order; `visible` is the viewport in the same
+    /// space. A row counts as visible if it touches the viewport at all, and
+    /// its neighbours are included so a scroll does not arrive at a page that
+    /// has not been drawn yet.
+    static func visibleRows(heights: [CGFloat], gutter: CGFloat = SpreadLayout.gutter,
+                            visible: CGRect, neighbours: Int = 1) -> Set<Int> {
+        guard !heights.isEmpty else { return [] }
+        var touching: Set<Int> = []
+        var y: CGFloat = gutter
+        for (index, height) in heights.enumerated() {
+            let band = y...(y + height)
+            if band.lowerBound <= visible.maxY && band.upperBound >= visible.minY {
+                touching.insert(index)
+            }
+            y += height + gutter
+        }
+        // Nothing intersected (an offset outside the content, which happens
+        // mid-resize): fall back to the first row rather than rendering none.
+        if touching.isEmpty { touching.insert(0) }
+        for index in touching {
+            for step in 1...max(neighbours, 1) {
+                if index - step >= 0 { touching.insert(index - step) }
+                if index + step < heights.count { touching.insert(index + step) }
+            }
+        }
+        return touching
+    }
 }

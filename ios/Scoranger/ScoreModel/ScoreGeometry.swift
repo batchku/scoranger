@@ -225,6 +225,10 @@ struct ScoreGeometry {
     /// id has changed but addresses have not.
     func element(at address: ScoreAddress) -> ScoreElement? { byAddress[address] }
 
+    /// Every addressable element in the document, in no particular order.
+    /// Used to expand "this bar" into the elements it holds.
+    var addresses: [ScoreAddress] { Array(byAddress.keys) }
+
     func page(_ index: Int) -> ScorePage? {
         pages.first { $0.index == index }
     }

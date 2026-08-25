@@ -768,7 +768,9 @@ final class ScorangerUITests: XCTestCase {
         // A stroke through a system. Which y holds notes depends on where the
         // page sits, so try a few bands rather than pinning one magic number —
         // what is being tested is that a lasso selects and reaches chat.
-        let chip = app.staticTexts["Selection"]
+        // the chip is now named by its headline ("3 elements from bar 15"),
+        // so it is found by identifier rather than by a fixed word
+        let chip = app.staticTexts["selection-chip"]
         var caught = false
         for y in [0.30, 0.20, 0.42, 0.55] where !caught {
             let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
@@ -780,9 +782,25 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(caught, "nothing was selected by any stroke across the page")
         shot("selection-made")
 
-        // chat opened by itself, carrying the reference
+        // Nothing may have reached chat yet: a lasso is not a request to type.
+        XCTAssertFalse(app.buttons["Close chat"].exists,
+                       "a lasso opened chat by itself; it must wait to be confirmed")
+
+        // the chip says what was caught, in the user's terms
+        let headline = chip.label
+        XCTAssertTrue(headline.contains("element") && headline.contains("bar"),
+                      "the chip should say how many elements and which bar: \(headline)")
+        XCTAssertFalse(app.buttons["combine-replace"].exists,
+                       "the Replace/Add/Subtract modes should be gone")
+        XCTAssertFalse(app.buttons["combine-subtract"].exists)
+
+        // hand it over deliberately
+        let confirm = app.buttons["selection-confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "no Use in chat button")
+        confirm.tap()
+
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 20),
-                      "a finished selection should open chat")
+                      "confirming the selection should open chat")
         let input = app.textFields["chat-input"]
         XCTAssertTrue(input.waitForExistence(timeout: 10), "no chat input")
         let value = (input.value as? String) ?? ""
@@ -899,7 +917,7 @@ final class ScorangerUITests: XCTestCase {
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: 0.85, dy: dy)))
         }
-        XCTAssertFalse(app.staticTexts["Selection"].waitForExistence(timeout: 4),
+        XCTAssertFalse(app.staticTexts["selection-chip"].waitForExistence(timeout: 4),
                        "a finger selected something; fingers only pan and zoom")
         shot("finger-never-selects")
     }
@@ -952,9 +970,11 @@ final class ScorangerUITests: XCTestCase {
         shot("two-finger-undo-outside-markup")
     }
 
-    /// The chip's three modes are what make removal unambiguous: a lasso takes
-    /// things away only when the user said so.
-    func testTheSelectionChipOffersReplaceAddAndSubtract() {
+    /// The chip describes the selection in the user's terms and hands it over
+    /// only when asked. The Replace/Add/Subtract modes are gone: adding is a
+    /// held finger now, and the modes were a trap (Subtract emptied the
+    /// selection, which hid the chip, which was the only way out of Subtract).
+    func testTheChipNamesTheSelectionAndHasNoModes() {
         withPencilStandIn()
         app.buttons["arrangement-\(firstArrangement)"].tap()
         let canvas = app.scrollViews["score-canvas"]
@@ -966,39 +986,31 @@ final class ScorangerUITests: XCTestCase {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
                 .press(forDuration: 0.6,
                        thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
-            caught = app.staticTexts["Selection"].waitForExistence(timeout: 8)
+            caught = app.staticTexts["selection-chip"].waitForExistence(timeout: 8)
         }
         guard caught else { return XCTFail("nothing was selected") }
-        if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
 
-        let replace = app.buttons["combine-replace"]
-        let add = app.buttons["combine-add"]
-        let subtract = app.buttons["combine-subtract"]
-        XCTAssertTrue(replace.waitForExistence(timeout: 10), "no Replace on the chip")
-        XCTAssertTrue(add.exists, "no Add on the chip")
-        XCTAssertTrue(subtract.exists, "no Subtract on the chip")
-        XCTAssertTrue(replace.isSelected, "Replace should be the mode until told otherwise")
+        let headline = app.staticTexts["selection-chip"].label
+        XCTAssertTrue(headline.contains("element"),
+                      "the chip should count what was caught: \(headline)")
+        XCTAssertTrue(headline.lowercased().contains("bar"),
+                      "the chip should name the bar: \(headline)")
 
-        subtract.tap()
-        XCTAssertTrue(subtract.isSelected, "Subtract did not take")
-        XCTAssertFalse(replace.isSelected, "two modes were active at once")
-        shot("selection-subtract-mode")
+        // staff and voice, which were in every address and never shown
+        XCTAssertTrue(app.staticTexts["selection-place"].exists,
+                      "the chip should say which staff and voice")
+        let place = app.staticTexts["selection-place"].label
+        XCTAssertTrue(place.contains("staff") || place.contains("staves"),
+                      "no staff in the chip: \(place)")
+        XCTAssertTrue(place.contains("voice"), "no voice in the chip: \(place)")
 
-        add.tap()
-        XCTAssertTrue(add.isSelected)
-        XCTAssertFalse(subtract.isSelected)
+        // the modes are gone, and with them the trap
+        for mode in ["combine-replace", "combine-add", "combine-subtract"] {
+            XCTAssertFalse(app.buttons[mode].exists, "\(mode) is still on the chip")
+        }
+        shot("selection-chip-redesigned")
     }
 
-    // MARK: - Multi-step journeys
-    //
-    // The single-feature tests above each guard one thing. These walk chains,
-    // because that is where the bugs that reached TestFlight actually lived: a
-    // selection that survived a version switch, a drawing filed under the wrong
-    // key, a numeral that followed the slug instead of the row.
-
-    /// Make an arrangement and put it in a set list: two engine round trips
-    /// and three views of the same thing, which is where numbering and
-    /// membership have disagreed before.
     func testANewArrangementCanBeAddedToASetList() {
         app.buttons["Add an arrangement to \(piece)"].tap()
         let blank = app.buttons["New blank arrangement"]
@@ -1108,7 +1120,7 @@ final class ScorangerUITests: XCTestCase {
             let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
             start.press(forDuration: 0.6,
                         thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
-            caught = app.staticTexts["Selection"].waitForExistence(timeout: 8)
+            caught = app.staticTexts["selection-chip"].waitForExistence(timeout: 8)
         }
         guard caught else { return XCTFail("nothing was selected on the page") }
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
@@ -1119,7 +1131,7 @@ final class ScorangerUITests: XCTestCase {
         guard rows.count > 1 else { return XCTFail("need two versions") }
         rows.element(boundBy: rows.count - 1).tap()
 
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["Selection"], timeout: 40),
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["selection-chip"], timeout: 40),
                       "the selection from the previous version is still showing")
         shot("journey-selection-cleared-on-version-switch")
     }
@@ -1317,7 +1329,7 @@ final class ScorangerUITests: XCTestCase {
                 .press(forDuration: 0.6,
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: dxEnd, dy: dy)))
-            guard app.staticTexts["Selection"].waitForExistence(timeout: 8) else { continue }
+            guard app.staticTexts["selection-chip"].waitForExistence(timeout: 8) else { continue }
             guard input.waitForExistence(timeout: 20) else { continue }
             let now = (input.value as? String) ?? ""
             guard now.count > before.count, let bar = lastBarNumber(in: now) else { continue }

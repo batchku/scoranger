@@ -22,6 +22,9 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// A Pencil went down or came up. The canvas freezes while it is down, so
     /// the resting hand cannot pan the page out from under the stroke.
     var onPencilPresence: ((Bool) -> Void)?
+    /// The Pencil has landed and this stroke will REPLACE the selection: clear
+    /// it now, not when the lasso closes.
+    var onWillReplaceSelection: (() -> Void)?
     /// Markup mode. It changes what the PENCIL does and nothing else.
     var annotationActive = false
 
@@ -42,6 +45,10 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
 
     /// The touch drawing the lasso, once one has been chosen.
     private var drawing: UITouch?
+    /// Whether the stroke in progress adds to the selection, decided once at
+    /// touchdown and never revisited -- a finger lifted mid-stroke must not
+    /// change what the stroke means.
+    private var addsToSelection = false
     /// Every touch currently down, with where and when it landed.
     private var down: [UITouch: (origin: CGPoint, time: TimeInterval)] = [:]
     private var points: [CGPoint] = []
@@ -74,6 +81,26 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     private func elapsed(_ touch: UITouch) -> TimeInterval {
         guard let started = down[touch]?.time else { return 0 }
         return touch.timestamp - started
+    }
+
+    /// Is a finger of the OTHER hand resting on the page?
+    ///
+    /// Small contact AND far from the Pencil tip. Either signal alone is
+    /// wrong: a hand turned sideways rests well away from the tip and is still
+    /// a palm, and a fingertip of the Pencil hand can come to rest right
+    /// beside it. Thresholds are provisional (see LassoGate) until measured on
+    /// real hardware -- the diagnostics readout prints both numbers for
+    /// exactly that.
+    private var modifierFingerDown: Bool {
+        guard let root = view, let pencil = pencilTouch else { return false }
+        let tip = pencil.location(in: root)
+        return down.keys.contains { touch in
+            guard !isPencil(touch) else { return false }
+            let p = touch.location(in: root)
+            return LassoGate.isDeliberateModifierFinger(
+                radius: touch.majorRadius,
+                distanceFromPencil: hypot(p.x - tip.x, p.y - tip.y))
+        }
     }
 
     /// How far this touch is from the Pencil tip, when both are down.
@@ -120,6 +147,22 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         }
         syncCanvasFreeze()
         for touch in touches { report(touch, phase: "began") }
+
+        // Decided here, the instant the Pencil lands: from state alone, with
+        // nothing to wait for. A finger already resting means this stroke adds;
+        // otherwise the previous selection goes now, so the page never shows a
+        // stale highlight underneath a new lasso.
+        guard let pencil = pencilTouch, touches.contains(pencil) else { return }
+        switch LassoGate.landing(isPencil: true, markupActive: annotationActive,
+                                 modifierFingerDown: modifierFingerDown) {
+        case .leaveAlone:
+            addsToSelection = false
+        case .addToExisting:
+            addsToSelection = true
+        case .replaceNow:
+            addsToSelection = false
+            onWillReplaceSelection?()
+        }
     }
 
     private func beginLasso(with touch: UITouch) {
@@ -167,7 +210,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         guard let drawing, touches.contains(drawing) else { return }
         if let anchor { points.append(drawing.location(in: anchor)) }
         if points.count > 2, let anchor {          // a dot is not a lasso
-            onEnd?(anchor.pageIndex, unitPoints(in: anchor), false)
+            onEnd?(anchor.pageIndex, unitPoints(in: anchor), addsToSelection)
         } else {
             anchor?.show([])
         }
@@ -189,6 +232,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         drawing = nil
         points = []
         anchor = nil
+        addsToSelection = false
         down.removeAll()
         syncCanvasFreeze()
     }
@@ -317,19 +361,14 @@ struct LassoAnchor: UIViewRepresentable {
     let pageIndex: Int
     /// The committed lasso for this page, if any.
     let committed: [CGPoint]
-    /// Whether the next lasso removes rather than adds.
-    var subtracting: Bool = false
-
     func makeUIView(context: Context) -> LassoAnchorView {
         let view = LassoAnchorView()
         view.pageIndex = pageIndex
-        view.isSubtracting = subtracting
         return view
     }
 
     func updateUIView(_ view: LassoAnchorView, context: Context) {
         view.pageIndex = pageIndex
-        view.isSubtracting = subtracting
         view.show(committed)
     }
 }

@@ -1634,3 +1634,180 @@ def info(score) -> dict:
         "time_signatures": list(dict.fromkeys(time_sigs)),
         "key_signatures": list(dict.fromkeys(key_sigs)),
     }
+
+
+# --------------------------------------------------------------- selections
+#
+# An element address is what the iPad's lasso produces:
+#
+#     s1/m15/l1/note#3   staff 1, measure 15, layer 1, the 4th note
+#
+# The numbers come from the MEI Verovio engraves, so resolving one against
+# music21 is a JOIN between two models of the same document, and a join that is
+# subtly wrong edits the wrong note -- which is worse than the bug it fixes
+# (an op that hits the whole bar is at least visible). So the mapping is stated
+# here and PROVEN in engine/scripts/check_addresses.py, which engraves fixtures
+# with Verovio, reads the addresses out of the MEI exactly as the app's parser
+# does, resolves each one here, and asserts the pitches agree.
+#
+# The mapping, and the two places it is not the obvious one:
+#
+#   staff N   -> score.parts[N-1], parts in score order (a PartStaff is its own
+#                part in music21 and its own staff in MEI, so grand staves line
+#                up without special-casing)
+#   measure M -> the measure whose NUMBER is M, not the Mth measure: pickups and
+#                OMR output both number measures in ways that are not positions
+#   layer L   -> the voice with id str(L); a measure with no voices at all is
+#                layer 1, which is what Verovio writes for it
+#   note#K    -> the K-th <note> IN DOCUMENT ORDER, counting notes inside
+#                chords individually. music21 holds a chord as ONE element with
+#                several pitches, so resolving by stream position skips notes
+#                and lands on the wrong pitch from the first chord onwards.
+
+_ADDRESS_RE = re.compile(
+    r"^s(?P<staff>\d+)/m(?P<measure>-?\d+)/l(?P<layer>\d+)/(?P<kind>[a-zA-Z]+)#(?P<ordinal>\d+)$")
+
+
+class AddressError(ValueError):
+    """An address that does not parse, or names something not in this score."""
+
+
+def parse_address(text: str) -> dict:
+    m = _ADDRESS_RE.match(str(text).strip())
+    if not m:
+        raise AddressError(
+            f"not an element address: {text!r} (expected e.g. 's1/m15/l1/note#3')")
+    return {"staff": int(m["staff"]), "measure": int(m["measure"]),
+            "layer": int(m["layer"]), "kind": m["kind"].lower(),
+            "ordinal": int(m["ordinal"])}
+
+
+def _layer_stream(measure, layer: int):
+    """The voice an address names, or the measure itself when it has none."""
+    voices = list(measure.voices)
+    if not voices:
+        return measure
+    for v in voices:
+        if str(v.id) == str(layer):
+            return v
+    # Verovio numbers layers 1..n in order; a voice whose id is not a plain
+    # number (music21 accepts any hashable) still has a position.
+    if 1 <= layer <= len(voices):
+        return voices[layer - 1]
+    raise AddressError(f"measure {measure.number} has no layer {layer}")
+
+
+def _notes_in_document_order(container) -> list:
+    """Every sounding note, chords flattened into their own notes.
+
+    Returns (owner, pitch_index) pairs: `owner` is the music21 object to edit
+    and `pitch_index` says which of its pitches this address names -- None for a
+    plain Note, an index into `.pitches` for one note of a chord. Editing has to
+    go through the owner, because a chord's pitch is not an independent object
+    in the stream.
+    """
+    out = []
+    for el in container.getElementsByClass([m21note.Note, m21chord.Chord,
+                                            m21note.Rest]):
+        if isinstance(el, m21chord.Chord):
+            for i in range(len(el.pitches)):
+                out.append((el, i))
+        else:
+            out.append((el, None))
+    return out
+
+
+def resolve_address(score, address: str | dict) -> tuple:
+    """One address -> (owner, pitch_index, kind). Raises AddressError."""
+    a = parse_address(address) if isinstance(address, str) else dict(address)
+    parts = list(score.parts)
+    if not 1 <= a["staff"] <= len(parts):
+        raise AddressError(
+            f"staff {a['staff']} does not exist (the score has {len(parts)})")
+    part = parts[a["staff"] - 1]
+    measure = None
+    for m in part.getElementsByClass(stream.Measure):
+        if m.number == a["measure"]:
+            measure = m
+            break
+    if measure is None:
+        raise AddressError(f"staff {a['staff']} has no measure {a['measure']}")
+    container = _layer_stream(measure, a["layer"])
+
+    kind = a["kind"]
+    if kind in ("note", "chord", "rest"):
+        entries = _notes_in_document_order(container)
+        if kind == "rest":
+            entries = [(o, i) for o, i in entries if isinstance(o, m21note.Rest)]
+        elif kind == "chord":
+            # a chord address names the chord itself, once, not its notes
+            seen, chords = set(), []
+            for o, _ in entries:
+                if isinstance(o, m21chord.Chord) and id(o) not in seen:
+                    seen.add(id(o))
+                    chords.append((o, None))
+            entries = chords
+        else:
+            entries = [(o, i) for o, i in entries if not isinstance(o, m21note.Rest)]
+        if not 0 <= a["ordinal"] < len(entries):
+            raise AddressError(
+                f"{kind}#{a['ordinal']} is not in s{a['staff']}/m{a['measure']}"
+                f"/l{a['layer']} (it holds {len(entries)})")
+        owner, pitch_index = entries[a["ordinal"]]
+        return owner, pitch_index, kind
+    raise AddressError(f"addresses of kind {kind!r} cannot be operated on yet")
+
+
+def resolve_elements(score, addresses: list) -> dict:
+    """Resolve many addresses, keeping the ones that landed and reporting the
+    rest rather than failing the whole operation.
+
+    A selection outlives the version it was made on -- that is the point of
+    addressing by staff/measure/layer rather than by a rendered id -- so some
+    addresses legitimately no longer exist after an edit. The caller says how
+    many were dropped; it never silently operates on a different set than the
+    user chose.
+    """
+    resolved, missing = [], []
+    for text in addresses:
+        try:
+            resolved.append((str(text),) + resolve_address(score, text))
+        except AddressError as e:
+            missing.append({"address": str(text), "why": str(e)})
+    return {"resolved": resolved, "missing": missing}
+
+
+def transpose_elements(score, interval_str: str, addresses: list) -> dict:
+    """Transpose ONLY the named elements.
+
+    The operation selection exists for: Ali lassoed a chord, asked to move
+    those notes up, and the whole bar moved -- because the selection was
+    degraded to a measure range before the op ever saw it.
+    """
+    s = str(interval_str).strip()
+    itv = (m21interval.Interval(int(s)) if re.fullmatch(r"-?\d+", s)
+           else m21interval.Interval(s))
+    found = resolve_elements(score, addresses)
+    if not found["resolved"]:
+        raise AddressError(
+            "none of those elements are in this score: "
+            + "; ".join(m["why"] for m in found["missing"][:3]))
+
+    # Group by owner so a chord with two selected notes is transposed once per
+    # pitch and never twice over the same pitch.
+    moved = 0
+    for _text, owner, pitch_index, kind in found["resolved"]:
+        if isinstance(owner, m21note.Rest):
+            continue
+        if pitch_index is None:
+            owner.transpose(itv, inPlace=True)
+        else:
+            pitches = list(owner.pitches)
+            pitches[pitch_index] = pitches[pitch_index].transpose(itv)
+            owner.pitches = tuple(pitches)
+        moved += 1
+    return {"interval": itv.niceName,
+            "direction": itv.direction.name.lower(),
+            "elements_transposed": moved,
+            "elements_requested": len(addresses),
+            "missing": found["missing"]}

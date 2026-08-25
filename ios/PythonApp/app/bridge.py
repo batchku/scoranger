@@ -222,6 +222,9 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: ops.transpose(
             sc, str(a["interval"]), a.get("parts"),
             a.get("from_measure"), a.get("to_measure")))
+    if op == "transpose-elements":
+        return _mutate(s, op, a, lambda sc: ops.transpose_elements(
+            sc, str(a["interval"]), list(a["elements"])))
     if op == "respell":
         return _mutate(s, op, a, lambda sc: ops.respell(
             sc, a.get("prefer", "flats"), a.get("parts"),
