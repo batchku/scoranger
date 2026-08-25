@@ -1232,6 +1232,77 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     }
 
 
+ADJUSTABLE_KINDS = {"harm"}
+
+
+def adjust_element(score, name: str, kind: str = "harm",
+                   measure: int | None = None, ordinal: int = 0,
+                   size: float | None = None,
+                   offset_x: float | None = None, offset_y: float | None = None,
+                   reset: bool = False, all_elements: bool = False) -> dict:
+    """Change how big an added element is, and where it sits.
+
+    The adjustment lives in the notation -- MusicXML's `font-size`,
+    `relative-x` and `relative-y` on <harmony> -- so it travels with the score,
+    exports to any other program, and survives a change of device. music21
+    round-trips all three exactly; what neither it nor MusicXML can do is make
+    Verovio honour them, which is the renderer's job (see render.py).
+
+    Size is stored absolutely, in points, because that is what MusicXML means
+    and what another program will read. The UI drives it relatively -- a step
+    bigger, a step smaller -- which is how a person thinks about it, and it is
+    also why the value is stored per element: a global text size moving under
+    everyone is the bug this feature exists to make impossible.
+
+    `measure` + `ordinal` addresses one element the way the app's ScoreAddress
+    does, so the UI passes exactly what the user selected. `all_elements`
+    reaches every one in the part, for "make all the chord names bigger".
+    """
+    from music21 import harmony as m21harmony
+
+    if kind not in ADJUSTABLE_KINDS:
+        raise ValueError(f"Cannot adjust '{kind}' yet. Adjustable: {sorted(ADJUSTABLE_KINDS)}")
+    if not reset and size is None and offset_x is None and offset_y is None:
+        raise ValueError("Nothing to change: pass a size, an offset, or --reset")
+
+    part = find_parts(score, [name])[0]
+    measures = {m.number: m for m in part.getElementsByClass(stream.Measure)}
+
+    if all_elements:
+        targets = [c for m in measures.values()
+                   for c in m.getElementsByClass(m21harmony.ChordSymbol)]
+        if not targets:
+            raise ValueError(f"No chord symbols in part '{part_label(part)}'")
+    else:
+        if measure is None:
+            raise ValueError("Which one? Pass a measure, or --all for the whole part")
+        m = measures.get(measure)
+        found = list(m.getElementsByClass(m21harmony.ChordSymbol)) if m is not None else []
+        if ordinal >= len(found):
+            raise ValueError(
+                f"No chord symbol #{ordinal} in measure {measure} of "
+                f"'{part_label(part)}' (it has {len(found)})")
+        targets = [found[ordinal]]
+
+    for element in targets:
+        if reset:
+            element.style.fontSize = None
+            element.style.relativeX = None
+            element.style.relativeY = None
+            continue
+        if size is not None:
+            element.style.fontSize = size
+        if offset_x is not None:
+            element.style.relativeX = offset_x
+        if offset_y is not None:
+            element.style.relativeY = offset_y
+
+    return {"part": part_label(part), "kind": kind, "adjusted": len(targets),
+            "reset": reset,
+            "size": None if reset else size,
+            "offset": None if reset else [offset_x, offset_y]}
+
+
 def set_chord_symbols(score, name: str, chords: list[dict]) -> dict:
     """Write chord symbols (MusicXML <harmony>) onto a part at given measures.
 

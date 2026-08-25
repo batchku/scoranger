@@ -116,6 +116,9 @@ _ANY_SYL_RE = re.compile(r'>([^<>]{1,3})</tspan>')
 # at, expressed where it belongs.
 DEFAULT_LYRIC_SIZE = 4.5          # Verovio's default, in MEI units
 DIAGRAM_SCALE = 2.2 / 4.5         # what the diagrams were shrunk to, ~0.49
+# The point size a chord symbol engraves at when nobody has adjusted it, so a
+# stored absolute size can be expressed as a ratio of the engraved glyph.
+DEFAULT_CHORD_POINTS = 12.0
 
 # Circle geometry as proportions of the verse glyph they replace, before the
 # diagram scale is applied. Mirrored in ios/Scoranger/FingeringDiagrams.swift.
@@ -184,6 +187,100 @@ def mei_with_fingerings_above(mei: str) -> str | None:
 
     out = _MEI_NOTE_RE.sub(one_note, mei)
     return out if changed else None
+
+
+# Chord-symbol adjustments. Verovio's MusicXML importer drops `font-size`,
+# `relative-x` and `relative-y` from <harmony>, so the values a user set have to
+# be carried across by hand: position into MEI @ho/@vo, which Verovio honours
+# per element, and size into the SVG afterwards, because Verovio has no
+# per-element text size at all -- @fontsize is ignored as a percentage and as a
+# keyword. Mirrored in ios/Scoranger/ChordAdjustments.swift; keep the two in step.
+_HARMONY_TAG_RE = re.compile(r"<harmony\b[^>]*>")
+_HARM_MEI_RE = re.compile(r"<harm\b")
+# A chord symbol's glyph carries x and y after its size, so the fingering-era
+# pattern (which expects the tag to close right after font-size) never matches
+# it. Same trap, different tag.
+_CHORD_SIZE_RE = re.compile(r'(<tspan[^>]*font-size=")([\d.]+)(px")')
+# MEI units are half-spaces; MusicXML tenths are tenths of a staff space.
+_TENTHS_TO_HALF_SPACES = 0.2
+
+
+def chord_adjustments(musicxml_path) -> list[dict]:
+    """Each chord symbol's size and offset, in document order.
+
+    Read straight from the file rather than from a parsed score: the renderer
+    only needs three numbers per symbol, and the MEI it is matching against is
+    in the same order.
+    """
+    try:
+        text = Path(musicxml_path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for tag in _HARMONY_TAG_RE.findall(text):
+        def number(attr):
+            found = re.search(rf'{attr}="([-\d.]+)"', tag)
+            return float(found.group(1)) if found else None
+        out.append({"size": number("font-size"),
+                    "dx": number("relative-x"), "dy": number("relative-y")})
+    return out
+
+
+def mei_with_chord_adjustments(mei: str, musicxml_path) -> str | None:
+    """Carry each chord symbol's offset into the MEI, or None if none have one."""
+    adjustments = chord_adjustments(musicxml_path)
+    if not any(a["dx"] is not None or a["dy"] is not None for a in adjustments):
+        return None
+
+    index = 0
+
+    def place(match):
+        nonlocal index
+        adjustment = adjustments[index] if index < len(adjustments) else {}
+        index += 1
+        attrs = ""
+        if adjustment.get("dx") is not None:
+            attrs += f' ho="{adjustment["dx"] * _TENTHS_TO_HALF_SPACES:g}"'
+        if adjustment.get("dy") is not None:
+            # MusicXML measures up, MEI @vo measures down
+            attrs += f' vo="{-adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
+        return match.group(0) + attrs
+
+    return _HARM_MEI_RE.sub(place, mei)
+
+
+def apply_chord_sizes(svg: str, musicxml_path) -> str:
+    """Rescale each adjusted chord symbol's glyph in the rendered SVG.
+
+    The size lives on the INNER tspan; the enclosing <text> is font-size="0px",
+    and reading that is what once gave every fingering circle a radius of zero.
+    """
+    adjustments = chord_adjustments(musicxml_path)
+    if not any(a["size"] is not None for a in adjustments):
+        return svg
+
+    blocks = list(re.finditer(r'<g[^>]*class="harm".*?</g>\s*</g>', svg, re.S))
+    if not blocks:
+        return svg
+
+    out, cursor = [], 0
+    for index, block in enumerate(blocks):
+        out.append(svg[cursor:block.start()])
+        text = block.group(0)
+        wanted = adjustments[index]["size"] if index < len(adjustments) else None
+        if wanted is not None:
+            base = _CHORD_SIZE_RE.search(text)
+            if base and float(base.group(2)) > 0:
+                # the stored size is in points; scale the engraved glyph by the
+                # ratio to the default, so it stays right at any page scale
+                scale = float(wanted) / DEFAULT_CHORD_POINTS
+                text = _CHORD_SIZE_RE.sub(
+                    lambda m: f"{m.group(1)}{float(m.group(2)) * scale:g}{m.group(3)}",
+                    text, count=1)
+        out.append(text)
+        cursor = block.end()
+    out.append(svg[cursor:])
+    return "".join(out)
 
 
 def _fingering_diagrams(svg: str) -> str:

@@ -423,6 +423,52 @@ with Journey("export to MusicXML, MIDI and PDF") as j:
         j.fail("exporting changed the arrangement")
 
 
+# =============================================================================
+# 11. Chord names, resized and nudged, surviving the file and the page
+# =============================================================================
+with Journey("chord names resized and repositioned") as j:
+    slug, _ = j.workspace.create_score("Chart", fixtures.jig(bars=8))
+    j.do(slug, "set-chords", lambda sc: j.ops.set_chord_symbols(
+        sc, "#0", [{"measure": 1, "symbol": "Em"}, {"measure": 3, "symbol": "G"},
+                   {"measure": 5, "symbol": "D"}]))
+
+    j.do(slug, "adjust-element", lambda sc: j.ops.adjust_element(
+        sc, "#0", kind="harm", measure=3, size=20), {"measure": 3, "size": 20})
+    j.do(slug, "adjust-element", lambda sc: j.ops.adjust_element(
+        sc, "#0", kind="harm", measure=5, offset_y=-6, offset_x=3), {"measure": 5})
+
+    # the notation carries it, and only for the symbols that were adjusted
+    final = j.load(slug)
+    chords = list(final.recurse().getElementsByClass("ChordSymbol"))
+    if len(chords) != 3:
+        j.fail(f"expected three chord symbols, found {len(chords)}")
+    else:
+        if chords[1].style.fontSize != 20:
+            j.fail(f"the resized symbol lost its size: {chords[1].style.fontSize}")
+        if chords[2].style.relativeY != -6 or chords[2].style.relativeX != 3:
+            j.fail(f"the moved symbol lost its offset: "
+                   f"{chords[2].style.relativeX}, {chords[2].style.relativeY}")
+        if chords[0].style.fontSize is not None or chords[0].style.relativeY is not None:
+            j.fail("an untouched chord symbol was adjusted")
+
+    # a later op must not disturb them: this is the chain that broke before
+    j.do(slug, "transpose", lambda sc: j.ops.transpose(sc, "M2", None))
+    after = list(j.load(slug).recurse().getElementsByClass("ChordSymbol"))
+    if after[1].style.fontSize != 20 or after[2].style.relativeY != -6:
+        j.fail("transposing the score lost the chord-symbol adjustments")
+
+    # and the rhythm never moved
+    if j.ops.rhythm_faults(j.load(slug)):
+        j.fail("adjusting chord symbols broke the rhythm")
+
+    # the export carries them too -- a PDF is what the user actually plays from
+    from scoranger_engine import render as _render
+    out = Path(j.tmp.name) / "chart.pdf"
+    _render.render_pdf(str(j.workspace.resolve_path(slug)), str(out))
+    if not out.exists() or out.read_bytes()[:4] != b"%PDF":
+        j.fail("the adjusted chart did not export to a PDF")
+
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} workflow check(s) failed")
     for line in FAILURES:

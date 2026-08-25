@@ -291,6 +291,17 @@ def cmd_set_structure(a):
             {"kind": a.kind, "measure": a.measure, "remove": a.remove}, details)
 
 
+def cmd_adjust_element(a):
+    score = _load(a.score, None)
+    details = ops.adjust_element(score, a.part, kind=a.kind, measure=a.measure,
+                                 ordinal=a.ordinal, size=a.size,
+                                 offset_x=a.offset_x, offset_y=a.offset_y,
+                                 reset=a.reset, all_elements=a.all)
+    _mutate(a.score, score, "adjust-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "size": a.size, "reset": a.reset}, details)
+
+
 def cmd_whistle_fingerings(a):
     score = _load(a.score, None)
     # find_parts, like every other command here: `_part` exists in the app's
@@ -555,6 +566,20 @@ def main() -> None:
     s.add_argument("--whistle", default="D", help="whistle key (D, C, E-, F, G, A)")
     s.add_argument("--clear", action="store_true", help="remove fingerings instead")
     s.set_defaults(fn=cmd_whistle_fingerings)
+
+    s = sub.add_parser("adjust-element",
+                       help="size and position of an added element (chord symbols)")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--kind", default="harm")
+    s.add_argument("--measure", type=int)
+    s.add_argument("--ordinal", type=int, default=0)
+    s.add_argument("--size", type=float, help="absolute point size")
+    s.add_argument("--offset-x", dest="offset_x", type=float)
+    s.add_argument("--offset-y", dest="offset_y", type=float)
+    s.add_argument("--all", action="store_true", help="every element of that kind")
+    s.add_argument("--reset", action="store_true")
+    s.set_defaults(fn=cmd_adjust_element)
 
     s = sub.add_parser("rename-slug",
                        help="Change the slug a score is filed under (moves artifacts)")

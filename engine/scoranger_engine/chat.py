@@ -282,6 +282,24 @@ def set_structure(ctx: RunContext[str], kind: str, measure: int | None = None,
                   {"kind": kind, "measure": measure, "remove": remove}, fn)
 
 
+def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
+                   kind: str = "harm", ordinal: int = 0, size: float | None = None,
+                   offset_x: float | None = None, offset_y: float | None = None,
+                   reset: bool = False, all_elements: bool = False) -> dict:
+    """Change the size or position of an added element -- chord symbols today.
+    `size` is an absolute point size (12 is the default); `offset_x`/`offset_y`
+    nudge it sideways/up in MusicXML tenths, positive y being up. Address one
+    with measure (+ ordinal when a bar has several), or pass all_elements=True
+    for every chord symbol in the part. reset=True puts them back."""
+    def fn(s):
+        return ops.adjust_element(s, part, kind=kind, measure=measure, ordinal=ordinal,
+                                  size=size, offset_x=offset_x, offset_y=offset_y,
+                                  reset=reset, all_elements=all_elements)
+    return _apply(ctx.deps, "adjust-element",
+                  {"part": part, "kind": kind, "measure": measure, "size": size,
+                   "reset": reset}, fn)
+
+
 def penny_whistle_fingerings(ctx: RunContext[str], part: str, whistle: str = "D",
                              clear: bool = False) -> dict:
     """Write penny-whistle fingerings under every note of a part, as stacked
@@ -318,6 +336,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, set_structure,
+         adjust_element,
          assign_to_piece]
 
 
