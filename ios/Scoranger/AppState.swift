@@ -63,6 +63,17 @@ final class AppState: ObservableObject {
     /// The setlist being played, if the score was opened from one. It is what
     /// the transport's prev/next step through -- the one part of the transport
     /// that does something (NAVIGATION_SYSTEM.md §1).
+    /// The score view's own chrome state.
+    ///
+    /// Here rather than in the view because the view is rebuilt whenever this
+    /// object publishes -- which is on every scroll, since the page counters
+    /// read the visible rect -- and @State inside it was being reset under the
+    /// user. A menu that will not open is the visible symptom; the cause is
+    /// that the thing remembering "it is open" did not survive the next frame.
+    @Published var scoreMode: ScoreMode = .read
+    @Published var titleMenuOpen = false
+    @Published var moreMenuOpen = false
+
     @Published var currentSetlist: String?
     /// Which pages are on screen, reported by the canvas. Feeds the counters
     /// and the thumbnail strip's "you are here" (NAVIGATION_SYSTEM.md 12.11).

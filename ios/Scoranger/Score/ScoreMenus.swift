@@ -66,7 +66,6 @@ struct TitleMenu: View {
                 .stroke(Theme.Line.line2, lineWidth: 1)
         }
         .modifier(ChipShadow())
-        .accessibilityIdentifier("title-menu")
     }
 
     private var recentVersions: [VersionDoc] { Array(score.versions.suffix(5).reversed()) }
@@ -133,7 +132,6 @@ struct MoreMenu: View {
                 .stroke(Theme.Line.line2, lineWidth: 1)
         }
         .modifier(ChipShadow())
-        .accessibilityIdentifier("more-menu")
     }
 
     // MARK: - Layer one
@@ -279,6 +277,9 @@ struct MoreMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(id)
     }
 
@@ -296,6 +297,9 @@ struct MoreMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Back to \(title)")
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("more-back")
     }
 
@@ -322,6 +326,9 @@ struct MoreMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(id)
     }
 

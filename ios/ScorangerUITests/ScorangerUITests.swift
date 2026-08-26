@@ -114,6 +114,11 @@ final class ScorangerUITests: XCTestCase {
         row.press(forDuration: 1.2)
     }
 
+    /// A row of the "…" menu, by identifier rather than by element type.
+    private func menuRow(_ id: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -427,9 +432,10 @@ final class ScorangerUITests: XCTestCase {
         sleep(1)
         for _ in 0..<3 { score.swipeRight(velocity: .fast) }
         sleep(1)
-        XCTAssertEqual(score.frame.width, full - 320, accuracy: 4,
-                       "the canvas shrank when the library reopened while zoomed")
-        shot("width-zoomed-library-open")
+        // 380, the chat panel: the library overlay it used to be is gone
+        XCTAssertEqual(score.frame.width, full - 380, accuracy: 4,
+                       "the canvas shrank when the chat panel opened while zoomed")
+        shot("width-zoomed-chat-open")
         score.pinch(withScale: 0.3, velocity: -2.0)
     }
 
@@ -965,15 +971,24 @@ final class ScorangerUITests: XCTestCase {
     func testTheOldHighlightFeatureIsGone() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
-        app.buttons["score-more"].tap()
+        let more = app.buttons["score-more"]
+        XCTAssertTrue(more.isHittable, "the … button is not tappable")
+        more.tap()
+        XCTAssertTrue(more.isSelected, "the … button did not take: the action never ran")
         XCTAssertFalse(app.buttons["Highlight a passage for chat"].exists,
                        "the bar-estimate highlight toggle is still in the options menu")
-        XCTAssertTrue(app.buttons["more-annotations"].waitForExistence(timeout: 5),
-                      "the … menu did not open")
-        app.buttons["more-annotations"].tap()
-        XCTAssertTrue(app.buttons["annotations-clear"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["Performance mode"].waitForExistence(timeout: 5),
+                      "the … menu did not open (no Performance mode row)")
+        // by identifier rather than by type: a menu row is a stack inside a
+        // Button, which XCUITest reports as a container rather than a button --
+        // the same reason the canvas is looked up this way
+        let annotations = menuRow("more-annotations")
+        XCTAssertTrue(annotations.waitForExistence(timeout: 5),
+                      "the … menu opened but Annotations is unreachable")
+        annotations.tap()
+        XCTAssertTrue(menuRow("annotations-clear").waitForExistence(timeout: 5),
                       "clearing markup lost its home")
-        app.buttons["more-back"].tap()
+        menuRow("more-back").tap()
     }
 
     /// Draw across a bar: the elements under the stroke are

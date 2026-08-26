@@ -20,9 +20,7 @@ struct ContentView: View {
     /// Library tab now. The flag stays only so the canvas inset arithmetic
     /// below keeps one shape -- it is never set true any more.
     @State private var libraryOpen = false
-    @State private var mode: ScoreMode = .read
-    @State private var titleMenuOpen = false
-    @State private var moreOpen = false
+
     /// Off by default and named a preview (§9.2): a transport that does nothing
     /// teaches people the app is broken. Previous and next step the setlist and
     /// work whether or not this is on.
@@ -96,9 +94,9 @@ struct ContentView: View {
                             .flatMap { state.placement(of: $0.slug)?.number },
                         title: scoreTitle,
                         subtitle: scoreSubtitle,
-                        mode: $mode,
-                        titleMenuOpen: $titleMenuOpen,
-                        moreOpen: $moreOpen,
+                        mode: $state.scoreMode,
+                        titleMenuOpen: $state.titleMenuOpen,
+                        moreOpen: $state.moreMenuOpen,
                         chatOpen: chatOpen,
                         onClose: onClose,
                         onAsk: {
@@ -106,10 +104,21 @@ struct ContentView: View {
                                 chatOpen.toggle()
                             }
                         })
-            ZStack {
+            ZStack(alignment: .top) {
                 Theme.Surface.ground
                 canvasLayer
                 overlayLayer
+                // The two menus the top bar opens. Plain children of the
+                // canvas stack rather than an overlay on the whole view: as an
+                // overlay they did not materialise at all, and a menu that
+                // cannot be opened is worse than one that is in the wrong place.
+                if state.titleMenuOpen || state.moreMenuOpen {
+                    Color.black.opacity(0.001)
+                        .contentShape(Rectangle())
+                        .onTapGesture { state.titleMenuOpen = false; state.moreMenuOpen = false }
+                    titleMenu
+                    HStack { Spacer(); moreMenu }
+                }
             }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {
@@ -121,7 +130,7 @@ struct ContentView: View {
             }
             // Performance mode gives the score the whole screen: the strip and
             // the transport go, and the page-turn zones become the point (§4.5).
-            if mode != .performance, let document = state.pdfDocument {
+            if state.scoreMode != .performance, let document = state.pdfDocument {
                 ThumbnailStrip(document: document,
                                current: state.visiblePageIndices,
                                spread: state.twoPageSpread,
@@ -135,12 +144,10 @@ struct ContentView: View {
             }
         }
         .background(Theme.Surface.ground)
-        .overlay(alignment: .top) { titleMenu }
-        .overlay(alignment: .topTrailing) { moreMenu }
         .onChange(of: state.annotation.isOn) { _, on in
             // the ink bar can be dismissed from its own control, and the mode
             // must follow it or the top bar would lie about the Pencil
-            if on { mode = .edit } else if mode == .edit { mode = .read }
+            if on { state.scoreMode = .edit } else if state.scoreMode == .edit { state.scoreMode = .read }
         }
         .task {
             Theme.verifyFontsRegistered()
@@ -186,39 +193,35 @@ struct ContentView: View {
 
     @ViewBuilder
     private var titleMenu: some View {
-        if titleMenuOpen, let score = state.selectedScore {
+        if state.titleMenuOpen, let score = state.selectedScore {
             TitleMenu(score: score,
                       onPick: { slug in
-                          titleMenuOpen = false
+                          state.titleMenuOpen = false
                           state.select(slug: slug)
                       },
                       onPickVersion: { version in
-                          titleMenuOpen = false
+                          state.titleMenuOpen = false
                           state.pinnedVersion = version
                           Task { await state.renderIfNeeded() }
                       },
                       onAllVersions: {
-                          titleMenuOpen = false
-                          moreOpen = true
+                          state.titleMenuOpen = false
+                          state.moreMenuOpen = true
                       })
-                .padding(.top, Theme.Metric.scoreTopBar + Theme.Metric.s4)
-                // tapping anywhere else puts it away, which is what a menu does
-                .background(
-                    Color.clear.contentShape(Rectangle())
-                        .onTapGesture { titleMenuOpen = false })
+                .padding(.top, Theme.Metric.s4)
         }
     }
 
     @ViewBuilder
     private var moreMenu: some View {
-        if moreOpen {
-            MoreMenu(mode: $mode,
+        if state.moreMenuOpen {
+            MoreMenu(mode: $state.scoreMode,
                      showTransport: $showTransport,
-                     onClose: { moreOpen = false },
+                     onClose: { state.moreMenuOpen = false },
                      onSettings: { showSettings = true },
                      onDetails: { infoScore = state.selectedScore },
                      onExport: { exportRequested += 1 })
-                .padding(.top, Theme.Metric.scoreTopBar + Theme.Metric.s4)
+                .padding(.top, Theme.Metric.s4)
                 .padding(.trailing, Theme.Metric.s12)
         }
     }
@@ -430,7 +433,7 @@ struct ContentView: View {
             if isCompact {
                 ScoreZoomView(document: doc)
             } else {
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)", mode: mode)
+                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)", mode: state.scoreMode)
             }
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so
