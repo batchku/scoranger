@@ -97,6 +97,11 @@ def _dispatch(op, a):
         if piece:
             workspace.assign_score_to_piece(slug, piece)
         return {"score": slug, "version": entry["id"]}
+    if op == "tidy-pieces":
+        return {"tidied": workspace.tidy_pieces()}
+    if op == "delete-piece":
+        workspace.delete_piece(a["piece"], with_arrangements=bool(a.get("with_arrangements")))
+        return {"deleted": a["piece"]}
     if op == "create-piece":
         return workspace.create_piece(a["name"])
     if op == "assign-piece":

@@ -331,6 +331,8 @@ def assign_score_to_piece(slug: str, piece: str | None,
         piece_slug = resolve_piece(piece, create_if_missing=create_if_missing)["slug"]
         doc["piece"] = piece_slug
     repo.set_score(slug, doc)
+    # the piece this arrangement just left may now hold nothing
+    _drop_empty_pieces(keep=piece_slug)
     # Maintain each piece's explicit arrangement order: drop the slug from
     # every other piece's order, append it to the target's.
     for p in repo.list_pieces():
@@ -482,10 +484,34 @@ def rename_piece(name_or_slug: str, new_name: str) -> dict:
     return doc
 
 
-def delete_piece(name_or_slug: str) -> None:
-    """Delete a piece document (scores keep their 'piece' key; not exposed in UI)."""
+def tidy_pieces() -> list[str]:
+    """Drop pieces left holding nothing by an older build. Returns their names."""
+    repo = _repo()
+    held = {d.get("piece") for d in repo.list_scores() if d.get("piece")}
+    gone = [p["name"] for p in repo.list_pieces() if p["slug"] not in held]
+    _drop_empty_pieces()
+    if gone:
+        rebuild_manifest()
+    return gone
+
+
+def delete_piece(name_or_slug: str, with_arrangements: bool = False) -> None:
+    """Delete a piece.
+
+    With `with_arrangements`, its arrangements go too -- which is what deleting
+    a folder means to the person doing it. Without, they are unfiled, and the
+    piece goes because a piece holding nothing is not allowed to exist.
+    """
     doc = resolve_piece(name_or_slug)
+    members = [d["slug"] for d in _repo().list_scores() if d.get("piece") == doc["slug"]]
+    if with_arrangements:
+        for slug in members:
+            delete_score(slug)
+    else:
+        for slug in members:
+            assign_score_to_piece(slug, None)
     _repo().delete_piece(doc["slug"])
+    _drop_empty_pieces()
     rebuild_manifest()
 
 
@@ -573,12 +599,37 @@ def delete_setlist(name_or_slug: str) -> dict:
 
 
 def delete_score(slug: str) -> None:
+    """Delete an arrangement, and the piece with it if it was the last one.
+
+    A piece does not exist without at least one arrangement. It is a folder for
+    arrangements, not a thing in its own right: an empty one can be neither
+    opened (opening a piece means opening one of its arrangements) nor deleted
+    through the UI, because the UI deletes a piece BY deleting its contents --
+    and an empty piece has none. Ali hit exactly that: a piece showing "0
+    arrangements" that would not go away.
+    """
     import shutil
     load_meta(slug)  # raises with available slugs if missing
     _repo().delete_score(slug)
     if score_dir(slug).exists():
         shutil.rmtree(score_dir(slug))
+    _drop_empty_pieces()
     rebuild_manifest()
+
+
+def _drop_empty_pieces(keep: str | None = None) -> None:
+    """Remove any piece left holding nothing.
+
+    Called where an arrangement LEAVES a piece -- deleted, or re-filed -- and
+    never on a plain rebuild: a piece is legitimately empty for the instant
+    between being created and its first arrangement arriving, which is exactly
+    what "new piece, then import into it" does. `keep` protects that piece.
+    """
+    repo = _repo()
+    held = {d.get("piece") for d in repo.list_scores() if d.get("piece")}
+    for piece in repo.list_pieces():
+        if piece["slug"] not in held and piece["slug"] != keep:
+            repo.delete_piece(piece["slug"])
 
 
 def _setlist_with_scores(doc: dict, pieces: list[dict]) -> dict:

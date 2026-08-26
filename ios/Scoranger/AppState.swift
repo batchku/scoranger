@@ -667,6 +667,18 @@ final class AppState: ObservableObject {
         guard let score = selectedScore, let vid = displayedVersionID else { return }
         let key = "\(score.slug)/\(vid)"
         guard force || key != renderedKey else { return }
+        // Nothing, rather than the wrong thing.
+        //
+        // The document was only swapped once the new engrave arrived, so the
+        // PREVIOUS score stayed on screen until then -- opening an arrangement
+        // showed the last one you had open, then flipped. A blank canvas for a
+        // moment is honest; a stale one is not.
+        if renderedKey != nil && renderedKey != key {
+            pdfDocument = nil
+            geometry = nil
+            geometryKey = nil
+            clearSelection()
+        }
         renderedKey = key
         loadingPDF = true
         defer { loadingPDF = false }
@@ -1355,6 +1367,33 @@ final class AppState: ObservableObject {
     }
 
     /// Irreversibly delete a score and all its versions.
+    /// Delete a piece, and its arrangements with it.
+    ///
+    /// This is what deleting a folder means to the person doing it. The old
+    /// path looped over `piece.arrangements` and deleted each -- which for a
+    /// piece holding nothing is an empty loop, so the button did nothing at
+    /// all. The engine drops the piece document itself.
+    func deletePiece(_ slug: String, withArrangements: Bool = true) {
+        Task {
+            do {
+                _ = try await local.call(op: "delete-piece",
+                                        args: ["piece": slug,
+                                               "with_arrangements": withArrangements])
+                await refresh()
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Sweep up pieces left holding nothing by a build that had no such rule.
+    func tidyPieces() async {
+        _ = try? await local.call(op: "tidy-pieces", args: [:])
+        await refresh()
+    }
+
     func deleteScore(slug: String) {
         Task {
             do {

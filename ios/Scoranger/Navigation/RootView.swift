@@ -159,10 +159,8 @@ struct RootView: View {
         deleting = nil
         if segment == .setlists {
             Task { _ = await state.deleteSetlist(row.id) }
-        } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }) {
-            // deleting a piece deletes its arrangements, which is what the
-            // sidebar's menu did
-            for slug in piece.arrangements { state.deleteScore(slug: slug) }
+        } else if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
+            state.deletePiece(row.id)
         } else {
             state.deleteScore(slug: row.id)
         }
@@ -202,7 +200,8 @@ struct RootView: View {
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
-                    onAdd: { addForSegment() },
+                    onNew: { addForSegment() },
+                    onImport: { showImporter = true },
                     onRowAction: handle)
     }
 

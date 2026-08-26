@@ -29,6 +29,19 @@ targets:
       - path: PythonApp/app_packages
         type: folder
         buildPhase: resources
+    # Stamp the commit into the built Info.plist, so a tester's report names an
+    # exact tree rather than a version that covers several builds. Absent when
+    # git is not available, in which case the stamp simply omits it.
+    postBuildScripts:
+      - name: Stamp the commit
+        basedOnDependencyAnalysis: false
+        script: |
+          SHA=$(git -C "$SRCROOT/.." rev-parse --short HEAD 2>/dev/null || echo "")
+          PLIST="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          if [ -n "$SHA" ] && [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Add :GitSHA string $SHA" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Set :GitSHA $SHA" "$PLIST"
+          fi
     dependencies:
       - framework: Vendor/Python.xcframework
         embed: true
@@ -102,7 +115,7 @@ targets:
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
         CURRENT_PROJECT_VERSION: 141
-        MARKETING_VERSION: 0.4.0
+        MARKETING_VERSION: 0.4.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

@@ -45,10 +45,25 @@ struct HomeView: View {
                     section(title: "RESULTS", link: nil, onLink: {},
                             rows: searchResults, prefix: "home-result")
                 }
+                buildStamp
             }
             .padding(.bottom, Theme.Metric.s32)
         }
         .background(Theme.Surface.ground)
+    }
+
+    /// Which build this is (0.4.1 item 1).
+    ///
+    /// It disappeared in the redesign, and a tester who cannot say which build
+    /// they are on cannot report anything useful about it -- every device
+    /// report in this project has turned on knowing that.
+    private var buildStamp: some View {
+        Text(BuildStamp.short)
+            .typeRole(.data)
+            .foregroundStyle(Theme.Ink.ink3)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, Theme.Metric.s24)
+            .accessibilityIdentifier("build-stamp")
     }
 
     private var topRow: some View {

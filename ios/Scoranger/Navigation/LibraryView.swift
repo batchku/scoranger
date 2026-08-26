@@ -15,13 +15,15 @@ struct LibraryView: View {
     var onOpenPiece: (String) -> Void
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
-    var onAdd: () -> Void
+    var onNew: () -> Void
+    var onImport: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
 
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
     @State private var dropTarget: String?
+    @State private var addMenuOpen = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -165,25 +167,20 @@ struct LibraryView: View {
     // MARK: - The list
 
     private var list: some View {
-        ScrollViewReader { proxy in
-            ZStack(alignment: .trailing) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        if rows.isEmpty { empty } else { grouped }
-                    }
-                    .padding(.bottom, 90)
-                }
-                if sort.showsAlphabetRail && segment == .pieces {
-                    alphabetRail(proxy: proxy)
-                }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if rows.isEmpty { empty } else { grouped }
             }
+            .padding(.bottom, 90)
         }
     }
 
     @ViewBuilder
     private var grouped: some View {
-        // Grouped under letters only when the rail is showing; under any other
-        // sort a letter header would be as misleading as the rail itself.
+        // Letter headers only under name sort: under any other order they
+        // would disagree with the rows. The rail that used to sit beside them
+        // is gone (0.4.1 §5) -- search covers "jump to L", and the trailing
+        // edge goes back to the chevrons.
         if sort.showsAlphabetRail {
             ForEach(LibraryModel.grouped(rows), id: \.letter) { group in
                 Section {
@@ -318,40 +315,86 @@ struct LibraryView: View {
             .accessibilityIdentifier("library-empty")
     }
 
-    private func alphabetRail(proxy: ScrollViewProxy) -> some View {
-        VStack(spacing: 0) {
-            ForEach(LibraryModel.alphabet, id: \.self) { letter in
-                Text(letter)
-                    .typeRole(.data)
-                    .foregroundStyle(present.contains(letter) ? Theme.Accent.clayStrong
-                                                              : Theme.Ink.ink3)
-                    .frame(width: 16, height: 15)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard present.contains(letter) else { return }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation { proxy.scrollTo("letter-\(letter)", anchor: .top) }
+    /// The `+`, and the two things it can make (0.4.1 §4).
+    ///
+    /// There was no way to import from the library at all -- import lived only
+    /// on Home -- so the `+` now says what it can do instead of assuming.
+    private var fab: some View {
+        VStack(alignment: .trailing, spacing: Theme.Metric.s8) {
+            if addMenuOpen { addMenu }
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) { addMenuOpen.toggle() }
+            } label: {
+                Image(systemName: addMenuOpen ? "xmark" : "plus")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(addMenuOpen ? Theme.Accent.clayStrong
+                                                 : Theme.Surface.paper)
+                    .frame(width: 54, height: 54)
+                    .background(addMenuOpen ? Theme.Surface.panel : Theme.Accent.clayPress)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
+                    .overlay {
+                        if addMenuOpen {
+                            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
+                                .stroke(Theme.Accent.clay, lineWidth: 1)
+                        }
                     }
+                    .shadow(color: Color(hex: 0x1A1917).opacity(0.18), radius: 8, y: 3)
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("library-add")
+            .accessibilityLabel(addMenuOpen ? "Close" : "Add")
         }
-        .padding(.trailing, 5)
-        .accessibilityIdentifier("alphabet-rail")
     }
 
-    private var fab: some View {
-        Button(action: onAdd) {
-            Image(systemName: "plus")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(Theme.Surface.paper)
-                .frame(width: 54, height: 54)
-                .background(Theme.Accent.clayPress)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-                .shadow(color: Color(hex: 0x1A1917).opacity(0.18), radius: 8, y: 3)
+    private var addMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            addRow(title: segment == .pieces ? "New" : "New set list",
+                   detail: segment == .pieces
+                       ? "A blank arrangement, filed under a new piece"
+                       : "An empty running order to fill",
+                   glyph: "square", id: "fab-new") { onNew() }
+            Divider().overlay(Theme.Line.line)
+            addRow(title: "Import",
+                   detail: "PDF, MusicXML, MIDI — a PDF goes through OMR",
+                   glyph: "arrow.down.to.line", id: "fab-import") { onImport() }
+        }
+        .frame(width: 250)
+        .background(Theme.Surface.panel)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
+                .stroke(Theme.Line.line2, lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 10, y: 4)
+    }
+
+    private func addRow(title: String, detail: String, glyph: String, id: String,
+                        action: @escaping () -> Void) -> some View {
+        Button {
+            addMenuOpen = false
+            action()
+        } label: {
+            HStack(spacing: Theme.Metric.s8) {
+                Image(systemName: glyph).font(.system(size: 14))
+                    .foregroundStyle(Theme.Accent.clayStrong).frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                    Text(detail).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.Metric.s12)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("library-add")
-        .accessibilityLabel(segment == .pieces ? "New piece" : "New setlist")
-        .accessibilityHint("Adds to \(segment.title.lowercased())")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - Data
@@ -388,8 +431,6 @@ struct LibraryView: View {
             }
         }
     }
-
-    private var present: Set<String> { LibraryModel.lettersPresent(in: rows) }
 
     private func open(_ row: LibraryRow) {
         if segment == .setlists,

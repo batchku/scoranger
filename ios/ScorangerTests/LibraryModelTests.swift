@@ -55,7 +55,10 @@ final class LibraryModelTests: XCTestCase {
         let rows = LibraryModel.pieceRows(manifest: manifest)
         let cavatina = rows.first { $0.title == "Cavatina" }
         XCTAssertEqual(cavatina?.subtitle, "Stanley Myers · 2 arrangements")
-        XCTAssertEqual(cavatina?.chips.first?.text, "2 ARR")
+        // and only once: the count is in the subtitle, in words. A chip
+        // saying "2 ARR" beside it was the same fact twice (0.4.1 §5).
+        XCTAssertFalse(cavatina?.chips.contains { $0.text.hasSuffix("ARR") } ?? true,
+                       "the count chip should be gone; the subtitle already says it")
     }
 
     func testASingleArrangementIsNotPluralised() {
@@ -106,12 +109,17 @@ final class LibraryModelTests: XCTestCase {
     /// which arrangement of which piece -- the way chat names them.
     func testASetlistSubtitleIsItsRunningOrderByNumber() {
         let rows = LibraryModel.setlistRows(manifest: manifest)
-        XCTAssertEqual(rows.first?.subtitle, "Cavatina #1 · Libertango #1")
+        XCTAssertEqual(rows.first?.subtitle,
+                       "2 arrangements · Cavatina #1 · Libertango #1")
     }
 
-    func testASetlistCountsWhatIsInIt() {
+    /// Set list subtitles gained the same wording pieces use, so the count
+    /// reads the same way in both halves of the library.
+    func testASetlistCountsWhatIsInItInWords() {
         let rows = LibraryModel.setlistRows(manifest: manifest)
-        XCTAssertEqual(rows.first?.chips.first?.text, "2 ARR")
+        XCTAssertTrue(rows.first?.subtitle.hasPrefix("2 arrangements · ") ?? false,
+                      "expected the count spelled out first: \(rows.first?.subtitle ?? "")")
+        XCTAssertFalse(rows.first?.chips.contains { $0.text.hasSuffix("ARR") } ?? true)
     }
 
     // MARK: - Sorting

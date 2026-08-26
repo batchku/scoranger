@@ -41,9 +41,11 @@ enum LibraryModel {
             let composer = arrangements.compactMap { $0.composer }
                 .first { !$0.isEmpty } ?? "unknown"
             let sources = arrangements.reduce(0) { $0 + ($1.sources?.count ?? 0) }
-            var chips: [LibraryRow.Chip] = [
-                .init(text: "\(arrangements.count) ARR", kind: .count)
-            ]
+            // No count chip: the subtitle already says "3 arrangements" in
+            // words, and saying it twice on one row is noise (0.4.1 §5). The
+            // warning and plain chips stay -- they are facts you cannot read
+            // anywhere else on the row.
+            var chips: [LibraryRow.Chip] = []
             if sources > 0 {
                 chips.append(.init(text: "\(sources) SOURCE", kind: .plain))
             }
@@ -107,12 +109,14 @@ enum LibraryModel {
                 }
                 return "\(piece.name) #\(index + 1)"
             }
+            // the same wording pieces use, then the running order
+            let count = setlist.arrangements.count
+            let heading = "\(count) arrangement\(count == 1 ? "" : "s")"
             return LibraryRow(
                 id: setlist.slug,
                 title: setlist.name,
-                subtitle: order.joined(separator: " · "),
-                chips: [.init(text: "\(setlist.arrangements.count) ARR", kind: .count),
-                        .init(text: "ORDERED", kind: .plain)],
+                subtitle: ([heading] + order).joined(separator: " · "),
+                chips: [.init(text: "ORDERED", kind: .plain)],
                 meta: "",
                 sortName: setlist.name,
                 composer: "",

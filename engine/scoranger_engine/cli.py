@@ -106,6 +106,11 @@ def cmd_transpose_elements(a):
             {"interval": a.interval, "elements": addresses}, details)
 
 
+def cmd_delete_piece(a):
+    workspace.delete_piece(a.piece, with_arrangements=a.with_arrangements)
+    _emit({"deleted": a.piece, "arrangements": bool(a.with_arrangements)})
+
+
 def cmd_duplicate(a):
     score = _load(a.score, None)
     name = a.name or f"{a.score} copy"
@@ -395,6 +400,12 @@ def main() -> None:
     s.add_argument("--interval", required=True, help="e.g. M2, m3, P4, -M2, P8")
     s.add_argument("--parts")
     s.set_defaults(fn=cmd_transpose)
+
+    s = sub.add_parser("delete-piece", help="Delete a piece (a piece holding nothing cannot exist)")
+    s.add_argument("piece")
+    s.add_argument("--with-arrangements", action="store_true",
+                   help="delete its arrangements too, rather than unfiling them")
+    s.set_defaults(fn=cmd_delete_piece)
 
     s = sub.add_parser("transpose-elements",
                        help="Transpose ONLY the named elements (from a lasso selection)")
