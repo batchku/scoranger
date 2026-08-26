@@ -233,7 +233,16 @@ struct LibraryView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                if rows.isEmpty { empty } else { grouped }
+                // Imports in flight, at the top where they cannot be missed.
+                //
+                // They used to render only in the score screen's library
+                // overlay, which the redesign retired -- so an import showed a
+                // badge on a Home icon that was not tappable and then could
+                // not be found at all (0.4.1 item 9).
+                if segment == .pieces {
+                    ForEach(state.pendingImports) { pending in importingRow(pending) }
+                }
+                if rows.isEmpty && state.pendingImports.isEmpty { empty } else { grouped }
             }
             .padding(.bottom, 90)
         }
@@ -366,6 +375,46 @@ struct LibraryView: View {
     private func toggle(_ row: LibraryRow) {
         if selected.contains(row.id) { selected.remove(row.id) }
         else { selected.insert(row.id) }
+    }
+
+    /// A piece filling up. It sits in the list from the moment the file is
+    /// chosen, so "where did it go?" never has to be asked.
+    private func importingRow(_ pending: AppState.PendingImport) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: Theme.Metric.s12) {
+                PageThumb()
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(pieceName(for: pending) ?? pending.name)
+                        .typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+                    Text(pending.stage).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    if let fraction = pending.fraction {
+                        ProgressView(value: fraction)
+                            .tint(Theme.Accent.clay)
+                            .frame(maxWidth: 180)
+                    }
+                }
+                Spacer(minLength: Theme.Metric.s8)
+                Text("IMPORTING").typeRole(.meta)
+                    .foregroundStyle(Color(hex: 0x8A5A12))
+                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                    .background(Color(hex: 0xFBF2E6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                            .stroke(Color(hex: 0xE8CFA6), lineWidth: 1)
+                    }
+            }
+            .padding(.horizontal, Theme.Metric.s20)
+            .padding(.vertical, 9)
+            .frame(minHeight: 56)
+            Divider().overlay(Theme.Line.line)
+        }
+        .accessibilityIdentifier("importing-\(pending.id.uuidString)")
+        .accessibilityLabel("\(pieceName(for: pending) ?? pending.name), importing, \(pending.stage)")
+    }
+
+    private func pieceName(for pending: AppState.PendingImport) -> String? {
+        guard let slug = pending.piece else { return nil }
+        return (state.manifest?.pieces ?? []).first { $0.slug == slug }?.name
     }
 
     private func isPiece(_ row: LibraryRow) -> Bool {

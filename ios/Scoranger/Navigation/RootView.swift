@@ -34,9 +34,11 @@ struct RootView: View {
     @State private var deletingMany: (ids: Set<String>, kind: LibrarySelectionKind)?
     @State private var newName = ""
     @State private var creating: LibrarySegment?
-    /// The old library manager, kept reachable until drag-to-file has its own
-    /// home in Edit mode. Nothing is removed before its replacement exists.
-    @State private var classicManager = false
+    /// Whether the piece being named is the destination of an import.
+    @State private var pendingImportIsNewPiece = false
+    /// Where an import should land, asked BEFORE the file picker (0.4.1 item 9).
+    @State private var importDestination: ImportDestination?
+    @State private var importIntoPiece: String?
     @State private var showSettings = false
     @State private var showImporter = false
 
@@ -71,6 +73,7 @@ struct RootView: View {
             state.startPolling()
         }
         .overlay { pieceSheet }
+        .overlay { importChooser }
         .overlay { managementSheets }
         .overlay {
             if showSettings {
@@ -84,7 +87,13 @@ struct RootView: View {
         }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: ContentView.scoreTypes) { result in
-            if case .success(let url) = result { state.receiveFile(at: url) }
+            let piece = importIntoPiece
+            importIntoPiece = nil
+            if case .success(let url) = result {
+                state.receiveFile(at: url, intoPiece: piece)
+                tab = .library
+                segment = .pieces
+            }
         }
     }
 
@@ -199,16 +208,28 @@ struct RootView: View {
 
     private func commitCreate(_ segment: LibrarySegment) {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let forImport = pendingImportIsNewPiece
         creating = nil
+        pendingImportIsNewPiece = false
         guard !name.isEmpty else { return }
+        if segment == .setlists {
+            Task { _ = await state.createSetlist(name: name) }
+            return
+        }
+        // A piece named for an import goes to the library and shows itself
+        // filling up, rather than the import disappearing somewhere.
         Task {
-            if segment == .setlists {
-                _ = await state.createSetlist(name: name)
-            } else {
-                state.createPieceAndAssign(name: name, scoreSlug: "")
+            let slug = await state.createPiece(named: name)
+            if forImport {
+                importIntoPiece = slug
+                tab = .library
+                segment2Pieces()
+                showImporter = true
             }
         }
     }
+
+    private func segment2Pieces() { segment = .pieces }
 
     // MARK: - Places
 
@@ -216,13 +237,83 @@ struct RootView: View {
         HomeView(search: $homeSearch,
                  onOpen: openPieceOrArrangement,
                  onOpenSetlist: openSetlist,
-                 onImport: { showImporter = true },
+                 onImport: { importDestination = .choosing },
                  onNewArrangement: { tab = .library; segment = .pieces },
                  onNewSetlist: { tab = .library; segment = .setlists },
                  onAsk: askAboutLastScore,
                  onSettings: { showSettings = true },
                  onAllPieces: { tab = .library; segment = .pieces },
                  onAllSetlists: { tab = .library; segment = .setlists })
+    }
+
+    /// A new piece, or one that already exists.
+    enum ImportDestination: Equatable { case choosing, newPiece, existing }
+
+    /// Ask first, then pick the file.
+    ///
+    /// The old flow picked a file and then put the result wherever it landed --
+    /// which was Unfiled, reachable only by scrolling past every piece, with an
+    /// inbox badge on Home that was not tappable. Ali could not find what he
+    /// had imported. Asking first means the answer to "where did it go?" is
+    /// something the user chose.
+    @ViewBuilder
+    private var importChooser: some View {
+        if importDestination == .choosing {
+            ZStack {
+                DialogScrim { importDestination = nil }
+                PanelSheet(title: "Import", onDone: { importDestination = nil }) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        BandHeader("Where should it go?")
+                        chooserRow(title: "A new piece",
+                                   detail: "It appears in My Library while it imports",
+                                   id: "import-new-piece") {
+                            importDestination = nil
+                            creating = .pieces
+                            newName = ""
+                            pendingImportIsNewPiece = true
+                        }
+                        BandHeader("Or add to")
+                        ForEach(state.manifest?.pieces ?? []) { piece in
+                            chooserRow(title: piece.name,
+                                       detail: "\(piece.arrangements.count) arrangement"
+                                           + (piece.arrangements.count == 1 ? "" : "s"),
+                                       id: "import-into-\(piece.slug)") {
+                                importDestination = nil
+                                importIntoPiece = piece.slug
+                                tab = .library
+                                segment = .pieces
+                                showImporter = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func chooserRow(title: String, detail: String, id: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Metric.s8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                    if !detail.isEmpty {
+                        Text(detail).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink3)
+            }
+            .padding(.horizontal, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.sheetRowVertical)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(id)
     }
 
     private var library: some View {
@@ -232,7 +323,7 @@ struct RootView: View {
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
                     onNew: { addForSegment() },
-                    onImport: { showImporter = true },
+                    onImport: { importDestination = .choosing },
                     onRowAction: handle,
                     onBarAction: handleBar)
     }

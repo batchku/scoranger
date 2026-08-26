@@ -279,6 +279,9 @@ final class AppState: ObservableObject {
     struct PendingImport: Identifiable, Equatable {
         let id = UUID()
         let name: String
+        /// The piece it is going into, so the library can show that piece
+        /// filling up rather than the import vanishing (0.4.1 item 9).
+        var piece: String?
         var stage: String = "uploading…"
         /// nil = indeterminate (spinner); 0…1 = determinate bar
         var fraction: Double? = nil
@@ -753,7 +756,7 @@ final class AppState: ObservableObject {
         if let note = preflight.note { print("SCORANGER-OMR preflight: \(note)") }
 
         omrBusy = true
-        let pending = PendingImport(name: name)
+        let pending = PendingImport(name: name, piece: piece)
         pendingImports.append(pending)
         Task {
             defer {
@@ -1352,6 +1355,26 @@ final class AppState: ObservableObject {
 
     /// Create a new piece by name and file the score under it (assign-piece
     /// creates missing pieces).
+    /// Create a piece and return its slug.
+    ///
+    /// It holds nothing for the moment between this and the first arrangement
+    /// arriving, which is legitimate and is why the empty-piece sweep runs
+    /// where an arrangement LEAVES rather than on every rebuild.
+    @discardableResult
+    func createPiece(named name: String) async -> String? {
+        do {
+            let r = try await local.call(op: "create-piece", args: ["name": name])
+            await refresh()
+            return (r["piece"] as? [String: Any])?["slug"] as? String
+                ?? r["slug"] as? String
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return nil
+    }
+
     func createPieceAndAssign(name: String, scoreSlug: String) {
         Task {
             do {
