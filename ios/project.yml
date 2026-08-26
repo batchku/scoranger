@@ -194,6 +194,13 @@ targets:
       - path: Scoranger/PDFPreflight.swift
       # the fingering-diagram rewrite is a pure string transform over SVG
       - path: Scoranger/FingeringDiagrams.swift
+      # the navigation redesign's rules -- what a tap means in which mode, how
+      # the library sorts, indexes and searches -- are pure over the manifest,
+      # so they are tested the same way: no app, no engine, no screen
+      - path: Scoranger/Models.swift
+      - path: Scoranger/Navigation/AppRoute.swift
+      - path: Scoranger/Navigation/LibraryModel.swift
+      - path: Scoranger/Score/PageTurn.swift
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources
