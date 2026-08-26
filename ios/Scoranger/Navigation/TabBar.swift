@@ -108,6 +108,9 @@ struct LRow: View {
     let row: LibraryRow
     var identifier: String
     var action: () -> Void
+    /// The one control a row carries (§4): row tap opens the music, ☰ manages.
+    var onMenu: (() -> Void)?
+    var menuIsOpen: Bool = false
 
     var body: some View {
         Button(action: action) {
@@ -135,13 +138,22 @@ struct LRow: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.Ink.ink3)
             }
-            .padding(.horizontal, Theme.Metric.s20)
+            .padding(.leading, Theme.Metric.s20)
+            .padding(.trailing, onMenu == nil ? Theme.Metric.s20 : 0)
             .padding(.vertical, 9)
             .frame(minHeight: 56)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+        .overlay(alignment: .trailing) {
+            if let onMenu {
+                RowMenuButton(identifier: "row-menu-\(row.id)",
+                              label: "Manage \(row.title)",
+                              isOpen: menuIsOpen, action: onMenu)
+                    .padding(.trailing, Theme.Metric.s8)
+            }
+        }
     }
 }
 

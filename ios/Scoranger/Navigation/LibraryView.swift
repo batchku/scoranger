@@ -15,6 +15,9 @@ struct LibraryView: View {
     var onOpenPiece: (String) -> Void
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
+    /// The row's ☰. Pushes to the item's screen, or expands in place, by the
+    /// rule in RowMenuBehaviour.
+    var onRowMenu: (LibraryRow) -> Void
     var onNew: () -> Void
     var onImport: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
@@ -279,22 +282,8 @@ struct LibraryView: View {
             HStack(spacing: 0) {
                 if editing { checkbox(row) }
                 LRow(row: row, identifier: "row-\(row.id)",
-                     action: { editing ? toggle(row) : open(row) })
-                // Browse mode carries an ⓘ on the trailing edge; nothing
-                // destructive is reachable without entering Edit (§2.1).
-                if !editing && !isPiece(row) && segment == .pieces {
-                    Button { onRowAction(row, .details) } label: {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Theme.Ink.ink2)
-                            .frame(width: Theme.Metric.hitTarget,
-                                   height: Theme.Metric.hitTarget)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("row-details-\(row.id)")
-                    .accessibilityLabel("Details for \(row.title)")
-                }
+                     action: { editing ? toggle(row) : open(row) },
+                     onMenu: editing ? nil : { onRowMenu(row) })
                 // A set list's own "+": choosing which arrangements are in it,
                 // which is the other direction from an arrangement's "add to
                 // set list" and answers a different question.

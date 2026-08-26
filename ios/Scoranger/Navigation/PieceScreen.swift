@@ -1,0 +1,269 @@
+import SwiftUI
+
+/// A piece and its arrangements (NAV_MODAL_FREE_0.4.2 §3.1).
+///
+/// What the arrangement SHEET was. Pushed from a piece row's ☰, and from
+/// tapping a piece that holds more than one arrangement -- because a piece is
+/// not openable: opening one means opening one of its arrangements.
+struct PieceScreen: View {
+    @EnvironmentObject var state: AppState
+    let piece: PieceDoc
+    var onBack: () -> Void
+    var onOpen: (String) -> Void
+    var push: (Route) -> Void
+    var onImport: (String) -> Void
+
+    @State private var renaming = false
+    @State private var draft = ""
+    @State private var confirmingDelete = false
+
+    var body: some View {
+        Screen(title: piece.name, backLabel: "My library",
+               subtitle: summary, onBack: onBack) {
+            VStack(alignment: .leading, spacing: 0) {
+                BandHeader("Arrangements — tap to open")
+                ForEach(Array(piece.arrangements.enumerated()), id: \.offset) { index, slug in
+                    if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
+                        arrangementRow(score, number: index + 1)
+                        Divider().overlay(Theme.Line.line)
+                    }
+                }
+
+                BandHeader("This piece")
+                if renaming {
+                    InlineRenameRow(text: $draft, onSave: commitRename,
+                                    onCancel: { renaming = false })
+                } else {
+                    ScreenRow(title: "Rename piece", value: piece.name, leads: false,
+                              identifier: "piece-rename") {
+                        draft = piece.name
+                        renaming = true
+                    }
+                }
+                ScreenRow(title: "New arrangement", leads: false,
+                          identifier: "piece-new-arrangement-\(piece.slug)") {
+                    Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
+                }
+                ScreenRow(title: "Import into this piece", leads: false,
+                          identifier: "piece-import-\(piece.slug)") { onImport(piece.slug) }
+
+                BandHeader("Sources")
+                Text(sourceSummary).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    .padding(.horizontal, Theme.Metric.s20)
+                    .padding(.vertical, Theme.Metric.s8)
+
+                // Separated by its own band so Delete and Delete piece are never
+                // adjacent -- one destroys an arrangement, the other the folder.
+                BandHeader("Careful")
+                if confirmingDelete {
+                    ConfirmDeleteStrip(what: deleteWarning,
+                                       identifier: "confirm-delete-\(piece.slug)",
+                                       onDelete: {
+                                           confirmingDelete = false
+                                           state.deletePiece(piece.slug)
+                                           onBack()
+                                       },
+                                       onKeep: { confirmingDelete = false })
+                } else {
+                    ScreenRow(title: "Delete piece", leads: false, isDestructive: true,
+                              identifier: "piece-delete-\(piece.slug)") {
+                        confirmingDelete = true
+                    }
+                }
+            }
+            .padding(.bottom, Theme.Metric.s32)
+        }
+    }
+
+    private func arrangementRow(_ score: ScoreDoc, number: Int) -> some View {
+        HStack(spacing: Theme.Metric.s12) {
+            Button { onOpen(score.slug) } label: {
+                HStack(spacing: Theme.Metric.s12) {
+                    NumeralBadge(number: number)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(score.title ?? score.name).typeRole(.titleS)
+                            .foregroundStyle(Theme.Ink.ink)
+                        Text("\(score.versions.count) version"
+                             + (score.versions.count == 1 ? "" : "s"))
+                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("arrangement-choice-\(score.slug)")
+
+            // §8.1's own mitigation: a ☰ here pushes straight to the
+            // arrangement's screen, so filing is two pushes rather than three.
+            RowMenuButton(identifier: "row-menu-\(score.slug)",
+                          label: "Manage \(score.title ?? score.name)") {
+                push(.arrangement(score.slug))
+            }
+        }
+        .padding(.horizontal, Theme.Metric.s20)
+        .padding(.vertical, 9)
+    }
+
+    private var summary: String {
+        let n = piece.arrangements.count
+        return "\(n) arrangement\(n == 1 ? "" : "s")"
+    }
+
+    private var deleteWarning: String {
+        let n = piece.arrangements.count
+        return n == 0
+            ? "Delete \(piece.name)?"
+            : "Delete \(piece.name) and its \(n) arrangement\(n == 1 ? "" : "s")?"
+    }
+
+    private var sourceSummary: String {
+        let count = piece.arrangements.compactMap { slug in
+            state.manifest?.scores.first { $0.slug == slug }?.sources?.count
+        }.reduce(0, +)
+        return count == 0 ? "No other editions imported."
+                          : "\(count) read-only source\(count == 1 ? "" : "s")."
+    }
+
+    private func commitRename() {
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = false
+        guard !name.isEmpty else { return }
+        Task { _ = await state.renamePiece(piece: piece.slug, name: name) }
+    }
+}
+
+/// One arrangement's actions — the per-item screen a row's ☰ opens (§3.2).
+///
+/// Grouped by intent, and every row states its current answer, so the screen
+/// reads as a summary as well as a menu: you often do not need to go deeper.
+struct ArrangementScreen: View {
+    @EnvironmentObject var state: AppState
+    let score: ScoreDoc
+    var onBack: () -> Void
+    var onOpen: () -> Void
+    var push: (Route) -> Void
+
+    @State private var renaming = false
+    @State private var draft = ""
+    @State private var confirmingDelete = false
+
+    var body: some View {
+        Screen(title: score.title ?? score.name, backLabel: "Back",
+               subtitle: placement, onBack: onBack,
+               trailing: {
+                   PanelButton(title: "Open", kind: .primary, action: onOpen)
+                       .accessibilityIdentifier("arrangement-open")
+               }) {
+            VStack(alignment: .leading, spacing: 0) {
+                BandHeader("Do")
+                if renaming {
+                    InlineRenameRow(text: $draft, onSave: commitRename,
+                                    onCancel: { renaming = false })
+                } else {
+                    ScreenRow(title: "Rename", value: score.title ?? score.name,
+                              leads: false, identifier: "edit-rename-\(score.slug)") {
+                        draft = score.title ?? score.name
+                        renaming = true
+                    }
+                }
+                ScreenRow(title: "Move to piece", value: pieceName ?? "unfiled",
+                          identifier: "arrangement-move-\(score.slug)") {
+                    push(.moveToPiece([score.slug]))
+                }
+                ScreenRow(title: "Set lists", value: setlistSummary,
+                          identifier: "arrangement-setlists-\(score.slug)") {
+                    push(.setlistsFor(score.slug))
+                }
+                ScreenRow(title: "Duplicate", leads: false,
+                          identifier: "arrangement-duplicate-\(score.slug)") {
+                    Task { _ = await state.duplicateScore(slug: score.slug) }
+                }
+
+                BandHeader("Look at")
+                ScreenRow(title: "Versions", value: "\(score.versions.count)",
+                          identifier: "edit-versions-\(score.slug)") {
+                    push(.versions(score.slug))
+                }
+                ScreenRow(title: "Parts and ranges",
+                          identifier: "arrangement-parts-\(score.slug)") {
+                    push(.parts(score.slug))
+                }
+                ScreenRow(title: "Details", identifier: "row-details-\(score.slug)") {
+                    push(.details(score.slug))
+                }
+
+                BandHeader("Careful")
+                if confirmingDelete {
+                    ConfirmDeleteStrip(what: deleteWarning,
+                                       identifier: "confirm-delete-\(score.slug)",
+                                       onDelete: {
+                                           confirmingDelete = false
+                                           state.deleteScore(slug: score.slug)
+                                           onBack()
+                                       },
+                                       onKeep: { confirmingDelete = false })
+                } else {
+                    ScreenRow(title: "Delete arrangement", leads: false,
+                              isDestructive: true,
+                              identifier: "edit-delete-\(score.slug)") {
+                        confirmingDelete = true
+                    }
+                }
+            }
+            .padding(.bottom, Theme.Metric.s32)
+        }
+    }
+
+    private var placement: String? {
+        guard let p = state.placement(of: score.slug) else { return "unfiled" }
+        return "\(p.piece.name) · #\(p.number)"
+    }
+
+    private var pieceName: String? { state.placement(of: score.slug)?.piece.name }
+
+    private var setlistSummary: String {
+        let holding = (state.manifest?.setlists ?? [])
+            .filter { $0.arrangements.contains(score.slug) }
+        if holding.isEmpty { return "none" }
+        return holding.count == 1 ? holding[0].name : "\(holding.count) set lists"
+    }
+
+    private var deleteWarning: String {
+        let n = score.versions.count
+        return "Delete \(score.title ?? score.name) and its \(n) version"
+            + (n == 1 ? "?" : "s?")
+    }
+
+    private func commitRename() {
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = false
+        guard !name.isEmpty else { return }
+        Task { _ = await state.renameScore(slug: score.slug, name: name) }
+    }
+}
+
+/// The one control a row carries (§2, §4). Visible, labelled, never a long
+/// press.
+struct RowMenuButton: View {
+    var identifier: String
+    var label: String
+    var isOpen: Bool = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isOpen ? Theme.Accent.clayStrong : Theme.Ink.ink2)
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                .background(isOpen ? Theme.Accent.clayTint : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isOpen ? [.isSelected] : [])
+    }
+}

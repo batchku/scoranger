@@ -13,6 +13,11 @@ struct RootView: View {
     @EnvironmentObject var state: AppState
 
     @State private var tab: AppTab = .home
+    /// One stack per tab (§8.6). The score view stays OUTSIDE them -- it is
+    /// presented over the tabs, which is what lets its page, zoom and selection
+    /// survive going back to the library and returning.
+    @State private var homePath: [Route] = []
+    @State private var libraryPath: [Route] = []
     @State private var scoreOpen = false
     /// Where the score was opened from, so X knows where to go back to (§3).
     @State private var cameFrom: AppTab = .home
@@ -49,9 +54,18 @@ struct RootView: View {
             VStack(spacing: 0) {
                 Group {
                     switch tab {
-                    case .home:    home
-                    case .library: library
-                    case .shared:  EmptyView()
+                    case .home:
+                        NavigationStack(path: $homePath) {
+                            home.navigationBarHidden(true)
+                                .navigationDestination(for: Route.self) { screen($0, in: .home) }
+                        }
+                    case .library:
+                        NavigationStack(path: $libraryPath) {
+                            library.navigationBarHidden(true)
+                                .navigationDestination(for: Route.self) { screen($0, in: .library) }
+                        }
+                    case .shared:
+                        EmptyView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -231,6 +245,45 @@ struct RootView: View {
 
     private func segment2Pieces() { segment = .pieces }
 
+    /// What a route shows.
+    @ViewBuilder
+    private func screen(_ route: Route, in tab: AppTab) -> some View {
+        let pop = { if tab == .home { _ = homePath.popLast() } else { _ = libraryPath.popLast() } }
+        let push: (Route) -> Void = { r in
+            if tab == .home { homePath.append(r) } else { libraryPath.append(r) }
+        }
+        switch route {
+        case .piece(let slug):
+            if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
+                PieceScreen(piece: piece, onBack: pop,
+                            onOpen: { open($0) }, push: push,
+                            onImport: { pieceSlug in
+                                importIntoPiece = pieceSlug
+                                showImporter = true
+                            })
+                    .navigationBarHidden(true)
+                    .accessibilityIdentifier("screen-piece-\(slug)")
+            }
+        case .arrangement(let slug):
+            if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
+                ArrangementScreen(score: score, onBack: pop,
+                                  onOpen: { open(slug) }, push: push)
+                    .navigationBarHidden(true)
+                    .accessibilityIdentifier("screen-arrangement-\(slug)")
+            }
+        default:
+            // The remaining screens land in step 3; until then the sheets stay
+            // reachable in parallel, exactly as §9 asks, so nothing breaks
+            // mid-flight.
+            Screen(title: "Coming next", backLabel: "Back", onBack: pop) {
+                Text("This screen lands in the next step of the revision.")
+                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    .padding(Theme.Metric.s20)
+            }
+            .navigationBarHidden(true)
+        }
+    }
+
     // MARK: - Places
 
     private var home: some View {
@@ -322,6 +375,18 @@ struct RootView: View {
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
+                    onRowMenu: { row in
+                        // A piece opens its own screen; an unfiled arrangement
+                        // opens the arrangement screen (§3.5's rule: both need
+                        // a target list, so both push).
+                        if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
+                            libraryPath.append(.piece(row.id))
+                        } else if segment == .setlists {
+                            libraryPath.append(.setlist(row.id))
+                        } else {
+                            libraryPath.append(.arrangement(row.id))
+                        }
+                    },
                     onNew: { addForSegment() },
                     onImport: { importDestination = .choosing },
                     onRowAction: handle,
