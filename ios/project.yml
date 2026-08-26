@@ -214,6 +214,7 @@ targets:
       - path: Scoranger/Navigation/AppRoute.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
+      - path: Scoranger/Navigation/Route.swift
       - path: Scoranger/Score/PageTurn.swift
       - path: Scoranger/Score/ScorePosition.swift
       - path: ScorangerTests/Fixtures
