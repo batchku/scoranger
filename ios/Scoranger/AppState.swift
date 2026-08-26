@@ -60,6 +60,10 @@ final class AppState: ObservableObject {
     @Published var geometry: ScoreGeometry?
     /// Bumped to ask the UI to open chat, with text for its input: how a
     /// finished lasso shows the user that the selection registered.
+    /// The setlist being played, if the score was opened from one. It is what
+    /// the transport's prev/next step through -- the one part of the transport
+    /// that does something (NAVIGATION_SYSTEM.md §1).
+    @Published var currentSetlist: String?
     @Published var chatOpenRequest = 0
     @Published var pendingChatInsert: String?
     /// How the next lasso combines with what is already selected. Replace until

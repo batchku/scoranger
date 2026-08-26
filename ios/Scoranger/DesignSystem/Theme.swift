@@ -197,6 +197,13 @@ enum Theme {
         static let pillButton: CGFloat = 38
         static let hitTarget: CGFloat = 44
 
+        /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
+        static let tabBarHeight: CGFloat = 64
+        static let scoreTopBar: CGFloat = 52
+        static let scoreTopBarPerformance: CGFloat = 38
+        static let thumbStripHeight: CGFloat = 96
+        static let transportHeight: CGFloat = 56
+
         static let rCtl: CGFloat = 2
         static let rPanel: CGFloat = 3
         static let sheetWidth: CGFloat = 620

@@ -6,7 +6,7 @@ struct ScorangerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
                 .environmentObject(state)
                 // Paper & Clay is a single fixed light palette: every surface is
                 // a hard hex value with no dark variant. Left to follow the

@@ -6,6 +6,11 @@ import UniformTypeIdentifiers
 /// navigation bar, no title bar and no split view — losing `NavigationSplitView`
 /// is the largest change in the revamp.
 struct ContentView: View {
+    /// Leaving the score. The score view is presented OVER the tab bar and X is
+    /// how you leave it (NAVIGATION_SYSTEM.md §3); the tabs own where "back"
+    /// goes, so this only reports that it happened.
+    var onClose: () -> Void = {}
+
     @EnvironmentObject var state: AppState
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -51,7 +56,7 @@ struct ContentView: View {
     @State private var lifted: String?
     @State private var liftTimeout: Task<Void, Never>?
 
-    private static let scoreTypes: [UTType] = ([
+    static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),
         UTType(filenameExtension: "mxl"),
         UTType(filenameExtension: "xml"),
