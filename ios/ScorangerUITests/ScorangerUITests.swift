@@ -1356,11 +1356,11 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
         app.buttons["score-edit"].tap()   // leave markup mode
 
-        // switch to an earlier version
-        openPieceSheet()
-        app.buttons["versions-toggle-\(firstArrangement)"].tap()
-        let rows = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "version-\(firstArrangement)"))
+        // switch to an earlier version, from the title dropdown -- which is
+        // where switching version lives now, and where a reader would do it
+        app.buttons["score-title"].tap()
+        let rows = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else {
             return XCTFail("need more than one version to switch between")
         }
@@ -1400,11 +1400,10 @@ final class ScorangerUITests: XCTestCase {
         guard caught else { return XCTFail("nothing was selected on the page") }
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
 
-        openPieceSheet()
-        app.buttons["versions-toggle-\(firstArrangement)"].tap()
-        let rows = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "version-\(firstArrangement)"))
-        guard rows.count > 1 else { return XCTFail("need two versions") }
+        app.buttons["score-title"].tap()
+        let rows = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+        guard rows.count > 1 else { return XCTFail("need two versions in the dropdown") }
         rows.element(boundBy: rows.count - 1).tap()
 
         XCTAssertTrue(waitForDisappearance(of: app.staticTexts["selection-chip"], timeout: 40),
@@ -1620,25 +1619,23 @@ final class ScorangerUITests: XCTestCase {
     /// Drag a lasso across a horizontal band and return the first bar number
     /// of whatever it caught. Which y holds notes depends on where the page
     /// sits, so try a few bands rather than pinning one magic number.
+    /// The bar a lasso caught, read from the CHIP rather than from chat.
+    ///
+    /// The chip says "N elements from bar X" the moment a lasso lands, with no
+    /// confirming and no chat -- which matters here because confirming opens
+    /// the chat panel, takes 380pt off the canvas, and moves every normalized
+    /// offset a second lasso would aim at. Reading the chip leaves the canvas
+    /// exactly as it was found.
     private func lassoBars(on canvas: XCUIElement,
                            from dxStart: CGFloat, to dxEnd: CGFloat) -> Int? {
-        let input = app.textFields["chat-input"]
-        let before = (input.exists ? (input.value as? String) ?? "" : "")
+        let chip = app.staticTexts["selection-chip"]
         for dy in [0.30, 0.20, 0.42, 0.55, 0.12] {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: dxStart, dy: dy))
                 .press(forDuration: 0.6,
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: dxEnd, dy: dy)))
-            guard app.staticTexts["selection-chip"].waitForExistence(timeout: 8) else { continue }
-            // Nothing reaches the input until the selection is confirmed (#4c),
-            // so the reference this reads has to be asked for.
-            let confirm = app.buttons["selection-confirm"]
-            guard confirm.waitForExistence(timeout: 8) else { continue }
-            confirm.tap()
-            guard input.waitForExistence(timeout: 20) else { continue }
-            let now = (input.value as? String) ?? ""
-            guard now.count > before.count, let bar = lastBarNumber(in: now) else { continue }
-            return bar
+            guard chip.waitForExistence(timeout: 8) else { continue }
+            if let bar = lastBarNumber(in: chip.label) { return bar }
         }
         return nil
     }
