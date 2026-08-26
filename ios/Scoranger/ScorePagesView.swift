@@ -21,8 +21,13 @@ struct ScorePagesView: View {
     /// The viewport in content coordinates, and the rows worth drawing at
     /// depth. Everything else renders at a cheap scale.
     @State private var visibleRect: CGRect = .zero
-    /// Pencil markup: the shared controller, driven from the pill.
+    /// Pencil markup: the shared controller, driven from the top bar.
     private var annotation: AnnotationController { state.annotation }
+    /// What the Pencil means right now (§6). Selection is OFF in performance
+    /// mode, which is what frees the Pencil to turn pages.
+    var mode: ScoreMode = .read
+    /// Where a page turn is scrolling to, if one is in flight.
+    @State private var scrollTarget: CGFloat?
 
     /// Up to 12x: Ali wants to go all the way in on a single notehead to check
     /// it, and 3x stopped well short of that -- the canvas simply sprang back.
@@ -44,12 +49,21 @@ struct ScorePagesView: View {
                                                modifierFingerDown: fingerHeld)
                            },
                            onWillReplaceSelection: { state.clearSelection() },
+                           onTurnTap: { point, width, isPencil in
+                               turn(at: point, width: width, isPencil: isPencil)
+                           },
+                           selectionEnabled: mode != .performance,
+                           scrollTarget: scrollTarget,
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
                            bottomChrome: Theme.Metric.pillHeight
                                + Theme.Metric.s20 + Theme.Metric.s12,
-                           onVisibleRectChange: { visibleRect = $0 },
+                           onVisibleRectChange: { rect in
+                               visibleRect = rect
+                               reportPosition(rect, viewport: geo.size, spread: spread,
+                                              width: width)
+                           },
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
                 // finer steps than before: at 12x, half-scale rounding threw
@@ -77,6 +91,41 @@ struct ScorePagesView: View {
         // pill itself has observed the controller since it was written; this is
         // the same fix, in the one place that was missing it.
         .overlay(alignment: .bottom) { AnnotationBarLayer(controller: annotation) }
+    }
+
+    /// A finished touch that might be a turn. The decision is PageTurn's; this
+    /// only supplies the facts and moves the scroll view if the answer is yes.
+    private func turn(at point: CGPoint, width: CGFloat, isPencil: Bool) {
+        guard let zone = PageTurn.turn(isPencil: isPencil, mode: mode, x: point.x,
+                                       width: width, movement: 0, elapsed: 0)
+        else { return }
+        guard let destination = PageTurn.destination(from: visibleRect.minY,
+                                                     boundaries: state.pageBoundaries,
+                                                     zone: zone) else { return }
+        scrollTarget = destination
+    }
+
+    /// Which pages are on screen, and where every page starts -- the counters,
+    /// the strip's highlight and the page turn all read these.
+    private func reportPosition(_ rect: CGRect, viewport: CGSize, spread: Bool,
+                                width: CGFloat) {
+        let rows = SpreadLayout.rows(pageCount: document.pageCount, spread: spread)
+        var bands: [(index: Int, span: ClosedRange<CGFloat>)] = []
+        var boundaries: [CGFloat] = []
+        var y: CGFloat = SpreadLayout.gutter
+        for row in rows {
+            let height = row.compactMap { index -> CGFloat? in
+                guard let page = document.page(at: index) else { return nil }
+                let bounds = page.bounds(for: .mediaBox)
+                return width * bounds.height / max(bounds.width, 1)
+            }.max() ?? width
+            boundaries.append(y - SpreadLayout.gutter)
+            for index in row { bands.append((index, y...(y + height))) }
+            y += height + SpreadLayout.gutter
+        }
+        let visible = ScorePosition.visiblePages(bands: bands, visible: rect)
+        if state.visiblePageIndices != visible { state.visiblePageIndices = visible }
+        if state.pageBoundaries != boundaries { state.pageBoundaries = boundaries }
     }
 
     @ViewBuilder
@@ -505,6 +554,6 @@ final class DrawingStore {
 }
 
 
-private struct ChipShadow: ViewModifier {
+struct ChipShadow: ViewModifier {
     func body(content: Content) -> some View { Theme.Elevation.pill(content) }
 }

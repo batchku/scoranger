@@ -16,7 +16,18 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The two overlays, which replace the split view's columns.
+    /// The library overlay is gone from the score view (§8): browsing is the
+    /// Library tab now. The flag stays only so the canvas inset arithmetic
+    /// below keeps one shape -- it is never set true any more.
     @State private var libraryOpen = false
+    @State private var mode: ScoreMode = .read
+    @State private var titleMenuOpen = false
+    @State private var moreOpen = false
+    /// Off by default and named a preview (§9.2): a transport that does nothing
+    /// teaches people the app is broken. Previous and next step the setlist and
+    /// work whether or not this is on.
+    @AppStorage("showTransport") private var showTransport = false
+    @State private var exportRequested = 0
     @State private var chatOpen = false
     @State private var didSetInitialOverlays = false
 
@@ -79,27 +90,63 @@ struct ContentView: View {
     private var isCompact: Bool { hSize == .compact }
 
     var body: some View {
-        ZStack {
-            Theme.Surface.ground.ignoresSafeArea()
-            canvasLayer
-            overlayLayer
+        VStack(spacing: 0) {
+            ScoreTopBar(annotation: state.annotation,
+                        number: state.selectedScore
+                            .flatMap { state.placement(of: $0.slug)?.number },
+                        title: scoreTitle,
+                        subtitle: scoreSubtitle,
+                        mode: $mode,
+                        titleMenuOpen: $titleMenuOpen,
+                        moreOpen: $moreOpen,
+                        chatOpen: chatOpen,
+                        onClose: onClose,
+                        onAsk: {
+                            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+                                chatOpen.toggle()
+                            }
+                        })
+            ZStack {
+                Theme.Surface.ground
+                canvasLayer
+                overlayLayer
+            }
+            .overlay(alignment: .topTrailing) {
+                if state.selectedScore != nil {
+                    PositionCounters(pages: pageCounter, bar: barCounter)
+                        .padding(.top, Theme.Metric.s8)
+                        .padding(.trailing, Theme.Metric.s12)
+                        .allowsHitTesting(false)
+                }
+            }
+            // Performance mode gives the score the whole screen: the strip and
+            // the transport go, and the page-turn zones become the point (§4.5).
+            if mode != .performance, let document = state.pdfDocument {
+                ThumbnailStrip(document: document,
+                               current: state.visiblePageIndices,
+                               spread: state.twoPageSpread,
+                               onJump: { index in state.visiblePageIndices = [index] })
+                if showTransport {
+                    Transport(setlistLabel: setlistLabel,
+                              canStep: setlistPosition != nil,
+                              onPrevious: { stepSetlist(-1) },
+                              onNext: { stepSetlist(1) })
+                }
+            }
         }
-        .overlay(alignment: .bottom) { pillLayer }
         .background(Theme.Surface.ground)
+        .overlay(alignment: .top) { titleMenu }
+        .overlay(alignment: .topTrailing) { moreMenu }
+        .onChange(of: state.annotation.isOn) { _, on in
+            // the ink bar can be dismissed from its own control, and the mode
+            // must follow it or the top bar would lie about the Pencil
+            if on { mode = .edit } else if mode == .edit { mode = .read }
+        }
         .task {
             Theme.verifyFontsRegistered()
-            state.resetViewPreferencesForTesting()
-            state.startPolling()
         }
         .onChange(of: state.notice) { _, notice in
             if let notice { alertRequest = .notice(notice) }
-        }
-        .onAppear {
-            guard !didSetInitialOverlays else { return }
-            didSetInitialOverlays = true
-            // the score is the ground: on iPad the library starts open so the
-            // library is discoverable, on iPhone nothing covers the score
-            libraryOpen = !isCompact
         }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
@@ -112,6 +159,96 @@ struct ContentView: View {
         // Panel dialogs, not system ones: a sheet is 620 wide over a 34% dim and
         // an alert has a band footer whose verb names the action (§7.15, §7.16).
         .overlay { dialogLayer }
+    }
+
+    // MARK: - The setlist, which is what the transport steps
+
+    private var setlistPosition: (setlist: SetlistDoc, index: Int)? {
+        guard let slug = state.currentSetlist, let current = state.selectedSlug,
+              let setlist = state.manifest?.setlists?.first(where: { $0.slug == slug }),
+              let index = setlist.arrangements.firstIndex(of: current) else { return nil }
+        return (setlist, index)
+    }
+
+    private var setlistLabel: String? {
+        guard let position = setlistPosition else { return nil }
+        return "setlist · \(position.index + 1) of \(position.setlist.arrangements.count)"
+    }
+
+    private func stepSetlist(_ delta: Int) {
+        guard let position = setlistPosition else { return }
+        let next = position.index + delta
+        guard position.setlist.arrangements.indices.contains(next) else { return }
+        state.select(slug: position.setlist.arrangements[next])
+    }
+
+    // MARK: - The two menus the top bar opens
+
+    @ViewBuilder
+    private var titleMenu: some View {
+        if titleMenuOpen, let score = state.selectedScore {
+            TitleMenu(score: score,
+                      onPick: { slug in
+                          titleMenuOpen = false
+                          state.select(slug: slug)
+                      },
+                      onPickVersion: { version in
+                          titleMenuOpen = false
+                          state.pinnedVersion = version
+                          Task { await state.renderIfNeeded() }
+                      },
+                      onAllVersions: {
+                          titleMenuOpen = false
+                          moreOpen = true
+                      })
+                .padding(.top, Theme.Metric.scoreTopBar + Theme.Metric.s4)
+                // tapping anywhere else puts it away, which is what a menu does
+                .background(
+                    Color.clear.contentShape(Rectangle())
+                        .onTapGesture { titleMenuOpen = false })
+        }
+    }
+
+    @ViewBuilder
+    private var moreMenu: some View {
+        if moreOpen {
+            MoreMenu(mode: $mode,
+                     showTransport: $showTransport,
+                     onClose: { moreOpen = false },
+                     onSettings: { showSettings = true },
+                     onDetails: { infoScore = state.selectedScore },
+                     onExport: { exportRequested += 1 })
+                .padding(.top, Theme.Metric.scoreTopBar + Theme.Metric.s4)
+                .padding(.trailing, Theme.Metric.s12)
+        }
+    }
+
+    // MARK: - Identity, counters
+
+    private var scoreTitle: String {
+        guard let score = state.selectedScore else { return "No arrangement" }
+        return score.title ?? score.name
+    }
+
+    private var scoreSubtitle: String {
+        guard let score = state.selectedScore else { return "" }
+        let piece = state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
+        return [piece?.name, state.displayedVersionID]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var pageCounter: String {
+        ScorePosition.pageLabel(visible: state.visiblePageIndices,
+                                total: state.pdfDocument?.pageCount ?? 0)
+    }
+
+    /// The bar on screen, from the geometry the selection layer already builds.
+    private var barCounter: Int? {
+        guard let geometry = state.geometry else { return nil }
+        let measures = state.visiblePageIndices.flatMap { index in
+            geometry.page(index)?.elements.compactMap { $0.address?.measure } ?? []
+        }
+        return ScorePosition.bar(measuresOnScreen: measures)
     }
 
     // MARK: - Dialogs
@@ -293,7 +430,7 @@ struct ContentView: View {
             if isCompact {
                 ScoreZoomView(document: doc)
             } else {
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)")
+                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)", mode: mode)
             }
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so

@@ -52,6 +52,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
     /// The Pencil landed and this stroke replaces the selection.
     var onWillReplaceSelection: (() -> Void)?
+    /// A finished touch that might be a page turn: where it was, how wide the
+    /// canvas is, and whether it was the Pencil. The decision itself is
+    /// PageTurn's -- this only reports (§6).
+    var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+    /// Selection off, for performance mode.
+    var selectionEnabled: Bool = true
+    /// Scroll to this offset when it changes: how a page turn moves (§6.4).
+    var scrollTarget: CGFloat?
     /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
@@ -106,6 +114,15 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.lasso?.onPencilPresence = {
             [weak coordinator] frozen in coordinator?.freezeCanvas(frozen)
         }
+
+        // A finger tap in the outer zones turns the page (§6.2). Safe to add,
+        // because a single-finger tap on the page did nothing at all before
+        // this: fingers only ever scrolled. It cancels nothing, so a scroll
+        // that happens to end still scrolls.
+        let turn = TurnTapRecognizer(target: context.coordinator,
+                                     action: #selector(Coordinator.turnTapped(_:)))
+        turn.cancelsTouchesInView = false
+        scroll.addGestureRecognizer(turn)
 
         // A Pencil tap: drops one element from the selection. Pencil only,
         // because dropping an element is a selection edit and the hand does not
@@ -162,6 +179,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.onTap = onTap
         context.coordinator.lasso?.onWillReplaceSelection = onWillReplaceSelection
         context.coordinator.lasso?.annotationActive = annotationActive
+        context.coordinator.lasso?.selectionEnabled = selectionEnabled
+        context.coordinator.onTurnTap = onTurnTap
+        context.coordinator.scrollTo(scrollTarget)
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.onVisibleRectChange = onVisibleRectChange
         context.coordinator.bottomChrome = bottomChrome
@@ -272,6 +292,19 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         }
 
         var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
+        var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+        private var lastScrollTarget: CGFloat?
+
+        /// Animate to a page boundary. A turn is a SCROLL, not a flip: the
+        /// pages are stacked vertically and this is the same movement a finger
+        /// would make, so nothing about the layout engine changes (§6.4).
+        func scrollTo(_ target: CGFloat?) {
+            guard let target, let scroll, target != lastScrollTarget else { return }
+            lastScrollTarget = target
+            let x = scroll.contentOffset.x
+            scroll.setContentOffset(CGPoint(x: x, y: target * scroll.zoomScale),
+                                    animated: true)
+        }
 
         /// Pan and zoom are off while a Pencil is down to select.
         ///
@@ -298,6 +331,11 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// freeze is keyed on the Pencil being DOWN, which starts earlier (the
         /// moment it touches) and ends later (when it lifts) than the stroke.
         @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {}
+
+        @objc func turnTapped(_ recognizer: TurnTapRecognizer) {
+            guard recognizer.state == .ended, let root = recognizer.view else { return }
+            onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
+        }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }
 
@@ -380,5 +418,61 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
                        scrollView.bounds.height, inset.top, inset.bottom))
             if target != scrollView.contentOffset { scrollView.contentOffset = target }
         }
+    }
+}
+
+
+/// A touch that ended still and quickly, wherever it was.
+///
+/// Deliberately not a `UITapGestureRecognizer`: that one competes with the
+/// others for the same touch, and this must never take a touch away from the
+/// lasso or the scroll. It observes, reports, and always fails -- the decision
+/// about whether it MEANT anything belongs to PageTurn.
+final class TurnTapRecognizer: UIGestureRecognizer {
+    private(set) var landed: CGPoint = .zero
+    private(set) var wasPencil = false
+    private var start: CGPoint = .zero
+    private var began: TimeInterval = 0
+    private var moved: CGFloat = 0
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let root = view, let touch = touches.first, touches.count == 1 else {
+            state = .failed
+            return
+        }
+        start = touch.location(in: root)
+        began = touch.timestamp
+        moved = 0
+        wasPencil = touch.type == .pencil
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let root = view, let touch = touches.first else { return }
+        let now = touch.location(in: root)
+        moved = max(moved, hypot(now.x - start.x, now.y - start.y))
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        defer { state = .failed }   // never claim the touch
+        guard let root = view, let touch = touches.first else { return }
+        guard PageTurn.isTap(movement: moved, elapsed: touch.timestamp - began) else { return }
+        landed = touch.location(in: root)
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .failed
+    }
+
+    override func reset() {
+        super.reset()
+        moved = 0
     }
 }

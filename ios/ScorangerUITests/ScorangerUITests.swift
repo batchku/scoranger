@@ -21,9 +21,9 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger"]
         app.launch()
-        // the library overlay starts open on iPad; band headers render uppercased
-        XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
-                      "the library overlay never showed its Pieces band")
+        // Home is the first place now; the library is a tab.
+        XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 90),
+                      "the app never showed its tab bar")
         // ...and then wait for the SEED to finish, which is not the same thing.
         //
         // seedLibraryIfEmpty imports the sample scores and only afterwards
@@ -34,7 +34,8 @@ final class ScorangerUITests: XCTestCase {
         // just made, the next could not find the set list the seed had not
         // reached yet. Waiting for the arrangement every test goes on to use
         // waits for the imports; nothing here retries an assertion.
-        XCTAssertTrue(app.buttons["arrangement-\(firstArrangement)"]
+        app.buttons["tab-library"].tap()
+        XCTAssertTrue(app.buttons["row-\(firstArrangement)"]
                         .waitForExistence(timeout: 180),
                       "the seeded library never finished importing")
     }
@@ -61,6 +62,19 @@ final class ScorangerUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90),
                       "the library never came back after the relaunch")
+    }
+
+    /// Open an arrangement the way a person now does: the Library tab, then
+    /// its row. Browsing and reading are separate places (§3), so this is two
+    /// steps rather than one tap on a sidebar that no longer exists.
+    private func openArrangement(_ slug: String) {
+        if !app.buttons["row-\(slug)"].exists {
+            app.buttons["tab-library"].tap()
+        }
+        let row = app.buttons["row-\(slug)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 180),
+                      "the library never listed \(slug)")
+        row.tap()
     }
 
     private func shot(_ name: String) {
@@ -122,34 +136,87 @@ final class ScorangerUITests: XCTestCase {
         return !element.exists
     }
 
-    // MARK: - The pill is the only chrome (§7.1)
+    // MARK: - The score view's own chrome (NAVIGATION_SYSTEM.md §4.5)
 
-    func testPillCarriesEveryControlAndThereIsNoNavigationBar() {
-        XCTAssertTrue(app.buttons["pill-library"].exists, "no library toggle in the pill")
-        XCTAssertTrue(app.buttons["pill-chat"].exists, "no chat toggle in the pill")
-        XCTAssertTrue(app.buttons["pill-options"].exists, "no options menu in the pill")
-        XCTAssertTrue(app.buttons["pill-markup"].exists, "no markup toggle in the pill")
-        // the version chip replaces the old toolbar version picker
-        XCTAssertTrue(app.buttons["pill-version"].exists, "no version chip in the pill")
-        // nothing from the old split view survives
+    /// The pill is gone from the score view. Its duties did not vanish -- they
+    /// moved (§8), and this is the list of where to.
+    func testTheTopBarCarriesEveryControlAndThereIsNoNavigationBar() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180),
+                      "no way out of the score")
+        XCTAssertTrue(app.buttons["score-ask"].exists, "chat has no button")
+        XCTAssertTrue(app.buttons["score-more"].exists, "no … menu")
+        XCTAssertTrue(app.buttons["score-edit"].exists, "no Edit")
+        XCTAssertTrue(app.buttons["score-spread"].exists,
+                      "the spread toggle should be in the top bar, not buried in Settings")
+        XCTAssertTrue(app.buttons["score-title"].exists, "no title block to switch from")
+        XCTAssertFalse(app.buttons["pill-library"].exists,
+                       "the pill's library toggle should be gone: browsing is a tab now")
         XCTAssertFalse(app.navigationBars.element.exists,
                        "the score-first layout has no navigation bar")
-        shot("pill-and-canvas")
+        shot("score-top-bar")
     }
 
-    func testLibraryOverlayTogglesFromThePill() {
-        let library = app.buttons["pill-library"]
-        XCTAssertTrue(app.staticTexts["PIECES"].exists)
-        library.tap()
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["PIECES"], timeout: 5),
-                      "the library did not close")
-        library.tap()
+    /// Browsing and reading are separate places: X leaves the score and lands
+    /// back where it was opened from (§3).
+    func testTheScoreOpensOverTheTabsAndClosesBack() {
+        app.buttons["tab-library"].tap()
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180))
+        XCTAssertFalse(app.buttons["tab-library"].isHittable,
+                       "the score covers the tabs while you are in it")
+        app.buttons["score-close"].tap()
+        XCTAssertTrue(app.buttons["row-\(firstArrangement)"].waitForExistence(timeout: 20),
+                      "closing the score did not go back to the library")
+        shot("closed-back-to-library")
+    }
+
+    func testTheLibraryIsATabWithBothHalves() {
+        app.buttons["tab-library"].tap()
+        XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["segment-setlists"].exists)
+        XCTAssertTrue(app.otherElements["alphabet-rail"].exists
+                        || app.buttons["library-sort"].exists,
+                      "the library has no sort control")
+        app.buttons["segment-setlists"].tap()
+        XCTAssertTrue(app.buttons["segment-setlists"].isSelected)
+        shot("library-setlists")
+    }
+
+    func testHomeOffersRealActionsAndTheEngineChip() {
+        app.buttons["tab-home"].tap()
+        XCTAssertTrue(app.buttons["home-import"].waitForExistence(timeout: 30),
+                      "Home has no import action")
+        XCTAssertTrue(app.buttons["home-new-arrangement"].exists)
+        XCTAssertTrue(app.buttons["home-new-setlist"].exists)
+        XCTAssertTrue(app.buttons["home-ask"].exists)
+        // where the reference has an account avatar
+        XCTAssertTrue(app.otherElements["home-engine-chip"].exists
+                        || app.staticTexts["on-device"].exists,
+                      "Home does not say which engine is running")
+        shot("home")
+    }
+
+    func testTheThirdTabIsDrawnButNotUsable() {
+        // a labelled placeholder, so the bar is not re-laid-out when sharing
+        // lands -- and so its absence is a promise rather than a dead pixel
+        XCTAssertTrue(app.buttons["tab-shared"].exists)
+        XCTAssertFalse(app.buttons["tab-shared"].isEnabled)
+    }
+
+    func testTheLibraryOverlayIsGoneFromTheScore() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180))
+        XCTAssertFalse(app.staticTexts["PIECES"].exists,
+                       "the score view should not carry a library overlay any more")
         XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 5),
                       "the library did not reopen")
     }
 
-    func testChatOverlayOpensFromThePill() {
-        app.buttons["pill-chat"].tap()
+    func testChatOverlayOpensFromAsk() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-ask"].waitForExistence(timeout: 180))
+        app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10),
                       "the chat overlay did not open")
         // the primer and the input are the panel's own, not a system sheet
@@ -165,12 +232,11 @@ final class ScorangerUITests: XCTestCase {
     /// left dead bands beside the score and — because the pane is also the
     /// scroll view — put hard limits on how far zoom could pan. Asserted
     /// numerically because eyeballing missed it twice.
-    func testCanvasFillsTheGapBesideThePanels() {
+    func testCanvasFillsTheGapBesideTheChatPanel() {
         let screen = app.windows.firstMatch.frame.width
-        let library: CGFloat = 320
         let chat: CGFloat = 380
         // the score view only exists once an arrangement has engraved
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let score = app.scrollViews["score-canvas"]
         XCTAssertTrue(score.waitForExistence(timeout: 180),
                       "the score never finished engraving")
@@ -200,29 +266,25 @@ final class ScorangerUITests: XCTestCase {
                            + "got \(score.frame.width) of \(screen) available")
         }
 
-        // library open (the launch state), chat closed
-        assertWidth(screen - library, "library open, chat closed")
-        assertPageFillsCanvas("library open, chat closed")
-        shot("width-library-open")
+        // The library overlay is gone from the score view (§8), so there is
+        // one panel left to make room for and two states to check rather than
+        // four. The property being protected is unchanged: whatever gap the
+        // chrome leaves, the score fills it.
+        assertWidth(screen, "nothing open")
+        assertPageFillsCanvas("nothing open")
+        shot("width-none-open")
 
-        app.buttons["pill-chat"].tap()
+        app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
         sleep(1)
-        assertWidth(screen - library - chat, "both panels open")
-        assertPageFillsCanvas("both panels open")
-        shot("width-both-open")
-
-        app.buttons["pill-library"].tap()
-        sleep(1)
-        assertWidth(screen - chat, "library closed, chat open")
-        assertPageFillsCanvas("library closed, chat open")
+        assertWidth(screen - chat, "chat open")
+        assertPageFillsCanvas("chat open")
         shot("width-chat-only")
 
         app.buttons["Close chat"].tap()
         sleep(1)
-        assertWidth(screen, "both panels closed")
-        assertPageFillsCanvas("both panels closed")
-        shot("width-none-open")
+        assertWidth(screen, "chat closed again")
+        assertPageFillsCanvas("chat closed again")
     }
 
     /// Zoomed in, the page has to be bigger than the region and pannable to
@@ -232,7 +294,7 @@ final class ScorangerUITests: XCTestCase {
     /// so the canvas publishes its live zoom scale and the test pinches until
     /// it reads high enough.
     func testTheZoomedPageUsesTheWholeCanvas() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let score = app.scrollViews["score-canvas"]
         XCTAssertTrue(score.waitForExistence(timeout: 180),
                       "the score never finished engraving")
@@ -291,11 +353,8 @@ final class ScorangerUITests: XCTestCase {
             sleep(1)
         }
 
-        checkRegion("library-open")
-        app.buttons["pill-library"].tap()
-        sleep(1)
         checkRegion("no-panels")
-        app.buttons["pill-chat"].tap()
+        app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
         sleep(1)
         checkRegion("chat-open")
@@ -304,10 +363,9 @@ final class ScorangerUITests: XCTestCase {
     /// And the region stays usable under zoom: the page can be panned across
     /// the whole gap rather than being clipped to an inner box.
     func testZoomPansAcrossTheWholeCanvas() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let score = app.scrollViews["score-canvas"]
         XCTAssertTrue(score.waitForExistence(timeout: 180))
-        app.buttons["pill-library"].tap()
         sleep(2)
         let full = app.windows.firstMatch.frame.width
         XCTAssertEqual(score.frame.width, full, accuracy: 4,
@@ -321,12 +379,12 @@ final class ScorangerUITests: XCTestCase {
                            "the canvas shrank while zoomed at \(scale)")
             shot("width-zoomed-\(scale)")
         }
-        // and zoomed with the library open, which is where the stale
+        // and zoomed with the chat panel open, which is where the stale
         // centring inset used to strand the page under the panel. The pan
         // itself is checked by eye from the screenshot: XCUITest pinch scales
         // compound unpredictably, so asserting an exact page frame here is
         // flakier than it is useful. The canvas frame is what stays asserted.
-        app.buttons["pill-library"].tap()
+        app.buttons["score-ask"].tap()
         sleep(1)
         score.pinch(withScale: 2.0, velocity: 1.5)
         sleep(1)
@@ -359,9 +417,9 @@ final class ScorangerUITests: XCTestCase {
     }
 
     func testRowTapOpensArrangement() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         // the pill's version chip tracks whatever is open
-        XCTAssertTrue(app.buttons["pill-version"].waitForExistence(timeout: 60),
+        XCTAssertTrue(app.buttons["score-title"].waitForExistence(timeout: 60),
                       "row tap did not open an arrangement")
     }
 
@@ -436,7 +494,7 @@ final class ScorangerUITests: XCTestCase {
     /// engraved file (the sheet's mismatch note is derived from it), not just
     /// out of the library document.
     func testTitleAndCreditsAreEditableAndReachTheNotation() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
         app.buttons["Arrangement details"].firstMatch.tap()
@@ -488,7 +546,7 @@ final class ScorangerUITests: XCTestCase {
     /// after, so the engraving itself can be read (the page is a bitmap, so no
     /// assertion can look at it — the values either side are asserted instead).
     func testTheEngravedTitleFollowsTheArrangementTitle() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
         sleep(2)
@@ -515,7 +573,7 @@ final class ScorangerUITests: XCTestCase {
     /// Part names are the staff labels engraved on every system, so they are
     /// metadata the user can edit too.
     func testPartNamesAreEditableFromTheSheet() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         app.buttons["Arrangement details"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
         let first = app.buttons["part-0"]
@@ -553,7 +611,7 @@ final class ScorangerUITests: XCTestCase {
     /// every reference, so the score has to still open and still have its
     /// history afterwards.
     func testSlugIsEditableAndReferencesSurvive() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
         app.buttons["Arrangement details"].firstMatch.tap()
@@ -602,7 +660,7 @@ final class ScorangerUITests: XCTestCase {
     func testMovingAnUnfiledArrangementIntoAPieceNumbersIt() {
         // a blank arrangement, unfiled: created in the piece, then unfiled, so
         // the test does not depend on what the seed happens to contain
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         app.buttons["Arrangement details"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
 
@@ -707,7 +765,7 @@ final class ScorangerUITests: XCTestCase {
     /// drag-and-drop (which is how row-to-row reordering was shown to be a
     /// real gap rather than a harness limit).
     func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         app.buttons["Arrangement details"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
         app.buttons["piece-menu"].firstMatch.tap()
@@ -741,7 +799,7 @@ final class ScorangerUITests: XCTestCase {
         // chat context hands the model
         second.tap()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
-        app.buttons["pill-chat"].tap()
+        app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
         let numeral = element(labelStartingWith: "Arrangement number 1")
         XCTAssertTrue(numeral.exists, "the pill should show the new number")
@@ -752,9 +810,9 @@ final class ScorangerUITests: XCTestCase {
 
     /// The old yellow-band highlight is gone, replaced by a real selection.
     func testTheOldHighlightFeatureIsGone() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
-        app.buttons["pill-options"].tap()
+        app.buttons["score-more"].tap()
         XCTAssertFalse(app.buttons["Highlight a passage for chat"].exists,
                        "the bar-estimate highlight toggle is still in the options menu")
         XCTAssertTrue(app.buttons["Clear markup"].waitForExistence(timeout: 5),
@@ -768,7 +826,7 @@ final class ScorangerUITests: XCTestCase {
     /// reference lands in the input ready to be typed against.
     func testLassoSelectsElementsAndHandsThemToChat() {
         withPencilStandIn()
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180),
                       "the score never finished engraving")
@@ -845,7 +903,7 @@ final class ScorangerUITests: XCTestCase {
     /// by a view that reads the annotation controller without observing it, so
     /// it only updated when something else happened to redraw the score pane.
     func testTheInkBarFollowsThePillToggleBothWays() {
-        let markup = app.buttons["pill-markup"]
+        let markup = app.buttons["score-edit"]
         XCTAssertTrue(markup.waitForExistence(timeout: 60))
         XCTAssertFalse(app.buttons["Draw"].exists, "the ink bar should start hidden")
 
@@ -917,7 +975,7 @@ final class ScorangerUITests: XCTestCase {
     ///
     /// Launched WITHOUT the Pencil stand-in, so these really are fingers.
     func testAFingerNeverSelectsHoweverItDrags() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
@@ -939,11 +997,11 @@ final class ScorangerUITests: XCTestCase {
     /// with markup mode OFF, which is where it was lost: the recognizer used to
     /// live on the PencilKit canvas, which only takes touches while markup is on.
     func testTwoFingerTapUndoesEvenWithMarkupOff() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         sleep(10)
-        app.buttons["pill-markup"].tap()
+        app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
         let canvas = app.descendants(matching: .any)
@@ -964,14 +1022,10 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
 
         // leave markup mode: this is where the gesture used to stop working
-        app.buttons["pill-markup"].tap()
+        app.buttons["score-edit"].tap()
         XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 10),
                       "markup mode did not close")
 
-        // the library panel overlaps the canvas, and a two-finger tap cannot be
-        // computed on a partly occluded element -- close it, as a reader would
-        if app.staticTexts["PIECES"].exists { app.buttons["pill-library"].tap() }
-        _ = waitForDisappearance(of: app.staticTexts["PIECES"], timeout: 10)
         // tap on the page, not the scroll view: XCUITest cannot compute a
         // two-finger gesture on a scroll view element. The touches land on the
         // recognizer either way -- it lives on the scroll view beneath.
@@ -989,7 +1043,7 @@ final class ScorangerUITests: XCTestCase {
     /// selection, which hid the chip, which was the only way out of Subtract).
     func testTheChipNamesTheSelectionAndHasNoModes() {
         withPencilStandIn()
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
@@ -1094,11 +1148,11 @@ final class ScorangerUITests: XCTestCase {
     /// A drawing belongs to the version it was made on. Switching versions must
     /// not carry someone's pencil marks onto a different engraving.
     func testAnnotationsBelongToTheVersionTheyWereMadeOn() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         sleep(10)
-        app.buttons["pill-markup"].tap()
+        app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
         let canvas = app.descendants(matching: .any)
@@ -1114,7 +1168,7 @@ final class ScorangerUITests: XCTestCase {
             .press(forDuration: 0.05,
                    thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
-        app.buttons["pill-markup"].tap()   // leave markup mode
+        app.buttons["score-edit"].tap()   // leave markup mode
 
         // switch to an earlier version
         app.buttons["versions-toggle-\(firstArrangement)"].tap()
@@ -1143,7 +1197,7 @@ final class ScorangerUITests: XCTestCase {
     /// must not leave a stale selection pointing at bars of a different score.
     func testSwitchingVersionClearsAStaleSelection() {
         withPencilStandIn()
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
@@ -1186,7 +1240,7 @@ final class ScorangerUITests: XCTestCase {
         // left one behind: how many versions a freshly seeded arrangement has
         // is incidental, and the run where it had one made this test fail for
         // a reason that had nothing to do with highlighting.
-        app.buttons["pill-options"].tap()
+        app.buttons["score-more"].tap()
         let transpose = app.buttons["Transpose up a semitone"]
         if transpose.waitForExistence(timeout: 10) {
             transpose.tap()
@@ -1307,7 +1361,7 @@ final class ScorangerUITests: XCTestCase {
     func testALassoOnTheRightHandPageSelectsFromThatPage() {
         withPencilStandIn()
         setTwoPageSpread(on: true)
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180),
                       "the score never finished engraving")
@@ -1388,7 +1442,7 @@ final class ScorangerUITests: XCTestCase {
 
     /// The lasso must never cost the gestures that were already there.
     func testPinchStillZoomsWithTheLassoInstalled() {
-        app.buttons["arrangement-\(firstArrangement)"].tap()
+        openArrangement(firstArrangement)
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180))
         let before = CGFloat(Double((canvas.value as? String)?
@@ -1503,7 +1557,7 @@ final class ScorangerUITests: XCTestCase {
     // MARK: - Markup
 
     func testMarkupModeAndTheInkBar() {
-        let markup = app.buttons["pill-markup"]
+        let markup = app.buttons["score-edit"]
         XCTAssertTrue(markup.waitForExistence(timeout: 60))
         XCTAssertFalse(app.buttons["Draw"].exists, "the ink bar should be hidden")
         markup.tap()
@@ -1520,9 +1574,9 @@ final class ScorangerUITests: XCTestCase {
     /// The build-116 bug: draw, undo, switch colour, draw, undo. The first
     /// stroke must not come back. Stroke counts are read off the canvas.
     func testAnnotationUndoAcrossColourChange() {
-        XCTAssertTrue(app.buttons["pill-markup"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.buttons["score-edit"].waitForExistence(timeout: 90),
                       "the markup toggle never appeared in the pill")
-        app.buttons["pill-markup"].tap()
+        app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10),
                       "the ink bar did not open")
 
@@ -1574,9 +1628,9 @@ final class ScorangerUITests: XCTestCase {
             return XCTFail("no score canvas")
         }
         score.pinch(withScale: 2.2, velocity: 2.0)
-        XCTAssertTrue(app.buttons["pill-library"].exists, "the pill should survive a zoom")
+        XCTAssertTrue(app.buttons["score-close"].exists, "the top bar should survive a zoom")
         score.pinch(withScale: 0.5, velocity: -2.0)
-        XCTAssertTrue(app.buttons["pill-library"].exists)
+        XCTAssertTrue(app.buttons["score-close"].exists)
     }
 
     // MARK: - Adding

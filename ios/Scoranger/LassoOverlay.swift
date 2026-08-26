@@ -27,6 +27,10 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     var onWillReplaceSelection: (() -> Void)?
     /// Markup mode. It changes what the PENCIL does and nothing else.
     var annotationActive = false
+    /// Performance mode turns selection off entirely, which is precisely what
+    /// frees the Pencil to turn pages (NAVIGATION_SYSTEM.md §6.1). Selection is
+    /// not "suppressed" here -- it is off, and the top bar says so.
+    var selectionEnabled = true
 
     /// Lets a UI test drive the selection pipeline with a finger.
     ///
@@ -211,7 +215,8 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         // it cannot pan the canvas, so a Pencil drag has exactly one meaning.
         // Fingers are not consulted at all -- however many are resting on the
         // glass, and whatever they are doing.
-        guard drawing == nil, let touch = pencilTouch, touches.contains(touch),
+        guard selectionEnabled, drawing == nil,
+              let touch = pencilTouch, touches.contains(touch),
               LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive)
         else { return }
         report(touch, phase: "moved", began: true)

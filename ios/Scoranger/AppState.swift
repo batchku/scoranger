@@ -64,6 +64,12 @@ final class AppState: ObservableObject {
     /// the transport's prev/next step through -- the one part of the transport
     /// that does something (NAVIGATION_SYSTEM.md §1).
     @Published var currentSetlist: String?
+    /// Which pages are on screen, reported by the canvas. Feeds the counters
+    /// and the thumbnail strip's "you are here" (NAVIGATION_SYSTEM.md 12.11).
+    @Published var visiblePageIndices: [Int] = [0]
+    /// Where each page sits vertically in the content, so a page turn knows
+    /// what the next boundary is (§6.4).
+    @Published var pageBoundaries: [CGFloat] = []
     @Published var chatOpenRequest = 0
     @Published var pendingChatInsert: String?
     /// How the next lasso combines with what is already selected. Replace until
