@@ -150,6 +150,8 @@ def _dispatch(op, a):
         return workspace.rename_piece(a["piece"], a["name"])
     if op == "reorder-piece":
         return workspace.set_piece_order(a["piece"], a["order"])
+    if op == "reorder-setlist":
+        return workspace.set_setlist_order(a["setlist"], a["order"])
     if op == "create-setlist":
         return workspace.create_setlist(a["name"])
     if op == "assign-setlist":

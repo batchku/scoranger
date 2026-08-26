@@ -576,6 +576,24 @@ def remove_score_from_setlist(setlist: str, score: str) -> dict:
     return doc
 
 
+def set_setlist_order(name_or_slug: str, order: list) -> dict:
+    """Set a set list's running order. Every slug must already be in it.
+
+    One reorder rather than a remove and a re-add: the latter would drop the
+    arrangement to the end and lose the position of everything after it, which
+    is the opposite of what "move up" means.
+    """
+    doc = resolve_setlist(name_or_slug)
+    members = set(doc.get("scores") or [])
+    bad = [s for s in order if s not in members]
+    if bad:
+        raise ValueError(f"Not in '{doc['slug']}': {bad}. Members: {sorted(members)}")
+    doc["scores"] = list(order)
+    _repo().set_setlist(doc["slug"], doc)
+    rebuild_manifest()
+    return doc
+
+
 def rename_setlist(name_or_slug: str, new_name: str) -> dict:
     """Rename a setlist (slug is immutable, like pieces and scores)."""
     repo = _repo()

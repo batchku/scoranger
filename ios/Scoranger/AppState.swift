@@ -1288,6 +1288,24 @@ final class AppState: ObservableObject {
     }
 
     /// Persist a piece's arrangement order (the sidebar numbering).
+    /// Set a set list's running order. The engine keeps the order on the
+    /// setlist document, so this is one reorder op rather than a remove and
+    /// re-add, which would lose the position of everything after it.
+    @discardableResult
+    func reorderSetlist(_ setlist: String, order: [String]) async -> Bool {
+        do {
+            _ = try await local.call(op: "reorder-setlist",
+                                    args: ["setlist": setlist, "order": order])
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
+    }
+
     func reorderPiece(piece: String, order: [String]) {
         Task {
             do {

@@ -271,14 +271,65 @@ struct RootView: View {
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
-        default:
-            // The remaining screens land in step 3; until then the sheets stay
-            // reachable in parallel, exactly as §9 asks, so nothing breaks
-            // mid-flight.
-            Screen(title: "Coming next", backLabel: "Back", onBack: pop) {
-                Text("This screen lands in the next step of the revision.")
-                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                    .padding(Theme.Metric.s20)
+        case .moveToPiece(let slugs):
+            MoveToPieceScreen(moving: slugs, onBack: pop)
+                .navigationBarHidden(true)
+        case .setlistsFor(let slug):
+            SetlistsForScreen(slug: slug, onBack: pop)
+                .navigationBarHidden(true)
+        case .setlist(let slug):
+            SetlistScreen(slug: slug, onBack: pop,
+                          onOpen: { member in
+                              if let setlist = state.manifest?.setlists?
+                                  .first(where: { $0.slug == slug }) {
+                                  RecentSetlists.opened(setlist.slug)
+                                  state.currentSetlist = setlist.slug
+                              }
+                              open(member)
+                          },
+                          push: push)
+                .navigationBarHidden(true)
+                .accessibilityIdentifier("screen-setlist-\(slug)")
+        case .addArrangements(let slug):
+            AddArrangementsScreen(slug: slug, onBack: pop)
+                .navigationBarHidden(true)
+        case .versions(let slug):
+            VersionsScreen(slug: slug, onBack: pop,
+                           onShow: { version in
+                               state.select(slug: slug, version: version)
+                               open(slug, version: version)
+                           })
+                .navigationBarHidden(true)
+        case .parts(let slug):
+            PartsScreen(slug: slug, onBack: pop)
+                .navigationBarHidden(true)
+        case .details(let slug):
+            if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
+                Screen(title: "Details", backLabel: "Back",
+                       subtitle: score.title ?? score.name, onBack: pop) {
+                    ScoreInfoView(score: score)
+                }
+                .navigationBarHidden(true)
+            }
+        case .importDestination:
+            ImportDestinationScreen(onBack: pop,
+                                    onNewPiece: { name in
+                                        Task {
+                                            let slug = await state.createPiece(named: name)
+                                            importIntoPiece = slug
+                                            pop()
+                                            showImporter = true
+                                        }
+                                    },
+                                    onExisting: { pieceSlug in
+                                        importIntoPiece = pieceSlug
+                                        pop()
+                                        showImporter = true
+                                    })
+                .navigationBarHidden(true)
+        case .settings, .settingsSection:
+            Screen(title: "Settings", backLabel: "My library", onBack: pop) {
+                SettingsView()
             }
             .navigationBarHidden(true)
         }
@@ -290,11 +341,11 @@ struct RootView: View {
         HomeView(search: $homeSearch,
                  onOpen: openPieceOrArrangement,
                  onOpenSetlist: openSetlist,
-                 onImport: { importDestination = .choosing },
+                 onImport: { homePath.append(.importDestination) },
                  onNewArrangement: { tab = .library; segment = .pieces },
                  onNewSetlist: { tab = .library; segment = .setlists },
                  onAsk: askAboutLastScore,
-                 onSettings: { showSettings = true },
+                 onSettings: { homePath.append(.settings) },
                  onAllPieces: { tab = .library; segment = .pieces },
                  onAllSetlists: { tab = .library; segment = .setlists })
     }
@@ -388,7 +439,7 @@ struct RootView: View {
                         }
                     },
                     onNew: { addForSegment() },
-                    onImport: { importDestination = .choosing },
+                    onImport: { libraryPath.append(.importDestination) },
                     onRowAction: handle,
                     onBarAction: handleBar)
     }
