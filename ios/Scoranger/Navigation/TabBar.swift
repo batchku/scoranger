@@ -104,10 +104,13 @@ struct SearchField: View {
 
 /// One library/home row (12.4): thumbnail, title, subtitle, derived chips, and
 /// the trailing meta in mono.
-struct LRow: View {
+struct LRow<Menu: View>: View {
     let row: LibraryRow
     var identifier: String
     var action: () -> Void
+    /// The row's context menu -- where rename, delete, filing, set lists and
+    /// version browsing live now that there is no sidebar (§8).
+    @ViewBuilder var menu: () -> Menu
 
     var body: some View {
         Button(action: action) {
@@ -142,6 +145,13 @@ struct LRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+        .contextMenu { menu() }
+    }
+}
+
+extension LRow where Menu == EmptyView {
+    init(row: LibraryRow, identifier: String, action: @escaping () -> Void) {
+        self.init(row: row, identifier: identifier, action: action, menu: { EmptyView() })
     }
 }
 

@@ -16,10 +16,12 @@ struct LibraryView: View {
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
     var onAdd: () -> Void
+    var onRowAction: (LibraryRow, RowAction) -> Void
 
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
+    @State private var dropTarget: String?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -204,9 +206,88 @@ struct LibraryView: View {
 
     private func rowView(_ row: LibraryRow) -> some View {
         VStack(spacing: 0) {
-            LRow(row: row, identifier: "row-\(row.id)") { open(row) }
+            LRow(row: row, identifier: "row-\(row.id)", action: { open(row) }) {
+                RowContextMenu(row: row,
+                               isPiece: isPiece(row),
+                               isSetlist: segment == .setlists) { action in
+                    onRowAction(row, action)
+                }
+            }
+            if editing { editingActions(row) }
             Divider().overlay(Theme.Line.line)
         }
+        // Drag to file, which the sidebar carried (§8): an arrangement onto a
+        // piece files it there, onto a set list adds it to the running order.
+        // A drop target only exists where a drop MEANS something, so a piece
+        // never accepts a piece.
+        .draggable(row.id) { LRow(row: row, identifier: "drag-\(row.id)", action: {}) }
+        .dropDestination(for: String.self) { items, _ in
+            guard let dropped = items.first, dropped != row.id else { return false }
+            return accept(dropped, onto: row)
+        } isTargeted: { targeted in
+            dropTarget = targeted ? row.id : (dropTarget == row.id ? nil : dropTarget)
+        }
+        .background(dropTarget == row.id ? Theme.Accent.clayTint : Color.clear)
+    }
+
+    /// What a drop means, which depends entirely on what it landed on.
+    private func accept(_ dropped: String, onto row: LibraryRow) -> Bool {
+        if segment == .setlists {
+            Task { _ = await state.addToSetlist(setlist: row.id, score: dropped) }
+            return true
+        }
+        // onto a piece: file the arrangement under it
+        if isPiece(row) {
+            state.assignToPiece(scoreSlug: dropped, piece: row.id)
+            return true
+        }
+        // onto another arrangement of the same piece: reorder
+        if let piece = (state.manifest?.pieces ?? []).first(where: {
+            $0.arrangements.contains(row.id) && $0.arrangements.contains(dropped)
+        }), let from = piece.arrangements.firstIndex(of: dropped),
+           let to = piece.arrangements.firstIndex(of: row.id) {
+            var order = piece.arrangements
+            order.remove(at: from)
+            order.insert(dropped, at: to)
+            state.reorderPiece(piece: piece.slug, order: order)
+            return true
+        }
+        return false
+    }
+
+    private func isPiece(_ row: LibraryRow) -> Bool {
+        (state.manifest?.pieces ?? []).contains { $0.slug == row.id }
+    }
+
+    /// Edit mode puts the same actions on screen as buttons.
+    ///
+    /// A context menu is a long press, which is invisible to Switch Control and
+    /// undiscoverable to anyone who has not been told -- so every action it
+    /// carries also has a plain button here. This is the same rule the page-turn
+    /// zones follow (§6.6): a gesture may be the fast way, never the only way.
+    private func editingActions(_ row: LibraryRow) -> some View {
+        HStack(spacing: Theme.Metric.s6) {
+            if segment == .pieces {
+                editButton("Versions", id: "edit-versions-\(row.id)") {
+                    onRowAction(row, .versions)
+                }
+                editButton("Set lists", id: "edit-setlists-\(row.id)") {
+                    onRowAction(row, .addToSetlist)
+                }
+            }
+            editButton("Rename", id: "edit-rename-\(row.id)") { onRowAction(row, .rename) }
+            editButton("Delete", id: "edit-delete-\(row.id)") { onRowAction(row, .delete) }
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Metric.s20)
+        .padding(.bottom, Theme.Metric.s8)
+    }
+
+    private func editButton(_ title: String, id: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) { controlLabel(title) }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(id)
     }
 
     private var empty: some View {

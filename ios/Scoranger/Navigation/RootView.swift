@@ -25,6 +25,15 @@ struct RootView: View {
     @State private var editing = false
 
     @State private var pieceChoice: String?
+    @State private var setlistPickerScore: ScoreDoc?
+    @State private var detailsScore: ScoreDoc?
+    @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
+    @State private var deleting: LibraryRow?
+    @State private var newName = ""
+    @State private var creating: LibrarySegment?
+    /// The old library manager, kept reachable until drag-to-file has its own
+    /// home in Edit mode. Nothing is removed before its replacement exists.
+    @State private var classicManager = false
     @State private var showSettings = false
     @State private var showImporter = false
 
@@ -59,6 +68,7 @@ struct RootView: View {
             state.startPolling()
         }
         .overlay { pieceSheet }
+        .overlay { managementSheets }
         .overlay {
             if showSettings {
                 ZStack {
@@ -72,6 +82,95 @@ struct RootView: View {
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: ContentView.scoreTypes) { result in
             if case .success(let url) = result { state.receiveFile(at: url) }
+        }
+    }
+
+    /// Everything a row's menu can open.
+    @ViewBuilder
+    private var managementSheets: some View {
+        if let score = setlistPickerScore {
+            ZStack {
+                DialogScrim { setlistPickerScore = nil }
+                SetlistPicker(score: score) { setlistPickerScore = nil }
+            }
+        }
+        if let score = detailsScore {
+            ZStack {
+                DialogScrim { detailsScore = nil }
+                PanelSheet(title: score.name,
+                           number: state.placement(of: score.slug)?.number,
+                           onDone: { detailsScore = nil }) {
+                    ScoreInfoView(score: score)
+                }
+            }
+        }
+        if let renaming {
+            PanelAlert(title: "Rename",
+                       message: "A new name for \(renaming.draft).",
+                       field: Binding(get: { self.renaming?.draft ?? "" },
+                                      set: { self.renaming?.draft = $0 }),
+                       verb: "Rename",
+                       onCancel: { self.renaming = nil },
+                       onConfirm: { commitRename() })
+        }
+        if let deleting {
+            PanelAlert(title: "Delete \(deleting.title)?",
+                       message: "This cannot be undone.",
+                       verb: "Delete",
+                       isDestructive: true,
+                       onCancel: { self.deleting = nil },
+                       onConfirm: { commitDelete(deleting) })
+        }
+        if let creating {
+            PanelAlert(title: creating == .pieces ? "New piece" : "New set list",
+                       message: "Give it a name.",
+                       field: $newName,
+                       verb: "Create",
+                       onCancel: { self.creating = nil },
+                       onConfirm: { commitCreate(creating) })
+        }
+
+    }
+
+    private func commitRename() {
+        guard let renaming else { return }
+        let name = renaming.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.renaming = nil
+        guard !name.isEmpty else { return }
+        Task {
+            if renaming.isSetlist {
+                _ = await state.renameSetlist(setlist: renaming.id, name: name)
+            } else if renaming.isPiece {
+                _ = await state.renamePiece(piece: renaming.id, name: name)
+            } else {
+                _ = await state.renameScore(slug: renaming.id, name: name)
+            }
+        }
+    }
+
+    private func commitDelete(_ row: LibraryRow) {
+        deleting = nil
+        if segment == .setlists {
+            Task { _ = await state.deleteSetlist(row.id) }
+        } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }) {
+            // deleting a piece deletes its arrangements, which is what the
+            // sidebar's menu did
+            for slug in piece.arrangements { state.deleteScore(slug: slug) }
+        } else {
+            state.deleteScore(slug: row.id)
+        }
+    }
+
+    private func commitCreate(_ segment: LibrarySegment) {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        creating = nil
+        guard !name.isEmpty else { return }
+        Task {
+            if segment == .setlists {
+                _ = await state.createSetlist(name: name)
+            } else {
+                state.createPieceAndAssign(name: name, scoreSlug: "")
+            }
         }
     }
 
@@ -96,48 +195,88 @@ struct RootView: View {
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
-                    onAdd: { showImporter = true })
+                    onAdd: { addForSegment() },
+                    onRowAction: handle)
     }
 
     /// Choosing between the arrangements of a piece (§4.4). A piece is not
     /// openable; opening one means opening one of its arrangements.
+    /// Choosing between the arrangements of a piece (§4.4), with their
+    /// versions -- the sidebar's expandable rows, rehomed.
     @ViewBuilder
     private var pieceSheet: some View {
         if let slug = pieceChoice,
            let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
             ZStack {
                 DialogScrim { pieceChoice = nil }
-                PanelSheet(title: piece.name, onDone: { pieceChoice = nil }) {
-                    VStack(alignment: .leading, spacing: 0) {
-                    BandHeader("Arrangements")
-                    ForEach(Array(piece.arrangements.enumerated()), id: \.offset) { index, arr in
-                        if let score = state.manifest?.scores.first(where: { $0.slug == arr }) {
-                            Button {
-                                pieceChoice = nil
-                                open(arr)
-                            } label: {
-                                HStack(spacing: Theme.Metric.s12) {
-                                    NumeralBadge(number: index + 1)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(score.title ?? score.name)
-                                            .typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
-                                        Text("\(score.versions.count) versions")
-                                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, Theme.Metric.panelPadding)
-                                .padding(.vertical, Theme.Metric.sheetRowVertical)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("arrangement-choice-\(arr)")
-                        }
-                    }
-                    }
-                }
+                ArrangementSheet(
+                    piece: piece,
+                    onOpen: { arrangement, version in
+                        pieceChoice = nil
+                        open(arrangement, version: version)
+                    },
+                    onNewArrangement: {
+                        pieceChoice = nil
+                        Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
+                    },
+                    onRenamePiece: {
+                        pieceChoice = nil
+                        renaming = (piece.slug, true, false, piece.name)
+                    },
+                    onDone: { pieceChoice = nil })
             }
         }
+    }
+
+    // MARK: - Row actions -- the sidebar's management, rehomed (§8)
+
+    private func handle(_ row: LibraryRow, _ action: RowAction) {
+        let score = state.manifest?.scores.first { $0.slug == row.id }
+        switch action {
+        case .open:
+            open(row)
+        case .versions:
+            // a piece opens its arrangement sheet, which lists versions per
+            // arrangement; a lone arrangement opens straight into its own
+            if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
+                pieceChoice = row.id
+            } else if let score { detailsScore = score }
+        case .details:
+            if let score { detailsScore = score }
+            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                    let first = piece.arrangements.first {
+                detailsScore = state.manifest?.scores.first { $0.slug == first }
+            }
+        case .addToSetlist:
+            if let score { setlistPickerScore = score }
+            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                    let first = piece.arrangements.first {
+                setlistPickerScore = state.manifest?.scores.first { $0.slug == first }
+            }
+        case .rename:
+            renaming = (row.id,
+                        (state.manifest?.pieces ?? []).contains { $0.slug == row.id },
+                        segment == .setlists,
+                        row.title)
+        case .delete:
+            deleting = row
+        case .newArrangement:
+            Task { _ = await state.createArrangement(pieceSlug: row.id) }
+        }
+    }
+
+    private func open(_ row: LibraryRow) {
+        if segment == .setlists,
+           let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
+            openSetlist(setlist)
+        } else {
+            openPieceOrArrangement(row.id)
+        }
+    }
+
+    private func addForSegment() {
+        creating = segment
+        newName = ""
     }
 
     // MARK: - Transitions
@@ -155,9 +294,9 @@ struct RootView: View {
         }
     }
 
-    private func open(_ slug: String) {
+    private func open(_ slug: String, version: String? = nil) {
         cameFrom = tab
-        state.select(slug: slug)
+        state.select(slug: slug, version: version)
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = true }
     }
 

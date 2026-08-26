@@ -35,9 +35,12 @@ final class ScorangerUITests: XCTestCase {
         // reached yet. Waiting for the arrangement every test goes on to use
         // waits for the imports; nothing here retries an assertion.
         app.buttons["tab-library"].tap()
-        XCTAssertTrue(app.buttons["row-\(firstArrangement)"]
-                        .waitForExistence(timeout: 180),
+        let anyRow = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                        "row-", piece)).firstMatch
+        XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
                       "the seeded library never finished importing")
+        app.buttons["tab-home"].tap()
     }
 
     /// Relaunch with the Pencil stand-in, so a finger can drive the selection
@@ -68,13 +71,22 @@ final class ScorangerUITests: XCTestCase {
     /// its row. Browsing and reading are separate places (§3), so this is two
     /// steps rather than one tap on a sidebar that no longer exists.
     private func openArrangement(_ slug: String) {
-        if !app.buttons["row-\(slug)"].exists {
-            app.buttons["tab-library"].tap()
-        }
-        let row = app.buttons["row-\(slug)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 180),
-                      "the library never listed \(slug)")
-        row.tap()
+        app.buttons["tab-library"].tap()
+        // An arrangement is not a top-level row: a PIECE is, and a piece is not
+        // openable (§2). Opening one means opening one of its arrangements, so
+        // this goes the way a person does -- the piece row, then the choice.
+        let direct = app.buttons["row-\(slug)"]
+        if direct.waitForExistence(timeout: 5) { direct.tap(); return }
+
+        let pieceRow = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                        "row-", piece)).firstMatch
+        XCTAssertTrue(pieceRow.waitForExistence(timeout: 180),
+                      "the library never listed the piece holding \(slug)")
+        pieceRow.tap()
+
+        let choice = app.buttons["arrangement-choice-\(slug)"]
+        if choice.waitForExistence(timeout: 10) { choice.tap() }
     }
 
     private func shot(_ name: String) {
