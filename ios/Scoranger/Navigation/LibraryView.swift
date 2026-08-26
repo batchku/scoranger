@@ -332,6 +332,7 @@ struct LibraryView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("library-add")
         .accessibilityLabel(segment == .pieces ? "New piece" : "New setlist")
+        .accessibilityHint("Adds to \(segment.title.lowercased())")
     }
 
     // MARK: - Data

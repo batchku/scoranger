@@ -29,7 +29,7 @@ struct RowContextMenu: View {
                     Label("Versions…", systemImage: "clock.arrow.circlepath")
                 }
                 Button { perform(.details) } label: {
-                    Label("Details…", systemImage: "info.circle")
+                    Label("Arrangement details", systemImage: "info.circle")
                 }
                 Button { perform(.addToSetlist) } label: {
                     Label("Add to set list…", systemImage: "text.badge.plus")
