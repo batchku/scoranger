@@ -252,4 +252,75 @@ final class FingeringDiagramTests: XCTestCase {
                 m.numberOfRanges > 1 ? CGFloat(Double(ns.substring(with: m.range(at: 1))) ?? 0) : nil
             }
     }
+
+    // MARK: - How big the diagram is, and how tightly it is stacked
+
+    /// Ali asked for the column to lose about half its footprint while each
+    /// hole got BIGGER -- just under a notehead. Those pull against each other,
+    /// which is why circle size and row spacing are now decided separately
+    /// instead of both coming from the verse's font size.
+    ///
+    /// Mirrors engine/scoranger_engine/render.py; engine/scripts/check_render.py
+    /// measures the same numbers off a real engraving.
+
+    /// The pitch Verovio lays verses out at, measured on a real page.
+    private let verovioPitch: CGFloat = 400
+    /// A notehead on that same page.
+    private let notehead: CGFloat = 217
+    /// What a hole used to be drawn at.
+    private let oldDiameter: CGFloat = 111
+
+    func testTheColumnLosesAboutHalfItsFootprint() {
+        let (pitch, _) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        let shrunk = pitch / verovioPitch
+        XCTAssertGreaterThanOrEqual(shrunk, 0.40)
+        XCTAssertLessThanOrEqual(shrunk, 0.50, "the column was asked to be 40-50%")
+    }
+
+    func testAHoleIsALittleSmallerThanANotehead() {
+        let (_, radius) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        let fraction = radius * 2 / notehead
+        XCTAssertGreaterThan(fraction, 0.65, "too small to read at speed")
+        XCTAssertLessThan(fraction, 1.0, "a hole must not be as big as a note")
+    }
+
+    /// The half of the request that is easy to lose while shrinking the column.
+    func testTheHolesGotBiggerNotSmaller() {
+        let (_, radius) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        XCTAssertGreaterThan(radius * 2, oldDiameter)
+    }
+
+    func testTheHolesDoNotTouchOnceTheRowsAreTightened() {
+        let (pitch, radius) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        XCTAssertGreaterThan(pitch, radius * 2,
+                             "a stack of touching circles reads as a bar, not as holes")
+    }
+
+    func testEverythingScalesWithTheStaff() {
+        let (small, r1) = FingeringDiagrams.holeGeometry(rowPitch: 200)
+        let (large, r2) = FingeringDiagrams.holeGeometry(rowPitch: 800)
+        XCTAssertEqual(large / small, 4, accuracy: 0.001)
+        XCTAssertEqual(r2 / r1, 4, accuracy: 0.001)
+    }
+
+    // MARK: - Reading the row pitch off a column
+
+    /// The octave "+" hangs further below than the holes are apart, so
+    /// averaging across the whole column stretched the pitch -- and with it the
+    /// circles, which came out half again too big on any column carrying one.
+    func testThePitchIgnoresTheOctaveMarkHangingBelow() {
+        let holes: [CGFloat] = [100, 500, 900, 1300, 1700, 2100]
+        let withPlus = holes + [3000]
+        XCTAssertEqual(FingeringDiagrams.rowPitch(of: withPlus), 400,
+                       "the '+' row stretched the measured pitch")
+    }
+
+    func testAnEvenColumnGivesItsOwnSpacing() {
+        XCTAssertEqual(FingeringDiagrams.rowPitch(of: [0, 400, 800, 1200]), 400)
+    }
+
+    func testNothingToMeasureGivesZeroRatherThanAGuess() {
+        XCTAssertEqual(FingeringDiagrams.rowPitch(of: []), 0)
+        XCTAssertEqual(FingeringDiagrams.rowPitch(of: [100]), 0)
+    }
 }

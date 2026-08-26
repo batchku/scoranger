@@ -127,6 +127,52 @@ HOLE_CENTRE_Y = -0.35             # above the text baseline
 HOLE_RADIUS = 0.28
 HOLE_STROKE = 0.07
 
+# --- how big the diagram is, and how tightly it is stacked -------------------
+#
+# Circle size and row spacing are set SEPARATELY, because Ali wants the column
+# much smaller overall while each circle gets slightly bigger. Both used to come
+# from the verse's font size, so one could not move without the other.
+#
+# Everything is expressed against the row pitch Verovio itself laid out, which
+# is the one number on the page that already scales with the staff. Measured on
+# a real engraving at the default size: pitch 400 SVG units, notehead 217 wide
+# (the stem sits at the notehead's right edge), drawn circle 111 across -- so a
+# hole was about half a notehead, in a column 2000 units tall.
+NOTEHEAD_PER_ROW_PITCH = 217 / 400        # a notehead, in units of row pitch
+
+# A hole is a little smaller than a notehead: big enough to read at speed,
+# still clearly not a note. 0.78 of a notehead is 169 units where the old one
+# was 111 -- half as big again.
+HOLE_DIAMETER_VS_NOTEHEAD = 0.78
+
+# Rows sit at 47.5% of the pitch Verovio chose, which puts a six-hole column at
+# 950 units where it was 2000: 47% of the footprint, inside the 40-50% asked
+# for. The gap between circles stays about an eighth of a diameter, so they
+# read as a stack of separate holes rather than a bar.
+HOLE_PITCH_RATIO = 0.475
+
+# The octave "+" stays text (every font has it, unlike the circle glyphs) but
+# belongs to the column, so it is sized from the circle rather than the font.
+OCTAVE_MARK_VS_DIAMETER = 0.85
+
+# Centre offsets, now relative to the RADIUS rather than the font size, so they
+# hold when the circle changes size. Both keep the ratios the old geometry had
+# (0.36/0.28 and 0.35/0.28).
+HOLE_CENTRE_X_VS_RADIUS = HOLE_CENTRE_X / HOLE_RADIUS
+HOLE_CENTRE_Y_VS_RADIUS = -HOLE_CENTRE_Y / HOLE_RADIUS
+HOLE_STROKE_VS_RADIUS = HOLE_STROKE / HOLE_RADIUS
+
+
+def hole_geometry(row_pitch: float) -> tuple[float, float]:
+    """(new row pitch, circle radius) for a column, from Verovio's own pitch.
+
+    Pure, and the only place the two numbers are decided, so the on-device
+    renderer can be held to the same answer -- see
+    ios/Scoranger/FingeringDiagrams.swift and check_whistle.py.
+    """
+    notehead = row_pitch * NOTEHEAD_PER_ROW_PITCH
+    return row_pitch * HOLE_PITCH_RATIO, notehead * HOLE_DIAMETER_VS_NOTEHEAD / 2
+
 
 def lyric_size_for(fingerings: bool) -> float:
     """The text size to render at. One answer, whatever the score carries.
@@ -321,6 +367,10 @@ def _fingering_diagrams(svg: str) -> str:
             "number": int(text) if text.isdigit() else None,
             "text": (_ANY_SYL_RE.search(block).group(1)
                      if _ANY_SYL_RE.search(block) else None),
+            "y": (float(_Y_RE.search(block).group(1))
+                  if _Y_RE.search(block) else None),
+            "x": (float(_X_RE.search(block).group(1))
+                  if _X_RE.search(block) else None),
         })
 
     convert = [bool(v["tagged"] and v["symbol"]) for v in parsed]
@@ -352,14 +402,117 @@ def _fingering_diagrams(svg: str) -> str:
     # whistle verse including the "+", so the tag identifies it directly; the
     # verse-number grouping above cannot, because a tagged verse carries the tag
     # in the label where a number would otherwise be.
+    # Where each row is REDRAWN.
+    #
+    # Verovio lays the verses out as lines of lyric text, so their spacing is
+    # the lyric line height -- and that same option sizes chord symbols, which
+    # is how halving it once shrank every chord name on the page. So the
+    # spacing is not asked of Verovio at all: the rows are simply re-placed
+    # here, at a pitch of our own, and lyricSize is left alone.
+    #
+    # A column is a run of consecutive verses whose y increases; the next note's
+    # column starts when y drops back to the top again. That works for tagged
+    # and untagged columns alike, unlike the verse-number grouping above, which
+    # cannot see tagged verses because the tag sits where the number would be.
+    placement: dict[int, float] = {}
+    column: list[int] = []
+
+    def row_pitch(ys: list[float]) -> float:
+        """The spacing between holes, as the MEDIAN gap.
+
+        Not the average over the column: the octave "+" hangs further below
+        than the holes are apart, so averaging across the whole span stretched
+        the pitch -- and with it the circles, which came out half again too big
+        on any column carrying one.
+        """
+        gaps = sorted(b - a for a, b in zip(ys, ys[1:]) if b > a)
+        if not gaps:
+            return 0.0
+        middle = len(gaps) // 2
+        return (gaps[middle] if len(gaps) % 2
+                else (gaps[middle - 1] + gaps[middle]) / 2)
+
+    def place(indices: list[int]) -> None:
+        ys = [parsed[i]["y"] for i in indices]
+        if len(indices) < 2 or any(y is None for y in ys):
+            return
+        pitch = row_pitch(ys)
+        if pitch <= 0:
+            return
+        new_pitch, _radius = hole_geometry(pitch)
+        # anchored at the TOP row, so the column keeps its distance from the
+        # staff and the space it gives up comes off the bottom, where there is
+        # nothing to collide with
+        for row, i in enumerate(indices):
+            placement[i] = ys[0] + row * new_pitch
+
+    # How far apart two rows of ONE column may sit horizontally.
+    #
+    # Not zero: Verovio centres each syllable on its own width, so an "X" row
+    # and an "O" row of the same note can be ten units apart. Not generous
+    # either: consecutive notes are a whole note-spacing apart. A quarter of
+    # the row pitch sits comfortably between the two and scales with the staff,
+    # which a fixed number would not.
+    all_gaps = sorted(b["y"] - a["y"]
+                      for a, b in zip(parsed, parsed[1:])
+                      if a["y"] is not None and b["y"] is not None and b["y"] > a["y"])
+    typical_pitch = all_gaps[len(all_gaps) // 2] if all_gaps else 0.0
+    x_tolerance = max(typical_pitch * 0.25, 2.0)
+
+    def same_column(a: int, b: int) -> bool:
+        """Two consecutive verses in one column.
+
+        Both tests are needed. y must increase, because the rows of a column
+        run down the page -- but that ALONE merged the last column of one
+        system with the first of the next, whose y is larger still simply
+        because it is further down the page: the second system's first column
+        was then re-placed from the first system's anchor and left a stack of
+        circles floating in the gap between the two, under no note at all.
+        x pins a column to one note.
+        """
+        pa, pb = parsed[a], parsed[b]
+        if pa["x"] is None or pb["x"] is None:
+            return False
+        return pb["y"] > pa["y"] and abs(pb["x"] - pa["x"]) <= x_tolerance
+
+    for i, v in enumerate(parsed):
+        if v["y"] is None or not (convert[i] or (v["tagged"] and v["text"] == "+")):
+            place(column)
+            column = []
+            continue
+        if column and not same_column(column[-1], i):
+            place(column)
+            column = []
+        column.append(i)
+    place(column)
+
+    # the radius belongs to the column too, from the same original pitch
+    radii: dict[int, float] = {}
+    column = []
+    for i, v in enumerate(parsed):
+        if v["y"] is None or not (convert[i] or (v["tagged"] and v["text"] == "+")):
+            column = []
+            continue
+        if column and not same_column(column[-1], i):
+            column = []
+        column.append(i)
+        if len(column) >= 2:
+            pitch = row_pitch([parsed[j]["y"] for j in column])
+            if pitch > 0:
+                _p, r = hole_geometry(pitch)
+                for j in column:
+                    radii[j] = r
+
     out, cursor = [], 0
-    for wanted, v in zip(convert, parsed):
+    for index, (wanted, v) in enumerate(zip(convert, parsed)):
         match = v["match"]
         out.append(svg[cursor:match.start()])
         if wanted:
-            out.append(_draw_hole(v["block"]))
+            out.append(_draw_hole(v["block"], y=placement.get(index),
+                                  radius=radii.get(index)))
         elif v["tagged"] and v["text"] == "+":
-            out.append(_scale_text(v["block"]))
+            out.append(_scale_text(v["block"], y=placement.get(index),
+                                   radius=radii.get(index)))
         else:
             out.append(v["block"])
         cursor = match.end()
@@ -367,29 +520,58 @@ def _fingering_diagrams(svg: str) -> str:
     return "".join(out)
 
 
-def _scale_text(block: str) -> str:
-    """Shrink a verse's glyph to the diagram scale, leaving it as text."""
-    def shrink(m):
-        return f'<tspan font-size="{float(m.group(1)) * DIAGRAM_SCALE:g}px">'
-    return _SIZE_RE.sub(shrink, block, count=1)
+def _scale_text(block: str, y: float | None = None,
+                radius: float | None = None) -> str:
+    """Shrink a verse's glyph to the diagram scale, leaving it as text.
+
+    The octave "+" is not a hole, but it belongs to the column and has to move
+    and shrink with it, or it floats where the old spacing put it.
+    """
+    if radius is not None:
+        size = radius * 2 * OCTAVE_MARK_VS_DIAMETER
+        block = _SIZE_RE.sub(f'<tspan font-size="{size:g}px">', block, count=1)
+    else:
+        def shrink(m):
+            return f'<tspan font-size="{float(m.group(1)) * DIAGRAM_SCALE:g}px">'
+        block = _SIZE_RE.sub(shrink, block, count=1)
+    if y is not None:
+        # only the NUMBER: _Y_RE matches from "<text" onwards, so replacing the
+        # whole match deletes the opening tag and the SVG stops parsing
+        block = _Y_RE.sub(lambda m: m.group(0).replace(f'y="{m.group(1)}"',
+                                                       f'y="{y:g}"'),
+                          block, count=1)
+    return block
 
 
-def _draw_hole(block: str) -> str:
-    """One verse, already judged to be a hole."""
+def _draw_hole(block: str, y: float | None = None,
+               radius: float | None = None) -> str:
+    """One verse, already judged to be a hole.
+
+    `y` and `radius` come from the column: the row is re-placed at our own
+    pitch and drawn at our own size, neither of which is the font's any more.
+    Without them (a lone verse with no column to measure) it falls back to the
+    old font-derived geometry.
+    """
     symbol = _SYMBOL_RE.search(block)
-    x, y = _X_RE.search(block), _Y_RE.search(block)
+    x, ymatch = _X_RE.search(block), _Y_RE.search(block)
     size = _SIZE_RE.search(block)
-    if not (symbol and x and y and size):
+    if not (symbol and x and ymatch and size):
         return block
     font = float(size.group(1))
-    if font <= 0:
+    if font <= 0 and radius is None:
         return block
-    # the glyph is full size now; the diagram drawn in its place is not
-    drawn = font * DIAGRAM_SCALE
-    cx = float(x.group(1)) + HOLE_CENTRE_X * drawn
-    cy = float(y.group(1)) + HOLE_CENTRE_Y * drawn
-    r = HOLE_RADIUS * drawn
-    stroke = HOLE_STROKE * drawn
+    if radius is not None:
+        r = radius
+        base_y = y if y is not None else float(ymatch.group(1))
+        cx = float(x.group(1)) + HOLE_CENTRE_X_VS_RADIUS * r
+        cy = base_y - HOLE_CENTRE_Y_VS_RADIUS * r
+        stroke = HOLE_STROKE_VS_RADIUS * r
+    else:
+        drawn = font * DIAGRAM_SCALE
+        cx = float(x.group(1)) + HOLE_CENTRE_X * drawn
+        cy = float(ymatch.group(1)) + HOLE_CENTRE_Y * drawn
+        r = HOLE_RADIUS * drawn
+        stroke = HOLE_STROKE * drawn
     # paths rather than <circle>: the on-device renderer draws only the
     # subset Verovio emits, and a <circle> vanished there
     ring = (f'M {cx - r} {cy} A {r} {r} 0 1 0 {cx + r} {cy} '

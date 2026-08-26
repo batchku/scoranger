@@ -102,7 +102,7 @@ targets:
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
         CURRENT_PROJECT_VERSION: 139
-        MARKETING_VERSION: 0.3.1
+        MARKETING_VERSION: 0.3.2
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

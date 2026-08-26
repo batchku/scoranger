@@ -49,6 +49,52 @@ enum FingeringDiagrams {
     /// same 2.2-in-4.5 the diagrams shipped at, applied here instead.
     static let diagramScale: CGFloat = 2.2 / 4.5
 
+    // --- how big the diagram is, and how tightly it is stacked --------------
+    //
+    // Circle size and row spacing are set SEPARATELY: the column had to lose
+    // about half its footprint while each hole got slightly BIGGER. Both used
+    // to come from the verse's font size, so neither could move alone.
+    //
+    // Everything is measured against the row pitch Verovio itself laid out --
+    // the one number on the page that already scales with the staff. Taken off
+    // a real engraving at the default size: pitch 400 SVG units, notehead 217
+    // wide, drawn circle 111 across.
+    //
+    // Mirrors engine/scoranger_engine/render.py; keep the two in step, and
+    // engine/scripts/check_render.py measures the result.
+    static let noteheadPerRowPitch: CGFloat = 217.0 / 400.0
+    /// A hole is a little smaller than a notehead -- readable at speed, still
+    /// clearly not a note.
+    static let holeDiameterVsNotehead: CGFloat = 0.78
+    /// Rows at 47.5% of Verovio's pitch: a six-hole column becomes 950 units
+    /// where it was 2000.
+    static let holePitchRatio: CGFloat = 0.475
+    /// The octave "+" stays text but is sized from the circle beside it.
+    static let octaveMarkVsDiameter: CGFloat = 0.85
+
+    // centre offsets relative to the RADIUS, so they hold at any circle size
+    private static let centreXVsRadius = centreX / radius
+    private static let centreYVsRadius = -centreY / radius
+    private static let strokeVsRadius = strokeWidth / radius
+
+    /// (row pitch, circle radius) for a column, from Verovio's own pitch.
+    static func holeGeometry(rowPitch: CGFloat) -> (pitch: CGFloat, radius: CGFloat) {
+        let notehead = rowPitch * noteheadPerRowPitch
+        return (rowPitch * holePitchRatio, notehead * holeDiameterVsNotehead / 2)
+    }
+
+    /// The spacing between holes, as the MEDIAN gap.
+    ///
+    /// Not the average across the column: the octave "+" hangs further below
+    /// than the holes are apart, so averaging the whole span stretched the
+    /// pitch, and with it the circles.
+    static func rowPitch(of ys: [CGFloat]) -> CGFloat {
+        let gaps = zip(ys, ys.dropFirst()).map { $1 - $0 }.filter { $0 > 0 }.sorted()
+        guard !gaps.isEmpty else { return 0 }
+        let middle = gaps.count / 2
+        return gaps.count % 2 == 1 ? gaps[middle] : (gaps[middle - 1] + gaps[middle]) / 2
+    }
+
     /// Smallest run of same-note verses that reads as a fingering rather than
     /// as words. Six holes is a full diagram; five allows for an engraver
     /// dropping an empty verse.
@@ -152,17 +198,61 @@ enum FingeringDiagrams {
         let convertible = columns(in: verses)
         guard convertible.contains(true) else { return svg }
 
+        // Where each row is REDRAWN. The spacing is not asked of Verovio --
+        // its lyric line height also sizes chord symbols, and shrinking that
+        // once halved every chord name on the page -- so the rows are simply
+        // re-placed here, anchored at the top of the column so the space they
+        // give up comes off the bottom, where there is nothing to collide with.
+        let allYs = verses.compactMap { verseY($0.block) }
+        let typicalPitch = rowPitch(of: allYs.enumerated()
+            .filter { $0.offset == 0 || allYs[$0.offset] > allYs[$0.offset - 1] }
+            .map(\.element))
+        let xTolerance = max(typicalPitch * 0.25, 2.0)
+
+        var placement: [Int: CGFloat] = [:]
+        var radii: [Int: CGFloat] = [:]
+        var column: [Int] = []
+
+        func settle() {
+            let ys = column.compactMap { verseY(verses[$0].block) }
+            guard ys.count == column.count, ys.count >= 2 else { return }
+            let pitch = rowPitch(of: ys)
+            guard pitch > 0 else { return }
+            let geometry = holeGeometry(rowPitch: pitch)
+            for (row, index) in column.enumerated() {
+                placement[index] = ys[0] + CGFloat(row) * geometry.pitch
+                radii[index] = geometry.radius
+            }
+        }
+
+        for (index, verse) in verses.enumerated() {
+            let isColumnRow = convertible[index] || (verse.tagged && verse.text == octave)
+            guard isColumnRow, let y = verseY(verse.block) else {
+                settle(); column = []; continue
+            }
+            _ = y
+            if let last = column.last,
+               !sameColumn(verses[last].block, verse.block, tolerance: xTolerance) {
+                settle(); column = []
+            }
+            column.append(index)
+        }
+        settle()
+
         var out = ""
         var cursor = 0
         for (index, verse) in verses.enumerated() {
             out += ns.substring(with: NSRange(location: cursor,
                                               length: verse.range.location - cursor))
-            if convertible[index], let drawn = rewrite(verse.block) {
+            if convertible[index],
+               let drawn = rewrite(verse.block, y: placement[index], radius: radii[index]) {
                 out += drawn
             } else if verse.tagged, verse.text == octave {
-                // it belongs to the column, so it shrinks with it -- left at
-                // full text size it stands twice as tall as its own holes
-                out += scaleText(verse.block) ?? verse.block
+                // it belongs to the column, so it moves and shrinks with it --
+                // left alone it stands twice as tall as its own holes, in the
+                // place the old spacing put it
+                out += scaleText(verse.block, y: placement[index],
+                                 radius: radii[index]) ?? verse.block
             } else {
                 out += verse.block
             }
@@ -210,10 +300,40 @@ enum FingeringDiagrams {
     }
 
     /// One verse group, already judged to be a hole: draw it.
-    private static func rewrite(_ block: String) -> String? {
+    /// A verse's y, for grouping and re-placing rows.
+    private static func verseY(_ block: String) -> CGFloat? {
+        number(of: "<text[^>]*y=\"([-0-9.]+)\"", in: block)
+    }
+
+    /// ...and its x, which is what pins a column to ONE note.
+    private static func verseX(_ block: String) -> CGFloat? {
+        number(of: "<text x=\"([-0-9.]+)\"", in: block)
+    }
+
+    /// Two consecutive verses in one column.
+    ///
+    /// Both tests are needed. y must increase, since a column runs down the
+    /// page -- but that alone merged the last column of one system with the
+    /// first of the next, whose y is larger still simply because it is further
+    /// down the page.
+    /// How far apart two rows of ONE column may sit horizontally.
+    ///
+    /// Not zero: Verovio centres each syllable on its own width, so an "X" row
+    /// and an "O" row of the same note can be ten units apart. Not generous
+    /// either: consecutive notes are a whole note-spacing apart. A quarter of
+    /// the row pitch sits between the two and scales with the staff.
+    private static func sameColumn(_ a: String, _ b: String,
+                                   tolerance: CGFloat) -> Bool {
+        guard let ya = verseY(a), let yb = verseY(b),
+              let xa = verseX(a), let xb = verseX(b) else { return false }
+        return yb > ya && abs(xb - xa) <= tolerance
+    }
+
+    private static func rewrite(_ block: String, y: CGFloat? = nil,
+                                radius: CGFloat? = nil) -> String? {
         guard let symbol = fingeringSymbol(in: block),
               let x = number(of: "<text x=\"([-0-9.]+)\"", in: block),
-              let y = number(of: "<text[^>]*y=\"([-0-9.]+)\"", in: block),
+              let textY = number(of: "<text[^>]*y=\"([-0-9.]+)\"", in: block),
               // the INNER tspan carries the real size; the enclosing <text> is
               // font-size="0px", and reading that gave every circle a radius of
               // zero — invisible, while the host renderer (which reads the
@@ -222,11 +342,22 @@ enum FingeringDiagrams {
               size > 0
         else { return nil }
 
-        // the glyph is full size now; the diagram drawn in its place is not
-        let drawn = size * diagramScale
-        let cx = x + centreX * drawn
-        let cy = y + centreY * drawn
-        let r = radius * drawn
+        // The row's own position and size, from its column. Without them (a
+        // lone verse with no column to measure) the old font-derived geometry
+        // still applies.
+        let cx: CGFloat, cy: CGFloat, r: CGFloat, strokeAt: CGFloat
+        if let radius {
+            r = radius
+            cx = x + centreXVsRadius * r
+            cy = (y ?? textY) - centreYVsRadius * r
+            strokeAt = strokeVsRadius * r
+        } else {
+            let drawn = size * diagramScale
+            cx = x + centreX * drawn
+            cy = textY + centreY * drawn
+            r = Self.radius * drawn
+            strokeAt = strokeWidth * drawn
+        }
         // Paths, not <circle>: SwiftDraw renders the subset Verovio emits, and
         // Verovio emits only paths and glyph <use>s — a <circle> came out of
         // the on-device renderer as nothing at all.
@@ -237,11 +368,11 @@ enum FingeringDiagrams {
             shape = "<path d=\"\(ring)\" fill=\"currentColor\" stroke=\"none\" />"
         case open:
             shape = "<path d=\"\(ring)\" fill=\"none\" stroke=\"currentColor\" "
-                + "stroke-width=\"\(strokeWidth * drawn)\" />"
+                + "stroke-width=\"\(strokeAt)\" />"
         default:
             // half-holed: an open ring with its lower half filled
             shape = "<path d=\"\(ring)\" fill=\"none\" stroke=\"currentColor\" "
-                + "stroke-width=\"\(strokeWidth * drawn)\" />"
+                + "stroke-width=\"\(strokeAt)\" />"
                 + "<path d=\"M \(cx - r) \(cy) A \(r) \(r) 0 0 0 \(cx + r) \(cy) Z\" "
                 + "fill=\"currentColor\" stroke=\"none\" />"
         }
@@ -250,7 +381,8 @@ enum FingeringDiagrams {
     }
 
     /// Shrink a verse's glyph to the diagram scale, leaving it as text.
-    private static func scaleText(_ block: String) -> String? {
+    private static func scaleText(_ block: String, y: CGFloat? = nil,
+                                  radius: CGFloat? = nil) -> String? {
         guard let re = try? NSRegularExpression(pattern: "<tspan font-size=\"([0-9.]+)px\">"),
               let m = re.firstMatch(in: block,
                                     range: NSRange(location: 0, length: (block as NSString).length)),
@@ -259,8 +391,19 @@ enum FingeringDiagrams {
         let ns = block as NSString
         let size = CGFloat(Double(ns.substring(with: m.range(at: 1))) ?? 0)
         guard size > 0 else { return nil }
-        return ns.replacingCharacters(
-            in: m.range, with: "<tspan font-size=\"\(size * diagramScale)px\">")
+        let wanted = radius.map { $0 * 2 * octaveMarkVsDiameter } ?? (size * diagramScale)
+        var moved = ns.replacingCharacters(
+            in: m.range, with: "<tspan font-size=\"\(wanted)px\">") as String
+        if let y, let yre = try? NSRegularExpression(pattern: "(<text[^>]*y=\")[-0-9.]+(\")"),
+           let ym = yre.firstMatch(in: moved,
+                                   range: NSRange(location: 0, length: (moved as NSString).length)) {
+            let mns = moved as NSString
+            moved = mns.replacingCharacters(
+                in: ym.range,
+                with: mns.substring(with: ym.range(at: 1)) + "\(y)"
+                    + mns.substring(with: ym.range(at: 2)))
+        }
+        return moved
     }
 
     /// A full circle as two arcs, which every SVG renderer draws.
