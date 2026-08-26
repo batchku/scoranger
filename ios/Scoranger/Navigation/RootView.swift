@@ -76,12 +76,27 @@ struct RootView: View {
             // a rebuild, and the score is what is expensive to re-open
             .allowsHitTesting(!scoreOpen)
 
+            if let undo = state.undoableDelete, !scoreOpen {
+                VStack {
+                    Spacer()
+                    UndoBar(what: undo.what,
+                            onUndo: { state.restoreDeleted() },
+                            onDismiss: {
+                                state.undoableDelete = nil
+                                Task { await state.sweepDeleted() }
+                            })
+                        .padding(.bottom, Theme.Metric.tabBarHeight)
+                }
+            }
+
             if scoreOpen {
                 ContentView(onClose: close)
                     .transition(.opacity)
             }
         }
         .task {
+            // reclaim anything whose undo window passed while the app was shut
+            await state.sweepDeleted()
             Theme.verifyFontsRegistered()
             state.resetViewPreferencesForTesting()
             state.startPolling()

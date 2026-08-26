@@ -1429,16 +1429,49 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// What was just deleted and can still be put back (§5.2).
+    ///
+    /// The engine marks rather than unlinks, so undo is a restore rather than a
+    /// re-import. The bar's countdown is cosmetic -- what actually decides is
+    /// the engine's window, and the sweep is what reclaims.
+    struct UndoableDelete: Identifiable, Equatable {
+        let id = UUID()
+        let slug: String
+        let what: String
+        let isSetlist: Bool
+    }
+    @Published var undoableDelete: UndoableDelete?
+
+    func restoreDeleted() {
+        guard let undo = undoableDelete else { return }
+        undoableDelete = nil
+        Task {
+            _ = try? await local.call(op: "restore-score", args: ["score": undo.slug])
+            await refresh()
+        }
+    }
+
+    /// Reclaim anything whose window has passed. On launch, and after a delete.
+    func sweepDeleted() async {
+        _ = try? await local.call(op: "sweep", args: [:])
+    }
+
     /// Sweep up pieces left holding nothing by a build that had no such rule.
     func tidyPieces() async {
         _ = try? await local.call(op: "tidy-pieces", args: [:])
         await refresh()
     }
 
-    func deleteScore(slug: String) {
+    func deleteScore(slug: String, undoable: Bool = true) {
+        let name = manifest?.scores.first { $0.slug == slug }
+            .map { $0.title ?? $0.name } ?? slug
         Task {
             do {
                 try await local.deleteScore(slug)
+                if undoable {
+                    undoableDelete = UndoableDelete(slug: slug, what: name,
+                                                    isSetlist: false)
+                }
                 if previewedSlug == slug { previewedSlug = nil }
                 if selectedSlug == slug {
                     selectedSlug = nil

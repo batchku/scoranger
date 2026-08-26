@@ -49,13 +49,21 @@ class SqliteRepository:
                 (score_id, json.dumps(doc)))
             self._conn.commit()
 
-    def get_score(self, score_id: str) -> dict | None:
+    def get_score(self, score_id: str, include_deleted: bool = True) -> dict | None:
         row = self._conn.execute("SELECT doc FROM scores WHERE id = ?", (score_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def list_scores(self) -> list[dict]:
+    def list_scores(self, include_deleted: bool = False) -> list[dict]:
+        """Every score. Ones marked for deletion are hidden by default.
+
+        A two-phase delete keeps the row until its undo window passes, so
+        everything that lists scores would otherwise still see it -- the
+        library, the manifest, the piece membership counts. Only the sweep and
+        a restore ask for them.
+        """
         rows = self._conn.execute("SELECT doc FROM scores ORDER BY id").fetchall()
-        return [json.loads(r[0]) for r in rows]
+        docs = [json.loads(r[0]) for r in rows]
+        return docs if include_deleted else [d for d in docs if not d.get("deleted_at")]
 
     def count_scores(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM scores").fetchone()[0]

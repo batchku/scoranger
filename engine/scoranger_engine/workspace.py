@@ -616,7 +616,12 @@ def delete_setlist(name_or_slug: str) -> dict:
     return {"deleted": doc["slug"]}
 
 
-def delete_score(slug: str) -> None:
+# How long a deleted thing stays recoverable. The UI offers an undo bar for
+# ~10s; the engine keeps it a little longer so a slow tap still lands.
+UNDO_WINDOW_SECONDS = 30
+
+
+def delete_score(slug: str, immediate: bool = False) -> None:
     """Delete an arrangement, and the piece with it if it was the last one.
 
     A piece does not exist without at least one arrangement. It is a folder for
@@ -625,14 +630,71 @@ def delete_score(slug: str) -> None:
     through the UI, because the UI deletes a piece BY deleting its contents --
     and an empty piece has none. Ali hit exactly that: a piece showing "0
     arrangements" that would not go away.
+
+    Deleting is TWO PHASES. The row is marked and disappears from the library
+    at once, but its artifacts stay on disk for `UNDO_WINDOW_SECONDS` so the
+    undo bar can put it back exactly as it was -- versions, sources, annotations
+    and all. `sweep()` is what actually reclaims. `immediate=True` skips the
+    window, for callers that mean it (a test, or a sweep of something already
+    marked).
+
+    Marking rather than copying: an arrangement is a directory of MusicXML and
+    a row of history, and duplicating that to hold it in reserve would be both
+    slow and a second source of truth.
     """
     import shutil
     load_meta(slug)  # raises with available slugs if missing
-    _repo().delete_score(slug)
-    if score_dir(slug).exists():
-        shutil.rmtree(score_dir(slug))
+    if immediate:
+        _repo().delete_score(slug)
+        if score_dir(slug).exists():
+            shutil.rmtree(score_dir(slug))
+        _drop_empty_pieces()
+        rebuild_manifest()
+        return
+    doc = _repo().get_score(slug) or {}
+    doc["deleted_at"] = _now()
+    _repo().set_score(slug, doc)
     _drop_empty_pieces()
     rebuild_manifest()
+
+
+def restore_score(slug: str) -> dict:
+    """Put a marked arrangement back, with everything it had."""
+    repo = _repo()
+    doc = repo.get_score(slug)
+    if doc is None:
+        raise FileNotFoundError(f"No score '{slug}' to restore.")
+    if not doc.pop("deleted_at", None):
+        return doc          # never deleted; restoring is a no-op, not an error
+    repo.set_score(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def sweep(now: str | None = None) -> list[str]:
+    """Reclaim anything whose undo window has passed. Returns what went.
+
+    Called on launch and after each delete. Until this runs the artifacts are
+    still on disk, which is exactly what makes undo possible.
+    """
+    from datetime import datetime, timedelta
+    repo = _repo()
+    cutoff = datetime.fromisoformat(now or _now()) - timedelta(seconds=UNDO_WINDOW_SECONDS)
+    gone = []
+    for doc in list(repo.list_scores(include_deleted=True)):
+        stamp = doc.get("deleted_at")
+        if not stamp:
+            continue
+        try:
+            when = datetime.fromisoformat(stamp)
+        except ValueError:
+            when = cutoff       # unparseable: treat as expired rather than immortal
+        if when <= cutoff:
+            delete_score(doc["slug"], immediate=True)
+            gone.append(doc["slug"])
+    if gone:
+        rebuild_manifest()
+    return gone
 
 
 def _drop_empty_pieces(keep: str | None = None) -> None:

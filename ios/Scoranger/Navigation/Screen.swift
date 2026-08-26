@@ -177,3 +177,53 @@ struct InlineRenameRow: View {
         .background(Theme.Surface.well)
     }
 }
+
+/// The undo bar (§5.2), in the action bar's slot.
+///
+/// A bar is not a modal: anchored, blocking nothing, and the list scrolls
+/// behind it. It is offered because the engine marks rather than unlinks --
+/// without the two-phase delete behind it this would be a button that lies.
+struct UndoBar: View {
+    let what: String
+    var seconds: Int = 10
+    var onUndo: () -> Void
+    var onDismiss: () -> Void
+
+    @State private var remaining: Int = 10
+
+    var body: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Text("Deleted \(what).").typeRole(.row).foregroundStyle(Theme.Ink.ink)
+            Text("restorable for \(remaining)s").typeRole(.data)
+                .foregroundStyle(Theme.Ink.ink3)
+            Spacer(minLength: Theme.Metric.s8)
+            PanelButton(title: "Undo", kind: .primary, action: onUndo)
+                .accessibilityIdentifier("undo-delete")
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, Theme.Metric.s16)
+        .frame(height: 56)
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
+        .accessibilityIdentifier("undo-bar")
+        .onAppear { remaining = seconds }
+        .task {
+            // A plain countdown, and it only decides when the BAR goes: the
+            // engine's own window is what decides whether undo would work, and
+            // it is deliberately longer so a slow tap still lands.
+            while remaining > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                remaining -= 1
+            }
+            onDismiss()
+        }
+    }
+}

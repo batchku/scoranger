@@ -97,6 +97,10 @@ def _dispatch(op, a):
         if piece:
             workspace.assign_score_to_piece(slug, piece)
         return {"score": slug, "version": entry["id"]}
+    if op == "restore-score":
+        return {"restored": workspace.restore_score(a["score"])["slug"]}
+    if op == "sweep":
+        return {"swept": workspace.sweep()}
     if op == "tidy-pieces":
         return {"tidied": workspace.tidy_pieces()}
     if op == "delete-piece":
