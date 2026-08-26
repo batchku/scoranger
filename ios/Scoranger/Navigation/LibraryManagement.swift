@@ -11,45 +11,12 @@ enum RowAction: Equatable {
     case open, versions, details, rename, addToSetlist, delete, newArrangement
 }
 
-/// The context menu every library row carries. This is §8's "row context
-/// menus", and it is where four of the five homeless features landed.
-struct RowContextMenu: View {
-    let row: LibraryRow
-    let isPiece: Bool
-    let isSetlist: Bool
-    var perform: (RowAction) -> Void
-
-    var body: some View {
-        Group {
-            Button { perform(.open) } label: {
-                Label(isSetlist ? "Play from the top" : "Open", systemImage: "arrow.right")
-            }
-            if !isSetlist {
-                Button { perform(.versions) } label: {
-                    Label("Versions…", systemImage: "clock.arrow.circlepath")
-                }
-                Button { perform(.details) } label: {
-                    Label("Arrangement details", systemImage: "info.circle")
-                }
-                Button { perform(.addToSetlist) } label: {
-                    Label("Add to set list…", systemImage: "text.badge.plus")
-                }
-            }
-            if isPiece {
-                Button { perform(.newArrangement) } label: {
-                    Label("New arrangement of this piece", systemImage: "plus")
-                }
-            }
-            Button { perform(.rename) } label: {
-                Label("Rename…", systemImage: "pencil")
-            }
-            Button(role: .destructive) { perform(.delete) } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-    }
-}
-
+/// What a row can be asked to do.
+///
+/// The menu that used to carry these is gone (NAV_REVISION_0.4.1 §1): a long
+/// press is never how you reach a feature. The cases remain because the ACTIONS
+/// remain -- they are reached from Edit mode, the arrangement sheet and the
+/// row's own trailing controls now.
 /// Choosing which set lists an arrangement belongs to (§8).
 ///
 /// The old sidebar reached this from a row's context menu; so does the new one.
@@ -176,16 +143,7 @@ struct ArrangementSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("arrangement-choice-\(score.slug)")
-            .contextMenu {
-                RowContextMenu(row: LibraryRow(id: score.slug,
-                                               title: score.title ?? score.name,
-                                               subtitle: "", chips: [], meta: "",
-                                               sortName: score.name, composer: "",
-                                               changed: "", arrangementCount: 1),
-                               isPiece: false, isSetlist: false) { action in
-                    onArrangementAction(score, action)
-                }
-            }
+
 
             // Per-row version browsing, which the sidebar used to carry (§8).
             Button {
@@ -294,5 +252,85 @@ struct SetlistArrangementPicker: View {
     /// Read membership live: the sheet edits the set list it is showing.
     private var current: SetlistDoc {
         state.manifest?.setlists?.first { $0.slug == setlist.slug } ?? setlist
+    }
+}
+
+/// Filing arrangements into a piece (NAV_REVISION_0.4.1 §2.3).
+///
+/// The spec calls this "the single biggest hole this revision closes", and it
+/// is right: moving an arrangement into a piece previously existed ONLY as a
+/// drag or a context-menu item, so a person who did not know the gesture and
+/// could not long-press had no way to file anything at all.
+struct MoveToPieceSheet: View {
+    @EnvironmentObject var state: AppState
+    let moving: [ScoreDoc]
+    var onDone: () -> Void
+    var onNewPiece: () -> Void
+
+    @State private var target: String?
+    @State private var chose = false
+
+    var body: some View {
+        PanelSheet(title: "Move to piece", onDone: onDone) {
+            VStack(alignment: .leading, spacing: 0) {
+                BandHeader(subject)
+                ForEach(state.manifest?.pieces ?? []) { piece in
+                    row(title: piece.name,
+                        detail: "\(piece.arrangements.count) arrangement"
+                            + (piece.arrangements.count == 1 ? "" : "s"),
+                        selected: target == piece.slug,
+                        id: "move-target-\(piece.slug)") { target = piece.slug; chose = true }
+                }
+                BandHeader("Or")
+                row(title: "New piece…", detail: "", selected: false,
+                    id: "move-target-new") { onNewPiece() }
+                row(title: "Remove from piece", detail: "leaves them unfiled",
+                    selected: target == nil && chose,
+                    id: "move-target-none") { target = nil; chose = true }
+
+                HStack {
+                    Spacer()
+                    PanelButton(title: "Move", kind: .primary) { commit() }
+                        .disabled(!chose && target == nil)
+                        .accessibilityIdentifier("move-commit")
+                }
+                .padding(Theme.Metric.panelPadding)
+            }
+        }
+    }
+
+    private var subject: String {
+        moving.count == 1
+            ? "Moving \(moving[0].title ?? moving[0].name)"
+            : "Moving \(moving.count) arrangements"
+    }
+
+    private func row(title: String, detail: String, selected: Bool, id: String,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Metric.s8) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(selected ? Theme.Accent.clayStrong : Theme.Ink.ink3)
+                Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                Spacer()
+                if !detail.isEmpty {
+                    Text(detail).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                }
+            }
+            .padding(.horizontal, Theme.Metric.panelPadding)
+            .padding(.vertical, Theme.Metric.sheetRowVertical)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityIdentifier(id)
+    }
+
+    private func commit() {
+        for score in moving { state.assignToPiece(scoreSlug: score.slug, piece: target) }
+        onDone()
     }
 }

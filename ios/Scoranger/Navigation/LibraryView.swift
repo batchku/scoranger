@@ -18,12 +18,14 @@ struct LibraryView: View {
     var onNew: () -> Void
     var onImport: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
+    var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
 
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
     @State private var dropTarget: String?
     @State private var addMenuOpen = false
+    @State private var selected: Set<String> = []
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -37,10 +39,72 @@ struct LibraryView: View {
             }
             .background(Theme.Surface.ground)
 
-            fab
-                .padding(.trailing, Theme.Metric.s20)
-                .padding(.bottom, Theme.Metric.s20)
+            if !(editing && !selected.isEmpty) {
+                fab
+                    .padding(.trailing, Theme.Metric.s20)
+                    .padding(.bottom, Theme.Metric.s20)
+            }
         }
+        .overlay(alignment: .bottom) {
+            if editing && !selected.isEmpty { actionBar }
+        }
+        .onChange(of: editing) { _, on in if !on { selected = [] } }
+        .onChange(of: segment) { _, _ in selected = [] }
+    }
+
+    /// The action bar (§2.2): what you can do to what is highlighted.
+    ///
+    /// The verbs are scoped by KIND, because they are not interchangeable -- a
+    /// piece is a folder and cannot be duplicated or put in a set list. Actions
+    /// needing exactly one row grey to 42% rather than vanishing, so the bar
+    /// never re-flows under a finger.
+    private var actionBar: some View {
+        let kind = selectionKind
+        return HStack(spacing: Theme.Metric.s8) {
+            Text("\(selected.count) selected").typeRole(.data)
+                .foregroundStyle(Theme.Ink.ink2)
+            Spacer(minLength: Theme.Metric.s8)
+            ForEach(LibraryActions.bar(for: kind), id: \.self) { action in
+                let on = LibraryActions.isEnabled(action, count: selected.count)
+                Button {
+                    onBarAction(action, selected, kind)
+                    if action == .delete || action == .rename { selected = [] }
+                } label: {
+                    Text(action.title(count: selected.count, kind: kind))
+                        .typeRole(.control)
+                        .foregroundStyle(action.isDestructive ? Theme.Surface.paper
+                                                              : Theme.Ink.ink)
+                        .padding(.horizontal, Theme.Metric.s12)
+                        .padding(.vertical, Theme.Metric.s6)
+                        .background(action.isDestructive ? Theme.Status.danger
+                                                         : Theme.Surface.panel)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                .stroke(action.isDestructive ? Theme.Status.danger
+                                                             : Theme.Line.line2,
+                                        lineWidth: 1)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!on)
+                .opacity(on ? 1 : 0.42)
+                .accessibilityIdentifier(action.identifier)
+            }
+        }
+        .padding(.horizontal, Theme.Metric.s16)
+        .frame(height: 56)
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
+        .accessibilityIdentifier("library-actionbar")
+    }
+
+    private var selectionKind: LibrarySelectionKind {
+        LibraryActions.kind(of: selected,
+                            pieces: Set((state.manifest?.pieces ?? []).map(\.slug)),
+                            setlists: Set((state.manifest?.setlists ?? []).map(\.slug)))
     }
 
     // MARK: - Chrome
@@ -204,12 +268,23 @@ struct LibraryView: View {
     private func rowView(_ row: LibraryRow) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                LRow(row: row, identifier: "row-\(row.id)", action: { open(row) }) {
-                    RowContextMenu(row: row,
-                                   isPiece: isPiece(row),
-                                   isSetlist: segment == .setlists) { action in
-                        onRowAction(row, action)
+                if editing { checkbox(row) }
+                LRow(row: row, identifier: "row-\(row.id)",
+                     action: { editing ? toggle(row) : open(row) })
+                // Browse mode carries an ⓘ on the trailing edge; nothing
+                // destructive is reachable without entering Edit (§2.1).
+                if !editing && !isPiece(row) && segment == .pieces {
+                    Button { onRowAction(row, .details) } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Theme.Ink.ink2)
+                            .frame(width: Theme.Metric.hitTarget,
+                                   height: Theme.Metric.hitTarget)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("row-details-\(row.id)")
+                    .accessibilityLabel("Details for \(row.title)")
                 }
                 // A set list's own "+": choosing which arrangements are in it,
                 // which is the other direction from an arrangement's "add to
@@ -269,6 +344,28 @@ struct LibraryView: View {
             return true
         }
         return false
+    }
+
+    /// The leading checkbox (§2.1). Selecting is what raises the action bar.
+    private func checkbox(_ row: LibraryRow) -> some View {
+        Button { toggle(row) } label: {
+            Image(systemName: selected.contains(row.id) ? "checkmark.square.fill" : "square")
+                .font(.system(size: 17))
+                .foregroundStyle(selected.contains(row.id) ? Theme.Accent.clayStrong
+                                                           : Theme.Ink.ink3)
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("row-select-\(row.id)")
+        .accessibilityLabel("Select \(row.title)")
+        .accessibilityAddTraits(selected.contains(row.id) ? [.isSelected] : [])
+        .padding(.leading, Theme.Metric.s8)
+    }
+
+    private func toggle(_ row: LibraryRow) {
+        if selected.contains(row.id) { selected.remove(row.id) }
+        else { selected.insert(row.id) }
     }
 
     private func isPiece(_ row: LibraryRow) -> Bool {

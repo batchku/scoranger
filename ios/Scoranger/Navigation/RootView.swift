@@ -27,9 +27,11 @@ struct RootView: View {
     @State private var pieceChoice: String?
     @State private var setlistPickerScore: ScoreDoc?
     @State private var arrangementPickerSetlist: SetlistDoc?
+    @State private var movingScores: [ScoreDoc] = []
     @State private var detailsScore: ScoreDoc?
     @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
     @State private var deleting: LibraryRow?
+    @State private var deletingMany: (ids: Set<String>, kind: LibrarySelectionKind)?
     @State private var newName = ""
     @State private var creating: LibrarySegment?
     /// The old library manager, kept reachable until drag-to-file has its own
@@ -94,6 +96,35 @@ struct RootView: View {
                 DialogScrim { arrangementPickerSetlist = nil }
                 SetlistArrangementPicker(setlist: setlist) { arrangementPickerSetlist = nil }
             }
+        }
+        if !movingScores.isEmpty {
+            ZStack {
+                DialogScrim { movingScores = [] }
+                MoveToPieceSheet(moving: movingScores,
+                                 onDone: { movingScores = [] },
+                                 onNewPiece: {
+                                     movingScores = []
+                                     creating = .pieces
+                                     newName = ""
+                                 })
+            }
+        }
+        if let many = deletingMany {
+            PanelAlert(title: "Delete \(many.ids.count) \(many.kind.plural)?",
+                       message: "This cannot be undone.",
+                       verb: "Delete",
+                       isDestructive: true,
+                       onCancel: { deletingMany = nil },
+                       onConfirm: {
+                           let ids = many.ids, kind = many.kind
+                           deletingMany = nil
+                           for id in ids {
+                               if kind == .setlists { Task { _ = await state.deleteSetlist(id) } }
+                               else if (state.manifest?.pieces ?? []).contains(where: { $0.slug == id }) {
+                                   state.deletePiece(id)
+                               } else { state.deleteScore(slug: id) }
+                           }
+                       })
         }
         if let score = setlistPickerScore {
             ZStack {
@@ -202,7 +233,8 @@ struct RootView: View {
                     onOpenSetlist: openSetlist,
                     onNew: { addForSegment() },
                     onImport: { showImporter = true },
-                    onRowAction: handle)
+                    onRowAction: handle,
+                    onBarAction: handleBar)
     }
 
     /// Choosing between the arrangements of a piece (§4.4). A piece is not
@@ -247,6 +279,39 @@ struct RootView: View {
     }
 
     // MARK: - Row actions -- the sidebar's management, rehomed (§8)
+
+    /// The Edit-mode action bar (§2.2), over whatever is highlighted.
+    private func handleBar(_ action: LibraryAction, _ ids: Set<String>,
+                           _ kind: LibrarySelectionKind) {
+        let scores = ids.compactMap { id in state.manifest?.scores.first { $0.slug == id } }
+        switch action {
+        case .rename:
+            guard let id = ids.first,
+                  let row = (libraryRows.first { $0.id == id }) else { return }
+            renaming = (id, kind == .pieces, kind == .setlists, row.title)
+        case .newArrangement:
+            guard let id = ids.first else { return }
+            Task { _ = await state.createArrangement(pieceSlug: id) }
+        case .moveToPiece:
+            movingScores = scores
+        case .addToSetlist:
+            if let first = scores.first { setlistPickerScore = first }
+        case .duplicate:
+            Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }
+        case .delete:
+            deletingMany = (ids, kind)
+        }
+    }
+
+    /// Every row currently in the library, for the bar to name what it is
+    /// acting on.
+    private var libraryRows: [LibraryRow] {
+        guard let manifest = state.manifest else { return [] }
+        return segment == .pieces
+            ? LibraryModel.pieceRows(manifest: manifest)
+                + LibraryModel.unfiledRows(manifest: manifest)
+            : LibraryModel.setlistRows(manifest: manifest)
+    }
 
     private func handle(_ row: LibraryRow, _ action: RowAction) {
         let score = state.manifest?.scores.first { $0.slug == row.id }
