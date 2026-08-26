@@ -26,6 +26,7 @@ struct RootView: View {
 
     @State private var pieceChoice: String?
     @State private var setlistPickerScore: ScoreDoc?
+    @State private var arrangementPickerSetlist: SetlistDoc?
     @State private var detailsScore: ScoreDoc?
     @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
     @State private var deleting: LibraryRow?
@@ -88,6 +89,12 @@ struct RootView: View {
     /// Everything a row's menu can open.
     @ViewBuilder
     private var managementSheets: some View {
+        if let setlist = arrangementPickerSetlist {
+            ZStack {
+                DialogScrim { arrangementPickerSetlist = nil }
+                SetlistArrangementPicker(setlist: setlist) { arrangementPickerSetlist = nil }
+            }
+        }
         if let score = setlistPickerScore {
             ZStack {
                 DialogScrim { setlistPickerScore = nil }
@@ -219,11 +226,23 @@ struct RootView: View {
                         pieceChoice = nil
                         Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
                     },
+                    onImportArrangement: {
+                        pieceChoice = nil
+                        showImporter = true
+                    },
                     onRenamePiece: {
                         pieceChoice = nil
                         renaming = (piece.slug, true, false, piece.name)
                     },
-                    onDone: { pieceChoice = nil })
+                    onDone: { pieceChoice = nil },
+                    onArrangementAction: { score, action in
+                        pieceChoice = nil
+                        handle(LibraryRow(id: score.slug, title: score.title ?? score.name,
+                                          subtitle: "", chips: [], meta: "",
+                                          sortName: score.name, composer: "",
+                                          changed: "", arrangementCount: 1),
+                               action)
+                    })
             }
         }
     }
@@ -248,7 +267,12 @@ struct RootView: View {
                 detailsScore = state.manifest?.scores.first { $0.slug == first }
             }
         case .addToSetlist:
-            if let score { setlistPickerScore = score }
+            // from a SET LIST, pick its arrangements; from an arrangement, pick
+            // its set lists -- two directions, two questions
+            if segment == .setlists,
+               let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
+                arrangementPickerSetlist = setlist
+            } else if let score { setlistPickerScore = score }
             else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
                     let first = piece.arrangements.first {
                 setlistPickerScore = state.manifest?.scores.first { $0.slug == first }

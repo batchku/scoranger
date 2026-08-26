@@ -1562,6 +1562,8 @@ final class ScorangerUITests: XCTestCase {
 
     /// The + on an existing set list adds arrangements to it.
     func testAddingAnArrangementToAnExistingSetlist() {
+        app.buttons["tab-library"].tap()
+        app.buttons["segment-setlists"].tap()
         let add = app.buttons["add-to-setlist-test-setlist"]
         XCTAssertTrue(add.waitForExistence(timeout: 20), "no + on the seeded set list")
         add.tap()
@@ -1576,6 +1578,7 @@ final class ScorangerUITests: XCTestCase {
 
     /// And an arrangement can be put in a set list from its own row.
     func testArrangementContextMenuOffersAddToSetList() {
+        openPieceSheet()
         let row = app.buttons["arrangement-choice-\(firstArrangement)"]
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.press(forDuration: 1.2)
@@ -1687,12 +1690,16 @@ final class ScorangerUITests: XCTestCase {
         let blank = app.buttons["New blank arrangement"]
         XCTAssertTrue(blank.waitForExistence(timeout: 10), "add menu did not open")
         blank.tap()
+        // Making one closes the sheet, so the numbering is checked where
+        // numbering is now shown: the piece's arrangement sheet.
+        //
         // Alphabetically first, so this is the suite's cold start: it pays for
         // the app launch, the Python engine's first import, the library reset
         // and re-seed, and the engrave of whatever the app opens by itself —
-        // and only then waits for another engine round trip. 60s was marginal
-        // and eventually lost the race; the rest of the suite allows 180 for an
-        // engine round trip. The assertion is unchanged.
+        // and only then waits for another engine round trip. The assertion is
+        // unchanged: a new arrangement is #3 of its piece.
+        sleep(6)
+        openPieceSheet()
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 3")
                         .waitForExistence(timeout: 180),
                       "the new arrangement did not appear as #3 of the piece")

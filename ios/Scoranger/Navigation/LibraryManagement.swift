@@ -91,8 +91,7 @@ struct SetlistPicker: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier(
-                        member ? "picker-remove-\(setlist.slug)" : "picker-add-\(setlist.slug)")
+                    .accessibilityIdentifier("chooser-\(setlist.slug)")
                 }
                 if (state.manifest?.setlists ?? []).isEmpty {
                     Text("No set lists yet. Make one with + in the Setlists tab.")
@@ -111,8 +110,10 @@ struct ArrangementSheet: View {
     let piece: PieceDoc
     var onOpen: (String, String?) -> Void
     var onNewArrangement: () -> Void
+    var onImportArrangement: () -> Void
     var onRenamePiece: () -> Void
     var onDone: () -> Void
+    var onArrangementAction: (ScoreDoc, RowAction) -> Void
 
     @State private var expanded: Set<String> = []
 
@@ -132,9 +133,23 @@ struct ArrangementSheet: View {
                     .padding(.bottom, Theme.Metric.s8)
 
                 HStack(spacing: Theme.Metric.s8) {
-                    PanelButton(title: "New arrangement of this piece", kind: .primary,
-                                action: onNewArrangement)
-                        .accessibilityIdentifier("sheet-new-arrangement")
+                    Menu {
+                        Button { onNewArrangement() } label: {
+                            Label("New blank arrangement", systemImage: "square")
+                        }
+                        Button { onImportArrangement() } label: {
+                            Label("Import a file…", systemImage: "arrow.down.to.line")
+                        }
+                    } label: {
+                        Text("New arrangement of this piece")
+                            .typeRole(.control)
+                            .foregroundStyle(Theme.Surface.paper)
+                            .padding(.horizontal, Theme.Metric.s12)
+                            .padding(.vertical, Theme.Metric.s6)
+                            .background(Theme.Accent.clayPress)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                    }
+                    .accessibilityIdentifier("sheet-new-arrangement")
                     PanelButton(title: "Rename piece", action: onRenamePiece)
                         .accessibilityIdentifier("sheet-rename-piece")
                     Spacer()
@@ -161,6 +176,16 @@ struct ArrangementSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("arrangement-choice-\(score.slug)")
+            .contextMenu {
+                RowContextMenu(row: LibraryRow(id: score.slug,
+                                               title: score.title ?? score.name,
+                                               subtitle: "", chips: [], meta: "",
+                                               sortName: score.name, composer: "",
+                                               changed: "", arrangementCount: 1),
+                               isPiece: false, isSetlist: false) { action in
+                    onArrangementAction(score, action)
+                }
+            }
 
             // Per-row version browsing, which the sidebar used to carry (§8).
             Button {
@@ -208,5 +233,66 @@ struct ArrangementSheet: View {
         }.reduce(0, +)
         return count == 0 ? "No other editions imported."
                           : "\(count) read-only source\(count == 1 ? "" : "s")."
+    }
+}
+
+
+/// The other half of set-list membership: standing in a SET LIST and choosing
+/// which arrangements are in it.
+///
+/// The sidebar had both directions -- a "+" on a set list, and "add to set
+/// list" on an arrangement -- and they answer different questions. Building
+/// only the per-arrangement one would have quietly halved the feature, which is
+/// exactly the kind of loss this rehoming exists to prevent.
+struct SetlistArrangementPicker: View {
+    @EnvironmentObject var state: AppState
+    let setlist: SetlistDoc
+    var onDone: () -> Void
+
+    var body: some View {
+        PanelSheet(title: setlist.name, onDone: onDone) {
+            VStack(alignment: .leading, spacing: 0) {
+                BandHeader("In this set list")
+                ForEach(state.manifest?.scores ?? []) { score in
+                    let member = current.arrangements.contains(score.slug)
+                    Button {
+                        Task {
+                            if member {
+                                _ = await state.removeFromSetlist(setlist: setlist.slug,
+                                                                  score: score.slug)
+                            } else {
+                                _ = await state.addToSetlist(setlist: setlist.slug,
+                                                             score: score.slug)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: Theme.Metric.s8) {
+                            Image(systemName: member ? "checkmark.square.fill" : "square")
+                                .foregroundStyle(member ? Theme.Accent.clayStrong
+                                                        : Theme.Ink.ink3)
+                            if let placement = state.placement(of: score.slug) {
+                                Text("\(placement.piece.name) #\(placement.number)")
+                                    .typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                            } else {
+                                Text(score.title ?? score.name)
+                                    .typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, Theme.Metric.panelPadding)
+                        .padding(.vertical, Theme.Metric.sheetRowVertical)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(
+                        member ? "picker-remove-\(score.slug)" : "picker-add-\(score.slug)")
+                }
+            }
+        }
+    }
+
+    /// Read membership live: the sheet edits the set list it is showing.
+    private var current: SetlistDoc {
+        state.manifest?.setlists?.first { $0.slug == setlist.slug } ?? setlist
     }
 }

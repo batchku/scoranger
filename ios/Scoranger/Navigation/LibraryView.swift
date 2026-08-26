@@ -206,11 +206,30 @@ struct LibraryView: View {
 
     private func rowView(_ row: LibraryRow) -> some View {
         VStack(spacing: 0) {
-            LRow(row: row, identifier: "row-\(row.id)", action: { open(row) }) {
-                RowContextMenu(row: row,
-                               isPiece: isPiece(row),
-                               isSetlist: segment == .setlists) { action in
-                    onRowAction(row, action)
+            HStack(spacing: 0) {
+                LRow(row: row, identifier: "row-\(row.id)", action: { open(row) }) {
+                    RowContextMenu(row: row,
+                                   isPiece: isPiece(row),
+                                   isSetlist: segment == .setlists) { action in
+                        onRowAction(row, action)
+                    }
+                }
+                // A set list's own "+": choosing which arrangements are in it,
+                // which is the other direction from an arrangement's "add to
+                // set list" and answers a different question.
+                if segment == .setlists {
+                    Button { onRowAction(row, .addToSetlist) } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Theme.Accent.clayStrong)
+                            .frame(width: Theme.Metric.hitTarget,
+                                   height: Theme.Metric.hitTarget)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("add-to-setlist-\(row.id)")
+                    .accessibilityLabel("Add arrangements to \(row.title)")
+                    .padding(.trailing, Theme.Metric.s12)
                 }
             }
             if editing { editingActions(row) }
