@@ -196,11 +196,31 @@ final class ScorangerUITests: XCTestCase {
     /// hope for it.
     private func ensureASecondVersion() {
         app.buttons["score-more"].tap()
-        let transpose = app.buttons["Transpose up a semitone"]
-        if transpose.waitForExistence(timeout: 10) {
-            transpose.tap()
-            sleep(20)
+        // the … menu is layered: Transpose opens its own layer, and the two
+        // semitone rows live in there
+        let layer = menuRow("more-transpose")
+        guard layer.waitForExistence(timeout: 10) else {
+            return XCTFail("the … menu has no Transpose")
         }
+        layer.tap()
+        let up = menuRow("transpose-up")
+        guard up.waitForExistence(timeout: 10) else {
+            return XCTFail("Transpose opened but offers no semitone up")
+        }
+        up.tap()
+        sleep(25)
+        // and come back OUT of the options: transposing pops to the options
+        // root, which is a full screen sitting over the canvas -- a test that
+        // went straight on to draw was drawing on the options screen
+        let back = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Back to")).firstMatch
+        if back.exists { back.tap() }
+        if app.buttons["score-more"].exists && app.buttons["score-more"].isSelected {
+            app.buttons["score-more"].tap()
+        }
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 120),
+                      "the canvas never came back after transposing")
+        sleep(8)
     }
 
     private func goBack() {
@@ -330,7 +350,15 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["tab-library"].isHittable,
                        "the score covers the tabs while you are in it")
         app.buttons["score-close"].tap()
-        XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 20),
+        // back to the tab you left from, on the screen you left from -- which
+        // is the piece the arrangement was opened from, not the library root
+        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 20),
+                      "closing the score did not bring the tabs back")
+        XCTAssertTrue(app.buttons["tab-library"].isHittable,
+                      "the tabs are back but unreachable")
+        XCTAssertTrue(app.buttons["segment-pieces"].exists
+                        || app.buttons.matching(
+                            NSPredicate(format: "label BEGINSWITH %@", "Back to")).count > 0,
                       "closing the score did not go back to the library")
         shot("closed-back-to-library")
     }
@@ -712,12 +740,14 @@ final class ScorangerUITests: XCTestCase {
         // the edit is a version, like every other change to the notation
         XCTAssertTrue(app.staticTexts["set-metadata"].waitForExistence(timeout: 10),
                       "editing metadata should append a version")
-        goBack()
+        goBack()            // details -> arrangement screen
+        goBack()            // arrangement -> the piece it belongs to
 
-        // the sidebar row now carries the same title (its label is built from
-        // the numeral, the title and the subtitle, so this is a contains-check)
+        // the row under the piece now carries the same title (its label is
+        // built from the numeral, the title and the subtitle, so this is a
+        // contains-check)
         let row = app.buttons["arrangement-choice-\(firstArrangement)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
         XCTAssertTrue(row.label.contains("Quartet Retitled"),
                       "the sidebar still shows the old title: \(row.label)")
 
@@ -781,10 +811,13 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(scrollTo(first, in: app.scrollViews.firstMatch),
                       "part rows should be editable")
         first.tap()
-        let field = app.textFields["part-name"]
+        // tapping the name opens it in place, and Done commits it -- there is
+        // no Rename button anywhere in the app any more
+        let field = app.textFields["part-name-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 5), "no part name field")
+        XCTAssertFalse(app.buttons["Rename"].exists, "nothing offers a Rename button")
         replaceText(field, with: "Violin I")
-        app.buttons["Rename"].firstMatch.tap()
+        field.typeText("\n")
         XCTAssertTrue(app.buttons["part-0"].waitForExistence(timeout: 60))
         XCTAssertTrue(element(labelStartingWith: "Violin I").waitForExistence(timeout: 30),
                       "the part row still shows the old name")
@@ -845,12 +878,13 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "label BEGINSWITH %@", "v00")).count, versionsBefore,
                                     "versions were lost in the move")
         shot("slug-renamed")
-        goBack()
+        goBack()            // details -> arrangement screen
+        goBack()            // arrangement -> the piece it belongs to
 
         // the row is filed under the new slug and still opens its score
-        let row = app.buttons["arrangement-paris-quartet"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20),
-                      "the sidebar row did not follow the slug")
+        let row = app.buttons["arrangement-choice-paris-quartet"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30),
+                      "the row under the piece did not follow the slug")
         XCTAssertFalse(app.buttons["arrangement-choice-\(firstArrangement)"].exists,
                        "the old slug is still around")
         row.tap()
@@ -862,14 +896,20 @@ final class ScorangerUITests: XCTestCase {
     /// something the user chose, never a row the app picked for itself.
     func testSelectionIsSingleAndClearable() {
 
+        openPieceSheet()
         let first = app.buttons["arrangement-choice-\(firstArrangement)"]
+        XCTAssertTrue(first.waitForExistence(timeout: 20),
+                      "the arrangement is not listed under its piece")
         first.tap()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
         shot("selection-single")
+        // step back out to the list the row is on: the score covers it
+        app.buttons["score-close"].tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "never came back to the piece")
         // exactly one row is selected at a time
         XCTAssertEqual(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND selected == true",
-                        "arrangement-")).count, 1,
+                        "arrangement-choice-")).count, 1,
                        "more than one arrangement row is highlighted")
     }
 
@@ -972,7 +1012,9 @@ final class ScorangerUITests: XCTestCase {
         annotations.tap()
         XCTAssertTrue(menuRow("annotations-clear").waitForExistence(timeout: 5),
                       "clearing markup lost its home")
-        menuRow("more-back").tap()
+        // the options are SCREENS now, so a sub-screen is left by the same
+        // "Back to …" button every other screen uses
+        goBack()
     }
 
     /// Draw across a bar: the elements under the stroke are
@@ -1143,7 +1185,6 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         sleep(10)
-        ensureASecondVersion()
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
@@ -1190,7 +1231,6 @@ final class ScorangerUITests: XCTestCase {
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
-        ensureASecondVersion()
 
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {
@@ -1318,6 +1358,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         sleep(10)
+        ensureASecondVersion()
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
@@ -1369,6 +1410,7 @@ final class ScorangerUITests: XCTestCase {
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
+        ensureASecondVersion()
 
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {

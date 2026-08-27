@@ -67,3 +67,30 @@ enum RowMenuBehaviour: Equatable {
         needsATarget ? .push : .expand
     }
 }
+
+extension Route {
+    /// The same route, pointing at wherever its arrangement has since moved.
+    ///
+    /// `moves` is old-slug to new-slug; chains are followed, with a stop so a
+    /// cycle cannot hang the screen.
+    func following(_ moves: [String: String]) -> Route {
+        guard !moves.isEmpty else { return self }
+        func now(_ slug: String) -> String {
+            var at = slug
+            var hops = 0
+            while let next = moves[at], hops < 8 { at = next; hops += 1 }
+            return at
+        }
+        switch self {
+        case .arrangement(let s):     return .arrangement(now(s))
+        case .moveToPiece(let s):     return .moveToPiece(s.map { now($0) })
+        case .setlistsFor(let s):     return .setlistsFor(now(s))
+        case .addArrangements(let s): return .addArrangements(now(s))
+        case .versions(let s):        return .versions(now(s))
+        case .parts(let s):           return .parts(now(s))
+        case .details(let s):         return .details(now(s))
+        case .piece, .setlist, .importDestination, .settings, .settingsSection:
+            return self
+        }
+    }
+}

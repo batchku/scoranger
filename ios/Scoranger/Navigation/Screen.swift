@@ -77,6 +77,10 @@ struct ScreenRow: View {
     var value: String?
     var leads: Bool = true
     var isDestructive: Bool = false
+    /// The row stands for what is on screen right now -- one version of many,
+    /// one arrangement of a piece. Marked, not just tinted, so a test and a
+    /// screen reader can both tell which one it is.
+    var isSelected: Bool = false
     var identifier: String
     var action: () -> Void
 
@@ -98,12 +102,18 @@ struct ScreenRow: View {
             .padding(.horizontal, Theme.Metric.s20)
             .padding(.vertical, 11)
             .frame(minHeight: 44)
+            .background(isSelected ? Theme.Accent.clayTint : Color.clear)
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle().fill(Theme.Accent.clay).frame(width: 3)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(value.map { "\(title), \($0)" } ?? title)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier(identifier)
     }
 }

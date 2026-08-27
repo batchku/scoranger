@@ -1043,6 +1043,20 @@ final class AppState: ObservableObject {
         await setScoreMetadata(slug: slug, title: name)
     }
 
+    /// Where a moved arrangement went. A pushed screen holds the slug it was
+    /// opened with, and moving the arrangement is something you do ON that
+    /// screen -- without this the screen and everything above it resolve to
+    /// nothing the instant the move lands.
+    @Published var movedSlugs: [String: String] = [:]
+
+    /// Follows a chain of moves to whatever the slug is called now.
+    func currentSlug(for slug: String) -> String {
+        var now = slug
+        var hops = 0
+        while let next = movedSlugs[now], hops < 8 { now = next; hops += 1 }
+        return now
+    }
+
     /// Change the slug an arrangement is filed under.
     ///
     /// The engine moves the artifacts and rewrites every reference it owns; the
@@ -1058,6 +1072,7 @@ final class AppState: ObservableObject {
                                         args: ["score": slug, "to": trimmed])
             guard let now = r["score"] as? String else { return nil }
             if now != slug {
+                movedSlugs[slug] = now
                 DrawingStore.shared.rename(fromPrefix: slug, toPrefix: now)
                 if selectedSlug == slug { selectedSlug = now }
                 if previewedSlug == slug { previewedSlug = now }

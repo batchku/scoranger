@@ -351,20 +351,88 @@ struct VersionsScreen: View {
     var onBack: () -> Void
     var onShow: (String?) -> Void
 
+    @State private var expanded: Set<String> = []
+
     var body: some View {
         Screen(title: "Versions", backLabel: "Back", subtitle: name, onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
                 BandHeader("History")
-                ForEach((score?.versions ?? []).reversed(), id: \.id) { version in
-                    ScreenRow(title: version.id, value: version.op, leads: false,
-                              identifier: "version-\(slug)-\(version.id)") {
-                        onShow(version.id == score?.latest ? nil : version.id)
-                        onBack()
+                ForEach(groups) { group in
+                    groupRow(group)
+                    if expanded.contains(group.id) {
+                        ForEach(group.subs.reversed(), id: \.id) { step in
+                            ScreenRow(title: step.id, value: step.op, leads: false,
+                                      isSelected: step.id == shown,
+                                      identifier: "step-\(slug)-\(step.id)") {
+                                show(step.id)
+                            }
+                            .padding(.leading, Theme.Metric.stepIndent)
+                        }
                     }
                 }
             }
             .padding(.bottom, Theme.Metric.s32)
         }
+    }
+
+    /// One chat prompt can produce a run of versions. They collapse into one
+    /// row under the prompt that made them, opened by a caret -- history a
+    /// person can read, rather than eight rows saying "transpose".
+    private var groups: [AppState.VersionGroup] {
+        score.map { state.versionGroups(for: $0) } ?? []
+    }
+
+    @ViewBuilder
+    private func groupRow(_ group: AppState.VersionGroup) -> some View {
+        let steps = group.subs.count
+        if steps > 1 {
+            let open = expanded.contains(group.id)
+            // The caret is a SIBLING of the row, not something inside it:
+            // ScreenRow collapses its children into one accessibility element,
+            // so a caret drawn inside it would be findable and untappable.
+            HStack(spacing: 0) {
+                Button {
+                    if open { expanded.remove(group.id) } else { expanded.insert(group.id) }
+                } label: {
+                    Image(systemName: open ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.Ink.ink3)
+                        .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(open ? "Hide the steps of this prompt"
+                                         : "Show the \(steps) steps of this prompt")
+                .accessibilityIdentifier("steps-toggle-\(slug)-\(group.id)")
+                ScreenRow(title: group.title,
+                          value: "\(group.face.id) · \(steps) steps",
+                          leads: false,
+                          // while the steps are open they own the highlight:
+                          // a group's steps include its own face, and lighting
+                          // both read as two versions being open at once
+                          isSelected: !open && group.subs.contains { $0.id == shown },
+                          identifier: "version-\(slug)-\(group.face.id)") {
+                    show(group.face.id)
+                }
+            }
+            .padding(.leading, Theme.Metric.s6)
+        } else {
+            ScreenRow(title: group.face.id, value: group.face.op, leads: false,
+                      isSelected: group.face.id == shown,
+                      identifier: "version-\(slug)-\(group.face.id)") {
+                show(group.face.id)
+            }
+        }
+    }
+
+    /// The version on screen right now -- the pinned one, or the latest when
+    /// nothing is pinned.
+    private var shown: String? {
+        state.displayedVersionID ?? score?.latest
+    }
+
+    private func show(_ version: String) {
+        onShow(version == score?.latest ? nil : version)
     }
 
     private var score: ScoreDoc? { state.manifest?.scores.first { $0.slug == slug } }
@@ -455,6 +523,37 @@ struct ImportDestinationScreen: View {
                 }
             }
             .padding(.bottom, Theme.Metric.s32)
+        }
+    }
+}
+
+/// An arrangement's details.
+///
+/// It takes the slug once and keeps the ScoreDoc it found. The slug is
+/// editable inside, so a screen that re-resolved by slug would tear itself
+/// down mid-edit -- `ScoreInfoView` already follows the move on its own.
+struct DetailsScreen: View {
+    @EnvironmentObject var state: AppState
+    let slug: String
+    var onBack: () -> Void
+
+    @State private var opened: ScoreDoc?
+
+    var body: some View {
+        Group {
+            if let score = opened {
+                Screen(title: "Details", backLabel: "Back",
+                       subtitle: score.title ?? score.name, onBack: onBack) {
+                    ScoreInfoView(score: score)
+                }
+            } else {
+                Color.clear
+            }
+        }
+        .onAppear {
+            if opened == nil {
+                opened = state.manifest?.scores.first { $0.slug == slug }
+            }
         }
     }
 }

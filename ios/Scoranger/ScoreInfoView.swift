@@ -10,9 +10,13 @@ import SwiftUI
 /// of them through the engine's `set-metadata` op (a new version, like any
 /// other change to the notation).
 struct ScoreInfoView: View {
-    /// The score as it was when the sheet opened. Everything reads `live`
-    /// instead: the sheet edits the arrangement, so it has to show the results
+    /// The arrangement this screen was opened on. Everything reads `live`
+    /// instead: the screen edits the arrangement, so it has to show the results
     /// of its own edits — the new version, the new title, the new piece.
+    ///
+    /// It is a snapshot rather than a lookup because the SLUG is editable here.
+    /// Re-resolving by slug on every manifest tick tore this screen down the
+    /// moment a move landed, which is exactly when the user is looking at it.
     let score: ScoreDoc
     @EnvironmentObject var state: AppState
 

@@ -121,7 +121,10 @@ struct RootView: View {
         let push: (Route) -> Void = { r in
             if tab == .home { homePath.append(r) } else { libraryPath.append(r) }
         }
-        switch route {
+        // A route holds the slug it was pushed with, and an arrangement can be
+        // MOVED to a new slug from the screen the route points at. Follow the
+        // move rather than resolving to nothing.
+        switch route.following(state.movedSlugs) {
         case .piece(let slug):
             if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
                 PieceScreen(piece: piece, onBack: pop,
@@ -163,23 +166,24 @@ struct RootView: View {
             AddArrangementsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .versions(let slug):
+            // picking a version MARKS it and stays on the list: this is the
+            // history, and reading it means moving down it. The score opens on
+            // whatever is marked when you go back to it -- and while reading,
+            // the title band in the score is the faster way to switch.
             VersionsScreen(slug: slug, onBack: pop,
                            onShow: { version in
                                state.select(slug: slug, version: version)
-                               open(slug, version: version)
                            })
                 .navigationBarHidden(true)
         case .parts(let slug):
             PartsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .details(let slug):
-            if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
-                Screen(title: "Details", backLabel: "Back",
-                       subtitle: score.title ?? score.name, onBack: pop) {
-                    ScoreInfoView(score: score)
-                }
+            // resolved ONCE, into a view that then follows its own edits: the
+            // slug is editable on this screen, and re-resolving by slug on
+            // every manifest tick closed the screen the instant a move landed
+            DetailsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
-            }
         case .importDestination:
             ImportDestinationScreen(onBack: pop,
                                     onNewPiece: { name in

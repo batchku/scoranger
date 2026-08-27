@@ -92,6 +92,15 @@ struct PieceScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // one element, not a stack: a Button whose label is a stack is
+            // reported as a container, and the highlight has to live on the
+            // element a test can see
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(number). \(score.title ?? score.name), "
+                                + "\(score.versions.count) version"
+                                + (score.versions.count == 1 ? "" : "s"))
+            .accessibilityAddTraits(state.selectedSlug == score.slug
+                                    ? [.isButton, .isSelected] : [.isButton])
             .accessibilityIdentifier("arrangement-choice-\(score.slug)")
 
             // Order, in place. This is what dragging one arrangement onto
