@@ -89,30 +89,45 @@ final class ScorangerUITests: XCTestCase {
         if choice.waitForExistence(timeout: 10) { choice.tap() }
     }
 
-    /// Open the sheet that lists a piece's arrangements and their versions --
-    /// where the sidebar's expandable rows went (§4.4, §8).
+    /// The piece screen -- where the arrangement sheet went (§3.1).
+    ///
+    /// Reached by the piece row's ☰, which is the one visible control a row
+    /// carries. No long press: that is the rule this revision adds.
     private func openPieceSheet() {
-        if app.buttons["sheet-new-arrangement"].exists { return }
-        app.buttons["tab-library"].tap()
-        let pieceRow = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-                        "row-", piece)).firstMatch
-        XCTAssertTrue(pieceRow.waitForExistence(timeout: 180),
-                      "the library never listed the piece")
-        pieceRow.tap()
-        XCTAssertTrue(app.buttons["sheet-new-arrangement"].waitForExistence(timeout: 20),
-                      "the arrangement sheet did not open")
+        if app.buttons["piece-new-arrangement-\(pieceSlug)"].exists { return }
+        rowMenu(piece)
+        XCTAssertTrue(app.buttons["piece-new-arrangement-\(pieceSlug)"]
+                        .waitForExistence(timeout: 20),
+                      "the piece screen did not open")
     }
 
-    /// A row's context menu, which is where rename/delete/set lists went.
+    /// A row's ☰. Pushes to the item's screen.
     private func rowMenu(_ id: String) {
         app.buttons["tab-library"].tap()
         let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", id)).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 180), "no row for \(id)")
-        row.press(forDuration: 1.2)
+        let menu = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                        "row-menu-", id)).firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no ☰ on the row for \(id)")
+        menu.tap()
     }
+
+    /// The arrangement screen: the per-item actions screen (§3.2).
+    private func openArrangementScreen(_ slug: String) {
+        openPieceSheet()
+        let menu = app.buttons["row-menu-\(slug)"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20),
+                      "no ☰ on the arrangement row")
+        menu.tap()
+        XCTAssertTrue(app.buttons["arrangement-open"].waitForExistence(timeout: 20),
+                      "the arrangement screen did not open")
+    }
+
+    /// The seeded piece's slug, for the ids the screens carry.
+    private var pieceSlug: String { "sous-le-ciel-de-paris" }
 
     /// A row of the "…" menu, by identifier rather than by element type.
     private func menuRow(_ id: String) -> XCUIElement {
@@ -441,26 +456,14 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Hierarchy
 
-    func testArrangementsAreNumberedWithinPiece() throws {
-        // TODO(0.4.1): re-point to numbering in the arrangement sheet.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to numbering in the arrangement sheet")
+    func testArrangementsAreNumberedWithinPiece() {
 
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 1").exists)
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 2").exists)
         shot("numbered-arrangements")
     }
 
-    func testPieceCaretTogglesChildren() throws {
-        // TODO(0.4.1): re-point to the arrangement sheet, which replaced the caret.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the arrangement sheet, which replaced the caret")
+    func testPieceCaretTogglesChildren() {
 
         let collapse = app.buttons["Collapse \(piece)"]
         XCTAssertTrue(collapse.exists, "piece caret missing")
@@ -480,13 +483,7 @@ final class ScorangerUITests: XCTestCase {
                       "row tap did not open an arrangement")
     }
 
-    func testVersionsNestUnderArrangement() throws {
-        // TODO(0.4.1): re-point to version rows in the arrangement sheet.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to version rows in the arrangement sheet")
+    func testVersionsNestUnderArrangement() {
 
         let versionRow = app.buttons["version-\(firstArrangement)-v001"]
         XCTAssertFalse(versionRow.exists, "versions should be hidden until expanded")
@@ -500,16 +497,10 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: versionRow, timeout: 5))
     }
 
-    func testPromptGroupStepsExpand() throws {
-        // TODO(0.4.1): re-point to version rows in the arrangement sheet.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to version rows in the arrangement sheet")
+    func testPromptGroupStepsExpand() {
 
-        openPieceSheet()
-        app.buttons["versions-toggle-\(firstArrangement)"].tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["edit-versions-\(firstArrangement)"].tap()
         let stepsToggle = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@",
                                   "steps-toggle-\(firstArrangement)-"))
@@ -529,16 +520,10 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Panel dialogs (§7.15, §7.16)
 
-    func testArrangementSheetIsAPanelWithRenameAndDeleteLast() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testArrangementSheetIsAPanelWithRenameAndDeleteLast() {
 
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 10),
                       "the arrangement sheet did not open")
         XCTAssertTrue(app.staticTexts["SCORED FOR"].exists,
@@ -551,16 +536,10 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: app.staticTexts["ARRANGEMENT"], timeout: 5))
     }
 
-    func testRenameArrangementFromTheSheet() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testRenameArrangementFromTheSheet() {
 
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         let field = app.textFields["arrangement-title"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "title field missing")
         replaceText(field, with: "Renamed arrangement")
@@ -581,19 +560,13 @@ final class ScorangerUITests: XCTestCase {
     /// the notation — which is checked by reading the metadata back out of the
     /// engraved file (the sheet's mismatch note is derived from it), not just
     /// out of the library document.
-    func testTitleAndCreditsAreEditableAndReachTheNotation() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testTitleAndCreditsAreEditableAndReachTheNotation() {
 
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
 
         let title = app.textFields["arrangement-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no title field")
@@ -624,8 +597,8 @@ final class ScorangerUITests: XCTestCase {
                       "the sidebar still shows the old title: \(row.label)")
 
         // and reopening reads the credits back out of the notation
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         XCTAssertEqual(app.textFields["arrangement-composer"].value as? String,
                        "Hubert Giraud",
@@ -642,13 +615,7 @@ final class ScorangerUITests: XCTestCase {
     /// the top of the score is the arrangement's title. Screenshots before and
     /// after, so the engraving itself can be read (the page is a bitmap, so no
     /// assertion can look at it — the values either side are asserted instead).
-    func testTheEngravedTitleFollowsTheArrangementTitle() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testTheEngravedTitleFollowsTheArrangementTitle() {
 
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
@@ -656,8 +623,8 @@ final class ScorangerUITests: XCTestCase {
         sleep(2)
         shot("engraved-title-before")
 
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         let title = app.textFields["arrangement-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         replaceText(title, with: "Sous le ciel de Paris \u{2014} String Quartet")
@@ -677,17 +644,11 @@ final class ScorangerUITests: XCTestCase {
 
     /// Part names are the staff labels engraved on every system, so they are
     /// metadata the user can edit too.
-    func testPartNamesAreEditableFromTheSheet() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testPartNamesAreEditableFromTheSheet() {
 
         openArrangement(firstArrangement)
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
         let first = app.buttons["part-0"]
         XCTAssertTrue(first.waitForExistence(timeout: 10), "part rows should be editable")
@@ -707,8 +668,8 @@ final class ScorangerUITests: XCTestCase {
     /// a label: it vanishes the moment the field has content, which is how Ali
     /// ended up with three unnamed boxes at the top of the sheet.
     func testEveryMetadataFieldIsLabelled() {
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 10))
         for label in ["TITLE", "COMPOSER", "ARRANGER", "SLUG"] {
             XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
@@ -724,19 +685,13 @@ final class ScorangerUITests: XCTestCase {
     /// ones are ugly, so it is editable. Renaming it moves the artifacts and
     /// every reference, so the score has to still open and still have its
     /// history afterwards.
-    func testSlugIsEditableAndReferencesSurvive() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testSlugIsEditableAndReferencesSurvive() {
 
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         let slug = app.textFields["arrangement-slug"]
         XCTAssertTrue(slug.waitForExistence(timeout: 10), "no slug field")
         XCTAssertEqual(slug.value as? String, firstArrangement)
@@ -779,19 +734,13 @@ final class ScorangerUITests: XCTestCase {
     /// Ali's build-122 report: an arrangement moved from Unfiled into a piece
     /// showed no #N badge, and the moved row stayed highlighted with no way to
     /// deselect it while other rows highlighted too.
-    func testMovingAnUnfiledArrangementIntoAPieceNumbersIt() throws {
-        // TODO(0.4.1): re-point to drag onto a piece row.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to drag onto a piece row")
+    func testMovingAnUnfiledArrangementIntoAPieceNumbersIt() {
 
         // a blank arrangement, unfiled: created in the piece, then unfiled, so
         // the test does not depend on what the seed happens to contain
         openArrangement(firstArrangement)
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
 
         // unfile it
@@ -826,13 +775,7 @@ final class ScorangerUITests: XCTestCase {
 
     /// One selection at a time, and it can be cleared: the highlight has to be
     /// something the user chose, never a row the app picked for itself.
-    func testSelectionIsSingleAndClearable() throws {
-        // TODO(0.4.1): re-point to library row selection.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to library row selection")
+    func testSelectionIsSingleAndClearable() {
 
         let first = app.buttons["arrangement-choice-\(firstArrangement)"]
         first.tap()
@@ -872,13 +815,7 @@ final class ScorangerUITests: XCTestCase {
     /// Reordering has to move the numbers with the rows: #N is what Ali types
     /// in chat ("take the violin part from #2"), so a badge that disagrees with
     /// the order is worse than no badge.
-    func testReorderingArrangementsRenumbersThem() throws {
-        // TODO(0.4.1): re-point to drag onto a sibling row.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to drag onto a sibling row")
+    func testReorderingArrangementsRenumbersThem() {
 
         let first = app.buttons["arrangement-choice-\(firstArrangement)"]
         XCTAssertTrue(first.waitForExistence(timeout: 20))
@@ -908,17 +845,11 @@ final class ScorangerUITests: XCTestCase {
     /// serving as the control that proved XCUITest *can* drive SwiftUI
     /// drag-and-drop (which is how row-to-row reordering was shown to be a
     /// real gap rather than a harness limit).
-    func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() throws {
-        // TODO(0.4.1): re-point to drag onto a piece row.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to drag onto a piece row")
+    func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() {
 
         openArrangement(firstArrangement)
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
         app.buttons["piece-menu"].firstMatch.tap()
         app.buttons["None"].firstMatch.tap()
@@ -938,13 +869,7 @@ final class ScorangerUITests: XCTestCase {
 
     /// And chat is told the new order: the refs it is handed are built from the
     /// same list the badges are.
-    func testChatContextFollowsTheNewOrder() throws {
-        // TODO(0.4.1): re-point to reorder via drag on library rows.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to reorder via drag on library rows")
+    func testChatContextFollowsTheNewOrder() {
 
         let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
         XCTAssertTrue(second.waitForExistence(timeout: 20))
@@ -1103,13 +1028,7 @@ final class ScorangerUITests: XCTestCase {
     /// on "Opening…" for ever: `renderIfNeeded` returns at its guard when there
     /// is no version to display, so nothing was ever in flight and the spinner
     /// was simply the fallback branch with no way out.
-    func testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted() throws {
-        // TODO(0.4.1): re-point to the arrangement sheet's delete.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the arrangement sheet's delete")
+    func testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted() {
 
         app.terminate()
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
@@ -1268,13 +1187,7 @@ final class ScorangerUITests: XCTestCase {
         shot("selection-chip-redesigned")
     }
 
-    func testANewArrangementCanBeAddedToASetList() throws {
-        // TODO(0.4.1): re-point to the set-list picker from a new arrangement.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the set-list picker from a new arrangement")
+    func testANewArrangementCanBeAddedToASetList() {
 
         // The seed assigns set lists only after every import, so this waits for
         // the fixture it depends on. The assertion below is unchanged.
@@ -1417,13 +1330,7 @@ final class ScorangerUITests: XCTestCase {
     /// A prompt group's steps include the group's own face version, so the
     /// group row and a step row both claimed the highlight and it read as two
     /// versions being open at once.
-    func testOnlyOneVersionRowIsEverHighlighted() throws {
-        // TODO(0.4.1): re-point to version rows in the arrangement sheet.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to version rows in the arrangement sheet")
+    func testOnlyOneVersionRowIsEverHighlighted() {
 
         let arrangement = app.buttons["arrangement-choice-\(firstArrangement)"]
         XCTAssertTrue(arrangement.waitForExistence(timeout: 20))
@@ -1442,8 +1349,8 @@ final class ScorangerUITests: XCTestCase {
             sleep(15)
         }
 
-        openPieceSheet()
-        app.buttons["versions-toggle-\(firstArrangement)"].tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["edit-versions-\(firstArrangement)"].tap()
 
         func highlighted() -> [String] {
             let rows = app.buttons.matching(
@@ -1498,18 +1405,13 @@ final class ScorangerUITests: XCTestCase {
 
     /// A set list heading takes an arrangement dropped on it. The picker and
     /// the row's "Add to set list…" both still work; this is the shortcut.
-    func testDraggingAnArrangementOntoASetlistAddsIt() throws {
-        // TODO(0.4.1): re-point to drag onto a set-list row.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to drag onto a set-list row")
+    func testDraggingAnArrangementOntoASetlistAddsIt() {
 
         // a set list the seeded arrangements are not already in
         app.buttons["tab-library"].tap()
         app.buttons["segment-setlists"].tap()
-        app.buttons["New setlist"].tap()
+        app.buttons["library-add"].tap()
+        app.buttons["fab-new"].tap()
         let field = app.textFields["Setlist name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.typeText("Gig night")
@@ -1539,13 +1441,7 @@ final class ScorangerUITests: XCTestCase {
 
     /// Dropping one arrangement on another inside a piece puts it in that
     /// place, and the numerals follow. Same op as "Move up", by hand.
-    func testDraggingOneArrangementOntoAnotherReordersThePiece() throws {
-        // TODO(0.4.1): re-point to drag onto a sibling row.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to drag onto a sibling row")
+    func testDraggingOneArrangementOntoAnotherReordersThePiece() {
 
         let first = app.buttons["arrangement-choice-\(firstArrangement)"]
         let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
@@ -1666,16 +1562,10 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// The piece is metadata as well, and its name was editable nowhere.
-    func testPieceIsRenameableFromTheSheet() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testPieceIsRenameableFromTheSheet() {
 
-        rowMenu(piece)
-        app.buttons["Arrangement details"].firstMatch.tap()
+        openArrangementScreen(firstArrangement)
+        app.buttons["row-details-\(firstArrangement)"].tap()
         let rename = app.buttons["rename-piece"]
         XCTAssertTrue(rename.waitForExistence(timeout: 10), "no way to rename the piece")
         rename.tap()
@@ -1692,17 +1582,12 @@ final class ScorangerUITests: XCTestCase {
 
     /// Ali's build-125 ask: a set list holds ARRANGEMENTS. Creating one asks
     /// for the name first, then offers arrangements to put in it.
-    func testNewSetlistAsksForANameThenOffersArrangements() throws {
-        // TODO(0.4.1): re-point to the Setlists FAB.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the Setlists FAB")
+    func testNewSetlistAsksForANameThenOffersArrangements() {
 
         app.buttons["tab-library"].tap()
         app.buttons["segment-setlists"].tap()
-        app.buttons["New setlist"].tap()
+        app.buttons["library-add"].tap()
+        app.buttons["fab-new"].tap()
         let field = app.textFields["Setlist name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no field in the naming alert")
         XCTAssertTrue(app.buttons["Create"].exists, "the verb should name the action")
@@ -1889,13 +1774,7 @@ final class ScorangerUITests: XCTestCase {
                       "the new arrangement did not appear as #3 of the piece")
     }
 
-    func testContextMenuOffersFilingAndDeletion() throws {
-        // TODO(0.4.1): re-point to the row context menu.
-        //
-        // The FEATURE ships in 0.4.0 and is reachable; this test drives the
-        // sidebar it used to live on, which the new IA does not have. Skipped
-        // rather than deleted or weakened, so what is uncovered is visible.
-        throw XCTSkip("0.4.1: re-point to the row context menu")
+    func testContextMenuOffersFilingAndDeletion() {
 
         app.buttons["arrangement-choice-\(firstArrangement)"].press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Move to piece"].waitForExistence(timeout: 10),
