@@ -160,6 +160,7 @@ struct InlineRenameRow: View {
     var body: some View {
         HStack(spacing: Theme.Metric.s8) {
             TextField("Name", text: $text)
+                .accessibilityIdentifier("inline-name-field")
                 .typeRole(.body)
                 .foregroundStyle(Theme.Ink.ink)
                 .tint(Theme.Accent.clay)

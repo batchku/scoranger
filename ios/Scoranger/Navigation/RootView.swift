@@ -36,10 +36,7 @@ struct RootView: View {
     @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
     @State private var deleting: LibraryRow?
     @State private var deletingMany: (ids: Set<String>, kind: LibrarySelectionKind)?
-    @State private var newName = ""
-    @State private var creating: LibrarySegment?
     /// Whether the piece being named is the destination of an import.
-    @State private var pendingImportIsNewPiece = false
     /// Where an import should land, asked BEFORE the file picker (0.4.1 item 9).
     @State private var importDestination: ImportDestination?
     @State private var importIntoPiece: String?
@@ -139,31 +136,6 @@ struct RootView: View {
             state.deleteScore(slug: row.id)
         }
     }
-
-    private func commitCreate(_ segment: LibrarySegment) {
-        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let forImport = pendingImportIsNewPiece
-        creating = nil
-        pendingImportIsNewPiece = false
-        guard !name.isEmpty else { return }
-        if segment == .setlists {
-            Task { _ = await state.createSetlist(name: name) }
-            return
-        }
-        // A piece named for an import goes to the library and shows itself
-        // filling up, rather than the import disappearing somewhere.
-        Task {
-            let slug = await state.createPiece(named: name)
-            if forImport {
-                importIntoPiece = slug
-                tab = .library
-                segment2Pieces()
-                showImporter = true
-            }
-        }
-    }
-
-    private func segment2Pieces() { segment = .pieces }
 
     /// What a route shows.
     @ViewBuilder
@@ -323,7 +295,20 @@ struct RootView: View {
                             libraryPath.append(.arrangement(row.id))
                         }
                     },
-                    onNew: { addForSegment() },
+                    onCreate: { name in
+                        Task {
+                            if segment == .setlists {
+                                // a set list with nothing in it is not worth
+                                // making, so naming one leads straight to
+                                // choosing what goes in it
+                                if let slug = await state.createSetlist(name: name) {
+                                    libraryPath.append(.addArrangements(slug))
+                                }
+                            } else {
+                                _ = await state.createPiece(named: name)
+                            }
+                        }
+                    },
                     onImport: { libraryPath.append(.importDestination) },
                     onRowAction: handle,
                     onBarAction: handleBar)
@@ -413,10 +398,6 @@ struct RootView: View {
         }
     }
 
-    private func addForSegment() {
-        creating = segment
-        newName = ""
-    }
 
     // MARK: - Transitions
 

@@ -18,7 +18,9 @@ struct LibraryView: View {
     /// The row's ☰. Pushes to the item's screen, or expands in place, by the
     /// rule in RowMenuBehaviour.
     var onRowMenu: (LibraryRow) -> Void
-    var onNew: () -> Void
+    /// Naming a new piece or set list, in a band at the top of the list --
+    /// not a popup and not a screen, because it is one field (§5.1).
+    var onCreate: (String) -> Void
     var onImport: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
@@ -27,6 +29,7 @@ struct LibraryView: View {
     @State private var showFilter = false
     @State private var scrollTo: String?
     @State private var addMenuOpen = false
+    @State private var creatingName: String?
     @State private var selected: Set<String> = []
 
     var body: some View {
@@ -235,6 +238,21 @@ struct LibraryView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                // Naming a new thing happens here, in place: the list moves
+                // down, nothing dims, and there is nothing to dismiss.
+                if creatingName != nil {
+                    InlineRenameRow(text: Binding(get: { creatingName ?? "" },
+                                                  set: { creatingName = $0 }),
+                                    onSave: {
+                                        let name = (creatingName ?? "")
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        creatingName = nil
+                                        if !name.isEmpty { onCreate(name) }
+                                    },
+                                    onCancel: { creatingName = nil })
+                    Divider().overlay(Theme.Line.line)
+                }
+
                 // Imports in flight, at the top where they cannot be missed.
                 //
                 // They used to render only in the score screen's library
@@ -456,7 +474,7 @@ struct LibraryView: View {
                    detail: segment == .pieces
                        ? "A blank arrangement, filed under a new piece"
                        : "An empty running order to fill",
-                   glyph: "square", id: "fab-new") { onNew() }
+                   glyph: "square", id: "fab-new") { creatingName = "" }
             Divider().overlay(Theme.Line.line)
             addRow(title: "Import",
                    detail: "PDF, MusicXML, MIDI — a PDF goes through OMR",

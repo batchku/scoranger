@@ -1273,7 +1273,12 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
         XCTAssertTrue(setlistRow.waitForExistence(timeout: 40),
                       "no set list \(setlistName) to look in")
-        setlistRow.tap()
+        // the ☰, not the row: tapping a set-list row PLAYS it from the top,
+        // which is what a set list is for
+        let setlistMenu = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
+        XCTAssertTrue(setlistMenu.waitForExistence(timeout: 20), "no ☰ on the set list")
+        setlistMenu.tap()
         XCTAssertTrue(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "setlist-member-"))
                         .firstMatch.waitForExistence(timeout: 30),
@@ -1572,16 +1577,19 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["segment-setlists"].tap()
         app.buttons["library-add"].tap()
         app.buttons["fab-new"].tap()
-        let field = app.textFields["Setlist name"]
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "no field in the naming alert")
-        XCTAssertTrue(app.buttons["Create"].exists, "the verb should name the action")
-        XCTAssertFalse(app.buttons["OK"].exists, "alerts never say OK")
+        // naming happens in a band at the top of the list, not in an alert
+        let field = app.textFields["inline-rename-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no field to name it in")
+        XCTAssertTrue(app.buttons["inline-rename-save"].exists,
+                      "no way to commit the name")
+        XCTAssertFalse(app.buttons["OK"].exists, "nothing in this app says OK")
+        field.tap()
         field.typeText("Gig night")
         shot("setlist-name-first")
-        app.buttons["Create"].tap()
+        app.buttons["inline-rename-save"].tap()
 
         // the picker opens on the new set list, listing arrangements
-        XCTAssertTrue(app.staticTexts["ADD AN ARRANGEMENT"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["Add arrangements"].waitForExistence(timeout: 20),
                       "naming a set list should lead straight to picking its arrangements")
         let add = app.buttons["picker-add-\(firstArrangement)"]
         XCTAssertTrue(add.waitForExistence(timeout: 10),
@@ -1595,10 +1603,14 @@ final class ScorangerUITests: XCTestCase {
         shot("setlist-picker")
         goBack()
 
-        // and it shows in the sidebar under that set list
-        XCTAssertTrue(app.buttons["setlist-gig-night-\(firstArrangement)"]
+        // and the set list's own screen, reached by its ☰, lists it
+        let gigMenu = app.buttons["row-menu-gig-night"]
+        XCTAssertTrue(gigMenu.waitForExistence(timeout: 20),
+                      "the new set list is not in the library")
+        gigMenu.tap()
+        XCTAssertTrue(app.buttons["setlist-member-\(firstArrangement)"]
                         .waitForExistence(timeout: 20),
-                      "the set list row does not list the arrangement")
+                      "the set list does not list the arrangement")
 
         // clean up so repeat runs stay deterministic: Edit mode, select, delete
         resetToLibraryRoot()
