@@ -26,7 +26,6 @@ struct LibraryView: View {
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
-    @State private var dropTarget: String?
     @State private var addMenuOpen = false
     @State private var selected: Set<String> = []
 
@@ -305,44 +304,14 @@ struct LibraryView: View {
             if editing { editingActions(row) }
             Divider().overlay(Theme.Line.line)
         }
-        // Drag to file, which the sidebar carried (§8): an arrangement onto a
-        // piece files it there, onto a set list adds it to the running order.
-        // A drop target only exists where a drop MEANS something, so a piece
-        // never accepts a piece.
-        .draggable(row.id) { LRow(row: row, identifier: "drag-\(row.id)", action: {}) }
-        .dropDestination(for: String.self) { items, _ in
-            guard let dropped = items.first, dropped != row.id else { return false }
-            return accept(dropped, onto: row)
-        } isTargeted: { targeted in
-            dropTarget = targeted ? row.id : (dropTarget == row.id ? nil : dropTarget)
-        }
-        .background(dropTarget == row.id ? Theme.Accent.clayTint : Color.clear)
     }
 
-    /// What a drop means, which depends entirely on what it landed on.
-    private func accept(_ dropped: String, onto row: LibraryRow) -> Bool {
-        if segment == .setlists {
-            Task { _ = await state.addToSetlist(setlist: row.id, score: dropped) }
-            return true
-        }
-        // onto a piece: file the arrangement under it
-        if isPiece(row) {
-            state.assignToPiece(scoreSlug: dropped, piece: row.id)
-            return true
-        }
-        // onto another arrangement of the same piece: reorder
-        if let piece = (state.manifest?.pieces ?? []).first(where: {
-            $0.arrangements.contains(row.id) && $0.arrangements.contains(dropped)
-        }), let from = piece.arrangements.firstIndex(of: dropped),
-           let to = piece.arrangements.firstIndex(of: row.id) {
-            var order = piece.arrangements
-            order.remove(at: from)
-            order.insert(dropped, at: to)
-            state.reorderPiece(piece: piece.slug, order: order)
-            return true
-        }
-        return false
-    }
+    // Dragging is gone from the app entirely. Every use it had has a named
+    // screen instead: filing happens at import time or through the
+    // arrangement's Move to piece, set-list membership through the set list's
+    // Add arrangements, and order through Move up / Move down. A gesture that
+    // is the only way to reach a feature was already against the rules here;
+    // this removes the gesture rather than adding a second path to it.
 
     /// The leading checkbox (§2.1). Selecting is what raises the action bar.
     private func checkbox(_ row: LibraryRow) -> some View {

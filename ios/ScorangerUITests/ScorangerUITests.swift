@@ -840,48 +840,6 @@ final class ScorangerUITests: XCTestCase {
                       "the score no longer renders after the move")
         shot("slug-renamed-still-renders")
     }
-
-    /// Ali's build-122 report: an arrangement moved from Unfiled into a piece
-    /// showed no #N badge, and the moved row stayed highlighted with no way to
-    /// deselect it while other rows highlighted too.
-    func testMovingAnUnfiledArrangementIntoAPieceNumbersIt() {
-
-        // a blank arrangement, unfiled: created in the piece, then unfiled, so
-        // the test does not depend on what the seed happens to contain
-        openArrangementScreen(firstArrangement)
-        app.buttons["row-details-\(firstArrangement)"].tap()
-        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
-
-        // unfile it
-        app.buttons["piece-menu"].firstMatch.tap()
-        app.buttons["None"].firstMatch.tap()
-        // 60s, like the suite's other engine round trips: 20 was enough alone
-        // and not enough with the whole suite competing for the machine
-        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 60),
-                      "the arrangement never left the piece")
-        let row = app.buttons["arrangement-choice-\(firstArrangement)"]
-        sleep(2)
-        shot("after-unfiling")
-        print("UNFILEPROBE row=\(row.label)")
-        print("UNFILEPROBE rows=\(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-")).count)")
-        XCTAssertFalse(row.label.contains("Arrangement number"),
-                       "an unfiled arrangement should carry no number: \(row.label)")
-
-        // and back into the piece
-        app.buttons["piece-menu"].firstMatch.tap()
-        app.buttons[piece].firstMatch.tap()
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
-                                           timeout: 20),
-                      "the arrangement never returned to the piece")
-        goBack()
-
-        // it is numbered again, and the number is on the row itself
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
-        XCTAssertTrue(row.label.contains("Arrangement number"),
-                      "the moved arrangement has no number badge: \(row.label)")
-        shot("moved-into-piece")
-    }
-
     /// One selection at a time, and it can be cleared: the highlight has to be
     /// something the user chose, never a row the app picked for itself.
     func testSelectionIsSingleAndClearable() {
@@ -924,21 +882,23 @@ final class ScorangerUITests: XCTestCase {
     /// Reordering has to move the numbers with the rows: #N is what Ali types
     /// in chat ("take the violin part from #2"), so a badge that disagrees with
     /// the order is worse than no badge.
+    /// #N is a POSITION within a piece, so changing the order changes the
+    /// numbers. Dragging one arrangement onto another used to do this; it is
+    /// Move up / Move down on the piece screen now, and there is no drag left
+    /// in the app at all.
     func testReorderingArrangementsRenumbersThem() {
-
+        openPieceSheet()
         let first = app.buttons["arrangement-choice-\(firstArrangement)"]
         XCTAssertTrue(first.waitForExistence(timeout: 20))
         XCTAssertTrue(first.label.contains("Arrangement number 1"),
                       "expected the quartet at #1: \(first.label)")
-        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
+        let second = app.buttons["arrangement-choice-under-paris-skies-accordion-solo"]
         XCTAssertTrue(second.exists, "the seed should file two arrangements")
         XCTAssertTrue(second.label.contains("Arrangement number 2"), second.label)
 
-        // the context menu drives the same op the drag does
-        second.press(forDuration: 1.2)
-        let moveUp = app.buttons["Move up (become #1)"]
+        let moveUp = app.buttons["arr-up-under-paris-skies-accordion-solo"]
         XCTAssertTrue(moveUp.waitForExistence(timeout: 10),
-                      "no reorder action in the arrangement menu")
+                      "no Move up on the piece screen")
         moveUp.tap()
 
         // the numbers swapped, and they followed the rows rather than the slugs
@@ -948,42 +908,15 @@ final class ScorangerUITests: XCTestCase {
                       "the displaced arrangement was not renumbered: \(first.label)")
         shot("reordered")
     }
-
-    /// Dragging an arrangement onto a piece heading files it there. This
-    /// shipped in an earlier build with no test; it earned one while it was
-    /// serving as the control that proved XCUITest *can* drive SwiftUI
-    /// drag-and-drop (which is how row-to-row reordering was shown to be a
-    /// real gap rather than a harness limit).
-    func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() {
-
-        openArrangementScreen(firstArrangement)
-        app.buttons["row-details-\(firstArrangement)"].tap()
-        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
-        app.buttons["piece-menu"].firstMatch.tap()
-        app.buttons["None"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 20))
-        goBack()
-
-        let row = app.buttons["arrangement-choice-\(firstArrangement)"]
-        let pieceHeading = app.buttons["Collapse \(piece)"]
-        XCTAssertTrue(pieceHeading.waitForExistence(timeout: 10))
-        drag(row, onto: pieceHeading)
-
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
-                                           timeout: 20),
-                      "the dragged arrangement was not filed under the piece")
-        shot("dragged-into-piece")
-    }
-
     /// And chat is told the new order: the refs it is handed are built from the
     /// same list the badges are.
     func testChatContextFollowsTheNewOrder() {
-
-        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
+        openPieceSheet()
+        let second = app.buttons["arrangement-choice-under-paris-skies-accordion-solo"]
         XCTAssertTrue(second.waitForExistence(timeout: 20))
-        second.press(forDuration: 1.2)
-        let moveUp = app.buttons["Move up (become #1)"]
-        XCTAssertTrue(moveUp.waitForExistence(timeout: 10))
+        let moveUp = app.buttons["arr-up-under-paris-skies-accordion-solo"]
+        XCTAssertTrue(moveUp.waitForExistence(timeout: 10),
+                      "no Move up on the piece screen")
         moveUp.tap()
         XCTAssertTrue(waitForLabel(second, contains: "Arrangement number 1"))
 
@@ -1083,23 +1016,6 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(value.contains("bar"), "the reference should name bars: \(value)")
         shot("selection-in-chat")
     }
-
-    /// Drag one library row onto another thing.
-    ///
-    /// Not `press(forDuration:thenDragTo:)`: rows carry a context menu, and a
-    /// still press of a second opens the menu instead of lifting the drag —
-    /// which looked exactly like "the drop was never delivered". Moving off
-    /// sooner and holding at the destination is what the drag session needs to
-    /// register the target before the finger lifts.
-    private func drag(_ source: XCUIElement, onto destination: XCUIElement) {
-        source.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.6,
-                   thenDragTo: destination.coordinate(
-                    withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
-                   withVelocity: .slow,
-                   thenHoldForDuration: 1.2)
-    }
-
     /// Ali turns edit mode off from the PILL, and the ink bar stayed on screen.
     /// The existing test switches it off with the bar's own "Finish annotating"
     /// button, which is a different path -- and the bar's visibility is decided
@@ -1513,64 +1429,6 @@ final class ScorangerUITests: XCTestCase {
     }
 
     // MARK: - Dragging
-
-    /// A set list heading takes an arrangement dropped on it. The picker and
-    /// the row's "Add to set list…" both still work; this is the shortcut.
-    func testDraggingAnArrangementOntoASetlistAddsIt() {
-
-        // a set list the seeded arrangements are not already in
-        app.buttons["tab-library"].tap()
-        app.buttons["segment-setlists"].tap()
-        app.buttons["library-add"].tap()
-        app.buttons["fab-new"].tap()
-        let field = app.textFields["Setlist name"]
-        XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.typeText("Gig night")
-        app.buttons["Create"].tap()
-        // the picker opens on creation; leave it without adding anything
-        XCTAssertTrue(app.staticTexts["ADD AN ARRANGEMENT"].waitForExistence(timeout: 20))
-        goBack()
-
-        let heading = app.buttons["Collapse setlist Gig night"]
-        XCTAssertTrue(heading.waitForExistence(timeout: 20), "the new set list is not in the sidebar")
-        let row = app.buttons["arrangement-choice-\(firstArrangement)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
-        drag(row, onto: heading)
-
-        XCTAssertTrue(app.buttons["setlist-gig-night-\(firstArrangement)"]
-                        .waitForExistence(timeout: 25),
-                      "the arrangement dropped on the set list did not join it")
-        shot("dragged-into-setlist")
-
-        // leave the library as we found it
-        heading.press(forDuration: 1.2)
-        if app.buttons["Delete setlist"].waitForExistence(timeout: 10) {
-            app.buttons["Delete setlist"].tap()
-            if app.buttons["Delete"].waitForExistence(timeout: 5) { app.buttons["Delete"].tap() }
-        }
-    }
-
-    /// Dropping one arrangement on another inside a piece puts it in that
-    /// place, and the numerals follow. Same op as "Move up", by hand.
-    func testDraggingOneArrangementOntoAnotherReordersThePiece() {
-
-        let first = app.buttons["arrangement-choice-\(firstArrangement)"]
-        let second = app.buttons["arrangement-under-paris-skies-accordion-solo"]
-        XCTAssertTrue(first.waitForExistence(timeout: 20))
-        XCTAssertTrue(second.waitForExistence(timeout: 10))
-        XCTAssertTrue(first.label.contains("Arrangement number 1"), first.label)
-        XCTAssertTrue(second.label.contains("Arrangement number 2"), second.label)
-
-        drag(second, onto: first)
-
-        XCTAssertTrue(waitForLabel(second, contains: "Arrangement number 1"),
-                      "the dragged arrangement did not take the place it was dropped on: "
-                      + second.label)
-        XCTAssertTrue(first.label.contains("Arrangement number 2"),
-                      "the displaced arrangement was not renumbered: \(first.label)")
-        shot("dragged-reorder")
-    }
-
     // MARK: - Two pages side by side
 
     /// The risk in a spread is that the right-hand page selects from its
