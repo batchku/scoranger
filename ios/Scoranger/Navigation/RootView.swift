@@ -101,19 +101,6 @@ struct RootView: View {
             state.resetViewPreferencesForTesting()
             state.startPolling()
         }
-        .overlay { pieceSheet }
-        .overlay { importChooser }
-        .overlay { managementSheets }
-        .overlay {
-            if showSettings {
-                ZStack {
-                    DialogScrim { showSettings = false }
-                    PanelSheet(title: "Settings", onDone: { showSettings = false }) {
-                        SettingsView()
-                    }
-                }
-            }
-        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: ContentView.scoreTypes) { result in
             let piece = importIntoPiece
@@ -127,87 +114,6 @@ struct RootView: View {
     }
 
     /// Everything a row's menu can open.
-    @ViewBuilder
-    private var managementSheets: some View {
-        if let setlist = arrangementPickerSetlist {
-            ZStack {
-                DialogScrim { arrangementPickerSetlist = nil }
-                SetlistArrangementPicker(setlist: setlist) { arrangementPickerSetlist = nil }
-            }
-        }
-        if !movingScores.isEmpty {
-            ZStack {
-                DialogScrim { movingScores = [] }
-                MoveToPieceSheet(moving: movingScores,
-                                 onDone: { movingScores = [] },
-                                 onNewPiece: {
-                                     movingScores = []
-                                     creating = .pieces
-                                     newName = ""
-                                 })
-            }
-        }
-        if let many = deletingMany {
-            PanelAlert(title: "Delete \(many.ids.count) \(many.kind.plural)?",
-                       message: "This cannot be undone.",
-                       verb: "Delete",
-                       isDestructive: true,
-                       onCancel: { deletingMany = nil },
-                       onConfirm: {
-                           let ids = many.ids, kind = many.kind
-                           deletingMany = nil
-                           for id in ids {
-                               if kind == .setlists { Task { _ = await state.deleteSetlist(id) } }
-                               else if (state.manifest?.pieces ?? []).contains(where: { $0.slug == id }) {
-                                   state.deletePiece(id)
-                               } else { state.deleteScore(slug: id) }
-                           }
-                       })
-        }
-        if let score = setlistPickerScore {
-            ZStack {
-                DialogScrim { setlistPickerScore = nil }
-                SetlistPicker(score: score) { setlistPickerScore = nil }
-            }
-        }
-        if let score = detailsScore {
-            ZStack {
-                DialogScrim { detailsScore = nil }
-                PanelSheet(title: score.name,
-                           number: state.placement(of: score.slug)?.number,
-                           onDone: { detailsScore = nil }) {
-                    ScoreInfoView(score: score)
-                }
-            }
-        }
-        if let renaming {
-            PanelAlert(title: "Rename",
-                       message: "A new name for \(renaming.draft).",
-                       field: Binding(get: { self.renaming?.draft ?? "" },
-                                      set: { self.renaming?.draft = $0 }),
-                       verb: "Rename",
-                       onCancel: { self.renaming = nil },
-                       onConfirm: { commitRename() })
-        }
-        if let deleting {
-            PanelAlert(title: "Delete \(deleting.title)?",
-                       message: "This cannot be undone.",
-                       verb: "Delete",
-                       isDestructive: true,
-                       onCancel: { self.deleting = nil },
-                       onConfirm: { commitDelete(deleting) })
-        }
-        if let creating {
-            PanelAlert(title: creating == .pieces ? "New piece" : "New set list",
-                       message: "Give it a name.",
-                       field: $newName,
-                       verb: "Create",
-                       onCancel: { self.creating = nil },
-                       onConfirm: { commitCreate(creating) })
-        }
-
-    }
-
     private func commitRename() {
         guard let renaming else { return }
         let name = renaming.draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -375,41 +281,6 @@ struct RootView: View {
     /// inbox badge on Home that was not tappable. Ali could not find what he
     /// had imported. Asking first means the answer to "where did it go?" is
     /// something the user chose.
-    @ViewBuilder
-    private var importChooser: some View {
-        if importDestination == .choosing {
-            ZStack {
-                DialogScrim { importDestination = nil }
-                PanelSheet(title: "Import", onDone: { importDestination = nil }) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        BandHeader("Where should it go?")
-                        chooserRow(title: "A new piece",
-                                   detail: "It appears in My Library while it imports",
-                                   id: "import-new-piece") {
-                            importDestination = nil
-                            creating = .pieces
-                            newName = ""
-                            pendingImportIsNewPiece = true
-                        }
-                        BandHeader("Or add to")
-                        ForEach(state.manifest?.pieces ?? []) { piece in
-                            chooserRow(title: piece.name,
-                                       detail: "\(piece.arrangements.count) arrangement"
-                                           + (piece.arrangements.count == 1 ? "" : "s"),
-                                       id: "import-into-\(piece.slug)") {
-                                importDestination = nil
-                                importIntoPiece = piece.slug
-                                tab = .library
-                                segment = .pieces
-                                showImporter = true
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private func chooserRow(title: String, detail: String, id: String,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -463,43 +334,6 @@ struct RootView: View {
     /// openable; opening one means opening one of its arrangements.
     /// Choosing between the arrangements of a piece (§4.4), with their
     /// versions -- the sidebar's expandable rows, rehomed.
-    @ViewBuilder
-    private var pieceSheet: some View {
-        if let slug = pieceChoice,
-           let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
-            ZStack {
-                DialogScrim { pieceChoice = nil }
-                ArrangementSheet(
-                    piece: piece,
-                    onOpen: { arrangement, version in
-                        pieceChoice = nil
-                        open(arrangement, version: version)
-                    },
-                    onNewArrangement: {
-                        pieceChoice = nil
-                        Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
-                    },
-                    onImportArrangement: {
-                        pieceChoice = nil
-                        showImporter = true
-                    },
-                    onRenamePiece: {
-                        pieceChoice = nil
-                        renaming = (piece.slug, true, false, piece.name)
-                    },
-                    onDone: { pieceChoice = nil },
-                    onArrangementAction: { score, action in
-                        pieceChoice = nil
-                        handle(LibraryRow(id: score.slug, title: score.title ?? score.name,
-                                          subtitle: "", chips: [], meta: "",
-                                          sortName: score.name, composer: "",
-                                          changed: "", arrangementCount: 1),
-                               action)
-                    })
-            }
-        }
-    }
-
     // MARK: - Row actions -- the sidebar's management, rehomed (§8)
 
     /// The Edit-mode action bar (§2.2), over whatever is highlighted.

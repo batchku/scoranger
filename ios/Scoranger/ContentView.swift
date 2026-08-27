@@ -22,6 +22,8 @@ struct ContentView: View {
     /// work whether or not this is on.
     @AppStorage("showTransport") private var showTransport = false
     @State private var exportRequested = 0
+    @State private var scoreScreen: ScoreScreen?
+    @State private var optionsSection: String?
     @State private var chatOpen = false
     @State private var didSetInitialOverlays = false
 
@@ -37,7 +39,6 @@ struct ContentView: View {
     @State private var infoScore: ScoreDoc?
     @State private var importTargetPiece: String?
     /// Every dialog goes through one request, so they cannot disagree.
-    @State private var alertRequest: AlertRequest?
     @State private var newPieceName = ""
     @State private var newSetlistName = ""
     /// An arrangement that should go into the setlist about to be created.
@@ -84,6 +85,50 @@ struct ContentView: View {
     private var isCompact: Bool { hSize == .compact }
 
     var body: some View {
+        ZStack {
+            scoreBody
+            if let screen = scoreScreen { scoreScreenView(screen) }
+        }
+    }
+
+    @ViewBuilder
+    private func scoreScreenView(_ screen: ScoreScreen) -> some View {
+        switch screen {
+        case .options, .optionsSection:
+            ScoreOptionsScreen(mode: $state.scoreMode,
+                               showTransport: $showTransport,
+                               section: optionsSection,
+                               onBack: {
+                                   if optionsSection != nil { optionsSection = nil }
+                                   else { scoreScreen = nil }
+                               },
+                               push: { optionsSection = $0 },
+                               onSettings: { scoreScreen = .settings },
+                               onDetails: { scoreScreen = .details })
+                .background(Theme.Surface.ground)
+                .accessibilityIdentifier("score-options")
+        case .details:
+            if let score = state.selectedScore {
+                Screen(title: "Details", backLabel: "Options",
+                       subtitle: score.title ?? score.name,
+                       onBack: { scoreScreen = .options }) {
+                    ScoreInfoView(score: score)
+                }
+                .background(Theme.Surface.ground)
+            }
+        case .settings:
+            Screen(title: "Settings", backLabel: "Options",
+                   onBack: { scoreScreen = .options }) {
+                SettingsView()
+            }
+            .background(Theme.Surface.ground)
+        case .chatModel:
+            ChatModelScreen(onBack: { scoreScreen = nil })
+                .background(Theme.Surface.ground)
+        }
+    }
+
+    private var scoreBody: some View {
         VStack(spacing: 0) {
             ScoreTopBar(annotation: state.annotation,
                         number: state.selectedScore
@@ -92,7 +137,11 @@ struct ContentView: View {
                         subtitle: scoreSubtitle,
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
-                        moreOpen: $state.moreMenuOpen,
+                        moreOpen: Binding(get: { scoreScreen != nil },
+                                          set: { on in
+                                              scoreScreen = on ? .options : nil
+                                              if !on { optionsSection = nil }
+                                          }),
                         chatOpen: chatOpen,
                         onClose: onClose,
                         onAsk: {
@@ -100,6 +149,23 @@ struct ContentView: View {
                                 chatOpen.toggle()
                             }
                         })
+            if state.titleMenuOpen, let score = state.selectedScore {
+                TitleSwitcherBand(score: score,
+                                  onPickArrangement: { slug in
+                                      state.titleMenuOpen = false
+                                      state.select(slug: slug)
+                                  },
+                                  onPickVersion: { version in
+                                      state.titleMenuOpen = false
+                                      state.pinnedVersion = version
+                                      Task { await state.renderIfNeeded() }
+                                  },
+                                  onAllVersions: {
+                                      state.titleMenuOpen = false
+                                      optionsSection = "Versions"
+                                      scoreScreen = .options
+                                  })
+            }
             ZStack(alignment: .top) {
                 Theme.Surface.ground
                 canvasLayer
@@ -108,13 +174,7 @@ struct ContentView: View {
                 // canvas stack rather than an overlay on the whole view: as an
                 // overlay they did not materialise at all, and a menu that
                 // cannot be opened is worse than one that is in the wrong place.
-                if state.titleMenuOpen || state.moreMenuOpen {
-                    Color.black.opacity(0.001)
-                        .contentShape(Rectangle())
-                        .onTapGesture { state.titleMenuOpen = false; state.moreMenuOpen = false }
-                    titleMenu
-                    HStack { Spacer(); moreMenu }
-                }
+
             }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {
@@ -148,9 +208,6 @@ struct ContentView: View {
         .task {
             Theme.verifyFontsRegistered()
         }
-        .onChange(of: state.notice) { _, notice in
-            if let notice { alertRequest = .notice(notice) }
-        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes) { result in
             let piece = importTargetPiece
@@ -161,7 +218,7 @@ struct ContentView: View {
         }
         // Panel dialogs, not system ones: a sheet is 620 wide over a 34% dim and
         // an alert has a band footer whose verb names the action (§7.15, §7.16).
-        .overlay { dialogLayer }
+
     }
 
     // MARK: - The setlist, which is what the transport steps
@@ -187,42 +244,7 @@ struct ContentView: View {
 
     // MARK: - The two menus the top bar opens
 
-    @ViewBuilder
-    private var titleMenu: some View {
-        if state.titleMenuOpen, let score = state.selectedScore {
-            TitleMenu(score: score,
-                      onPick: { slug in
-                          state.titleMenuOpen = false
-                          state.select(slug: slug)
-                      },
-                      onPickVersion: { version in
-                          state.titleMenuOpen = false
-                          state.pinnedVersion = version
-                          Task { await state.renderIfNeeded() }
-                      },
-                      onAllVersions: {
-                          state.titleMenuOpen = false
-                          state.moreMenuOpen = true
-                      })
-                .padding(.top, Theme.Metric.s4)
-        }
-    }
-
-    @ViewBuilder
-    private var moreMenu: some View {
-        if state.moreMenuOpen {
-            MoreMenu(mode: $state.scoreMode,
-                     showTransport: $showTransport,
-                     onClose: { state.moreMenuOpen = false },
-                     onSettings: { showSettings = true },
-                     onDetails: { infoScore = state.selectedScore },
-                     onExport: { exportRequested += 1 })
-                .padding(.top, Theme.Metric.s4)
-                .padding(.trailing, Theme.Metric.s12)
-        }
-    }
-
-    // MARK: - Identity, counters
+            // MARK: - Identity, counters
 
     private var scoreTitle: String {
         guard let score = state.selectedScore else { return "No arrangement" }
@@ -250,143 +272,12 @@ struct ContentView: View {
         return ScorePosition.bar(measuresOnScreen: measures)
     }
 
-    // MARK: - Dialogs
-
-    @ViewBuilder
-    private var dialogLayer: some View {
-        if infoScore != nil || showSettings || alertRequest != nil
-            || setlistPicker != nil || setlistChooserScore != nil {
-            ZStack {
-                DialogScrim {
-                    // alerts are decisions: only sheets dismiss on the scrim
-                    if alertRequest == nil {
-                        infoScore = nil
-                        showSettings = false
-                        setlistPicker = nil
-                        setlistChooserScore = nil
-                    }
-                }
-                if let score = infoScore {
-                    PanelSheet(title: score.name,
-                               number: state.placement(of: score.slug)?.number,
-                               onDone: { infoScore = nil }) {
-                        ScoreInfoView(score: score)
-                    }
-                } else if showSettings {
-                    PanelSheet(title: "Settings", onDone: { showSettings = false }) {
-                        SettingsView()
-                    }
-                } else if let setlist = setlistPicker {
-                    PanelSheet(title: setlist.name, onDone: { setlistPicker = nil }) {
-                        SetlistPickerView(setlist: setlist)
-                    }
-                } else if let score = setlistChooserScore {
-                    PanelSheet(title: score.name,
-                               onDone: { setlistChooserScore = nil }) {
-                        SetlistChooserView(score: score) {
-                            newSetlistName = ""
-                            setlistSeedScore = score.slug
-                            setlistChooserScore = nil
-                            alertRequest = .newSetlist
-                        }
-                    }
-                }
-                if let request = alertRequest { alertView(request) }
-            }
-            .transition(.opacity)
-        }
-    }
-
-    /// One presenter for every dialog, so they cannot disagree about width,
-    /// footer or button order.
-    enum AlertRequest: Equatable {
-        case deleteArrangement(ScoreDoc)
-        case newPiece(ScoreDoc)
-        case newSetlist
-        case renameSetlist(SetlistDoc)
-        case deleteSetlist(SetlistDoc)
-        case notice(String)
-    }
-
-    @ViewBuilder
-    private func alertView(_ request: AlertRequest) -> some View {
-        switch request {
-        case .deleteArrangement(let score):
-            PanelAlert(title: "Delete \(score.name)?",
-                       message: "This removes the arrangement and all its versions. The piece and its other arrangements are untouched.",
-                       verb: "Delete", isDestructive: true,
-                       onCancel: { alertRequest = nil },
-                       onConfirm: {
-                           state.deleteScore(slug: score.slug)
-                           alertRequest = nil
-                       })
-        case .newPiece(let score):
-            PanelAlert(title: "New piece",
-                       message: "File \u{201C}\(score.name)\u{201D} under a new piece.",
-                       field: $newPieceName, fieldPlaceholder: "Piece name",
-                       verb: "Create",
-                       onCancel: { alertRequest = nil },
-                       onConfirm: {
-                           let name = newPieceName.trimmingCharacters(in: .whitespacesAndNewlines)
-                           if !name.isEmpty {
-                               state.createPieceAndAssign(name: name, scoreSlug: score.slug)
-                           }
-                           alertRequest = nil
-                       })
-        case .newSetlist:
-            PanelAlert(title: "New setlist",
-                       message: "A setlist is an ordered group of pieces \u{2014} a gig's running order.",
-                       field: $newSetlistName, fieldPlaceholder: "Setlist name",
-                       verb: "Create",
-                       onCancel: { alertRequest = nil },
-                       onConfirm: {
-                           let name = newSetlistName.trimmingCharacters(in: .whitespacesAndNewlines)
-                           let seed = setlistSeedScore
-                           setlistSeedScore = nil
-                           if !name.isEmpty {
-                               Task {
-                                   // name first, then contents — and the picker
-                                   // opens on the setlist that was just made
-                                   guard let slug = await state.createSetlist(name: name)
-                                   else { return }
-                                   if let seed {
-                                       await state.addToSetlist(setlist: slug, score: seed)
-                                   }
-                                   setlistPicker = state.manifest?.setlists?
-                                       .first { $0.slug == slug }
-                               }
-                           }
-                           alertRequest = nil
-                       })
-        case .renameSetlist(let setlist):
-            PanelAlert(title: "Rename setlist",
-                       field: $setlistRenameDraft, fieldPlaceholder: "Setlist name",
-                       verb: "Rename",
-                       onCancel: { alertRequest = nil },
-                       onConfirm: {
-                           let name = setlistRenameDraft
-                               .trimmingCharacters(in: .whitespacesAndNewlines)
-                           if !name.isEmpty {
-                               Task { await state.renameSetlist(setlist: setlist.slug, name: name) }
-                           }
-                           alertRequest = nil
-                       })
-        case .deleteSetlist(let setlist):
-            PanelAlert(title: "Delete \(setlist.name)?",
-                       message: "Only the grouping is removed. The pieces and their arrangements stay.",
-                       verb: "Delete", isDestructive: true,
-                       onCancel: { alertRequest = nil },
-                       onConfirm: {
-                           Task { await state.deleteSetlist(setlist.slug) }
-                           alertRequest = nil
-                       })
-        case .notice(let text):
-            PanelNotice(title: "Scoranger", message: text) {
-                state.notice = nil
-                alertRequest = nil
-            }
-        }
-    }
+    // The score view's dialogs are gone (NAV_MODAL_FREE_0.4.2 §2). Details
+    // and Settings are pushed screens now, reached through the "…" screen; the
+    // set-list pickers and the alerts belonged to the legacy overlay, which
+    // went with it. Nothing floats over the score any more except the docked
+    // chrome -- chat, ink bar, strip, transport -- which blocks nothing and
+    // needs no dismissing.
 
     // MARK: - Canvas
 
@@ -439,7 +330,7 @@ struct ContentView: View {
                              + "written to it. That usually means an import stopped "
                              + "part way. You can delete it and import the score again.",
                       actionTitle: "Delete this arrangement",
-                      action: { alertRequest = .deleteArrangement(score) })
+                      action: { state.deleteScore(slug: score.slug) })
         } else if state.loadingPDF {
             StateView(systemImage: "music.note.list", title: "Engraving…",
                       message: "Verovio is setting the page.")
@@ -526,17 +417,9 @@ struct ContentView: View {
                 }
             }, trailing: {
                 if let catalog = state.modelCatalog {
-                    Menu {
-                        ForEach(catalog.models.keys.sorted(), id: \.self) { alias in
-                            Button {
-                                state.chatModel = alias
-                            } label: {
-                                if state.chatModel == alias {
-                                    Label(alias, systemImage: "checkmark")
-                                } else { Text(alias) }
-                            }
-                        }
-                    } label: {
+                    // The chat header's model Menu becomes a pushed screen
+                    // (NAV_MODAL_FREE_0.4.2 §7.3): the last popover in the app.
+                    Button { scoreScreen = .chatModel } label: {
                         Text(state.chatModel.isEmpty ? (catalog.default) : state.chatModel)
                             .typeRole(.data)
                             .foregroundStyle(Theme.Ink.ink2)
@@ -546,7 +429,10 @@ struct ContentView: View {
                                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                                     .stroke(Theme.Line.line2, lineWidth: 1)
                             }
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat-model")
                     .accessibilityLabel("Chat model")
                 }
             }, onDismiss: {

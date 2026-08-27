@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The arrangement sheet's body (§8 screen 07). `PanelSheet` supplies the
+/// The arrangement details body. Its screen supplies the
 /// frame, the numeral, the title and Done; this is band headers and rows.
 /// Destructive actions sit in the body, last, never in the header.
 ///
@@ -41,6 +41,7 @@ struct ScoreInfoView: View {
     @State private var draftPartName = ""
     @State private var confirmingDelete = false
     @State private var renamingPiece = false
+    @State private var pieceListOpen = false
     @State private var draftPieceName = ""
     @State private var draftSlug = ""
     @State private var savedSlug = ""
@@ -212,28 +213,23 @@ struct ScoreInfoView: View {
 
     @ViewBuilder
     private var pieceMenu: some View {
+        // An inline reveal, not a menu (NAV_MODAL_FREE_0.4.2 §2): the pieces
+        // expand under the row and a tap commits. Nothing floats, and the list
+        // is short enough that it does not need a screen of its own.
+        VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: Theme.Metric.s8) {
-            Menu {
-                Button {
-                    state.assignToPiece(scoreSlug: score.slug, piece: nil)
-                } label: {
-                    currentPieceSlug == nil
-                        ? Label("None", systemImage: "checkmark") : Label("None", systemImage: "")
+            Button { pieceListOpen.toggle() } label: {
+                HStack(spacing: 4) {
+                    Text(pieceName(currentPieceSlug))
+                        .typeRole(.body)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                    Image(systemName: pieceListOpen ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.Ink.ink3)
                 }
-                ForEach(state.manifest?.pieces ?? []) { piece in
-                    Button {
-                        state.assignToPiece(scoreSlug: score.slug, piece: piece.slug)
-                    } label: {
-                        if currentPieceSlug == piece.slug {
-                            Label(piece.name, systemImage: "checkmark")
-                        } else { Text(piece.name) }
-                    }
-                }
-            } label: {
-                Text(pieceName(currentPieceSlug))
-                    .typeRole(.body)
-                    .foregroundStyle(Theme.Accent.clayStrong)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .accessibilityIdentifier("piece-menu")
             if let piece = currentPiece {
                 Button {
@@ -246,7 +242,38 @@ struct ScoreInfoView: View {
                 .accessibilityIdentifier("rename-piece")
                 .accessibilityLabel("Rename piece")
             }
+            Spacer(minLength: 0)
         }
+        if pieceListOpen {
+            VStack(alignment: .leading, spacing: 0) {
+                pieceChoice(name: "None", slug: nil)
+                ForEach(state.manifest?.pieces ?? []) { piece in
+                    pieceChoice(name: piece.name, slug: piece.slug)
+                }
+            }
+            .padding(.top, Theme.Metric.s6)
+        }
+        }
+    }
+
+    private func pieceChoice(name: String, slug: String?) -> some View {
+        Button {
+            state.assignToPiece(scoreSlug: score.slug, piece: slug)
+            pieceListOpen = false
+        } label: {
+            HStack(spacing: Theme.Metric.s6) {
+                Image(systemName: currentPieceSlug == slug ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(currentPieceSlug == slug ? Theme.Accent.clayStrong
+                                                              : Theme.Ink.ink3)
+                Text(name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                Spacer()
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("piece-choice-\(slug ?? "none")")
     }
 
     @ViewBuilder
