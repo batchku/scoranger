@@ -232,15 +232,11 @@ struct ScoreInfoView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("piece-menu")
             if let piece = currentPiece {
-                Button {
-                    draftPieceName = piece.name
-                    renamingPiece = true
-                } label: {
-                    Image(systemName: "pencil").font(.system(size: 13))
+                // the name is the control: tap it to rename, no pencil button
+                EditableTitle(text: piece.name, role: .body,
+                              identifier: "rename-piece") { name in
+                    Task { await state.renamePiece(piece: piece.slug, name: name) }
                 }
-                .tint(Theme.Accent.clayStrong)
-                .accessibilityIdentifier("rename-piece")
-                .accessibilityLabel("Rename piece")
             }
             Spacer(minLength: 0)
         }

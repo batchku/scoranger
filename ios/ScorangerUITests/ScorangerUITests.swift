@@ -134,6 +134,36 @@ final class ScorangerUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
+    /// Renaming is tapping the name (0.4.2 simplify pass).
+    ///
+    /// There is no Rename button anywhere: the value IS the control, so this
+    /// taps the title, types, and returns. A button whose only job was to make
+    /// the thing beside it editable had nothing left to do.
+    func testTappingATitleRenamesItInPlace() {
+        openArrangementScreen(firstArrangement)
+        let title = app.buttons["arrangement-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20),
+                      "the arrangement screen shows no tappable title")
+        title.tap()
+        let field = app.textFields["arrangement-title-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10),
+                      "tapping the title did not turn it into a field")
+        replaceText(field, with: "Tapped rename")
+        app.typeText("\n")
+        XCTAssertTrue(app.buttons["arrangement-title"].waitForExistence(timeout: 30),
+                      "the field did not commit back to a title")
+        shot("tap-to-rename")
+    }
+
+    /// And no Rename button survives anywhere it used to be.
+    func testNothingOffersARenameButton() {
+        openArrangementScreen(firstArrangement)
+        XCTAssertFalse(app.buttons["edit-rename-\(firstArrangement)"].exists,
+                       "the arrangement screen still has a Rename row")
+        XCTAssertFalse(app.buttons["bar-rename"].exists,
+                       "the action bar still has a Rename button")
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -1198,7 +1228,7 @@ final class ScorangerUITests: XCTestCase {
                       "the seed never created a set list to add to")
 
         openPieceSheet()
-        app.buttons["sheet-new-arrangement"].tap()
+        app.buttons["piece-new-arrangement-\(pieceSlug)"].tap()
         let blank = app.buttons["New blank arrangement"]
         guard blank.waitForExistence(timeout: 10) else {
             return XCTFail("the add menu does not offer a blank arrangement")
@@ -1630,16 +1660,21 @@ final class ScorangerUITests: XCTestCase {
     func testAddingAnArrangementToAnExistingSetlist() {
         app.buttons["tab-library"].tap()
         app.buttons["segment-setlists"].tap()
-        let add = app.buttons["add-to-setlist-test-setlist"]
-        XCTAssertTrue(add.waitForExistence(timeout: 20), "no + on the seeded set list")
+        // the set list's own ☰ opens its screen; Add arrangements is a row on it
+        let menu = app.buttons["row-menu-test-setlist"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no ☰ on the seeded set list")
+        menu.tap()
+        let add = app.buttons["setlist-add-test-setlist"]
+        XCTAssertTrue(add.waitForExistence(timeout: 20),
+                      "the set list screen has no way to add arrangements")
         add.tap()
         XCTAssertTrue(app.staticTexts["IN THIS SET LIST"].waitForExistence(timeout: 10),
-                      "the picker did not open")
+                      "the add-arrangements screen did not open")
         // the seed puts both arrangements in, so they are all members already
         XCTAssertTrue(app.buttons["picker-remove-\(firstArrangement)"].exists,
                       "the seeded set list should already hold the arrangements")
-        shot("setlist-existing-picker")
-        app.buttons["Done"].firstMatch.tap()
+        shot("setlist-add-arrangements")
+        app.buttons["screen-back"].tap()
     }
 
     /// And an arrangement can be put in a set list from its own row.
@@ -1755,7 +1790,7 @@ final class ScorangerUITests: XCTestCase {
 
     func testAddMenuCreatesBlankArrangement() {
         openPieceSheet()
-        app.buttons["sheet-new-arrangement"].tap()
+        app.buttons["piece-new-arrangement-\(pieceSlug)"].tap()
         let blank = app.buttons["New blank arrangement"]
         XCTAssertTrue(blank.waitForExistence(timeout: 10), "add menu did not open")
         blank.tap()

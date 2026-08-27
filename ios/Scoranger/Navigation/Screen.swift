@@ -227,3 +227,71 @@ struct UndoBar: View {
         }
     }
 }
+
+/// A name you edit by tapping it.
+///
+/// There is no Rename button anywhere any more: the value IS the control. A
+/// button whose only job is to let you edit the thing next to it is a button
+/// that exists because the thing next to it was not tappable -- so the thing is
+/// tappable instead, and the button goes.
+///
+/// Commit on return, cancel on escape or by tapping away. Modal-free by
+/// construction: the keyboard is the only thing that overlays, and that is the
+/// OS (NAV_MODAL_FREE_0.4.2 §5.1).
+struct EditableTitle: View {
+    let text: String
+    var role: Theme.Role = .titleS
+    var identifier: String
+    var onCommit: (String) -> Void
+
+    @State private var editing = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Group {
+            if editing {
+                TextField("Name", text: $draft)
+                    .typeRole(role)
+                    .foregroundStyle(Theme.Ink.ink)
+                    .tint(Theme.Accent.clay)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .submitLabel(.done)
+                    .onSubmit { commit() }
+                    .padding(.horizontal, Theme.Metric.s6)
+                    .padding(.vertical, 3)
+                    .background(Theme.Surface.paper)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                            .stroke(Theme.Accent.clay, lineWidth: 1)
+                    }
+                    .accessibilityIdentifier("\(identifier)-field")
+                    .onAppear { focused = true }
+                    .onChange(of: focused) { _, isFocused in
+                        // tapping away commits, the way a renamed file does
+                        if !isFocused && editing { commit() }
+                    }
+            } else {
+                Button {
+                    draft = text
+                    editing = true
+                } label: {
+                    Text(text).typeRole(role).foregroundStyle(Theme.Ink.ink)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(identifier)
+                .accessibilityLabel("\(text), tap to rename")
+            }
+        }
+    }
+
+    private func commit() {
+        editing = false
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != text else { return }
+        onCommit(name)
+    }
+}

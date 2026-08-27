@@ -341,10 +341,6 @@ struct RootView: View {
                            _ kind: LibrarySelectionKind) {
         let scores = ids.compactMap { id in state.manifest?.scores.first { $0.slug == id } }
         switch action {
-        case .rename:
-            guard let id = ids.first,
-                  let row = (libraryRows.first { $0.id == id }) else { return }
-            renaming = (id, kind == .pieces, kind == .setlists, row.title)
         case .newArrangement:
             guard let id = ids.first else { return }
             Task { _ = await state.createArrangement(pieceSlug: id) }

@@ -9,14 +9,17 @@ import Foundation
 /// **A piece is a folder.** It cannot be moved into a piece, duplicated, or put
 /// in a set list -- those verbs belong to arrangements, one level down. A set
 /// list is a running order, so it can be renamed and deleted and nothing else.
+/// Rename is deliberately absent. A name is edited by TAPPING IT on the
+/// item's own screen -- the value is the control, so a button whose only job
+/// was to make it editable has nothing left to do.
 enum LibraryAction: String, CaseIterable, Equatable {
-    case rename, newArrangement, moveToPiece, addToSetlist, duplicate, delete
+    case newArrangement, moveToPiece, addToSetlist, duplicate, delete
 
     /// Actions that only make sense on exactly one row. They grey to 42% rather
     /// than disappearing, so the bar never re-flows as the selection changes.
     var needsExactlyOne: Bool {
         switch self {
-        case .rename, .newArrangement: return true
+        case .newArrangement: return true
         case .moveToPiece, .addToSetlist, .duplicate, .delete: return false
         }
     }
@@ -25,7 +28,6 @@ enum LibraryAction: String, CaseIterable, Equatable {
 
     var identifier: String {
         switch self {
-        case .rename:         return "bar-rename"
         case .newArrangement: return "bar-new-arrangement"
         case .moveToPiece:    return "bar-move"
         case .addToSetlist:   return "bar-setlists"
@@ -36,7 +38,6 @@ enum LibraryAction: String, CaseIterable, Equatable {
 
     func title(count: Int, kind: LibrarySelectionKind) -> String {
         switch self {
-        case .rename:         return "Rename"
         case .newArrangement: return "New arrangement"
         case .moveToPiece:    return "Move to piece…"
         case .addToSetlist:   return "Add to set list…"
@@ -71,11 +72,11 @@ enum LibraryActions {
         switch kind {
         case .pieces:
             // a folder: rename it, put something in it, or throw it away
-            return [.rename, .newArrangement, .delete]
+            return [.newArrangement, .delete]
         case .setlists:
-            return [.rename, .delete]
+            return [.delete]
         case .arrangements:
-            return [.moveToPiece, .addToSetlist, .duplicate, .rename, .delete]
+            return [.moveToPiece, .addToSetlist, .duplicate, .delete]
         case .mixed:
             // only what is true of everything highlighted
             return [.delete]

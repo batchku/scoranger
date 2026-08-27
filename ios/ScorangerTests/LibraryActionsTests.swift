@@ -9,9 +9,19 @@ final class LibraryActionsTests: XCTestCase {
 
     // MARK: - A piece is a folder
 
-    func testAPieceCanBeRenamedFilledOrThrownAway() {
-        XCTAssertEqual(LibraryActions.bar(for: .pieces),
-                       [.rename, .newArrangement, .delete])
+    func testAPieceCanBeFilledOrThrownAway() {
+        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .delete])
+    }
+
+    /// There is no Rename anywhere in the bars. A name is edited by TAPPING IT
+    /// on the item's own screen: the value is the control, so a button whose
+    /// only job was to make it editable has nothing left to do.
+    func testNothingOffersARenameButton() {
+        for kind in [LibrarySelectionKind.pieces, .setlists, .arrangements, .mixed] {
+            XCTAssertFalse(LibraryActions.bar(for: kind)
+                            .contains { $0.identifier.contains("rename") },
+                           "\(kind) still offers a Rename button")
+        }
     }
 
     func testAPieceCannotBeMovedIntoAPiece() {
@@ -28,15 +38,15 @@ final class LibraryActionsTests: XCTestCase {
 
     // MARK: - A set list is a running order
 
-    func testASetListCanOnlyBeRenamedOrDeleted() {
-        XCTAssertEqual(LibraryActions.bar(for: .setlists), [.rename, .delete])
+    func testASetListCanOnlyBeDeleted() {
+        XCTAssertEqual(LibraryActions.bar(for: .setlists), [.delete])
     }
 
     // MARK: - An arrangement is the thing the verbs were written for
 
     func testAnArrangementCarriesTheFullSet() {
         XCTAssertEqual(LibraryActions.bar(for: .arrangements),
-                       [.moveToPiece, .addToSetlist, .duplicate, .rename, .delete])
+                       [.moveToPiece, .addToSetlist, .duplicate, .delete])
     }
 
     // MARK: - Mixed selections
@@ -65,9 +75,10 @@ final class LibraryActionsTests: XCTestCase {
 
     // MARK: - What greys, and what never moves
 
-    func testRenameNeedsExactlyOneRow() {
-        XCTAssertTrue(LibraryActions.isEnabled(.rename, count: 1))
-        XCTAssertFalse(LibraryActions.isEnabled(.rename, count: 3))
+    func testNewArrangementNeedsExactlyOnePiece() {
+        XCTAssertTrue(LibraryActions.isEnabled(.newArrangement, count: 1))
+        XCTAssertFalse(LibraryActions.isEnabled(.newArrangement, count: 3),
+                       "which of the three would it go into?")
     }
 
     func testDeleteWorksOnManyAtOnce() {
@@ -84,7 +95,7 @@ final class LibraryActionsTests: XCTestCase {
     /// they add a second row to the selection.
     func testTheBarKeepsItsShapeWhateverIsSelected() {
         for count in 1...5 {
-            XCTAssertEqual(LibraryActions.bar(for: .arrangements).count, 5,
+            XCTAssertEqual(LibraryActions.bar(for: .arrangements).count, 4,
                            "the bar changed length at \(count) selected")
         }
     }

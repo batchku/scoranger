@@ -217,6 +217,7 @@ targets:
       - path: Scoranger/Navigation/Route.swift
       - path: Scoranger/Score/PageTurn.swift
       - path: Scoranger/Score/ScorePosition.swift
+      - path: Scoranger/Score/PagedCanvas.swift
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources

@@ -71,7 +71,7 @@ struct LibraryView: View {
                 let on = LibraryActions.isEnabled(action, count: selected.count)
                 Button {
                     onBarAction(action, selected, kind)
-                    if action == .delete || action == .rename { selected = [] }
+                    if action == .delete { selected = [] }
                 } label: {
                     Text(action.title(count: selected.count, kind: kind))
                         .typeRole(.control)

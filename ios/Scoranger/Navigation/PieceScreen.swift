@@ -13,14 +13,24 @@ struct PieceScreen: View {
     var push: (Route) -> Void
     var onImport: (String) -> Void
 
-    @State private var renaming = false
-    @State private var draft = ""
     @State private var confirmingDelete = false
 
     var body: some View {
-        Screen(title: piece.name, backLabel: "My library",
+        Screen(title: "", backLabel: "My library",
                subtitle: summary, onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
+                // The name IS the control: tap it to rename. There is no
+                // Rename button, because a button whose only job is to let you
+                // edit the thing beside it exists only because the thing was
+                // not tappable.
+                EditableTitle(text: piece.name, role: .title,
+                              identifier: "piece-title") { name in
+                    Task { _ = await state.renamePiece(piece: piece.slug, name: name) }
+                }
+                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.top, Theme.Metric.s12)
+                .padding(.bottom, Theme.Metric.s8)
+
                 BandHeader("Arrangements — tap to open")
                 ForEach(Array(piece.arrangements.enumerated()), id: \.offset) { index, slug in
                     if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
@@ -30,16 +40,6 @@ struct PieceScreen: View {
                 }
 
                 BandHeader("This piece")
-                if renaming {
-                    InlineRenameRow(text: $draft, onSave: commitRename,
-                                    onCancel: { renaming = false })
-                } else {
-                    ScreenRow(title: "Rename piece", value: piece.name, leads: false,
-                              identifier: "piece-rename") {
-                        draft = piece.name
-                        renaming = true
-                    }
-                }
                 ScreenRow(title: "New arrangement", leads: false,
                           identifier: "piece-new-arrangement-\(piece.slug)") {
                     Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
@@ -125,12 +125,6 @@ struct PieceScreen: View {
                           : "\(count) read-only source\(count == 1 ? "" : "s")."
     }
 
-    private func commitRename() {
-        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        renaming = false
-        guard !name.isEmpty else { return }
-        Task { _ = await state.renamePiece(piece: piece.slug, name: name) }
-    }
 }
 
 /// One arrangement's actions — the per-item screen a row's ☰ opens (§3.2).
@@ -144,29 +138,25 @@ struct ArrangementScreen: View {
     var onOpen: () -> Void
     var push: (Route) -> Void
 
-    @State private var renaming = false
-    @State private var draft = ""
     @State private var confirmingDelete = false
 
     var body: some View {
-        Screen(title: score.title ?? score.name, backLabel: "Back",
+        Screen(title: "", backLabel: "Back",
                subtitle: placement, onBack: onBack,
                trailing: {
                    PanelButton(title: "Open", kind: .primary, action: onOpen)
                        .accessibilityIdentifier("arrangement-open")
                }) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("Do")
-                if renaming {
-                    InlineRenameRow(text: $draft, onSave: commitRename,
-                                    onCancel: { renaming = false })
-                } else {
-                    ScreenRow(title: "Rename", value: score.title ?? score.name,
-                              leads: false, identifier: "edit-rename-\(score.slug)") {
-                        draft = score.title ?? score.name
-                        renaming = true
-                    }
+                EditableTitle(text: score.title ?? score.name, role: .title,
+                              identifier: "arrangement-title") { name in
+                    Task { _ = await state.renameScore(slug: score.slug, name: name) }
                 }
+                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.top, Theme.Metric.s12)
+                .padding(.bottom, Theme.Metric.s8)
+
+                BandHeader("Do")
                 ScreenRow(title: "Move to piece", value: pieceName ?? "unfiled",
                           identifier: "arrangement-move-\(score.slug)") {
                     push(.moveToPiece([score.slug]))
@@ -235,12 +225,6 @@ struct ArrangementScreen: View {
             + (n == 1 ? "?" : "s?")
     }
 
-    private func commitRename() {
-        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        renaming = false
-        guard !name.isEmpty else { return }
-        Task { _ = await state.renameScore(slug: score.slug, name: name) }
-    }
 }
 
 /// The one control a row carries (§2, §4). Visible, labelled, never a long
