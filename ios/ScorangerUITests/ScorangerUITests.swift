@@ -125,6 +125,9 @@ final class ScorangerUITests: XCTestCase {
 
     private func rowMenu(_ id: String) {
         resetToLibraryRoot()
+        // pieces and unfiled arrangements live in the Pieces half; a test that
+        // was last looking at set lists would otherwise search the wrong list
+        if app.buttons["segment-pieces"].exists { app.buttons["segment-pieces"].tap() }
         let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", id)).firstMatch
@@ -1217,35 +1220,37 @@ final class ScorangerUITests: XCTestCase {
     func testANewArrangementCanBeAddedToASetList() {
 
         // The seed assigns set lists only after every import, so this waits for
-        // the fixture it depends on. The assertion below is unchanged.
-        let seededSetlist = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "setlist-"))
-            .firstMatch
+        // the fixture it depends on -- in the Setlists half of the library,
+        // where a set list is a row like any other.
+        resetToLibraryRoot()
+        app.buttons["segment-setlists"].tap()
+        let seededSetlist = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
         XCTAssertTrue(seededSetlist.waitForExistence(timeout: 180),
                       "the seed never created a set list to add to")
 
         openPieceSheet()
+        // blank-or-import is two visible rows now, not a menu
         app.buttons["piece-new-arrangement-\(pieceSlug)"].tap()
-        let blank = app.buttons["New blank arrangement"]
-        guard blank.waitForExistence(timeout: 10) else {
-            return XCTFail("the add menu does not offer a blank arrangement")
-        }
-        blank.tap()
 
-        // it lands as #3 of the piece (the seed files two). Match the BUTTON:
-        // the label also appears on non-interactive descendants, and a long
-        // press on one of those opens no context menu.
+        // it lands as #3 of the piece (the seed files two)
         let row = app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Arrangement number 3")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 180),
                       "the new arrangement never appeared in the piece")
         shot("journey-new-arrangement")
 
-        // into a set list from its own row
-        row.press(forDuration: 1.2)
-        let addToSet = app.buttons["Add to set list…"]
+        // into a set list from its own screen, reached by the row's ☰. The new
+        // arrangement's slug is not known here, so the ☰ is found by position:
+        // it is the one on the row that says #3.
+        let menu = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-"))
+        XCTAssertTrue(menu.count >= 3, "no ☰ on the new arrangement's row")
+        tapAnyway(menu.element(boundBy: 2), in: app.scrollViews.firstMatch)
+        let addToSet = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-setlists-")).firstMatch
         guard addToSet.waitForExistence(timeout: 15) else {
-            return XCTFail("the row menu does not offer Add to set list")
+            return XCTFail("the arrangement screen does not offer set lists")
         }
         addToSet.tap()
         let chooser = app.buttons.matching(
@@ -1260,11 +1265,21 @@ final class ScorangerUITests: XCTestCase {
         chooser.tap()
         goBack()
 
-        // and it now shows under that set list as well as under its piece
-        let inSet = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "setlist-")).firstMatch
-        XCTAssertTrue(inSet.waitForExistence(timeout: 40),
+        // and it now shows in that set list's own screen, as well as keeping
+        // its place in the piece
+        resetToLibraryRoot()
+        app.buttons["segment-setlists"].tap()
+        let setlistRow = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
+        XCTAssertTrue(setlistRow.waitForExistence(timeout: 40),
+                      "no set list \(setlistName) to look in")
+        setlistRow.tap()
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "setlist-member-"))
+                        .firstMatch.waitForExistence(timeout: 30),
                       "nothing is listed under set list \(setlistName)")
+
+        openPieceSheet()
         XCTAssertTrue(app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Arrangement number 3")).firstMatch.exists,
                       "the arrangement lost its place in the piece when it joined a set list")
@@ -1585,12 +1600,16 @@ final class ScorangerUITests: XCTestCase {
                         .waitForExistence(timeout: 20),
                       "the set list row does not list the arrangement")
 
-        // clean up so repeat runs stay deterministic
-        app.buttons["Collapse setlist Gig night"].press(forDuration: 1.2)
-        if app.buttons["Delete setlist"].waitForExistence(timeout: 10) {
-            app.buttons["Delete setlist"].tap()
-            if app.buttons["Delete"].waitForExistence(timeout: 5) {
-                app.buttons["Delete"].tap()
+        // clean up so repeat runs stay deterministic: Edit mode, select, delete
+        resetToLibraryRoot()
+        app.buttons["segment-setlists"].tap()
+        app.buttons["library-edit"].tap()
+        let pick = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-select-")).firstMatch
+        if pick.waitForExistence(timeout: 10) {
+            pick.tap()
+            if app.buttons["bar-delete"].waitForExistence(timeout: 10) {
+                app.buttons["bar-delete"].tap()
             }
         }
     }
@@ -1616,15 +1635,16 @@ final class ScorangerUITests: XCTestCase {
         goBack()
     }
 
-    /// And an arrangement can be put in a set list from its own row.
-    func testArrangementContextMenuOffersAddToSetList() {
-        openPieceSheet()
-        let row = app.buttons["arrangement-choice-\(firstArrangement)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
-        row.press(forDuration: 1.2)
-        let action = app.buttons["Add to set list…"]
+    /// And an arrangement can be put in a set list from its own screen.
+    ///
+    /// Named for the ☰, not a context menu: long-press menus are gone from the
+    /// app, and a test whose name says otherwise makes people think they are
+    /// still there.
+    func testArrangementScreenOffersAddToSetList() {
+        openArrangementScreen(firstArrangement)
+        let action = app.buttons["arrangement-setlists-\(firstArrangement)"]
         XCTAssertTrue(action.waitForExistence(timeout: 15),
-                      "no way to add an arrangement to a set list from its row")
+                      "no way to add an arrangement to a set list from its screen")
         action.tap()
         XCTAssertTrue(app.buttons["chooser-test-setlist"].waitForExistence(timeout: 15),
                       "the set list chooser did not open")
