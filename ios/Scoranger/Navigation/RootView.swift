@@ -29,18 +29,7 @@ struct RootView: View {
     @State private var filters: Set<LibraryFilter> = []
     @State private var editing = false
 
-    @State private var pieceChoice: String?
-    @State private var setlistPickerScore: ScoreDoc?
-    @State private var arrangementPickerSetlist: SetlistDoc?
-    @State private var movingScores: [ScoreDoc] = []
-    @State private var detailsScore: ScoreDoc?
-    @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
-    @State private var deleting: LibraryRow?
-    @State private var deletingMany: (ids: Set<String>, kind: LibrarySelectionKind)?
-    @State private var newName = ""
-    @State private var creating: LibrarySegment?
     /// Whether the piece being named is the destination of an import.
-    @State private var pendingImportIsNewPiece = false
     /// Where an import should land, asked BEFORE the file picker (0.4.1 item 9).
     @State private var importDestination: ImportDestination?
     @State private var importIntoPiece: String?
@@ -113,25 +102,9 @@ struct RootView: View {
         }
     }
 
-    /// Everything a row's menu can open.
-    private func commitRename() {
-        guard let renaming else { return }
-        let name = renaming.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.renaming = nil
-        guard !name.isEmpty else { return }
-        Task {
-            if renaming.isSetlist {
-                _ = await state.renameSetlist(setlist: renaming.id, name: name)
-            } else if renaming.isPiece {
-                _ = await state.renamePiece(piece: renaming.id, name: name)
-            } else {
-                _ = await state.renameScore(slug: renaming.id, name: name)
-            }
-        }
-    }
-
+    /// Deleting knows what it is deleting: a set list is unmade, a piece takes
+    /// its arrangements with it, an arrangement goes on its own.
     private func commitDelete(_ row: LibraryRow) {
-        deleting = nil
         if segment == .setlists {
             Task { _ = await state.deleteSetlist(row.id) }
         } else if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
@@ -141,31 +114,6 @@ struct RootView: View {
         }
     }
 
-    private func commitCreate(_ segment: LibrarySegment) {
-        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let forImport = pendingImportIsNewPiece
-        creating = nil
-        pendingImportIsNewPiece = false
-        guard !name.isEmpty else { return }
-        if segment == .setlists {
-            Task { _ = await state.createSetlist(name: name) }
-            return
-        }
-        // A piece named for an import goes to the library and shows itself
-        // filling up, rather than the import disappearing somewhere.
-        Task {
-            let slug = await state.createPiece(named: name)
-            if forImport {
-                importIntoPiece = slug
-                tab = .library
-                segment2Pieces()
-                showImporter = true
-            }
-        }
-    }
-
-    private func segment2Pieces() { segment = .pieces }
-
     /// What a route shows.
     @ViewBuilder
     private func screen(_ route: Route, in tab: AppTab) -> some View {
@@ -173,7 +121,10 @@ struct RootView: View {
         let push: (Route) -> Void = { r in
             if tab == .home { homePath.append(r) } else { libraryPath.append(r) }
         }
-        switch route {
+        // A route holds the slug it was pushed with, and an arrangement can be
+        // MOVED to a new slug from the screen the route points at. Follow the
+        // move rather than resolving to nothing.
+        switch route.following(state.movedSlugs) {
         case .piece(let slug):
             if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
                 PieceScreen(piece: piece, onBack: pop,
@@ -215,23 +166,24 @@ struct RootView: View {
             AddArrangementsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .versions(let slug):
+            // picking a version MARKS it and stays on the list: this is the
+            // history, and reading it means moving down it. The score opens on
+            // whatever is marked when you go back to it -- and while reading,
+            // the title band in the score is the faster way to switch.
             VersionsScreen(slug: slug, onBack: pop,
                            onShow: { version in
                                state.select(slug: slug, version: version)
-                               open(slug, version: version)
                            })
                 .navigationBarHidden(true)
         case .parts(let slug):
             PartsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .details(let slug):
-            if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
-                Screen(title: "Details", backLabel: "Back",
-                       subtitle: score.title ?? score.name, onBack: pop) {
-                    ScoreInfoView(score: score)
-                }
+            // resolved ONCE, into a view that then follows its own edits: the
+            // slug is editable on this screen, and re-resolving by slug on
+            // every manifest tick closed the screen the instant a move landed
+            DetailsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
-            }
         case .importDestination:
             ImportDestinationScreen(onBack: pop,
                                     onNewPiece: { name in
@@ -324,7 +276,20 @@ struct RootView: View {
                             libraryPath.append(.arrangement(row.id))
                         }
                     },
-                    onNew: { addForSegment() },
+                    onCreate: { name in
+                        Task {
+                            if segment == .setlists {
+                                // a set list with nothing in it is not worth
+                                // making, so naming one leads straight to
+                                // choosing what goes in it
+                                if let slug = await state.createSetlist(name: name) {
+                                    libraryPath.append(.addArrangements(slug))
+                                }
+                            } else {
+                                _ = await state.createPiece(named: name)
+                            }
+                        }
+                    },
                     onImport: { libraryPath.append(.importDestination) },
                     onRowAction: handle,
                     onBarAction: handleBar)
@@ -345,13 +310,22 @@ struct RootView: View {
             guard let id = ids.first else { return }
             Task { _ = await state.createArrangement(pieceSlug: id) }
         case .moveToPiece:
-            movingScores = scores
+            libraryPath.append(.moveToPiece(scores.map(\.slug)))
         case .addToSetlist:
-            if let first = scores.first { setlistPickerScore = first }
+            if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
         case .duplicate:
             Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }
         case .delete:
-            deletingMany = (ids, kind)
+            // the undo bar is the confirmation: the row goes at once and comes
+            // back for as long as the engine still holds it
+            for id in ids {
+                switch kind {
+                case .setlists: Task { _ = await state.deleteSetlist(id) }
+                case .pieces:   state.deletePiece(id)
+                default:        state.deleteScore(slug: id)
+                }
+            }
+            editing = false
         }
     }
 
@@ -371,35 +345,33 @@ struct RootView: View {
         case .open:
             open(row)
         case .versions:
-            // a piece opens its arrangement sheet, which lists versions per
-            // arrangement; a lone arrangement opens straight into its own
+            // a piece opens its own screen, which lists its arrangements;
+            // a lone arrangement opens its versions directly
             if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
-                pieceChoice = row.id
-            } else if let score { detailsScore = score }
+                libraryPath.append(.piece(row.id))
+            } else {
+                libraryPath.append(.versions(row.id))
+            }
         case .details:
-            if let score { detailsScore = score }
-            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
-                    let first = piece.arrangements.first {
-                detailsScore = state.manifest?.scores.first { $0.slug == first }
+            if score != nil {
+                libraryPath.append(.details(row.id))
+            } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                      let first = piece.arrangements.first {
+                libraryPath.append(.details(first))
             }
         case .addToSetlist:
             // from a SET LIST, pick its arrangements; from an arrangement, pick
             // its set lists -- two directions, two questions
-            if segment == .setlists,
-               let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
-                arrangementPickerSetlist = setlist
-            } else if let score { setlistPickerScore = score }
-            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
-                    let first = piece.arrangements.first {
-                setlistPickerScore = state.manifest?.scores.first { $0.slug == first }
+            if segment == .setlists {
+                libraryPath.append(.addArrangements(row.id))
+            } else if score != nil {
+                libraryPath.append(.setlistsFor(row.id))
+            } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                      let first = piece.arrangements.first {
+                libraryPath.append(.setlistsFor(first))
             }
-        case .rename:
-            renaming = (row.id,
-                        (state.manifest?.pieces ?? []).contains { $0.slug == row.id },
-                        segment == .setlists,
-                        row.title)
         case .delete:
-            deleting = row
+            commitDelete(row)
         case .newArrangement:
             Task { _ = await state.createArrangement(pieceSlug: row.id) }
         }
@@ -414,10 +386,6 @@ struct RootView: View {
         }
     }
 
-    private func addForSegment() {
-        creating = segment
-        newName = ""
-    }
 
     // MARK: - Transitions
 
@@ -430,7 +398,12 @@ struct RootView: View {
         if piece.arrangements.count == 1, let only = piece.arrangements.first {
             open(only)
         } else {
-            pieceChoice = slug
+            // A piece with several arrangements PUSHES its screen (§4). It
+            // used to open a sheet; the sheet is gone, and for a while this
+            // set a flag nothing rendered -- so tapping such a piece did
+            // nothing at all.
+            if tab == .home { homePath.append(.piece(slug)) }
+            else { libraryPath.append(.piece(slug)) }
         }
     }
 

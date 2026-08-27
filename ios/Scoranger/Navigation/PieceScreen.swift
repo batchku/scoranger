@@ -92,7 +92,33 @@ struct PieceScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // one element, not a stack: a Button whose label is a stack is
+            // reported as a container, and the highlight has to live on the
+            // element a test can see
+            .accessibilityElement(children: .ignore)
+            // "Arrangement number N" is the phrase the numeral badge used, and
+            // the chat context hands the model the same number
+            .accessibilityLabel("Arrangement number \(number), "
+                                + "\(score.title ?? score.name), "
+                                + "\(score.versions.count) version"
+                                + (score.versions.count == 1 ? "" : "s"))
+            .accessibilityAddTraits(state.selectedSlug == score.slug
+                                    ? [.isButton, .isSelected] : [.isButton])
             .accessibilityIdentifier("arrangement-choice-\(score.slug)")
+
+            // Order, in place. This is what dragging one arrangement onto
+            // another used to do -- the same inline pattern the set list screen
+            // already uses, and the only way to reorder now that dragging is
+            // gone from the app entirely.
+            orderButton("chevron.up", label: "Move \(score.title ?? score.name) up",
+                        id: "arr-up-\(score.slug)", enabled: number > 1) {
+                move(score.slug, by: -1)
+            }
+            orderButton("chevron.down", label: "Move \(score.title ?? score.name) down",
+                        id: "arr-down-\(score.slug)",
+                        enabled: number < piece.arrangements.count) {
+                move(score.slug, by: 1)
+            }
 
             // §8.1's own mitigation: a ☰ here pushes straight to the
             // arrangement's screen, so filing is two pushes rather than three.
@@ -103,6 +129,33 @@ struct PieceScreen: View {
         }
         .padding(.horizontal, Theme.Metric.s20)
         .padding(.vertical, 9)
+    }
+
+    private func orderButton(_ glyph: String, label: String, id: String,
+                             enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Ink.ink2)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+        .accessibilityIdentifier(id)
+        .accessibilityLabel(label)
+    }
+
+    /// Move an arrangement within its piece. #N is a position, so this
+    /// renumbers -- which is the whole point of the control.
+    private func move(_ slug: String, by delta: Int) {
+        var order = piece.arrangements
+        guard let from = order.firstIndex(of: slug) else { return }
+        let to = from + delta
+        guard order.indices.contains(to) else { return }
+        order.swapAt(from, to)
+        state.reorderPiece(piece: piece.slug, order: order)
     }
 
     private var summary: String {

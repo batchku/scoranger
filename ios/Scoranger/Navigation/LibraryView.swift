@@ -18,7 +18,9 @@ struct LibraryView: View {
     /// The row's ☰. Pushes to the item's screen, or expands in place, by the
     /// rule in RowMenuBehaviour.
     var onRowMenu: (LibraryRow) -> Void
-    var onNew: () -> Void
+    /// Naming a new piece or set list, in a band at the top of the list --
+    /// not a popup and not a screen, because it is one field (§5.1).
+    var onCreate: (String) -> Void
     var onImport: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
@@ -26,8 +28,8 @@ struct LibraryView: View {
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
-    @State private var dropTarget: String?
     @State private var addMenuOpen = false
+    @State private var creatingName: String?
     @State private var selected: Set<String> = []
 
     var body: some View {
@@ -236,6 +238,21 @@ struct LibraryView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                // Naming a new thing happens here, in place: the list moves
+                // down, nothing dims, and there is nothing to dismiss.
+                if creatingName != nil {
+                    InlineRenameRow(text: Binding(get: { creatingName ?? "" },
+                                                  set: { creatingName = $0 }),
+                                    onSave: {
+                                        let name = (creatingName ?? "")
+                                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                                        creatingName = nil
+                                        if !name.isEmpty { onCreate(name) }
+                                    },
+                                    onCancel: { creatingName = nil })
+                    Divider().overlay(Theme.Line.line)
+                }
+
                 // Imports in flight, at the top where they cannot be missed.
                 //
                 // They used to render only in the score screen's library
@@ -305,44 +322,14 @@ struct LibraryView: View {
             if editing { editingActions(row) }
             Divider().overlay(Theme.Line.line)
         }
-        // Drag to file, which the sidebar carried (§8): an arrangement onto a
-        // piece files it there, onto a set list adds it to the running order.
-        // A drop target only exists where a drop MEANS something, so a piece
-        // never accepts a piece.
-        .draggable(row.id) { LRow(row: row, identifier: "drag-\(row.id)", action: {}) }
-        .dropDestination(for: String.self) { items, _ in
-            guard let dropped = items.first, dropped != row.id else { return false }
-            return accept(dropped, onto: row)
-        } isTargeted: { targeted in
-            dropTarget = targeted ? row.id : (dropTarget == row.id ? nil : dropTarget)
-        }
-        .background(dropTarget == row.id ? Theme.Accent.clayTint : Color.clear)
     }
 
-    /// What a drop means, which depends entirely on what it landed on.
-    private func accept(_ dropped: String, onto row: LibraryRow) -> Bool {
-        if segment == .setlists {
-            Task { _ = await state.addToSetlist(setlist: row.id, score: dropped) }
-            return true
-        }
-        // onto a piece: file the arrangement under it
-        if isPiece(row) {
-            state.assignToPiece(scoreSlug: dropped, piece: row.id)
-            return true
-        }
-        // onto another arrangement of the same piece: reorder
-        if let piece = (state.manifest?.pieces ?? []).first(where: {
-            $0.arrangements.contains(row.id) && $0.arrangements.contains(dropped)
-        }), let from = piece.arrangements.firstIndex(of: dropped),
-           let to = piece.arrangements.firstIndex(of: row.id) {
-            var order = piece.arrangements
-            order.remove(at: from)
-            order.insert(dropped, at: to)
-            state.reorderPiece(piece: piece.slug, order: order)
-            return true
-        }
-        return false
-    }
+    // Dragging is gone from the app entirely. Every use it had has a named
+    // screen instead: filing happens at import time or through the
+    // arrangement's Move to piece, set-list membership through the set list's
+    // Add arrangements, and order through Move up / Move down. A gesture that
+    // is the only way to reach a feature was already against the rules here;
+    // this removes the gesture rather than adding a second path to it.
 
     /// The leading checkbox (§2.1). Selecting is what raises the action bar.
     private func checkbox(_ row: LibraryRow) -> some View {
@@ -426,7 +413,6 @@ struct LibraryView: View {
                     onRowAction(row, .addToSetlist)
                 }
             }
-            editButton("Rename", id: "edit-rename-\(row.id)") { onRowAction(row, .rename) }
             editButton("Delete", id: "edit-delete-\(row.id)") { onRowAction(row, .delete) }
             Spacer()
         }
@@ -487,7 +473,7 @@ struct LibraryView: View {
                    detail: segment == .pieces
                        ? "A blank arrangement, filed under a new piece"
                        : "An empty running order to fill",
-                   glyph: "square", id: "fab-new") { onNew() }
+                   glyph: "square", id: "fab-new") { creatingName = "" }
             Divider().overlay(Theme.Line.line)
             addRow(title: "Import",
                    detail: "PDF, MusicXML, MIDI — a PDF goes through OMR",

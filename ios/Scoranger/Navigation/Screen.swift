@@ -25,8 +25,13 @@ struct Screen<Content: View, Trailing: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("screen-back")
+                // collapsed to ONE element: a Button whose label is a stack is
+                // reported as a container, and the identifier lands on
+                // something untappable -- the selection chip's bug, third time
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Back to \(backLabel)")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("screen-back")
 
                 Spacer(minLength: Theme.Metric.s8)
                 VStack(spacing: 0) {
@@ -72,6 +77,10 @@ struct ScreenRow: View {
     var value: String?
     var leads: Bool = true
     var isDestructive: Bool = false
+    /// The row stands for what is on screen right now -- one version of many,
+    /// one arrangement of a piece. Marked, not just tinted, so a test and a
+    /// screen reader can both tell which one it is.
+    var isSelected: Bool = false
     var identifier: String
     var action: () -> Void
 
@@ -93,12 +102,18 @@ struct ScreenRow: View {
             .padding(.horizontal, Theme.Metric.s20)
             .padding(.vertical, 11)
             .frame(minHeight: 44)
+            .background(isSelected ? Theme.Accent.clayTint : Color.clear)
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle().fill(Theme.Accent.clay).frame(width: 3)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(value.map { "\(title), \($0)" } ?? title)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier(identifier)
     }
 }
@@ -155,6 +170,7 @@ struct InlineRenameRow: View {
     var body: some View {
         HStack(spacing: Theme.Metric.s8) {
             TextField("Name", text: $text)
+                .accessibilityIdentifier("inline-name-field")
                 .typeRole(.body)
                 .foregroundStyle(Theme.Ink.ink)
                 .tint(Theme.Accent.clay)
@@ -242,6 +258,8 @@ struct EditableTitle: View {
     let text: String
     var role: Theme.Role = .titleS
     var identifier: String
+    /// Opens straight into the field, for a row that is already being renamed.
+    var startEditing = false
     var onCommit: (String) -> Void
 
     @State private var editing = false
@@ -285,6 +303,9 @@ struct EditableTitle: View {
                 .accessibilityIdentifier(identifier)
                 .accessibilityLabel("\(text), tap to rename")
             }
+        }
+        .onAppear {
+            if startEditing && !editing { draft = text; editing = true }
         }
     }
 

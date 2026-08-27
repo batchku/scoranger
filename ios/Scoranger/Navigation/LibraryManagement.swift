@@ -8,5 +8,5 @@ import SwiftUI
 /// that quietly drops working features is a regression wearing new chrome.
 /// Each one has a home here.
 enum RowAction: Equatable {
-    case open, versions, details, rename, addToSetlist, delete, newArrangement
+    case open, versions, details, addToSetlist, delete, newArrangement
 }

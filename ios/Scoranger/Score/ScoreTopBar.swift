@@ -118,6 +118,14 @@ struct ScoreTopBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // one element, not a stack. A Button whose label is a stack is reported
+        // as a CONTAINER: it is findable, and a tap on it reaches the container
+        // rather than the button -- so the title band never opened. VoiceOver
+        // reads the parts separately for the same reason.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityHint("Switch arrangement or version")
+        .accessibilityAddTraits(titleMenuOpen ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier("score-title")
     }
 

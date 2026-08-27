@@ -10,9 +10,13 @@ import SwiftUI
 /// of them through the engine's `set-metadata` op (a new version, like any
 /// other change to the notation).
 struct ScoreInfoView: View {
-    /// The score as it was when the sheet opened. Everything reads `live`
-    /// instead: the sheet edits the arrangement, so it has to show the results
+    /// The arrangement this screen was opened on. Everything reads `live`
+    /// instead: the screen edits the arrangement, so it has to show the results
     /// of its own edits — the new version, the new title, the new piece.
+    ///
+    /// It is a snapshot rather than a lookup because the SLUG is editable here.
+    /// Re-resolving by slug on every manifest tick tore this screen down the
+    /// moment a move landed, which is exactly when the user is looking at it.
     let score: ScoreDoc
     @EnvironmentObject var state: AppState
 
@@ -40,9 +44,7 @@ struct ScoreInfoView: View {
     @State private var renamingPart: Int?
     @State private var draftPartName = ""
     @State private var confirmingDelete = false
-    @State private var renamingPiece = false
     @State private var pieceListOpen = false
-    @State private var draftPieceName = ""
     @State private var draftSlug = ""
     @State private var savedSlug = ""
     @State private var renamingSlug = false
@@ -86,9 +88,6 @@ struct ScoreInfoView: View {
             BandHeader("Arrangement")
             metadataEditor
             SheetRow(label: "Piece") { pieceMenu }
-            if renamingPiece, let piece = currentPiece {
-                renamePieceField(piece)
-            }
             slugEditor
             if let latest = live.latest {
                 SheetRow("Latest version", latest, mono: true)
@@ -272,22 +271,6 @@ struct ScoreInfoView: View {
         .accessibilityIdentifier("piece-choice-\(slug ?? "none")")
     }
 
-    @ViewBuilder
-    private func renamePieceField(_ piece: PieceDoc) -> some View {
-        HStack(spacing: Theme.Metric.s8) {
-            LabeledField("Piece name", text: $draftPieceName, identifier: "piece-name")
-            PanelButton(title: "Cancel") { renamingPiece = false }
-            PanelButton(title: "Rename", kind: .primary) {
-                let name = trimmed(draftPieceName)
-                renamingPiece = false
-                guard !name.isEmpty, name != piece.name else { return }
-                Task { await state.renamePiece(piece: piece.slug, name: name) }
-            }
-        }
-        .padding(.horizontal, Theme.Metric.panelPadding)
-        .padding(.bottom, Theme.Metric.s8)
-    }
-
     // MARK: - Parts
 
     /// A part row, tappable to rename. The name is the staff label engraved on
@@ -295,41 +278,32 @@ struct ScoreInfoView: View {
     @ViewBuilder
     private func partRow(_ part: PartDoc) -> some View {
         if renamingPart == part.index {
-            HStack(spacing: Theme.Metric.s8) {
-                LabeledField("Part name", text: $draftPartName, identifier: "part-name")
-                PanelButton(title: "Cancel") { renamingPart = nil }
-                PanelButton(title: "Rename", kind: .primary) {
-                    let name = trimmed(draftPartName)
-                    renamingPart = nil
-                    Task { await state.renamePart(slug: score.slug,
-                                                  part: "#\(part.index)", name: name) }
-                }
-            }
-            .padding(.horizontal, Theme.Metric.panelPadding)
-            .padding(.vertical, Theme.Metric.s8)
+            EditableTitle(text: part.name, role: .row,
+                          identifier: "part-name",
+                          startEditing: true,
+                          onCommit: { name in
+                              renamingPart = nil
+                              let wanted = trimmed(name)
+                              guard !wanted.isEmpty, wanted != part.name else { return }
+                              Task { await state.renamePart(slug: score.slug,
+                                                            part: "#\(part.index)",
+                                                            name: wanted) }
+                          })
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .padding(.vertical, Theme.Metric.s8)
         } else {
-            Button {
+            // ScreenRow, like every other row on a pushed screen. It collapses
+            // to ONE accessibility element, so a tap reaches the button rather
+            // than the stack inside it -- the hand-rolled Button here was
+            // findable and untappable, which is the container trap this project
+            // has now debugged four separate times.
+            ScreenRow(title: part.name,
+                      value: partDetail(part),
+                      leads: false,
+                      identifier: "part-\(part.index)") {
                 draftPartName = part.name
                 renamingPart = part.index
-            } label: {
-                SheetRow(label: part.name) {
-                    HStack(spacing: Theme.Metric.s8) {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            if let instrument = part.instrument, instrument != part.name {
-                                Text(instrument).typeRole(.body)
-                                    .foregroundStyle(Theme.Ink.ink)
-                            }
-                            Text(partDetail(part)).typeRole(.data)
-                                .foregroundStyle(Theme.Ink.ink2)
-                        }
-                        Image(systemName: "pencil").font(.system(size: 12))
-                            .foregroundStyle(Theme.Accent.clayStrong)
-                    }
-                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("part-\(part.index)")
-            .accessibilityLabel("Rename \(part.name)")
         }
     }
 
