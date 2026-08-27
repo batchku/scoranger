@@ -567,6 +567,31 @@ In order. Each ships as its own verified increment.
    roughly 3-4x. Assess tiling / re-raster-at-depth against simply waiting for
    Phase B vector rendering, which supersedes it.
 
+## Known coverage gap — the chip's adjust row has no end-to-end test
+
+0.4.3 shipped position and size for chord symbols. Everything about the row is
+covered EXCEPT driving it through the UI:
+
+- `ChordAdjustSessionTests` -- 28 cases over the step, the clamps counted
+  against what the notation already carries, the ladder, pending, revert, reset,
+  and what commits.
+- `check_adjust_journey.py` -- chords on a score, nudged, resized, exported, and
+  the size and offset read back out of the exported file.
+- Two UI tests: that the fixture really adds chord symbols, and that the Chord
+  symbols screen carries the default and the two-step reset-all.
+
+What is missing is a UI test that lassos a chord symbol and taps the row. Three
+attempts were deleted rather than left flaky: the lasso has to land on a small
+target whose position depends on the engraving, and a sweep across 6%-46% of the
+page caught notes and rests but never an all-chord-symbol selection. A mixed
+selection is deliberately not adjustable, which is correct behaviour and also
+what makes the target hard to hit.
+
+Worth trying when someone picks this up: seed a score whose chord staff has been
+through `strip-notes` AND has its rests hidden (`chart-style` does that), so a
+lasso over the staff can only catch chord symbols. `strip-notes` alone was tried
+and the staff's rests were still caught.
+
 ## After feature work — the dedicated testing push
 
 Queued deliberately at the end. These are the gaps in the honest coverage

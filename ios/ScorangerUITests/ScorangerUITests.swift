@@ -991,6 +991,65 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Selection (build 124)
 
+    // MARK: - Nudging and resizing a chord symbol
+
+    /// The chip's position-and-size row (docs/size-and-position-spec.md).
+    ///
+    /// Seeded with a chord chart because neither sample score carries chord
+    /// symbols, and the row only appears when everything selected is
+    /// adjustable — which today means chord symbols.
+    private func openScoreWithChords() {
+        app.terminate()
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
+                               "-annotateWithFinger", "-uiTestPencil",
+                               "-seedChordChart"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 90))
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        sleep(10)
+    }
+
+    // NOT covered end to end: selecting a chord symbol with the Pencil and
+    // driving the chip's row. Three attempts at it were deleted rather than
+    // left flaky -- a lasso has to land on a small target whose position
+    // depends on the engraving, and a sweep from 6% to 46% of the page caught
+    // notes and rests but never an all-chord-symbol selection. What IS covered:
+    // the row's whole behaviour in ChordAdjustSessionTests (28 cases: the step,
+    // the clamps, the ladder, pending, revert, reset, what commits), the
+    // fixture above, the Chord symbols screen below, and the engine journey in
+    // check_adjust_journey.py. The gap is the gesture, and it is recorded in
+    // BACKLOG.md rather than papered over.
+
+    /// The part-wide half: a default every symbol inherits, and the way out of
+    /// every override.
+    func testTheChordSymbolsScreenCarriesTheDefaultAndTheResetAll() {
+        openScoreWithChords()
+        app.buttons["score-more"].tap()
+        let display = menuRow("more-display")
+        XCTAssertTrue(display.waitForExistence(timeout: 20), "no Score display row")
+        display.tap()
+        let chords = menuRow("display-chords")
+        XCTAssertTrue(chords.waitForExistence(timeout: 10), "no Chord symbols row")
+        chords.tap()
+
+        XCTAssertTrue(app.staticTexts["chords-size"].waitForExistence(timeout: 10),
+                      "no default size on the Chord symbols screen")
+        XCTAssertTrue(app.buttons["chords-bigger"].exists)
+        XCTAssertTrue(app.buttons["chords-smaller"].exists)
+
+        // reset-all is two-step and inline, never a dialog
+        let resetAll = menuRow("chords-reset-all")
+        XCTAssertTrue(resetAll.exists, "no reset-all")
+        resetAll.tap()
+        XCTAssertTrue(app.buttons["chords-confirm-reset"].waitForExistence(timeout: 10),
+                      "reset-all should ask first, inline")
+        XCTAssertTrue(app.buttons["chords-confirm-reset-keep"].exists,
+                      "and offer a way out")
+        shot("chords-screen")
+    }
+
     // MARK: - Where am I in the score
 
     /// The bar readout followed the PAGE, not the viewport: zoomed into bar 30

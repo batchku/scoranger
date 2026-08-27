@@ -779,6 +779,28 @@ final class AppState: ObservableObject {
                                           args: ["slug": "broken-arrangement",
                                                  "name": "Morrison's jig"])
             }
+            // Chord symbols to nudge. Neither sample score carries any, and
+            // the chip's position-and-size row only appears for a selection of
+            // adjustable elements -- so without this there is nothing to test
+            // it against.
+            if ProcessInfo.processInfo.arguments.contains("-seedChordChart"),
+               let first = (try await local.manifest()).scores
+                    .sorted(by: { $0.slug < $1.slug }).first {
+                // "#0" targets the first part by INDEX. Reading a name out of
+                // the manifest's parts snapshot made the fixture depend on when
+                // that projection is populated, and it silently added nothing.
+                let chart = (1...8).map { ["measure": $0,
+                                           "symbol": ["C", "Dm7", "G7", "Am"][($0 - 1) % 4]] }
+                do {
+                    _ = try await local.call(op: "set-chords",
+                                             args: ["score": first.slug,
+                                                    "part": "#0",
+                                                    "chords": chart])
+                    print("SCORANGER-SEED chord chart on \(first.slug)")
+                } catch {
+                    print("SCORANGER-SEED chord chart FAILED: \(error)")
+                }
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
