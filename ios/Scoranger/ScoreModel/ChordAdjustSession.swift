@@ -73,25 +73,38 @@ struct ChordAdjustSession: Equatable {
 
     // MARK: - Position
 
+    /// False only when the symbol is ALREADY at the bound. A tap from just
+    /// short of the limit still moves -- it clamps to the limit rather than
+    /// being refused, or the last half-step before the edge is unreachable and
+    /// the button lies about why it did nothing.
     func canNudge(_ direction: Direction) -> Bool {
         let (dx, dy) = total
         switch direction {
-        case .up:    return dy + Self.stepTenths <= Self.maxVerticalTenths
-        case .down:  return dy - Self.stepTenths >= -Self.maxVerticalTenths
-        case .right: return dx + Self.stepTenths <= Self.maxHorizontalTenths
-        case .left:  return dx - Self.stepTenths >= -Self.maxHorizontalTenths
+        case .up:    return dy < Self.maxVerticalTenths
+        case .down:  return dy > -Self.maxVerticalTenths
+        case .right: return dx < Self.maxHorizontalTenths
+        case .left:  return dx > -Self.maxHorizontalTenths
         }
     }
 
     /// MusicXML `relative-y` measures UP, so down is negative.
+    ///
+    /// The clamp is on the TOTAL -- what the notation already carries plus what
+    /// is pending -- so a symbol nudged to the edge in an earlier sitting
+    /// cannot be pushed past it in this one.
     mutating func nudge(_ direction: Direction) {
         guard canNudge(direction) else { return }
         pending.isReset = false
+        let (dx, dy) = total
         switch direction {
-        case .up:    pending.dy += Self.stepTenths
-        case .down:  pending.dy -= Self.stepTenths
-        case .right: pending.dx += Self.stepTenths
-        case .left:  pending.dx -= Self.stepTenths
+        case .up:
+            pending.dy += min(Self.stepTenths, Self.maxVerticalTenths - dy)
+        case .down:
+            pending.dy -= min(Self.stepTenths, dy + Self.maxVerticalTenths)
+        case .right:
+            pending.dx += min(Self.stepTenths, Self.maxHorizontalTenths - dx)
+        case .left:
+            pending.dx -= min(Self.stepTenths, dx + Self.maxHorizontalTenths)
         }
     }
 
