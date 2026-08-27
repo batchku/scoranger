@@ -321,7 +321,12 @@ struct ContentView: View {
                              + "written to it. That usually means an import stopped "
                              + "part way. You can delete it and import the score again.",
                       actionTitle: "Delete this arrangement",
-                      action: { state.deleteScore(slug: score.slug) })
+                      // and step back out: what is on screen no longer exists,
+                      // and the undo bar lives in the library behind this
+                      action: {
+                          state.deleteScore(slug: score.slug)
+                          onClose()
+                      })
         } else if state.loadingPDF {
             StateView(systemImage: "music.note.list", title: "Engraving…",
                       message: "Verovio is setting the page.")

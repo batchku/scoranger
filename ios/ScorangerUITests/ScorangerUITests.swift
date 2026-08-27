@@ -191,6 +191,18 @@ final class ScorangerUITests: XCTestCase {
     /// inside a Button, and which of the two XCUITest reports as the queryable
     /// element varies with what else is on the screen. The label is set on the
     /// same element either way and says where it goes.
+    /// A freshly seeded arrangement may have exactly one version, and a test
+    /// about switching between versions needs two. Make the second rather than
+    /// hope for it.
+    private func ensureASecondVersion() {
+        app.buttons["score-more"].tap()
+        let transpose = app.buttons["Transpose up a semitone"]
+        if transpose.waitForExistence(timeout: 10) {
+            transpose.tap()
+            sleep(20)
+        }
+    }
+
     private func goBack() {
         let byId = app.buttons["screen-back"].firstMatch
         if byId.exists && byId.isHittable { byId.tap(); return }
@@ -1064,9 +1076,12 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger", "-seedBrokenArrangement"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["PIECES"].waitForExistence(timeout: 90))
+        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 90))
+        app.buttons["tab-library"].tap()
+        app.buttons["segment-pieces"].tap()
 
-        let broken = app.buttons["arrangement-broken-arrangement"]
+        // it has no piece, so it sits in the library on its own
+        let broken = app.buttons["row-broken-arrangement"]
         XCTAssertTrue(broken.waitForExistence(timeout: 60),
                       "the version-less arrangement is not in the library")
         XCTAssertTrue(broken.label.contains("0 versions"),
@@ -1128,6 +1143,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         sleep(10)
+        ensureASecondVersion()
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
@@ -1174,6 +1190,7 @@ final class ScorangerUITests: XCTestCase {
         let canvas = app.scrollViews["score-canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
         sleep(12)
+        ensureASecondVersion()
 
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {
@@ -1382,8 +1399,10 @@ final class ScorangerUITests: XCTestCase {
     /// versions being open at once.
     func testOnlyOneVersionRowIsEverHighlighted() {
 
+        openPieceSheet()
         let arrangement = app.buttons["arrangement-choice-\(firstArrangement)"]
-        XCTAssertTrue(arrangement.waitForExistence(timeout: 20))
+        XCTAssertTrue(arrangement.waitForExistence(timeout: 20),
+                      "the arrangement is not listed under its piece")
         arrangement.tap()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
@@ -1392,12 +1411,7 @@ final class ScorangerUITests: XCTestCase {
         // left one behind: how many versions a freshly seeded arrangement has
         // is incidental, and the run where it had one made this test fail for
         // a reason that had nothing to do with highlighting.
-        app.buttons["score-more"].tap()
-        let transpose = app.buttons["Transpose up a semitone"]
-        if transpose.waitForExistence(timeout: 10) {
-            transpose.tap()
-            sleep(15)
-        }
+        ensureASecondVersion()
 
         openArrangementScreen(firstArrangement)
         app.buttons["edit-versions-\(firstArrangement)"].tap()
