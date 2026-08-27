@@ -170,39 +170,15 @@ one does not, and this should not be scheduled until two questions are answered:
 
 ## Next build (collecting — Ali is still listing items)
 
-### Drag to reorder arrangements within a piece
+### ~~Drag to reorder arrangements within a piece~~ — REMOVED in 0.4.2
 
-Let the user drag an arrangement up and down inside its piece, and have the
-numbers follow. #N is not decoration: it is how Ali refers to an arrangement in
-chat ("take the violin part from #3"), so a reorder has to move the badge and
-the '#N = ... (ref arr:<slug>)' mapping the chat context is built from, in the
-same breath. Anything that renumbers silently, or renumbers the badge but not
-the refs, is worse than not reordering at all.
-
-Most of the machinery is already there:
-
-- `reorder-piece` (engine op, `workspace.set_piece_order`) takes the piece and
-  the full ordered list of slugs, and validates that every slug belongs to the
-  piece. It is already exposed through the bridge and through
-  `AppState.reorderPiece(piece:order:)`.
-- The context menu already drives it — "Move up (become #2)" / "Move down" in
-  `arrangementMenu` — so the op is proven end to end. This is about the gesture,
-  not the plumbing.
-- Rows already carry `.onDrag` (that is how an arrangement is dragged into a
-  piece), and `pieceRow` already has an `.onDrop`. What is missing is a drop
-  target *between* rows within a piece.
-- `#N` is derived, not stored: `piecesSection` numbers by position and
-  `AppState.placement(of:)` reads the index out of `piece.arrangements`. So a
-  correct reorder needs no numbering code at all — the badge follows the list.
-  The chat refs come from the same list (`AppState`'s numbered context), so they
-  follow too. Worth an assertion in the UI test rather than an assumption.
-
-Watch for: the row-identity trap that bit build 123. Rows keyed by slug alone
-get matched against the row they replace when they move between sections, and
-SwiftUI reuses the old one — which is how a moved arrangement kept a numeral it
-should not have had. The identities are section-scoped now; a reorder inside one
-section will need the same care so a dragged row does not inherit its
-neighbour's number.
+Struck. Dragging is gone from the app entirely (NAV_MODAL_FREE_0.4.2 §9: "and
+**every drag path**"), so there is no gesture left to design. Reordering inside
+a piece is `Move up` / `Move down` on the piece screen, which calls the same
+`reorder-piece` op the drag would have. The numbering analysis this section
+carried was correct and is now moot: `#N` is derived from `piece.arrangements`,
+so the badges and the chat refs follow the buttons the way they would have
+followed a drop.
 
 Also queued for this build: penny-whistle fingering notation (see below).
 
@@ -239,31 +215,12 @@ cannot play.
 
 ## Assessed for build 125, deferred with reasons
 
-### Drag to reorder arrangements — the numbering shipped, the drag did not
+### ~~Drag to reorder — the numbering shipped, the drag did not~~ — MOOT
 
-Reordering works and is covered: "Move up (become #1)" / "Move down" in an
-arrangement's context menu call `reorder-piece`, and two tests now assert that
-the #N badges AND the chat refs follow the new order (they are both derived
-from `piece.arrangements`, so neither needs renumbering code).
-
-What did not work is the *gesture*. Three shapes were tried and none received
-the drop: the row itself as a target, a background layer behind the row, and a
-dedicated insertion strip between rows (via both `onDrop` and
-`dropDestination`). Instrumenting the handler showed it never runs.
-
-This is NOT a test-harness limit, which was checked rather than assumed: a
-control test dragged an unfiled arrangement onto a piece heading — the gesture
-that shipped in an earlier build — and it worked under XCUITest. That control
-is now a permanent test. So SwiftUI is declining to deliver drops somewhere in
-the arrangement-row hierarchy, and the row being a drag source (`.onDrag`) is
-the likeliest reason: a view that is dragging cannot also be dropped on, and
-the neighbouring strips inherit something from that context.
-
-Next things to try, in order: move the whole per-piece list into a `List` with
-`.onMove` (which owns reordering natively and sidesteps drag sources entirely —
-the cost is fitting a List into the overlay sidebar's styling); or hoist the
-drop target to the *section* and compute the insertion index from the drop
-location. Budget it as a session, not a patch.
+Struck. This section proposed a `List` + `.onMove` rewrite, or hoisting the
+drop target to the section, to make the drop land. Neither will be built:
+dragging was removed in 0.4.2. Kept only as the reason the `reorder-piece` op
+is proven end to end.
 
 ### Move/duplicate of lasso-selected elements — tractable, but not free
 
@@ -355,7 +312,12 @@ every score in the library correctly at every zoom level.
 All three of what were logged as 0.1.2, 0.1.3 and 0.1.4 went out together.
 What is worth keeping from the write-ups:
 
-### Dragging — the earlier diagnosis was wrong
+### Dragging — the earlier diagnosis was wrong (SUPERSEDED: drag removed in 0.4.2)
+
+**Read this as history only.** Every drag path described below was deleted in
+0.4.2 on Ali's direction ("remove ALL drag-and-drop interactions entirely").
+The diagnosis is preserved because it is a good lesson about blaming the wrong
+layer, not because any of it still runs.
 
 Three reorder designs were abandoned in build 125 on the conclusion that "a row
 carrying `.onDrag` does not receive drops". That was not the cause. **A still
@@ -370,10 +332,9 @@ Shipped: a piece heading files an arrangement, a row inside a piece takes its
 place in the order, a set list heading adds to the running order, the Unfiled
 band unfiles. Every one also stays in the context menu.
 
-Still open, if anyone wants them as drags: duplicate, and dragging *out* of a
-set list to remove. The Unfiled band only exists when something is already in
-it, so dragging an arrangement out of its piece needs an unfiled arrangement to
-aim at; "Remove from piece" in the menu is the path that always works.
+~~Still open, if anyone wants them as drags: duplicate, and dragging out of a
+set list.~~ Struck — there are no drags. Duplicate and Remove from piece are
+buttons on the arrangement screen.
 
 ### Repeat signs — what the engine now has
 
@@ -581,6 +542,30 @@ Per-element size and offset would make that impossible by construction.
    non-note elements, which shares the offset/identity problem with item 3 and
    should be tackled alongside it.
 5. **The testing push — AFTER the feature work above, not before.**
+
+## Near-term queue after 0.4.2 (set by Ali, 2026-08-27)
+
+In order. Each ships as its own verified increment.
+
+1. **Share & export.** The score's `Share & export` row pushes to a section
+   with no `case`, so it lands on a note saying export lives in the engine.
+   `scor export --format musicxml|midi|pdf` already exists and is already
+   reachable from the app bridge. Wire the row to it and hand the file to the
+   system share sheet — Apple's own sheet is exempt from the no-modal rule.
+2. **Bar-position counter.** The `bar 21` readout in the score's top bar. No
+   `visibleBar`/`barCounter` exists yet. Cheaper since 0.4.2: the paged canvas
+   keeps the viewport inside one page's coordinate space, and
+   `ScoreModelBuilder` already indexes every measure's frame in page
+   coordinates, so this is a visible-rect query against an index that exists.
+3. **Size and position for added elements** (chord symbols first). See the
+   section above for the model and the ops. **The UI half of that spec is
+   stale** — it assumed drag-and-pinch to reposition, and 0.4.2 removed drag
+   while pinch means zoom. The engine op and the storage are unaffected and can
+   proceed; the interaction is with the designer.
+4. **Crisp deep zoom.** 0.4.2 raised the zoom ceiling to 12x but the page is
+   still one bitmap capped at `maxRasterWidth` (5200px), so it softens past
+   roughly 3-4x. Assess tiling / re-raster-at-depth against simply waiting for
+   Phase B vector rendering, which supersedes it.
 
 ## After feature work — the dedicated testing push
 
