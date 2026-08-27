@@ -96,7 +96,10 @@ struct PieceScreen: View {
             // reported as a container, and the highlight has to live on the
             // element a test can see
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(number). \(score.title ?? score.name), "
+            // "Arrangement number N" is the phrase the numeral badge used, and
+            // the chat context hands the model the same number
+            .accessibilityLabel("Arrangement number \(number), "
+                                + "\(score.title ?? score.name), "
                                 + "\(score.versions.count) version"
                                 + (score.versions.count == 1 ? "" : "s"))
             .accessibilityAddTraits(state.selectedSlug == score.slug

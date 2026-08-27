@@ -991,7 +991,6 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Selection (build 124)
 
-    /// The old yellow-band highlight is gone, replaced by a real selection.
     /// The title in the score bar opens a band listing the piece's other
     /// arrangements and this arrangement's recent versions -- the one place
     /// switching happens while you are reading (§6.3).
@@ -1021,6 +1020,7 @@ final class ScorangerUITests: XCTestCase {
                       "the band did not close again")
     }
 
+    /// The old yellow-band highlight is gone, replaced by a real selection.
     func testTheOldHighlightFeatureIsGone() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
