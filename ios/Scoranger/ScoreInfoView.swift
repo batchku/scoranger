@@ -308,34 +308,18 @@ struct ScoreInfoView: View {
             .padding(.horizontal, Theme.Metric.panelPadding)
             .padding(.vertical, Theme.Metric.s8)
         } else {
-            Button {
+            // ScreenRow, like every other row on a pushed screen. It collapses
+            // to ONE accessibility element, so a tap reaches the button rather
+            // than the stack inside it -- the hand-rolled Button here was
+            // findable and untappable, which is the container trap this project
+            // has now debugged four separate times.
+            ScreenRow(title: part.name,
+                      value: partDetail(part),
+                      leads: false,
+                      identifier: "part-\(part.index)") {
                 draftPartName = part.name
                 renamingPart = part.index
-            } label: {
-                SheetRow(label: part.name) {
-                    HStack(spacing: Theme.Metric.s8) {
-                        VStack(alignment: .trailing, spacing: 1) {
-                            if let instrument = part.instrument, instrument != part.name {
-                                Text(instrument).typeRole(.body)
-                                    .foregroundStyle(Theme.Ink.ink)
-                            }
-                            Text(partDetail(part)).typeRole(.data)
-                                .foregroundStyle(Theme.Ink.ink2)
-                        }
-                        Image(systemName: "pencil").font(.system(size: 12))
-                            .foregroundStyle(Theme.Accent.clayStrong)
-                    }
-                }
             }
-            .buttonStyle(.plain)
-            // One element, not a container. A Button whose label is a stack is
-            // reported as a container, and a tap on it reaches the container
-            // rather than the button -- so the row was findable and tapping it
-            // did nothing. Fourth time in this project.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Rename \(part.name)")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("part-\(part.index)")
         }
     }
 

@@ -185,6 +185,22 @@ final class ScorangerUITests: XCTestCase {
         byLabel.tap()
     }
 
+    /// Bring an element into view before touching it.
+    ///
+    /// A pushed screen scrolls, and `exists` is true for something below the
+    /// fold -- so a tap can land on nothing while the assertion before it
+    /// passes. That is what made the part rows look unreachable.
+    @discardableResult
+    private func scrollTo(_ element: XCUIElement, in container: XCUIElement,
+                          tries: Int = 6) -> Bool {
+        guard element.waitForExistence(timeout: 10) else { return false }
+        for _ in 0..<tries {
+            if element.isHittable { return true }
+            container.swipeUp(velocity: .slow)
+        }
+        return element.isHittable
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -717,14 +733,15 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
         let first = app.buttons["part-0"]
-        XCTAssertTrue(first.waitForExistence(timeout: 10), "part rows should be editable")
+        XCTAssertTrue(scrollTo(first, in: app.scrollViews.firstMatch),
+                      "part rows should be editable")
         first.tap()
         let field = app.textFields["part-name"]
         XCTAssertTrue(field.waitForExistence(timeout: 5), "no part name field")
         replaceText(field, with: "Violin I")
         app.buttons["Rename"].firstMatch.tap()
         XCTAssertTrue(app.buttons["part-0"].waitForExistence(timeout: 60))
-        XCTAssertTrue(element(labelStartingWith: "Rename Violin I").waitForExistence(timeout: 30),
+        XCTAssertTrue(element(labelStartingWith: "Violin I").waitForExistence(timeout: 30),
                       "the part row still shows the old name")
         shot("part-renamed")
         goBack()
