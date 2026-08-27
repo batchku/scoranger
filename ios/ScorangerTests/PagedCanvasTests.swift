@@ -192,4 +192,28 @@ final class PagedCanvasTests: XCTestCase {
                                                    pageAspect: 0, pages: 1,
                                                    gutter: 12, margin: 12), 0)
     }
+
+    /// Fitted means FILLS, not merely fits.
+    ///
+    /// The tests above only ever asserted the unit was inside the viewport, so
+    /// a width that came out 6% short passed them and failed on screen. One of
+    /// the two dimensions must be used up exactly -- that is the difference
+    /// between fitting and being lost in the middle.
+    func testTheFittedUnitFillsWhicheverDimensionBinds() {
+        for viewport in [CGSize(width: 1200, height: 800),
+                         CGSize(width: 820, height: 1180),
+                         CGSize(width: 500, height: 500)] {
+            for pages in [1, 2] {
+                let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
+                                                    pages: pages, gutter: 12, margin: 12)
+                let usedWidth = w * CGFloat(pages) + 12 * CGFloat(pages - 1) + 24
+                let usedHeight = w * portrait + 24
+                let fillsWidth = abs(usedWidth - viewport.width) < 1
+                let fillsHeight = abs(usedHeight - viewport.height) < 1
+                XCTAssertTrue(fillsWidth || fillsHeight,
+                              "at \(viewport) x\(pages) the unit fills neither "
+                              + "dimension: \(usedWidth)x\(usedHeight)")
+            }
+        }
+    }
 }

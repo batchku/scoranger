@@ -169,6 +169,22 @@ final class ScorangerUITests: XCTestCase {
                        "the action bar still has a Rename button")
     }
 
+    /// Leave a pushed screen.
+    ///
+    /// By label rather than identifier: a nav bar's back button is a stack
+    /// inside a Button, and which of the two XCUITest reports as the queryable
+    /// element varies with what else is on the screen. The label is set on the
+    /// same element either way and says where it goes.
+    private func goBack() {
+        let byId = app.buttons["screen-back"].firstMatch
+        if byId.exists && byId.isHittable { byId.tap(); return }
+        let byLabel = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Back to")).firstMatch
+        XCTAssertTrue(byLabel.waitForExistence(timeout: 10),
+                      "no way back from this screen")
+        byLabel.tap()
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -345,10 +361,22 @@ final class ScorangerUITests: XCTestCase {
             XCTAssertEqual(page.frame.midX, score.frame.midX, accuracy: 6,
                            "page off-centre in the canvas with \(what): page "
                            + "\(page.frame) in canvas \(score.frame)")
-            // 12pt of paper margin either side (ScorePagesView)
-            XCTAssertEqual(page.frame.width, score.frame.width - 24, accuracy: 8,
-                           "page does not fill the canvas with \(what): "
-                           + "\(page.frame.width) of \(score.frame.width)")
+            // FITTED, not fit-to-width. The canvas shows one page fitted to
+            // the viewport now, so a portrait page on a landscape canvas is
+            // HEIGHT-bound and cannot fill the width -- that is what fit-to-page
+            // means, and asserting otherwise was asserting the old layout.
+            // What must still hold: the page is inside the canvas, and it fills
+            // whichever dimension binds.
+            let fitsWide = page.frame.width <= score.frame.width - 16
+            let fitsTall = page.frame.height <= score.frame.height + 8
+            XCTAssertTrue(fitsWide && fitsTall,
+                          "page overflows the canvas with \(what): "
+                          + "\(page.frame) in \(score.frame)")
+            let fillsWidth = abs(page.frame.width - (score.frame.width - 24)) < 12
+            let fillsHeight = abs(page.frame.height - (score.frame.height - 24)) < 24
+            XCTAssertTrue(fillsWidth || fillsHeight,
+                          "page fills neither dimension with \(what): "
+                          + "\(page.frame) in \(score.frame)")
         }
 
         func assertWidth(_ expected: CGFloat, _ what: String) {
@@ -491,24 +519,27 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Hierarchy
 
+    /// #N is a position WITHIN a piece, so the numbering is on the piece
+    /// screen -- which is where a piece's arrangements live now.
     func testArrangementsAreNumberedWithinPiece() {
-
+        openPieceSheet()
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 1").exists)
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 2").exists)
         shot("numbered-arrangements")
     }
 
-    func testPieceCaretTogglesChildren() {
-
-        let collapse = app.buttons["Collapse \(piece)"]
-        XCTAssertTrue(collapse.exists, "piece caret missing")
-        let child = app.buttons["arrangement-choice-\(firstArrangement)"]
-        XCTAssertTrue(child.exists, "arrangement rows should start expanded")
-        collapse.tap()
-        XCTAssertTrue(app.buttons["Expand \(piece)"].waitForExistence(timeout: 5))
-        XCTAssertFalse(child.exists)
-        app.buttons["Expand \(piece)"].tap()
-        XCTAssertTrue(child.waitForExistence(timeout: 5))
+    /// The sidebar's expanding caret is gone: a piece is a place you go to.
+    /// What it did -- see this piece's arrangements, and get back -- is the
+    /// piece screen and its back button.
+    func testAPieceOpensItsOwnScreenAndComesBack() {
+        openPieceSheet()
+        XCTAssertTrue(app.buttons["arrangement-choice-\(firstArrangement)"].exists,
+                      "the piece screen does not list its arrangements")
+        XCTAssertFalse(app.buttons["Collapse \(piece)"].exists,
+                       "the expanding caret should be gone")
+        goBack()
+        XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 20),
+                      "back did not return to the library")
     }
 
     func testRowTapOpensArrangement() {
@@ -518,18 +549,19 @@ final class ScorangerUITests: XCTestCase {
                       "row tap did not open an arrangement")
     }
 
-    func testVersionsNestUnderArrangement() {
-
-        let versionRow = app.buttons["version-\(firstArrangement)-v001"]
-        XCTAssertFalse(versionRow.exists, "versions should be hidden until expanded")
-        let caret = app.buttons["versions-toggle-\(firstArrangement)"]
-        XCTAssertTrue(caret.exists, "no versions caret on the arrangement row")
-        caret.tap()
-        XCTAssertTrue(versionRow.waitForExistence(timeout: 10),
-                      "caret did not reveal the versions")
-        shot("nested-versions")
-        caret.tap()
-        XCTAssertTrue(waitForDisappearance(of: versionRow, timeout: 5))
+    /// Versions used to nest under an arrangement row on a caret. They are a
+    /// pushed list off the arrangement screen now -- the same history, somewhere
+    /// you can name.
+    func testVersionsAreAScreenOffTheArrangement() {
+        openArrangementScreen(firstArrangement)
+        let versions = app.buttons["edit-versions-\(firstArrangement)"]
+        XCTAssertTrue(versions.exists, "the arrangement screen has no Versions row")
+        versions.tap()
+        XCTAssertTrue(app.buttons["version-\(firstArrangement)-v001"]
+                        .waitForExistence(timeout: 20),
+                      "the versions screen did not list them")
+        shot("versions-screen")
+        goBack()
     }
 
     func testPromptGroupStepsExpand() {
@@ -567,7 +599,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["DANGER"].exists)
         XCTAssertTrue(app.buttons["Delete arrangement…"].exists)
         shot("arrangement-sheet")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
         XCTAssertTrue(waitForDisappearance(of: app.staticTexts["ARRANGEMENT"], timeout: 5))
     }
 
@@ -584,7 +616,7 @@ final class ScorangerUITests: XCTestCase {
         save.tap()
         XCTAssertTrue(waitForDisappearance(of: save, timeout: 60),
                       "Save still offered after a successful write")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
         XCTAssertTrue(app.buttons["arrangement-choice-\(firstArrangement)"].exists,
                       "the slug-based identifier must survive a rename")
     }
@@ -622,7 +654,7 @@ final class ScorangerUITests: XCTestCase {
         // the edit is a version, like every other change to the notation
         XCTAssertTrue(app.staticTexts["set-metadata"].waitForExistence(timeout: 10),
                       "editing metadata should append a version")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // the sidebar row now carries the same title (its label is built from
         // the numeral, the title and the subtitle, so this is a contains-check)
@@ -643,7 +675,7 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", "still engraves")).firstMatch.exists,
                        "the page and the title should now agree")
         shot("metadata-saved")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     /// The point of the whole change, seen on the page: the title engraved at
@@ -667,7 +699,7 @@ final class ScorangerUITests: XCTestCase {
         replaceText(app.textFields["arrangement-arranger"], with: "Gheorghe Branici")
         app.buttons["save-metadata"].tap()
         XCTAssertTrue(waitForDisappearance(of: app.buttons["save-metadata"], timeout: 90))
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // the canvas re-engraves the new version by itself
         sleep(6)
@@ -696,7 +728,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(element(labelStartingWith: "Rename Violin I").waitForExistence(timeout: 30),
                       "the part row still shows the old name")
         shot("part-renamed")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     /// Every editable field in the sheet says what it is. A placeholder is not
@@ -713,7 +745,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Title"].exists,
                        "a second, title-ish row is back in the sheet")
         shot("labelled-metadata-fields")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     /// The slug is the arrangement's handle, not a title — but auto-generated
@@ -752,7 +784,7 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "label BEGINSWITH %@", "v00")).count, versionsBefore,
                                     "versions were lost in the move")
         shot("slug-renamed")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // the row is filed under the new slug and still opens its score
         let row = app.buttons["arrangement-paris-quartet"]
@@ -799,7 +831,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: app.staticTexts["UNFILED ARRANGEMENTS"],
                                            timeout: 20),
                       "the arrangement never returned to the piece")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // it is numbered again, and the number is on the row itself
         XCTAssertTrue(row.waitForExistence(timeout: 20))
@@ -842,7 +874,7 @@ final class ScorangerUITests: XCTestCase {
                 NSPredicate(format: "label CONTAINS %@", "no key")).count > 0,
             "the key fields do not say which key is in use")
         shot("settings-labelled")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     // MARK: - Order (build 125)
@@ -889,7 +921,7 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["piece-menu"].firstMatch.tap()
         app.buttons["None"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["UNFILED ARRANGEMENTS"].waitForExistence(timeout: 20))
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         let row = app.buttons["arrangement-choice-\(firstArrangement)"]
         let pieceHeading = app.buttons["Collapse \(piece)"]
@@ -1211,7 +1243,10 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(place.contains("staff") || place.contains("staves"),
                       "no staff in the chip: \(place)")
         if place.contains("voice") {
-            XCTAssertTrue(place.contains("staff") && place.contains("·"),
+            // "staves 3, 4 · voice 1" -- the plural does not contain "staff",
+            // which is what my own first version of this assertion assumed
+            XCTAssertTrue((place.contains("staff") || place.contains("staves"))
+                            && place.contains("·"),
                           "the place line is malformed: \(place)")
         }
 
@@ -1266,7 +1301,7 @@ final class ScorangerUITests: XCTestCase {
             .replacingOccurrences(of: "Add to ", with: "")
             .replacingOccurrences(of: "Remove from ", with: "")
         chooser.tap()
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // and it now shows under that set list as well as under its piece
         let inSet = app.buttons.matching(
@@ -1453,7 +1488,7 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["Create"].tap()
         // the picker opens on creation; leave it without adding anything
         XCTAssertTrue(app.staticTexts["ADD AN ARRANGEMENT"].waitForExistence(timeout: 20))
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         let heading = app.buttons["Collapse setlist Gig night"]
         XCTAssertTrue(heading.waitForExistence(timeout: 20), "the new set list is not in the sidebar")
@@ -1535,7 +1570,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "no two-page toggle")
         XCTAssertEqual(toggle.value as? String, "0",
                        "one page at a time is the default")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     private func setTwoPageSpread(on: Bool) {
@@ -1544,7 +1579,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no two-page toggle in settings")
         if (toggle.value as? String == "1") != on { toggle.tap() }
         XCTAssertEqual(toggle.value as? String, on ? "1" : "0")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     /// Drag a lasso across a horizontal band and return the first bar number
@@ -1608,7 +1643,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         replaceText(field, with: "Paris Revisited")
         app.buttons["Rename"].firstMatch.tap()
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
         XCTAssertTrue(element(labelStartingWith: "Paris Revisited")
                         .waitForExistence(timeout: 30),
                       "the piece heading still shows the old name")
@@ -1644,7 +1679,7 @@ final class ScorangerUITests: XCTestCase {
                         .waitForExistence(timeout: 20),
                       "the arrangement did not move into the set list")
         shot("setlist-picker")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
 
         // and it shows in the sidebar under that set list
         XCTAssertTrue(app.buttons["setlist-gig-night-\(firstArrangement)"]
@@ -1679,7 +1714,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["picker-remove-\(firstArrangement)"].exists,
                       "the seeded set list should already hold the arrangements")
         shot("setlist-add-arrangements")
-        app.buttons["screen-back"].tap()
+        goBack()
     }
 
     /// And an arrangement can be put in a set list from its own row.
@@ -1695,7 +1730,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["chooser-test-setlist"].waitForExistence(timeout: 15),
                       "the set list chooser did not open")
         shot("add-to-setlist-chooser")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
 
@@ -1706,7 +1741,7 @@ final class ScorangerUITests: XCTestCase {
                       "settings did not open as a panel sheet")
         XCTAssertTrue(app.staticTexts["CHAT MODEL"].exists)
         shot("settings-sheet")
-        app.buttons["Done"].firstMatch.tap()
+        goBack()
     }
 
     // MARK: - Markup
@@ -1816,12 +1851,16 @@ final class ScorangerUITests: XCTestCase {
                       "the new arrangement did not appear as #3 of the piece")
     }
 
-    func testContextMenuOffersFilingAndDeletion() {
-
-        app.buttons["arrangement-choice-\(firstArrangement)"].press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["Move to piece"].waitForExistence(timeout: 10),
-                      "context menu did not appear")
-        XCTAssertTrue(app.buttons["Delete arrangement"].exists)
-        app.tap()
+    /// Filing and deleting used to be a long press. They are rows on the
+    /// arrangement screen now, reached by the row's ☰ -- visible, labelled, and
+    /// reachable without knowing a gesture.
+    func testTheArrangementScreenOffersFilingAndDeletion() {
+        openArrangementScreen(firstArrangement)
+        XCTAssertTrue(app.buttons["arrangement-move-\(firstArrangement)"].exists,
+                      "no way to file this arrangement")
+        XCTAssertTrue(app.buttons["edit-delete-\(firstArrangement)"].exists,
+                      "no way to delete this arrangement")
+        XCTAssertFalse(app.buttons["Move to piece"].exists,
+                       "a long press should reach nothing at all now")
     }
 }

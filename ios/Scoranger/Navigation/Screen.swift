@@ -25,8 +25,13 @@ struct Screen<Content: View, Trailing: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("screen-back")
+                // collapsed to ONE element: a Button whose label is a stack is
+                // reported as a container, and the identifier lands on
+                // something untappable -- the selection chip's bug, third time
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Back to \(backLabel)")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("screen-back")
 
                 Spacer(minLength: Theme.Metric.s8)
                 VStack(spacing: 0) {
