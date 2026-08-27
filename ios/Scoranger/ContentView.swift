@@ -190,7 +190,12 @@ struct ContentView: View {
                 ThumbnailStrip(document: document,
                                current: state.visiblePageIndices,
                                spread: state.twoPageSpread,
-                               onJump: { index in state.visiblePageIndices = [index] })
+                               // straight to the unit holding that page: no
+                               // offset arithmetic left to get wrong
+                               onJump: { index in
+                                   state.pageIndex = PagedCanvas.index(
+                                       forPage: index, spread: state.twoPageSpread)
+                               })
                 if showTransport {
                     Transport(setlistLabel: setlistLabel,
                               canStep: setlistPosition != nil,

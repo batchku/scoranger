@@ -97,39 +97,7 @@ final class PageTurnTests: XCTestCase {
                                      movement: 1, elapsed: 0.1), .previous)
     }
 
-    // MARK: - A turn is a scroll to the next boundary
-
-    private let boundaries: [CGFloat] = [0, 800, 1600, 2400]
-
-    func testNextGoesToTheFollowingBoundary() {
-        XCTAssertEqual(PageTurn.destination(from: 0, boundaries: boundaries, zone: .next), 800)
-    }
-
-    func testPreviousGoesBack() {
-        XCTAssertEqual(PageTurn.destination(from: 1600, boundaries: boundaries, zone: .previous),
-                       800)
-    }
-
-    func testTurningFromMidPageAdvancesToTheNextBoundaryNotTheCurrentOne() {
-        XCTAssertEqual(PageTurn.destination(from: 900, boundaries: boundaries, zone: .next), 1600)
-        XCTAssertEqual(PageTurn.destination(from: 900, boundaries: boundaries, zone: .previous), 800)
-    }
-
-    func testTheLastPageDoesNotTurnForward() {
-        XCTAssertNil(PageTurn.destination(from: 2400, boundaries: boundaries, zone: .next))
-    }
-
-    func testTheFirstPageDoesNotTurnBack() {
-        XCTAssertNil(PageTurn.destination(from: 0, boundaries: boundaries, zone: .previous))
-    }
-
-    /// Sitting a pixel off a boundary must still advance, or a turn can appear
-    /// to do nothing.
-    func testAlmostOnABoundaryStillAdvances() {
-        XCTAssertEqual(PageTurn.destination(from: 800.5, boundaries: boundaries, zone: .next), 1600)
-    }
-
-    func testAnEmptyScoreTurnsNowhere() {
-        XCTAssertNil(PageTurn.destination(from: 0, boundaries: [], zone: .next))
-    }
+    // The boundary-arithmetic tests went with `destination`: a turn changes an
+    // index now, and PagedCanvasTests covers the stepping. What stays here is
+    // the arbitration table, which is what protects the lasso.
 }

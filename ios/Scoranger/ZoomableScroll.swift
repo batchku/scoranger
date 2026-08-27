@@ -56,10 +56,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// canvas is, and whether it was the Pencil. The decision itself is
     /// PageTurn's -- this only reports (§6).
     var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+    /// A horizontal swipe with no slack left to pan: turn.
+    var onSwipeTurn: ((Int) -> Void)?
     /// Selection off, for performance mode.
     var selectionEnabled: Bool = true
-    /// Scroll to this offset when it changes: how a page turn moves (§6.4).
-    var scrollTarget: CGFloat?
+    /// A page turn happened: reset the pan to the new unit's top-left, keeping
+    /// the zoom. That is what turning a paper page does -- a violinist reading
+    /// at 180% stays at 180% (§6.1).
+    var resetPanToken: Int = 0
     /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
     /// Room to leave at the bottom so floating chrome (the pill) can never
@@ -181,7 +185,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.lasso?.selectionEnabled = selectionEnabled
         context.coordinator.onTurnTap = onTurnTap
-        context.coordinator.scrollTo(scrollTarget)
+        context.coordinator.onSwipeTurn = onSwipeTurn
+        context.coordinator.resetPan(token: resetPanToken)
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.onVisibleRectChange = onVisibleRectChange
         context.coordinator.bottomChrome = bottomChrome
@@ -293,17 +298,32 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
         var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
         var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
-        private var lastScrollTarget: CGFloat?
+        var onSwipeTurn: ((Int) -> Void)?
+        private var lastResetToken: Int = -1
 
-        /// Animate to a page boundary. A turn is a SCROLL, not a flip: the
-        /// pages are stacked vertically and this is the same movement a finger
-        /// would make, so nothing about the layout engine changes (§6.4).
-        func scrollTo(_ target: CGFloat?) {
-            guard let target, let scroll, target != lastScrollTarget else { return }
-            lastScrollTarget = target
+        /// A turn landed: go to the top-left of the new unit, keeping the zoom.
+        func resetPan(token: Int) {
+            guard token != lastResetToken else { return }
+            let first = lastResetToken == -1
+            lastResetToken = token
+            guard let scroll, !first else { return }
+            scroll.setContentOffset(CGPoint(x: -scroll.contentInset.left,
+                                            y: -scroll.contentInset.top),
+                                    animated: false)
+        }
+
+        /// Is there any horizontal room left to pan?
+        ///
+        /// Stop-at-edge (Ali's answer to the open question): a drag that
+        /// reaches the page's edge stops dead rather than rolling into a turn.
+        /// A reader zoomed into a notehead does not want the page to fly away,
+        /// and the tap zones are always a tap away.
+        var atHorizontalLimit: Bool {
+            guard let scroll else { return true }
+            let slack = scroll.contentSize.width - scroll.bounds.width
+            guard slack > 1 else { return true }
             let x = scroll.contentOffset.x
-            scroll.setContentOffset(CGPoint(x: x, y: target * scroll.zoomScale),
-                                    animated: true)
+            return x <= 1 || x >= slack - 1
         }
 
         /// Pan and zoom are off while a Pencil is down to select.
@@ -333,7 +353,18 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         @objc func lassoFired(_ recognizer: LassoGestureRecognizer) {}
 
         @objc func turnTapped(_ recognizer: TurnTapRecognizer) {
-            guard recognizer.state == .ended, let root = recognizer.view else { return }
+            guard let root = recognizer.view else { return }
+            if let swipe = recognizer.swipe {
+                // live only when there is no horizontal slack: at fit there is
+                // nothing to pan, so a drag is free to mean a turn
+                guard let scroll,
+                      PagedCanvas.swipeMayTurn(zoom: scroll.zoomScale,
+                                               atHorizontalLimit: atHorizontalLimit)
+                else { return }
+                onSwipeTurn?(swipe)
+                return
+            }
+            guard recognizer.state == .ended else { return }
             onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
         }
 
@@ -431,9 +462,20 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 final class TurnTapRecognizer: UIGestureRecognizer {
     private(set) var landed: CGPoint = .zero
     private(set) var wasPencil = false
+    /// -1 or +1 when the touch was a decisive horizontal swipe, nil otherwise.
+    /// Whether it MAY turn is decided by the caller, which knows about zoom and
+    /// slack; this only reports the shape of the gesture.
+    private(set) var swipe: Int?
     private var start: CGPoint = .zero
     private var began: TimeInterval = 0
     private var moved: CGFloat = 0
+    private var dx: CGFloat = 0
+    private var dy: CGFloat = 0
+
+    /// A swipe is decisive: far enough to be deliberate, and much more across
+    /// than down, so a diagonal pan is never mistaken for one.
+    private static let swipeDistance: CGFloat = 60
+    private static let swipeRatio: CGFloat = 1.8
 
     override init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
@@ -450,6 +492,9 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         start = touch.location(in: root)
         began = touch.timestamp
         moved = 0
+        dx = 0
+        dy = 0
+        swipe = nil
         wasPencil = touch.type == .pencil
     }
 
@@ -457,11 +502,23 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         guard let root = view, let touch = touches.first else { return }
         let now = touch.location(in: root)
         moved = max(moved, hypot(now.x - start.x, now.y - start.y))
+        dx = now.x - start.x
+        dy = now.y - start.y
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         defer { state = .failed }   // never claim the touch
         guard let root = view, let touch = touches.first else { return }
+        // a decisive horizontal swipe, by a FINGER: the Pencil's meaning is
+        // settled by mode, and a Pencil drag is a lasso or ink
+        if touch.type != .pencil, abs(dx) >= Self.swipeDistance,
+           abs(dx) >= abs(dy) * Self.swipeRatio {
+            swipe = dx < 0 ? 1 : -1     // dragging left brings the NEXT page in
+            landed = touch.location(in: root)
+            state = .ended
+            return
+        }
+        swipe = nil
         guard PageTurn.isTap(movement: moved, elapsed: touch.timestamp - began) else { return }
         landed = touch.location(in: root)
         state = .ended
@@ -474,5 +531,8 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     override func reset() {
         super.reset()
         moved = 0
+        dx = 0
+        dy = 0
+        swipe = nil
     }
 }

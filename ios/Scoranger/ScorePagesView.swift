@@ -14,6 +14,7 @@ struct ScorePagesView: View {
     let annotationKey: String  // "<slug>/<version>"
 
     @EnvironmentObject var state: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Settled zoom scale, used ONLY to raise the raster resolution of the
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
@@ -29,17 +30,27 @@ struct ScorePagesView: View {
     /// Where a page turn is scrolling to, if one is in flight.
     @State private var scrollTarget: CGFloat?
 
-    /// Up to 12x: Ali wants to go all the way in on a single notehead to check
-    /// it, and 3x stopped well short of that -- the canvas simply sprang back.
-    /// The pages re-raster at the settled scale, so the note stays sharp.
-    private static let zoomRange: ClosedRange<CGFloat> = 0.5...12.0
+    /// Fit to twelve.
+    ///
+    /// The floor is FIT, not 0.5: the unit on screen is sized to fit the
+    /// viewport, so zooming out below 1 would only add ground around it -- and
+    /// it is what makes "you can never see more than two pages" true without
+    /// anything enforcing it. The ceiling stays 12 so a notehead can be
+    /// inspected; the page re-rasters at the settled scale.
+    private static let zoomRange: ClosedRange<CGFloat> =
+        PagedCanvas.minimumZoom...PagedCanvas.maximumZoom
 
     var body: some View {
         GeometryReader { geo in
             let spread = state.twoPageSpread
-            let width = SpreadLayout.pageWidth(viewport: geo.size.width, spread: spread)
-            ZoomableScroll(contentWidth: SpreadLayout.contentWidth(viewport: geo.size.width,
-                                                                  spread: spread),
+            let unit = PagedCanvas.unit(at: state.pageIndex,
+                                        pageCount: document.pageCount, spread: spread)
+            let width = PagedCanvas.fittedPageWidth(
+                viewport: geo.size, pageAspect: aspect(of: unit.first),
+                pages: max(unit.count, 1), gutter: SpreadLayout.gutter,
+                margin: SpreadLayout.margin)
+            ZoomableScroll(contentWidth: width * CGFloat(max(unit.count, 1))
+                               + SpreadLayout.gutter * CGFloat(max(unit.count - 1, 0)),
                            onLasso: { page, path, adding in
                                select(path: path, onPage: page, adding: adding)
                            },
@@ -52,8 +63,9 @@ struct ScorePagesView: View {
                            onTurnTap: { point, width, isPencil in
                                turn(at: point, width: width, isPencil: isPencil)
                            },
+                           onSwipeTurn: { direction in step(by: direction) },
                            selectionEnabled: mode != .performance,
-                           scrollTarget: scrollTarget,
+                           resetPanToken: state.pageIndex,
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
@@ -61,8 +73,12 @@ struct ScorePagesView: View {
                                + Theme.Metric.s20 + Theme.Metric.s12,
                            onVisibleRectChange: { rect in
                                visibleRect = rect
-                               reportPosition(rect, viewport: geo.size, spread: spread,
-                                              width: width)
+                               // The unit IS what is visible now: no bands, no
+                               // boundary arithmetic, no mapping a scroll
+                               // offset back to a page.
+                               if state.visiblePageIndices != unit {
+                                   state.visiblePageIndices = unit
+                               }
                            },
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
@@ -71,8 +87,15 @@ struct ScorePagesView: View {
                 let stepped = (settled * 4).rounded() / 4
                 if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
-                pageStack(width: width, viewport: geo.size)
+                pageUnit(unit, width: width)
             }
+            // A turn slides the new unit in, out to the left and in from the
+            // right, reversed going back. It is a transition on the unit, not
+            // a scroll to an offset, which is why there is no offset to keep.
+            .id(state.pageIndex)
+            .transition(.asymmetric(insertion: .move(edge: .trailing),
+                                    removal: .move(edge: .leading)))
+            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: state.pageIndex)
             .onAppear {
                 if visibleRect == .zero {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
@@ -93,73 +116,46 @@ struct ScorePagesView: View {
         .overlay(alignment: .bottom) { AnnotationBarLayer(controller: annotation) }
     }
 
-    /// A finished touch that might be a turn. The decision is PageTurn's; this
-    /// only supplies the facts and moves the scroll view if the answer is yes.
+    /// A finished touch that might be a turn. Who may turn, and in which zone,
+    /// is still PageTurn's answer -- the §6 arbitration table is unchanged.
+    /// What a turn DOES is all that changed: it steps the index.
     private func turn(at point: CGPoint, width: CGFloat, isPencil: Bool) {
         guard let zone = PageTurn.turn(isPencil: isPencil, mode: mode, x: point.x,
                                        width: width, movement: 0, elapsed: 0)
         else { return }
-        guard let destination = PageTurn.destination(from: visibleRect.minY,
-                                                     boundaries: state.pageBoundaries,
-                                                     zone: zone) else { return }
-        scrollTarget = destination
+        step(by: zone == .next ? 1 : -1)
     }
 
-    /// Which pages are on screen, and where every page starts -- the counters,
-    /// the strip's highlight and the page turn all read these.
-    private func reportPosition(_ rect: CGRect, viewport: CGSize, spread: Bool,
-                                width: CGFloat) {
-        let rows = SpreadLayout.rows(pageCount: document.pageCount, spread: spread)
-        var bands: [(index: Int, span: ClosedRange<CGFloat>)] = []
-        var boundaries: [CGFloat] = []
-        var y: CGFloat = SpreadLayout.gutter
-        for row in rows {
-            let height = row.compactMap { index -> CGFloat? in
-                guard let page = document.page(at: index) else { return nil }
-                let bounds = page.bounds(for: .mediaBox)
-                return width * bounds.height / max(bounds.width, 1)
-            }.max() ?? width
-            boundaries.append(y - SpreadLayout.gutter)
-            for index in row { bands.append((index, y...(y + height))) }
-            y += height + SpreadLayout.gutter
-        }
-        let visible = ScorePosition.visiblePages(bands: bands, visible: rect)
-        if state.visiblePageIndices != visible { state.visiblePageIndices = visible }
-        if state.pageBoundaries != boundaries { state.pageBoundaries = boundaries }
+    /// Step the unit. Rapid turns coalesce to the latest rather than queueing
+    /// animations, or the score keeps sliding after the reader stops.
+    private func step(by direction: Int) {
+        guard let next = PagedCanvas.step(from: state.pageIndex, by: direction,
+                                          pageCount: document.pageCount,
+                                          spread: state.twoPageSpread) else { return }
+        state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
     }
 
+    private func aspect(of page: Int?) -> CGFloat {
+        guard let page, let pdf = document.page(at: page) else { return 1.414 }
+        let bounds = pdf.bounds(for: .mediaBox)
+        return bounds.height / max(bounds.width, 1)
+    }
+
+    /// The unit on screen: one page, or two with the spread on.
+    ///
+    /// Nothing else is rendered. That is the whole change -- the vertical stack
+    /// of every page is gone, and with it the raster window that existed to
+    /// stop a twelve-page score drawing itself twelve times over. One or two
+    /// pages can afford full resolution.
     @ViewBuilder
-    private func pageStack(width: CGFloat, viewport: CGSize) -> some View {
-        // VStack, not LazyVStack: inside a hosted view there is no scroll
-        // container to be lazy about, and the eager version at least lays out
-        // deterministically. PDFPageImage caps its raster size to compensate.
-        let rows = SpreadLayout.rows(pageCount: document.pageCount,
-                                     spread: state.twoPageSpread)
-        let heights = rows.map { row -> CGFloat in
-            row.compactMap { index -> CGFloat? in
-                guard let page = document.page(at: index) else { return nil }
-                let bounds = page.bounds(for: .mediaBox)
-                return width * bounds.height / max(bounds.width, 1)
-            }.max() ?? width
-        }
-        let drawn = SpreadLayout.visibleRows(heights: heights, visible: visibleRect)
-        VStack(spacing: SpreadLayout.gutter) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
-                // .top: a spread's two pages can differ in height (the last
-                // page of a score is often short), and they should share a
-                // top edge rather than float about a common centre
-                HStack(alignment: .top, spacing: SpreadLayout.gutter) {
-                    ForEach(row, id: \.self) { index in
-                        if let page = document.page(at: index) {
-                            pageView(page, index: index, width: width,
-                                     atDepth: drawn.contains(rowIndex))
-                        }
-                    }
+    private func pageUnit(_ unit: [Int], width: CGFloat) -> some View {
+        HStack(alignment: .top, spacing: SpreadLayout.gutter) {
+            ForEach(unit, id: \.self) { index in
+                if let page = document.page(at: index) {
+                    pageView(page, index: index, width: width, atDepth: true)
                 }
             }
         }
-        .frame(width: SpreadLayout.contentWidth(viewport: viewport.width,
-                                                spread: state.twoPageSpread))
         .padding(.vertical, SpreadLayout.gutter)
     }
 

@@ -77,10 +77,13 @@ final class AppState: ObservableObject {
     @Published var currentSetlist: String?
     /// Which pages are on screen, reported by the canvas. Feeds the counters
     /// and the thumbnail strip's "you are here" (NAVIGATION_SYSTEM.md 12.11).
+    /// The page unit on screen. The canvas shows this one page (or this pair
+    /// with the spread on) and nothing else exists -- turning changes the
+    /// index rather than scrolling a stack (NAV_MODAL_FREE_0.4.2 §6).
+    @Published var pageIndex: Int = 0
     @Published var visiblePageIndices: [Int] = [0]
-    /// Where each page sits vertically in the content, so a page turn knows
-    /// what the next boundary is (§6.4).
-    @Published var pageBoundaries: [CGFloat] = []
+    // pageBoundaries is gone with the stack it described: a turn changes an
+    // index now, so there is no offset to compute or preserve.
     @Published var chatOpenRequest = 0
     @Published var pendingChatInsert: String?
     /// How the next lasso combines with what is already selected. Replace until
@@ -677,6 +680,7 @@ final class AppState: ObservableObject {
         // showed the last one you had open, then flipped. A blank canvas for a
         // moment is honest; a stale one is not.
         if renderedKey != nil && renderedKey != key {
+            pageIndex = 0
             pdfDocument = nil
             geometry = nil
             geometryKey = nil

@@ -130,4 +130,66 @@ final class PagedCanvasTests: XCTestCase {
         XCTAssertEqual(PagedCanvas.coalesce(pending: 4, latest: 7), 7)
         XCTAssertEqual(PagedCanvas.coalesce(pending: nil, latest: 2), 2)
     }
+
+    // MARK: - Fitting the unit, which is what makes the floor mean anything
+
+    /// A4-ish: taller than it is wide.
+    private let portrait: CGFloat = 1.414
+
+    func testATallPageOnAWideScreenIsHeightBound() {
+        // 1200x800 landscape: the page runs out of height long before width
+        let w = PagedCanvas.fittedPageWidth(viewport: CGSize(width: 1200, height: 800),
+                                            pageAspect: portrait, pages: 1,
+                                            gutter: 12, margin: 12)
+        XCTAssertEqual(w * portrait, 800 - 24, accuracy: 1,
+                       "the page should be exactly as tall as the viewport allows")
+        XCTAssertLessThan(w, 1200 - 24, "and narrower than the width allows")
+    }
+
+    func testAWidePageOnATallScreenIsWidthBound() {
+        let w = PagedCanvas.fittedPageWidth(viewport: CGSize(width: 400, height: 1200),
+                                            pageAspect: portrait, pages: 1,
+                                            gutter: 12, margin: 12)
+        XCTAssertEqual(w, 400 - 24, accuracy: 1)
+    }
+
+    /// A spread has to fit BOTH pages and the gutter between them, so each page
+    /// is a little under half the width -- not half.
+    func testASpreadSplitsTheWidthAndPaysForTheGutter() {
+        let one = PagedCanvas.fittedPageWidth(viewport: CGSize(width: 2000, height: 4000),
+                                              pageAspect: portrait, pages: 1,
+                                              gutter: 12, margin: 12)
+        let two = PagedCanvas.fittedPageWidth(viewport: CGSize(width: 2000, height: 4000),
+                                              pageAspect: portrait, pages: 2,
+                                              gutter: 12, margin: 12)
+        XCTAssertLessThan(two, one / 2 + 1)
+        XCTAssertEqual(two * 2 + 12, one, accuracy: 1,
+                       "two pages plus the gutter should use the same width as one")
+    }
+
+    /// Fitted means fitted: at zoom 1 the whole unit is inside the viewport,
+    /// which is the entire reason the zoom floor can be 1.
+    func testTheFittedUnitIsInsideTheViewportInBothDimensions() {
+        for viewport in [CGSize(width: 1200, height: 800),
+                         CGSize(width: 820, height: 1180),
+                         CGSize(width: 500, height: 500)] {
+            for pages in [1, 2] {
+                let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
+                                                    pages: pages, gutter: 12, margin: 12)
+                let used = w * CGFloat(pages) + 12 * CGFloat(pages - 1)
+                XCTAssertLessThanOrEqual(used, viewport.width - 23,
+                                         "too wide at \(viewport) x\(pages)")
+                XCTAssertLessThanOrEqual(w * portrait, viewport.height - 23,
+                                         "too tall at \(viewport) x\(pages)")
+            }
+        }
+    }
+
+    func testAnUnmeasuredViewportAsksForNothing() {
+        XCTAssertEqual(PagedCanvas.fittedPageWidth(viewport: .zero, pageAspect: portrait,
+                                                   pages: 1, gutter: 12, margin: 12), 0)
+        XCTAssertEqual(PagedCanvas.fittedPageWidth(viewport: CGSize(width: 100, height: 100),
+                                                   pageAspect: 0, pages: 1,
+                                                   gutter: 12, margin: 12), 0)
+    }
 }

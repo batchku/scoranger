@@ -61,25 +61,12 @@ enum PageTurn {
         return zone == .centre ? nil : zone
     }
 
-    /// Where a turn scrolls to.
-    ///
-    /// A turn is a SCROLL, not a flip (§6.4): the renderer stacks pages
-    /// vertically and the turn animates to the next boundary. Nothing about the
-    /// layout engine changes, and zooming in does not reset -- it scrolls to
-    /// the next boundary at the current zoom (§6.3).
-    static func destination(from offset: CGFloat, boundaries: [CGFloat],
-                            zone: Zone) -> CGFloat? {
-        let sorted = boundaries.sorted()
-        guard !sorted.isEmpty else { return nil }
-        // a little tolerance, so sitting a pixel off a boundary still advances
-        let epsilon: CGFloat = 1
-        switch zone {
-        case .next:
-            return sorted.first { $0 > offset + epsilon }
-        case .previous:
-            return sorted.last { $0 < offset - epsilon }
-        case .centre:
-            return nil
-        }
-    }
+    // `destination(from:boundaries:zone:)` lived here: a turn used to be an
+    // animated scroll to a computed offset in a stack of every page. The canvas
+    // shows one unit now, so a turn changes an INDEX and the arithmetic goes
+    // with the stack it was computed over (NAV_MODAL_FREE_0.4.2 §6.1).
+    //
+    // Everything above is unchanged: who may turn, in which mode, in which
+    // zone, and what counts as a tap at all. That table is the part that
+    // protects the lasso, and it did not move.
 }

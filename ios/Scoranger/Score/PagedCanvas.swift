@@ -80,6 +80,29 @@ enum PagedCanvas {
         (clamp(zoom: zoom), .zero)
     }
 
+    /// How wide one page should be drawn so the whole unit FITS.
+    ///
+    /// This is the number that makes the zoom floor mean something: fit is 1.0
+    /// by definition, so if the unit is fitted here, "you can never see more
+    /// than two pages" needs no enforcement anywhere else.
+    ///
+    /// Both dimensions have to be inside the viewport, so it is the smaller of
+    /// what the width allows and what the height allows. A tall page on a
+    /// landscape iPad is height-bound, which is exactly the case §6.4 warns
+    /// makes the notation small -- the answer to that is zooming, which is now
+    /// unbounded upwards rather than a fight with the floor.
+    static func fittedPageWidth(viewport: CGSize, pageAspect: CGFloat,
+                                pages: Int, gutter: CGFloat,
+                                margin: CGFloat) -> CGFloat {
+        guard viewport.width > 0, viewport.height > 0, pageAspect > 0, pages > 0 else {
+            return 0
+        }
+        let across = max(viewport.width - margin * 2 - gutter * CGFloat(pages - 1), 1)
+        let byWidth = across / CGFloat(pages)
+        let byHeight = max(viewport.height - margin * 2, 1) / pageAspect
+        return max(min(byWidth, byHeight), 1)
+    }
+
     /// Coalesce rapid turns to the latest index rather than queueing
     /// animations (§6.4 risk 3).
     static func coalesce(pending: Int?, latest: Int) -> Int {
