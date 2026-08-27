@@ -122,7 +122,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 20),
                       "no ☰ on the arrangement row")
         menu.tap()
-        XCTAssertTrue(app.buttons["arrangement-open"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.buttons["arrangement-title"].waitForExistence(timeout: 20),
                       "the arrangement screen did not open")
     }
 
@@ -1790,12 +1790,15 @@ final class ScorangerUITests: XCTestCase {
 
     func testAddMenuCreatesBlankArrangement() {
         openPieceSheet()
-        app.buttons["piece-new-arrangement-\(pieceSlug)"].tap()
-        let blank = app.buttons["New blank arrangement"]
-        XCTAssertTrue(blank.waitForExistence(timeout: 10), "add menu did not open")
+        // Blank-or-import used to be a Menu on one button. Menus are gone
+        // (0.4.2 §2), so the choice is two visible rows on the piece screen --
+        // which is the same choice, said out loud.
+        let blank = app.buttons["piece-new-arrangement-\(pieceSlug)"]
+        XCTAssertTrue(blank.waitForExistence(timeout: 20),
+                      "the piece screen offers no way to make an arrangement")
+        XCTAssertTrue(app.buttons["piece-import-\(pieceSlug)"].exists,
+                      "...and no way to import one into the piece")
         blank.tap()
-        // Making one closes the sheet, so the numbering is checked where
-        // numbering is now shown: the piece's arrangement sheet.
         //
         // Alphabetically first, so this is the suite's cold start: it pays for
         // the app launch, the Python engine's first import, the library reset
@@ -1803,7 +1806,6 @@ final class ScorangerUITests: XCTestCase {
         // and only then waits for another engine round trip. The assertion is
         // unchanged: a new arrangement is #3 of its piece.
         sleep(6)
-        openPieceSheet()
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 3")
                         .waitForExistence(timeout: 180),
                       "the new arrangement did not appear as #3 of the piece")
