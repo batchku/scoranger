@@ -99,7 +99,6 @@ final class ScorangerUITests: XCTestCase {
     /// Reached by the piece row's ☰, which is the one visible control a row
     /// carries. No long press: that is the rule this revision adds.
     private func openPieceSheet() {
-        if app.buttons["piece-new-arrangement-\(pieceSlug)"].exists { return }
         rowMenu(piece)
         XCTAssertTrue(app.buttons["piece-new-arrangement-\(pieceSlug)"]
                         .waitForExistence(timeout: 20),
@@ -107,8 +106,25 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// A row's ☰. Pushes to the item's screen.
-    private func rowMenu(_ id: String) {
+    /// Get back to the library's own list, from wherever the test has got to.
+    ///
+    /// The score covers the tabs, and the library keeps a navigation stack --
+    /// so "tap tab-library" lands on whatever was last pushed, not on the list.
+    /// Both have to be unwound or the next tap goes somewhere unintended.
+    private func resetToLibraryRoot() {
+        if app.buttons["score-close"].exists { app.buttons["score-close"].tap() }
         app.buttons["tab-library"].tap()
+        for _ in 0..<4 {
+            guard app.buttons["segment-pieces"].exists == false else { break }
+            let back = app.buttons.matching(
+                NSPredicate(format: "label BEGINSWITH %@", "Back to")).firstMatch
+            guard back.exists, back.isHittable else { break }
+            back.tap()
+        }
+    }
+
+    private func rowMenu(_ id: String) {
+        resetToLibraryRoot()
         let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", id)).firstMatch
@@ -123,10 +139,7 @@ final class ScorangerUITests: XCTestCase {
     /// The arrangement screen: the per-item actions screen (§3.2).
     private func openArrangementScreen(_ slug: String) {
         openPieceSheet()
-        let menu = app.buttons["row-menu-\(slug)"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 20),
-                      "no ☰ on the arrangement row")
-        menu.tap()
+        tapAnyway(app.buttons["row-menu-\(slug)"], in: app.scrollViews.firstMatch)
         XCTAssertTrue(app.buttons["arrangement-title"].waitForExistence(timeout: 20),
                       "the arrangement screen did not open")
     }
@@ -190,6 +203,18 @@ final class ScorangerUITests: XCTestCase {
     /// A pushed screen scrolls, and `exists` is true for something below the
     /// fold -- so a tap can land on nothing while the assertion before it
     /// passes. That is what made the part rows look unreachable.
+    /// Tap something that exists, wherever it is.
+    ///
+    /// `isHittable` is false for anything below the fold, and scrolling does
+    /// not always bring a row inside a nested scroll view into reach. A
+    /// coordinate tap goes to the element's own frame and does not care.
+    private func tapAnyway(_ element: XCUIElement, in container: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 20),
+                      "no element to tap: \(element)")
+        if scrollTo(element, in: container) { element.tap(); return }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     @discardableResult
     private func scrollTo(_ element: XCUIElement, in container: XCUIElement,
                           tries: Int = 6) -> Bool {
@@ -632,8 +657,10 @@ final class ScorangerUITests: XCTestCase {
         save.tap()
         XCTAssertTrue(waitForDisappearance(of: save, timeout: 60),
                       "Save still offered after a successful write")
-        goBack()
-        XCTAssertTrue(app.buttons["arrangement-choice-\(firstArrangement)"].exists,
+        goBack()            // details -> arrangement screen
+        goBack()            // arrangement -> piece screen
+        XCTAssertTrue(app.buttons["arrangement-choice-\(firstArrangement)"]
+                        .waitForExistence(timeout: 20),
                       "the slug-based identifier must survive a rename")
     }
 
