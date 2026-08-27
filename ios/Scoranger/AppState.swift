@@ -58,6 +58,9 @@ final class AppState: ObservableObject {
     /// The hit-test model for the engraving currently on screen, built from the
     /// same Verovio load that drew it.
     @Published var geometry: ScoreGeometry?
+    /// What each chord symbol already carries, by address — the chip's starting
+    /// point, so a nudge builds on the file rather than on the default.
+    @Published var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     /// Bumped to ask the UI to open chat, with text for its input: how a
     /// finished lasso shows the user that the selection registered.
     /// The setlist being played, if the score was opened from one. It is what
@@ -133,6 +136,26 @@ final class AppState: ObservableObject {
     /// Said once, on the chip, when an edit did not leave the selection whole.
     @Published var selectionCarryNote: String?
 
+    // MARK: - Adjusting a chord symbol's size and position
+    //
+    // Taps accumulate here and commit ONCE, when the reader leaves the element.
+    // The notation is versioned, so committing per tap would spend a version on
+    // every button press. See docs/size-and-position-spec.md, "Committing".
+
+    /// The adjustment in progress, or nil when nothing adjustable is selected.
+    @Published var adjustSession: ChordAdjustSession?
+    /// The element the session belongs to, so selecting another commits the
+    /// first rather than silently retargeting it.
+    @Published private(set) var adjustTarget: ScoreAddress?
+    /// Groups the versions one sitting produces, the way a chat turn's steps
+    /// are grouped -- four nudges should read as one adjustment, not four
+    /// unrelated versions.
+    private var adjustTurnID: String?
+    private var adjustIdleTask: Task<Void, Never>?
+
+    /// Three seconds of no further taps counts as leaving the element.
+    static let adjustIdleCommit: Duration = .seconds(3)
+
     /// Hand the finished selection to chat. Called by the chip's confirm
     /// button, never by a gesture.
     func confirmSelectionForChat() {
@@ -146,10 +169,192 @@ final class AppState: ObservableObject {
     /// The mode goes with it: it is meaningless without a selection, and
     /// leaving it set is what trapped the user in Subtract.
     func clearSelection() {
+        // Leaving the element is what commits it. Dropping the selection with
+        // an uncommitted nudge would throw the reader's work away silently.
+        commitAdjustment()
         selection = nil
         selectionPaths = [:]
         selectionKey = nil
         combineMode = .replace
+    }
+
+    // MARK: - The adjustment session
+
+    /// Point the session at whatever is selected now, committing whatever the
+    /// last element had pending.
+    ///
+    /// Called whenever the selection changes. Selecting a second chord symbol
+    /// while the first has an uncommitted nudge must WRITE the first, not
+    /// retarget the pending values onto the new one.
+    func retargetAdjustment() {
+        guard let selection = activeSelection, selection.isAdjustable,
+              let address = selection.addresses.first else {
+            commitAdjustment()
+            closeAdjustTurn()
+            adjustSession = nil
+            adjustTarget = nil
+            return
+        }
+        if adjustTarget == address { return }
+        commitAdjustment()
+        closeAdjustTurn()
+        adjustSession = ChordAdjustSession(
+            size: chordSize(at: address) ?? ChordAdjustSession.defaultSize,
+            committedDX: chordOffset(at: address).dx,
+            committedDY: chordOffset(at: address).dy)
+        adjustTarget = address
+        adjustTurnID = nil
+    }
+
+    /// A tap on one of the chip's buttons: change the pending value, redraw
+    /// locally, and restart the idle timer. Nothing reaches the engine here.
+    func adjust(_ change: (inout ChordAdjustSession) -> Void) {
+        guard var session = adjustSession else { return }
+        change(&session)
+        adjustSession = session
+        scheduleAdjustCommit()
+    }
+
+    private func scheduleAdjustCommit() {
+        adjustIdleTask?.cancel()
+        adjustIdleTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.adjustIdleCommit)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { self?.commitAdjustment() }
+        }
+    }
+
+    /// Write the pending adjustment, as ONE op. Safe to call when there is
+    /// nothing pending -- an empty commit would still cost a version.
+    func commitAdjustment() {
+        adjustIdleTask?.cancel()
+        adjustIdleTask = nil
+        guard var session = adjustSession, let address = adjustTarget,
+              let commit = session.commit(),
+              let slug = selectedScore?.slug,
+              let part = partName(forStaff: address.staff) else { return }
+        adjustSession = session   // the commit clears what was pending
+        // Group this sitting's versions the way a chat turn's steps are
+        // grouped, using the SAME mechanism rather than a parallel one -- four
+        // nudges should read as one adjustment in the version list, not as four
+        // unrelated versions.
+        let openTurn = adjustTurnID == nil
+        adjustTurnID = adjustTurnID ?? UUID().uuidString
+        let what = "Adjusted the chord symbol in bar \(address.measure)"
+        Task {
+            if openTurn {
+                _ = try? await local.call(op: "begin-turn",
+                                          args: ["score": slug, "prompt": what])
+            }
+            var args: [String: Any] = ["score": slug, "part": part,
+                                       "kind": "harm",
+                                       "measure": address.measure,
+                                       "ordinal": address.ordinal]
+            if commit.reset {
+                args["reset"] = true
+            } else {
+                if let size = commit.size { args["size"] = size }
+                if let x = commit.offsetX { args["offset_x"] = x }
+                if let y = commit.offsetY { args["offset_y"] = y }
+            }
+            do {
+                _ = try await local.call(op: "adjust-element", args: args)
+                await refresh()
+                await renderIfNeeded(force: true)
+            } catch let e as EngineError {
+                lastError = e.error
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - The part-wide default
+
+    /// The size new chord symbols inherit. Per-element overrides are absolute
+    /// points in the notation, so they survive this changing.
+    @Published var chordDefaultSize: Int = ChordAdjustSession.defaultSize
+
+    func canStepChordDefault(_ step: ChordAdjustSession.SizeStep) -> Bool {
+        var probe = ChordAdjustSession(size: chordDefaultSize)
+        return probe.canResize(step)
+    }
+
+    func stepChordDefault(_ step: ChordAdjustSession.SizeStep) {
+        var probe = ChordAdjustSession(size: chordDefaultSize)
+        guard probe.canResize(step) else { return }
+        probe.resize(step)
+        chordDefaultSize = probe.pending.size
+        applyChordDefault()
+    }
+
+    /// One op over every chord symbol in the part.
+    private func applyChordDefault() {
+        guard let slug = selectedScore?.slug, let part = chordPartName() else { return }
+        Task {
+            do {
+                _ = try await local.call(op: "adjust-element",
+                                         args: ["score": slug, "part": part,
+                                                "kind": "harm", "all": true,
+                                                "size": chordDefaultSize])
+                await refresh()
+                await renderIfNeeded(force: true)
+            } catch let e as EngineError { lastError = e.error }
+            catch { lastError = error.localizedDescription }
+        }
+    }
+
+    /// Put every chord symbol in the part back to the inherited size and no
+    /// offset. The way out of a part someone has nudged ten symbols in.
+    func resetAllChordAdjustments() {
+        guard let slug = selectedScore?.slug, let part = chordPartName() else { return }
+        chordDefaultSize = ChordAdjustSession.defaultSize
+        Task {
+            do {
+                _ = try await local.call(op: "adjust-element",
+                                         args: ["score": slug, "part": part,
+                                                "kind": "harm", "all": true,
+                                                "reset": true])
+                await refresh()
+                await renderIfNeeded(force: true)
+            } catch let e as EngineError { lastError = e.error }
+            catch { lastError = error.localizedDescription }
+        }
+    }
+
+    /// The part carrying chord symbols -- the selected one where the reader has
+    /// picked a symbol, else the first part that has any.
+    private func chordPartName() -> String? {
+        if let address = adjustTarget, let named = partName(forStaff: address.staff) {
+            return named
+        }
+        return selectedScore?.versions.last?.parts?.first?.name
+    }
+
+    /// End the grouping once the reader has moved on, so the NEXT element's
+    /// adjustments are their own group rather than joining this one.
+    private func closeAdjustTurn() {
+        guard adjustTurnID != nil else { return }
+        adjustTurnID = nil
+        Task { _ = try? await local.call(op: "end-turn", args: [:]) }
+    }
+
+    /// The part a staff belongs to, which is what the op is addressed by.
+    private func partName(forStaff staff: Int) -> String? {
+        let parts = selectedScore?.versions.last?.parts ?? []
+        guard staff >= 1, staff <= parts.count else { return parts.first?.name }
+        return parts[staff - 1].name
+    }
+
+    /// What the notation already carries for this symbol, so the session starts
+    /// from the truth rather than from the default.
+    private func chordSize(at address: ScoreAddress) -> Int? {
+        chordAdjustments[address]?.size.map { Int($0.rounded()) }
+    }
+
+    private func chordOffset(at address: ScoreAddress) -> (dx: Int, dy: Int) {
+        let adjustment = chordAdjustments[address]
+        return (Int((adjustment?.dx ?? 0).rounded()), Int((adjustment?.dy ?? 0).rounded()))
     }
 
     /// A finished lasso: what it caught, drawn where it was drawn, handed to
@@ -178,6 +383,9 @@ final class AppState: ObservableObject {
         // never be changed back
         combineMode = SelectionCombine.modeAfter(combineMode,
                                                  selectionIsEmpty: combined.isEmpty)
+        // Selecting a different symbol WRITES whatever the last one had
+        // pending, rather than carrying the pending values onto it.
+        retargetAdjustment()
         // Nothing is inserted into the chat box here any more (#4c). The user
         // builds the selection up -- lasso, add with a held finger, drop what
         // they did not mean -- and hands it over when it is right, by tapping
@@ -705,6 +913,7 @@ final class AppState: ObservableObject {
         do {
             let data: Data
             var model: ScoreGeometry?
+            var engravedAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
                 // one engrave: the pages drawn and the model hit-tested are the
@@ -712,6 +921,7 @@ final class AppState: ObservableObject {
                 let engraving = try await VerovioRenderer.shared.engrave(musicXMLPath: path)
                 data = engraving.pdf
                 model = engraving.geometry
+                engravedAdjustments = engraving.chordAdjustments
             } else {
                 data = try await client.exportPDF(score: score.slug, version: vid)
             }
@@ -719,9 +929,13 @@ final class AppState: ObservableObject {
                 rendered = true
                 pdfDocument = PDFDocument(data: data)
                 geometry = model
+                chordAdjustments = engravedAdjustments
                 let previousKey = geometryKey
                 geometryKey = key
                 carrySelection(from: previousKey, to: key, into: model)
+                // the addresses survived the re-render, so the session follows
+                // them: nudge, commit, nudge again on the same symbol
+                retargetAdjustment()
                 lastError = nil
             }
         } catch let e as EngineError {

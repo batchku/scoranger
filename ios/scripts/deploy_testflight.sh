@@ -39,6 +39,15 @@ PY=$(python_with_cryptography)
 [[ -d "Vendor/Python.xcframework" ]] || die "Vendor/Python.xcframework missing -- run scripts/fetch_python.sh"
 [[ -d "PythonApp/app_packages" ]]    || die "PythonApp/app_packages missing -- run scripts/vendor_engine.sh"
 
+# The vendored engine is gitignored and regenerated, and checking only that the
+# directory EXISTS let a stale copy ship: `adjust_element` was written, tested
+# and shipped in the engine while the app carried an ops.py without it, so the
+# feature simply was not there on device and nothing said so.
+for f in __init__.py ops.py workspace.py db.py; do
+  cmp -s "../engine/scoranger_engine/$f" "PythonApp/app/scoranger_engine/$f" \
+    || die "vendored $f is stale -- run scripts/vendor_engine.sh"
+done
+
 [[ -f "$SIGNING_PROFILE" ]] || die "no provisioning profile at $SIGNING_PROFILE -- run scripts/bootstrap_signing.sh"
 [[ -f "$KEYCHAIN_PATH" ]]   || die "no signing keychain at $KEYCHAIN_PATH -- run scripts/bootstrap_signing.sh"
 

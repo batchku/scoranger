@@ -125,6 +125,10 @@ struct ScreenRow: View {
 /// there is nothing to dismiss: `Keep` puts the row back.
 struct ConfirmDeleteStrip: View {
     let what: String
+    /// What the confirming button says. Deleting is the common case, but the
+    /// same two-step strip is the app's answer to any irreversible action --
+    /// a reset that throws away every nudge in a part is one.
+    var verb: String = "Delete"
     var identifier: String
     var onDelete: () -> Void
     var onKeep: () -> Void
@@ -140,7 +144,7 @@ struct ConfirmDeleteStrip: View {
             PanelButton(title: "Keep", action: onKeep)
                 .accessibilityIdentifier("\(identifier)-keep")
             Button(action: onDelete) {
-                Text("Delete").typeRole(.control)
+                Text(verb).typeRole(.control)
                     .foregroundStyle(Theme.Surface.paper)
                     .padding(.horizontal, Theme.Metric.s12)
                     .padding(.vertical, Theme.Metric.s6)

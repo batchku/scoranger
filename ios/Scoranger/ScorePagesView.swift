@@ -161,6 +161,92 @@ struct ScorePagesView: View {
         if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
+    /// POSITION ◀ ▲ ▼ ▶ │ SIZE A⁻ 14 pt A⁺ │ Reset, and the pending line.
+    @ViewBuilder
+    private var adjustRow: some View {
+        if let session = state.adjustSession {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: Theme.Metric.s6) {
+                    Text("POSITION").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                    nudge(.left, "chevron.left", "left")
+                    nudge(.up, "chevron.up", "up")
+                    nudge(.down, "chevron.down", "down")
+                    nudge(.right, "chevron.right", "right")
+
+                    Divider().frame(height: 16)
+
+                    Text("SIZE").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                    resize(.smaller, "textformat.size.smaller", "smaller")
+                    Text("\(session.pending.size) pt")
+                        .typeRole(.data).foregroundStyle(Theme.Ink.ink)
+                        .frame(minWidth: 40)
+                        .accessibilityIdentifier("adjust-size")
+                    resize(.bigger, "textformat.size.larger", "bigger")
+
+                    Divider().frame(height: 16)
+
+                    Button("Reset") { state.adjust { $0.reset() } }
+                        .typeRole(.meta)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("adjust-reset")
+                    Spacer(minLength: 0)
+                }
+                if let pending = session.pendingDescription {
+                    HStack(spacing: Theme.Metric.s8) {
+                        Text("pending: \(pending)")
+                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink2)
+                            .accessibilityIdentifier("adjust-pending")
+                        Button("Revert") { state.adjust { $0.revert() } }
+                            .typeRole(.meta)
+                            .foregroundStyle(Theme.Accent.clayStrong)
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("adjust-revert")
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    /// One nudge button. Press-and-hold repeats, but a plain tap always works
+    /// on its own -- the repeat is a convenience, never the only way.
+    private func nudge(_ direction: ChordAdjustSession.Direction,
+                       _ glyph: String, _ word: String) -> some View {
+        let enabled = state.adjustSession?.canNudge(direction) ?? false
+        return Button {
+            state.adjust { $0.nudge(direction) }
+        } label: {
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 32, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.42)
+        .accessibilityLabel("Move \(word) half a staff space")
+        .accessibilityIdentifier("adjust-\(word)")
+    }
+
+    private func resize(_ step: ChordAdjustSession.SizeStep,
+                        _ glyph: String, _ word: String) -> some View {
+        let enabled = state.adjustSession?.canResize(step) ?? false
+        return Button {
+            state.adjust { $0.resize(step) }
+        } label: {
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 32, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.42)
+        .accessibilityLabel("Make it \(word)")
+        .accessibilityIdentifier("adjust-\(word)")
+    }
+
     /// A finished touch that might be a turn. Who may turn, and in which zone,
     /// is still PageTurn's answer -- the §6 arbitration table is unchanged.
     /// What a turn DOES is all that changed: it steps the index.
@@ -290,6 +376,15 @@ struct ScorePagesView: View {
                     Text(note).typeRole(.meta)
                         .foregroundStyle(Theme.Status.warn)
                         .accessibilityIdentifier("selection-carry-note")
+                }
+                // Position and size, for a selection of chord symbols. One
+                // row, docked with the chip rather than floating beside the
+                // element: a cluster that followed the selection would sit on
+                // the music, land off the page near an edge, and move under the
+                // thumb as the symbol moved -- and the symbol is the thing you
+                // need to watch while you nudge it.
+                if selection.isAdjustable, state.adjustSession != nil {
+                    adjustRow
                 }
                 HStack(spacing: Theme.Metric.s8) {
                     PanelButton(title: "Use in chat", kind: .primary) {

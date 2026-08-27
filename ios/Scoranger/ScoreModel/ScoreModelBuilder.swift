@@ -186,6 +186,21 @@ struct ScoreSelection: Equatable {
         return from.split(separator: "/").first == to.split(separator: "/").first
     }
 
+    /// Kinds whose size and position can be adjusted from the chip.
+    ///
+    /// Chord symbols only for now. The mechanism generalises -- whistle
+    /// fingerings are lyric-anchored the same way -- but the spec's first
+    /// increment is deliberately one kind.
+    static let adjustableKinds: Set<ScoreElementKind> = [.harm]
+
+    /// True when EVERY selected element can be adjusted, so the chip's position
+    /// and size row is shown. A mixed selection does not get it: nudging a
+    /// notehead is a different feature with different rules, and offering a
+    /// control that silently skips half the selection is worse than none.
+    var isAdjustable: Bool {
+        !addresses.isEmpty && addresses.allSatisfy { Self.adjustableKinds.contains($0.kind) }
+    }
+
     /// The addresses themselves, for an op that must touch exactly these
     /// elements and nothing else.
     var addressList: [String] { addresses.map(\.description) }

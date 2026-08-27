@@ -272,6 +272,74 @@ def chord_adjustments(musicxml_path) -> list[dict]:
     return out
 
 
+def chart_placements(musicxml_path) -> list[bool]:
+    """Whether each chord symbol asks to sit ON the staff, in document order.
+
+    `chart_style` records the Real Book intent in the notation --
+    `placement="below"` and a `default-y` in tenths -- and this reads it back.
+    Before this existed the renderer stamped the treatment onto EVERY score
+    with a chord symbol, so a plain lead sheet came out of the PDF looking like
+    a chart and out of the app looking like itself. Both renderers draw what
+    the notation says now; neither decides.
+    """
+    try:
+        text = Path(musicxml_path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [bool(re.search(r'placement="below"', tag) and re.search(r'default-y=', tag))
+            for tag in _HARMONY_TAG_RE.findall(text)]
+
+
+def mei_with_chart_styling(mei: str, musicxml_path) -> str | None:
+    """Put the Real Book treatment on the symbols that asked for it.
+
+    Names on the staff, centred in the bar, bold -- but only where the notation
+    carries the intent. Returns None when no symbol asks, so the caller can skip
+    a Verovio reload.
+
+    Mirrored in ios/Scoranger/ChordPlacement.swift; keep the two in step.
+    """
+    wants = chart_placements(musicxml_path)
+    if not any(wants):
+        return None
+
+    meter = re.search(r'<meterSig[^>]*\bcount="(\d+)"', mei) or re.search(
+        r'meter\.count="(\d+)"', mei)
+    mid = ((int(meter.group(1)) + 1) / 2) if meter else None
+
+    index = 0
+
+    def style(match):
+        nonlocal index
+        tag = match.group(0)
+        on_staff = wants[index] if index < len(wants) else False
+        index += 1
+        if not on_staff:
+            return tag
+        tag = re.sub(r'\s+place="[^"]*"', "", tag)
+        tag = tag.replace("<harm", '<harm place="within"', 1)
+        if mid is not None:
+            tag = re.sub(r'tstamp="[^"]*"', f'tstamp="{mid:g}"', tag)
+        return tag
+
+    out = re.sub(r"<harm\b[^>]*>", style, mei)
+
+    # bold only the ones that asked, so an unstyled neighbour keeps its weight
+    index = 0
+
+    def embolden(match):
+        nonlocal index
+        on_staff = wants[index] if index < len(wants) else False
+        index += 1
+        if not on_staff:
+            return match.group(0)
+        return (match.group(1)
+                + f'<rend fontweight="bold" fontsize="150%">{match.group(2)}</rend>'
+                + match.group(3))
+
+    return re.sub(r"(<harm\b[^>]*>)([^<]+)(</harm>)", embolden, out)
+
+
 def mei_with_chord_adjustments(mei: str, musicxml_path) -> str | None:
     """Carry each chord symbol's offset into the MEI, or None if none have one."""
     adjustments = chord_adjustments(musicxml_path)
@@ -628,30 +696,36 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             mei = above
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with fingerings above")
-        if "<harm" in mei:
-            # Real Book chord-lane styling, applied semantically in MEI:
-            # names ON the staff, centered in the bar, Helvetica bold, and
-            # grey staff lines on any staff that carries chord symbols.
-            mei = re.sub(r'(<harm\b[^>]*?)\s+place="[^"]*"', r"\1", mei)
-            mei = re.sub(r"<harm\b", '<harm place="within"', mei)
-            meter = re.search(r'<meterSig[^>]*\bcount="(\d+)"', mei) or re.search(
-                r'meter\.count="(\d+)"', mei)
-            if meter:
-                mid = (int(meter.group(1)) + 1) / 2
-                mei = re.sub(r'(<harm\b[^>]*?)tstamp="[^"]*"',
-                             rf'\1tstamp="{mid:g}"', mei)
-            mei = re.sub(
-                r"(<harm\b[^>]*>)([^<]+)(</harm>)",
-                r'\1<rend fontweight="bold" fontsize="150%">\2</rend>\3',
-                mei)
-            harm_staves = {int(n) for n in re.findall(r'<harm\b[^>]*\bstaff="(\d+)"', mei)}
+        # Real Book chord-lane styling, applied ONLY to the symbols whose
+        # notation asks for it. This used to stamp every score that had a chord
+        # symbol, which is why a plain lead sheet came out of the PDF on the
+        # staff and out of the app above it -- the same file, two placements,
+        # and no way for "move it up half a space" to mean one thing.
+        styled = mei_with_chart_styling(mei, src)
+        if styled is not None:
+            mei = styled
+            harm_staves = {int(n) for n in
+                           re.findall(r'<harm\b[^>]*\bplace="within"[^>]*\bstaff="(\d+)"', mei)}
+            harm_staves |= {int(n) for n in
+                            re.findall(r'<harm\b[^>]*\bstaff="(\d+)"[^>]*\bplace="within"', mei)}
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with chart styling")
         else:
             harm_staves = set()
+
+        # The reader's own nudges. These functions existed and were checked in
+        # isolation, but nothing in the PDF path ever called them -- so an
+        # adjustment showed on screen and vanished from the export.
+        adjusted = mei_with_chord_adjustments(mei, src)
+        if adjusted is not None:
+            mei = adjusted
+            if not tk.loadData(mei):
+                raise RuntimeError("Verovio could not reload MEI with chord offsets")
         n_pages = tk.getPageCount()
         svgs = [_fingering_diagrams(
-                    _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves))
+                    apply_chord_sizes(
+                        _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves),
+                        src))
                 for p in range(1, n_pages + 1)]
     for svg in svgs:
         pdf_page = cairosvg.svg2pdf(bytestring=svg.encode())

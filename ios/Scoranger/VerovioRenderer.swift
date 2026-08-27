@@ -64,6 +64,12 @@ actor VerovioRenderer {
         /// selection that cannot be made is better than a score that cannot be
         /// read.
         let geometry: ScoreGeometry?
+        /// What each chord symbol already carries, by address, so the chip
+        /// starts a nudge from the truth in the file rather than from the
+        /// default. Matched by document order -- the same 1:1 correspondence
+        /// between <harmony> tags and <harm> elements that ChordAdjustments
+        /// relies on to place the offsets in the first place.
+        var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     }
 
     func engrave(musicXMLPath: String) throws -> Engraving {
@@ -88,6 +94,16 @@ actor VerovioRenderer {
         var reload = false
         if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
             mei = above
+            reload = true
+        }
+        // Real Book placement, for the symbols whose notation asks for it. The
+        // PDF renderer used to apply this to EVERY score with a chord symbol
+        // and this one to none, so the same file drew its names on the staff in
+        // an export and above it here -- and a nudge would have meant two
+        // different things. Both read the notation now.
+        if let styled = ChordPlacement.meiWithChartStyling(
+            mei, onStaff: ChordPlacement.onStaffFlags(inMusicXML: source)) {
+            mei = styled
             reload = true
         }
         if let placed = ChordAdjustments.meiWithAdjustments(mei, adjustments: adjustments) {
@@ -119,7 +135,26 @@ actor VerovioRenderer {
         }
         // the same MEI the pages were drawn from, so addresses line up
         let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: mei)
-        return Engraving(pdf: data, geometry: geometry)
+        return Engraving(pdf: data, geometry: geometry,
+                         chordAdjustments: Self.byAddress(adjustments, in: geometry))
+    }
+
+    /// Pair each chord symbol's stored adjustment with its address.
+    ///
+    /// Both sequences are in document order -- the geometry's harm elements
+    /// come from the same MEI the offsets were written into -- so they zip.
+    /// A mismatch in count means the join is unsafe, and nothing is returned
+    /// rather than a map that is subtly wrong about which symbol is which.
+    static func byAddress(_ adjustments: [ChordAdjustments.Adjustment],
+                          in geometry: ScoreGeometry?)
+        -> [ScoreAddress: ChordAdjustments.Adjustment] {
+        guard let geometry, !adjustments.isEmpty else { return [:] }
+        let harms = geometry.pages
+            .flatMap(\.elements)
+            .compactMap(\.address)
+            .filter { $0.kind == .harm }
+        guard harms.count == adjustments.count else { return [:] }
+        return Dictionary(uniqueKeysWithValues: zip(harms, adjustments))
     }
 
     /// Pages only, for callers with nothing to select (export, iPhone).

@@ -33,6 +33,8 @@ struct ScoreOptionsScreen: View {
     /// sheet is how iOS puts a file into Files, Mail or another program, and
     /// re-implementing it would be both worse and impossible.
     @State private var sharing: URL?
+    /// The two-step inline confirm for the part-wide reset (no dialog).
+    @State private var resettingChords = false
 
     var body: some View {
         Group {
@@ -95,6 +97,68 @@ struct ScoreOptionsScreen: View {
         .padding(.bottom, Theme.Metric.s32)
     }
 
+    /// The part-wide half of size and position: the default every chord symbol
+    /// in the part inherits, and the way back out of every override.
+    ///
+    /// Per-element values are absolute points in the notation, so they survive
+    /// this default changing -- which is the point of storing them that way.
+    @ViewBuilder
+    private var chordSymbolRows: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Text("Default size").typeRole(.row).foregroundStyle(Theme.Ink.ink)
+            Spacer(minLength: Theme.Metric.s8)
+            Button {
+                state.stepChordDefault(.smaller)
+            } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .frame(width: 34, height: 32).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.canStepChordDefault(.smaller))
+            .opacity(state.canStepChordDefault(.smaller) ? 1 : 0.42)
+            .accessibilityLabel("Smaller default chord size")
+            .accessibilityIdentifier("chords-smaller")
+
+            Text("\(state.chordDefaultSize) pt")
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink)
+                .frame(minWidth: 44)
+                .accessibilityIdentifier("chords-size")
+
+            Button {
+                state.stepChordDefault(.bigger)
+            } label: {
+                Image(systemName: "textformat.size.larger")
+                    .frame(width: 34, height: 32).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.canStepChordDefault(.bigger))
+            .opacity(state.canStepChordDefault(.bigger) ? 1 : 0.42)
+            .accessibilityLabel("Bigger default chord size")
+            .accessibilityIdentifier("chords-bigger")
+        }
+        .padding(.horizontal, Theme.Metric.s20)
+        .padding(.vertical, Theme.Metric.s12)
+
+        note("New chord symbols inherit this. A symbol you have nudged or "
+             + "resized keeps its own size until you reset it.")
+
+        BandHeader("Careful")
+        if resettingChords {
+            ConfirmDeleteStrip(what: "every chord symbol's size and position in this part",
+                               verb: "Reset all",
+                               identifier: "chords-confirm-reset",
+                               onDelete: {
+                                   resettingChords = false
+                                   state.resetAllChordAdjustments()
+                               },
+                               onKeep: { resettingChords = false })
+        } else {
+            ScreenRow(title: "Reset all adjustments", leads: false,
+                      isDestructive: true,
+                      identifier: "chords-reset-all") { resettingChords = true }
+        }
+    }
+
     /// One row per format, each saying what it is FOR rather than what it is:
     /// "Open in another notation program" beats "MusicXML" for anyone who does
     /// not already know what MusicXML is.
@@ -126,6 +190,8 @@ struct ScoreOptionsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             switch section {
             case "Score display":
+                ScreenRow(title: "Chord symbols", value: "size and position",
+                          identifier: "display-chords") { push("Chord symbols") }
                 PanelToggle(title: "Two pages side by side", isOn: $state.twoPageSpread)
                     .padding(Theme.Metric.s20)
                     .accessibilityIdentifier("display-spread")
@@ -167,6 +233,8 @@ struct ScoreOptionsScreen: View {
                         }
                     }
                 }
+            case "Chord symbols":
+                chordSymbolRows
             case "Share & export":
                 exportRows
             default:

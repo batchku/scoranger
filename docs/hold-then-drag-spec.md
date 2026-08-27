@@ -1,3 +1,8 @@
+> **Superseded 2026-08-27.** Dragging was removed from the app entirely
+> (`design/NAV_MODAL_FREE_0.4.2.md` §4B). Element repositioning is now the
+> button-driven interaction in `docs/size-and-position-spec.md`
+> §"Interaction — no drag, no modal". Kept for the measurements only.
+
 # Selection gesture (superseded: hold-then-drag)
 
 **This scheme is no longer implemented.** It shipped in 0.2.3–0.2.4 and never
