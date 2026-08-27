@@ -29,7 +29,6 @@ struct RootView: View {
     @State private var filters: Set<LibraryFilter> = []
     @State private var editing = false
 
-    @State private var pieceChoice: String?
     @State private var setlistPickerScore: ScoreDoc?
     @State private var arrangementPickerSetlist: SetlistDoc?
     @State private var movingScores: [ScoreDoc] = []
@@ -374,7 +373,7 @@ struct RootView: View {
             // a piece opens its arrangement sheet, which lists versions per
             // arrangement; a lone arrangement opens straight into its own
             if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
-                pieceChoice = row.id
+                libraryPath.append(.piece(row.id))
             } else if let score { detailsScore = score }
         case .details:
             if let score { detailsScore = score }
@@ -430,7 +429,12 @@ struct RootView: View {
         if piece.arrangements.count == 1, let only = piece.arrangements.first {
             open(only)
         } else {
-            pieceChoice = slug
+            // A piece with several arrangements PUSHES its screen (§4). It
+            // used to open a sheet; the sheet is gone, and for a while this
+            // set a flag nothing rendered -- so tapping such a piece did
+            // nothing at all.
+            if tab == .home { homePath.append(.piece(slug)) }
+            else { libraryPath.append(.piece(slug)) }
         }
     }
 

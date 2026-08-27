@@ -78,6 +78,9 @@ final class ScorangerUITests: XCTestCase {
         let direct = app.buttons["row-\(slug)"]
         if direct.waitForExistence(timeout: 5) { direct.tap(); return }
 
+        // A piece with several arrangements pushes its screen; the arrangement
+        // is chosen there. A piece is not openable -- opening one means opening
+        // one of its arrangements.
         let pieceRow = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", piece)).firstMatch
@@ -86,7 +89,9 @@ final class ScorangerUITests: XCTestCase {
         pieceRow.tap()
 
         let choice = app.buttons["arrangement-choice-\(slug)"]
-        if choice.waitForExistence(timeout: 10) { choice.tap() }
+        XCTAssertTrue(choice.waitForExistence(timeout: 30),
+                      "the piece screen did not list its arrangements")
+        choice.tap()
     }
 
     /// The piece screen -- where the arrangement sheet went (§3.1).
