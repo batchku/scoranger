@@ -328,8 +328,14 @@ struct ScoreInfoView: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("part-\(part.index)")
+            // One element, not a container. A Button whose label is a stack is
+            // reported as a container, and a tap on it reaches the container
+            // rather than the button -- so the row was findable and tapping it
+            // did nothing. Fourth time in this project.
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Rename \(part.name)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("part-\(part.index)")
         }
     }
 

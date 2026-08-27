@@ -713,7 +713,6 @@ final class ScorangerUITests: XCTestCase {
     /// metadata the user can edit too.
     func testPartNamesAreEditableFromTheSheet() {
 
-        openArrangement(firstArrangement)
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
@@ -805,7 +804,6 @@ final class ScorangerUITests: XCTestCase {
 
         // a blank arrangement, unfiled: created in the piece, then unfiled, so
         // the test does not depend on what the seed happens to contain
-        openArrangement(firstArrangement)
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
@@ -914,7 +912,6 @@ final class ScorangerUITests: XCTestCase {
     /// real gap rather than a harness limit).
     func testDraggingAnUnfiledArrangementOntoAPieceFilesIt() {
 
-        openArrangement(firstArrangement)
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 20))
