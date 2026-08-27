@@ -992,6 +992,35 @@ final class ScorangerUITests: XCTestCase {
     // MARK: - Selection (build 124)
 
     /// The old yellow-band highlight is gone, replaced by a real selection.
+    /// The title in the score bar opens a band listing the piece's other
+    /// arrangements and this arrangement's recent versions -- the one place
+    /// switching happens while you are reading (§6.3).
+    func testTheTitleBandOpensFromTheScoreTitle() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        let title = app.buttons["score-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "no title in the score bar")
+        title.tap()
+        XCTAssertTrue(title.isSelected, "the title does not show that it is open")
+        // both columns, by their rows: an identifier on the band itself would
+        // be inherited by the columns and swallow every row in them
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-arrangement-"))
+                        .firstMatch.waitForExistence(timeout: 20),
+                      "the band lists no arrangements")
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+                        .firstMatch.waitForExistence(timeout: 20),
+                      "tapping the title did not open the band")
+        shot("title-band")
+        title.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+                        .firstMatch, timeout: 10),
+                      "the band did not close again")
+    }
+
     func testTheOldHighlightFeatureIsGone() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
@@ -1380,7 +1409,11 @@ final class ScorangerUITests: XCTestCase {
         // switch to an earlier version, from the title dropdown -- which is
         // where switching version lives now, and where a reader would do it
         app.buttons["score-title"].tap()
-        let rows = app.descendants(matching: .any).matching(
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+                        .firstMatch.waitForExistence(timeout: 20),
+                      "the title band never opened")
+        let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else {
             return XCTFail("need more than one version to switch between")
@@ -1423,7 +1456,13 @@ final class ScorangerUITests: XCTestCase {
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
 
         app.buttons["score-title"].tap()
-        let rows = app.descendants(matching: .any).matching(
+        // wait for the band, then count: counting a query the instant after a
+        // tap counts an empty screen
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+                        .firstMatch.waitForExistence(timeout: 20),
+                      "the title band never opened")
+        let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else { return XCTFail("need two versions in the dropdown") }
         rows.element(boundBy: rows.count - 1).tap()

@@ -192,7 +192,12 @@ struct TitleSwitcherBand: View {
         }
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
-        .accessibilityIdentifier("title-switcher")
+        // NO identifier on this container. An identifier on a stack is taken by
+        // its children: the two columns became two buttons both called
+        // "title-switcher" and every row inside them -- the arrangements, the
+        // versions -- stopped existing. The band was open and unusable, and the
+        // only way to switch version while reading went with it.
+        .accessibilityElement(children: .contain)
     }
 
     private func switchRow(title: String, number: Int?, selected: Bool, id: String,
