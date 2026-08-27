@@ -991,6 +991,55 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Selection (build 124)
 
+    // MARK: - Where am I in the score
+
+    /// The bar readout followed the PAGE, not the viewport: zoomed into bar 30
+    /// it still said bar 1, because it took every measure on the visible page.
+    /// It reads the visible rect now.
+    func testTheBarCounterFollowsTheViewportNotThePage() {
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(8)
+
+        let counter = app.staticTexts["counter-bar"]
+        XCTAssertTrue(counter.waitForExistence(timeout: 30),
+                      "no bar counter in the top bar")
+        let atFit = counter.label
+        XCTAssertTrue(atFit.hasPrefix("bar "), "the counter should name a bar: \(atFit)")
+        let firstBar = Int(atFit.replacingOccurrences(of: "bar ", with: "")) ?? -1
+        XCTAssertGreaterThan(firstBar, 0, "a bar number should be positive: \(atFit)")
+        shot("bar-counter-at-fit")
+
+        // Zoom in HARD, then pan toward the end of the page. One pinch of 3x
+        // only reached 1.17x -- measured -- which left 83% of the page on
+        // screen and bar 1 always in it, so the assertion below could not fail
+        // for the right reason either.
+        for _ in 0..<3 {
+            canvas.pinch(withScale: 4.0, velocity: 3.0)
+            sleep(1)
+        }
+        sleep(3)
+        for _ in 0..<3 {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.55))
+                .press(forDuration: 0.05,
+                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)))
+            sleep(1)
+        }
+        sleep(4)
+
+        let after = app.staticTexts["counter-bar"]
+        XCTAssertTrue(after.exists, "the counter disappeared once zoomed")
+        let laterBar = Int(after.label.replacingOccurrences(of: "bar ", with: "")) ?? -1
+        // STRICTLY greater: the page-based counter this replaced would report
+        // the same bar no matter where the reader panned, so an >= assertion
+        // would pass against the bug it exists to catch.
+        XCTAssertGreaterThan(laterBar, firstBar,
+            "the counter did not follow the viewport: \(atFit) -> \(after.label) "
+            + "pages=\(app.staticTexts["counter-pages"].label)")
+        shot("bar-counter-zoomed")
+    }
+
     // MARK: - Share & export
 
     /// The `Share & export` row used to push to a section with no `case`, so it

@@ -255,12 +255,23 @@ struct ContentView: View {
     }
 
     /// The bar on screen, from the geometry the selection layer already builds.
+    ///
+    /// The visible RECT, not the visible page: reporting every measure on the
+    /// page meant the readout said "bar 1" while the reader was zoomed into
+    /// bar 30. Falls back to the whole page where no rect has been reported
+    /// yet -- the first frame, and the remote-engine path, which builds no
+    /// geometry at all and correctly shows nothing.
     private var barCounter: Int? {
         guard let geometry = state.geometry else { return nil }
-        let measures = state.visiblePageIndices.flatMap { index in
-            geometry.page(index)?.elements.compactMap { $0.address?.measure } ?? []
-        }
-        return ScorePosition.bar(measuresOnScreen: measures)
+        let pages: [(visible: CGRect, bars: [BarPosition.Bar])] =
+            state.visiblePageIndices.compactMap { index in
+                guard let page = geometry.page(index) else { return nil }
+                let bars = BarPosition.bars(onPage: page)
+                let rect = state.visibleBarRects[index]
+                    ?? CGRect(origin: .zero, size: page.size)
+                return (rect, bars)
+            }
+        return BarPosition.first(inPages: pages)
     }
 
     // The score view's dialogs are gone (NAV_MODAL_FREE_0.4.2 §2). Details

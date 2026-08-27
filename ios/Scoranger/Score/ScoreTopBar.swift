@@ -165,7 +165,10 @@ struct PositionCounters: View {
     var body: some View {
         HStack(spacing: Theme.Metric.s6) {
             chip(pages, identifier: "counter-pages")
-            if let bar { chip("bar \(bar)", identifier: "counter-bar") }
+            // one place decides how a bar reads, and it is unit-tested
+            if let label = BarPosition.label(for: bar) {
+                chip(label, identifier: "counter-bar")
+            }
         }
     }
 

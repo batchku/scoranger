@@ -82,6 +82,11 @@ final class AppState: ObservableObject {
     /// index rather than scrolling a stack (NAV_MODAL_FREE_0.4.2 §6).
     @Published var pageIndex: Int = 0
     @Published var visiblePageIndices: [Int] = [0]
+    /// Per page index, the slice of that page currently on screen, in PAGE
+    /// (SVG user) coordinates. Reported by each page so the bar readout can say
+    /// which bar the reader is actually looking at rather than which page they
+    /// are on -- at 4x zoom those are very different answers.
+    @Published var visibleBarRects: [Int: CGRect] = [:]
     // pageBoundaries is gone with the stack it described: a turn changes an
     // index now, so there is no offset to compute or preserve.
     @Published var chatOpenRequest = 0

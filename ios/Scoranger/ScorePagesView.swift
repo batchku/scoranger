@@ -71,8 +71,11 @@ struct ScorePagesView: View {
                            // 20pt bottom padding, and 12 of breathing room
                            bottomChrome: Theme.Metric.pillHeight
                                + Theme.Metric.s20 + Theme.Metric.s12,
-                           onVisibleRectChange: { rect in
+                           onVisibleRectChange: { rect, content in
                                visibleRect = rect
+                               publishVisibleBars(contentRect: rect,
+                                                  contentSize: content,
+                                                  unit: unit, width: width)
                                // The unit IS what is visible now: no bands, no
                                // boundary arithmetic, no mapping a scroll
                                // offset back to a page.
@@ -114,6 +117,48 @@ struct ScorePagesView: View {
         // pill itself has observed the controller since it was written; this is
         // the same fix, in the one place that was missing it.
         .overlay(alignment: .bottom) { AnnotationBarLayer(controller: annotation) }
+    }
+
+    /// Turn the scroll view's visible rect into "which slice of each page is on
+    /// screen", in page (SVG user) coordinates, for the bar readout.
+    ///
+    /// Two spaces meet here. `contentRect` is the scroll view's and moves as
+    /// the reader pans and zooms; each page's own frame is computed from the
+    /// layout, not measured -- a GeometryReader inside this scroll view never
+    /// reported, because SwiftUI is not re-laid-out as UIKit scrolls it.
+    /// Intersecting them gives the visible slice of each page, and the page's
+    /// own scale converts it into the coordinates the geometry index uses.
+    private func publishVisibleBars(contentRect: CGRect, contentSize: CGSize,
+                                    unit: [Int], width: CGFloat) {
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        // The scroll view's content coordinates are NOT the SwiftUI layout's,
+        // so the two are reconciled by proportion rather than by assuming a
+        // shared unit -- assuming one made the visible slice eight pages wide.
+        let layoutWidth = CGFloat(unit.count) * width
+            + CGFloat(max(unit.count - 1, 0)) * SpreadLayout.gutter
+        let layoutHeight = width * (unit.compactMap { aspect(of: $0) }.max() ?? 1.414)
+            + SpreadLayout.gutter * 2
+        let kx = layoutWidth / contentSize.width
+        let ky = layoutHeight / contentSize.height
+        let visible = CGRect(x: contentRect.minX * kx, y: contentRect.minY * ky,
+                             width: contentRect.width * kx, height: contentRect.height * ky)
+        var out: [Int: CGRect] = [:]
+        for (position, index) in unit.enumerated() {
+            guard let size = state.geometry?.page(index)?.size,
+                  size.width > 0, size.height > 0 else { continue }
+            let frame = BarPosition.pageFrame(position: position, width: width,
+                                              aspect: aspect(of: index),
+                                              gutter: SpreadLayout.gutter)
+            let slice = frame.intersection(visible)
+            guard !slice.isNull, !slice.isEmpty else { continue }
+            let sx = size.width / frame.width
+            let sy = size.height / frame.height
+            out[index] = CGRect(x: (slice.minX - frame.minX) * sx,
+                                y: (slice.minY - frame.minY) * sy,
+                                width: slice.width * sx,
+                                height: slice.height * sy)
+        }
+        if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
     /// A finished touch that might be a turn. Who may turn, and in which zone,

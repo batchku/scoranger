@@ -72,7 +72,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var bottomChrome: CGFloat = 0
     /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
     /// What it is for: deciding which pages are worth rastering at depth.
-    var onVisibleRectChange: ((CGRect) -> Void)?
+    var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
     let zoomRange: ClosedRange<CGFloat>
     /// Called with the absolute zoom scale once a pinch settles.
     let onZoomSettled: (CGFloat) -> Void
@@ -206,7 +206,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         weak var scroll: UIScrollView?
         weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
-        var onVisibleRectChange: ((CGRect) -> Void)?
+        var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
         var bottomChrome: CGFloat = 0
         private var lastReportedVisible: CGRect = .zero
         private var laidOutSize: CGSize = .zero
@@ -392,11 +392,21 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             // Only on a real move: this fires continuously through a pan, and
             // re-rendering the page stack on every frame is what the eager
             // layout was avoiding in the first place.
+            // x as well as y: the bar readout follows a SIDEWAYS pan across a
+            // zoomed page, and a guard that watched only the vertical never
+            // reported one.
             guard abs(rect.minY - lastReportedVisible.minY) > 24
+                    || abs(rect.minX - lastReportedVisible.minX) > 24
                     || abs(rect.height - lastReportedVisible.height) > 24
+                    || abs(rect.width - lastReportedVisible.width) > 24
                     || lastReportedVisible == .zero else { return }
             lastReportedVisible = rect
-            onVisibleRectChange?(rect)
+            // the content in the SAME space as the rect, so a caller can
+            // normalise: the scroll view's content coordinates are not the
+            // SwiftUI layout's, and mapping between them by assumption put the
+            // bar readout eight pages wide
+            onVisibleRectChange?(rect, CGSize(width: scrollView.contentSize.width / scale,
+                                              height: scrollView.contentSize.height / scale))
         }
 
         private func publishZoom(_ scrollView: UIScrollView) {
