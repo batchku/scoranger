@@ -991,6 +991,47 @@ final class ScorangerUITests: XCTestCase {
 
     // MARK: - Selection (build 124)
 
+    // MARK: - Share & export
+
+    /// The `Share & export` row used to push to a section with no `case`, so it
+    /// landed on a note saying exporting happens in the engine -- which is not
+    /// somewhere an iPad user can go. It offers the three formats now.
+    func testShareAndExportOffersTheThreeFormats() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        app.buttons["score-more"].tap()
+        let row = menuRow("more-export")
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no Share & export row")
+        row.tap()
+        for format in ["musicxml", "midi", "pdf"] {
+            XCTAssertTrue(menuRow("export-\(format)").waitForExistence(timeout: 10),
+                          "no \(format) row on the export screen")
+        }
+        shot("share-and-export")
+    }
+
+    /// Tapping a format writes a real file and hands it to Apple's share sheet
+    /// -- the one modal in the app, and the system's rather than ours.
+    func testExportingMusicXMLRaisesTheSystemShareSheet() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        app.buttons["score-more"].tap()
+        menuRow("more-export").tap()
+        let musicxml = menuRow("export-musicxml")
+        XCTAssertTrue(musicxml.waitForExistence(timeout: 20))
+        musicxml.tap()
+
+        // the share sheet is the system's, so it is identified by what it
+        // always carries rather than by an identifier of ours
+        let sheet = app.otherElements["ActivityListView"]
+        let copy = app.buttons["Copy"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 60) || copy.waitForExistence(timeout: 60),
+                      "exporting produced no share sheet")
+        shot("share-sheet")
+    }
+
     /// The title in the score bar opens a band listing the piece's other
     /// arrangements and this arrangement's recent versions -- the one place
     /// switching happens while you are reading (§6.3).

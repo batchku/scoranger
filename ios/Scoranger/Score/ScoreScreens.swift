@@ -24,15 +24,32 @@ struct ScoreOptionsScreen: View {
     var onSettings: () -> Void
     var onDetails: () -> Void
 
+    /// The format currently being written, so its row can say so: engraving a
+    /// PDF of a long score takes a moment and a dead row reads as a dead app.
+    @State private var exporting: ScoreExport.Format?
+    /// The finished file, handed to Apple's share sheet.
+    ///
+    /// This is the ONE modal in the app, and it is deliberate: the system share
+    /// sheet is how iOS puts a file into Files, Mail or another program, and
+    /// re-implementing it would be both worse and impossible.
+    @State private var sharing: URL?
+
     var body: some View {
-        if let section {
-            Screen(title: section, backLabel: "Options", onBack: onBack) {
-                sectionBody(section)
+        Group {
+            if let section {
+                Screen(title: section, backLabel: "Options", onBack: onBack) {
+                    sectionBody(section)
+                }
+            } else {
+                Screen(title: "Options", backLabel: "Score", onBack: onBack) {
+                    root
+                }
             }
-        } else {
-            Screen(title: "Options", backLabel: "Score", onBack: onBack) {
-                root
-            }
+        }
+        // Apple's own sheet, and the only one in the app: it is how iOS puts a
+        // file into Files, Mail or another program.
+        .sheet(item: $sharing) { url in
+            SystemShareSheet(url: url)
         }
     }
 
@@ -76,6 +93,32 @@ struct ScoreOptionsScreen: View {
             ScreenRow(title: "Settings", identifier: "more-settings") { onSettings() }
         }
         .padding(.bottom, Theme.Metric.s32)
+    }
+
+    /// One row per format, each saying what it is FOR rather than what it is:
+    /// "Open in another notation program" beats "MusicXML" for anyone who does
+    /// not already know what MusicXML is.
+    @ViewBuilder
+    private var exportRows: some View {
+        ForEach(ScoreExport.Format.allCases, id: \.rawValue) { format in
+            ScreenRow(title: format.label,
+                      value: exporting == format ? "preparing…" : format.detail,
+                      leads: false,
+                      identifier: "export-\(format.rawValue)") {
+                guard exporting == nil, let score = state.selectedScore else { return }
+                exporting = format
+                Task {
+                    let pinned = state.pinnedVersion
+                    sharing = await state.exportFile(slug: score.slug,
+                                                     version: pinned,
+                                                     format: format)
+                    exporting = nil
+                }
+            }
+            .disabled(exporting != nil)
+        }
+        note("The file is named for the arrangement, and carries the version "
+             + "number only when you are looking at an older one.")
     }
 
     @ViewBuilder
@@ -124,9 +167,10 @@ struct ScoreOptionsScreen: View {
                         }
                     }
                 }
+            case "Share & export":
+                exportRows
             default:
-                note("Exporting is available from the engine; the app's own share "
-                     + "sheet is Apple's and is not part of this revision.")
+                EmptyView()
             }
         }
         .padding(.bottom, Theme.Metric.s32)

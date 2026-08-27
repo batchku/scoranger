@@ -1128,6 +1128,58 @@ final class AppState: ObservableObject {
     /// Duplicate an arrangement into a new independent copy (new slug, its own
     /// history, filed under the same piece). Returns the copy's slug.
     @discardableResult
+    /// Write an arrangement out as a file the user can share.
+    ///
+    /// The file is named for the arrangement, not for its version id, because
+    /// it is about to leave the app: "v003.musicxml" tells nobody anything once
+    /// it is sitting in Files. A PINNED version is named too, since that is
+    /// part of what the file is.
+    ///
+    /// PDF is engraved HERE rather than in the bridge. That is the one thing to
+    /// keep straight in this function: chord-symbol adjustments and whistle
+    /// fingerings are applied in the Swift render pass, so a PDF from anywhere
+    /// else would not match the page on screen. `bridge.py` refuses PDF for the
+    /// same reason.
+    func exportFile(slug: String, version: String?,
+                    format: ScoreExport.Format) async -> URL? {
+        guard let score = manifest?.scores.first(where: { $0.slug == slug }) else {
+            lastError = "No arrangement '\(slug)' to export"
+            return nil
+        }
+        let name = ScoreExport.filename(title: score.title ?? score.name,
+                                        version: version, format: format)
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("export", isDirectory: true)
+            .appendingPathComponent(name)
+        do {
+            try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            if format.isRenderedOnDevice {
+                guard useLocalEngine else {
+                    let data = try await client.exportPDF(score: slug, version: version)
+                    try data.write(to: dest)
+                    return dest
+                }
+                let source = try await local.versionFilePath(score: slug, version: version)
+                let data = try await VerovioRenderer.shared.renderPDF(musicXMLPath: source)
+                try data.write(to: dest)
+            } else {
+                let produced = try await local.exportFile(score: slug, version: version,
+                                                          format: format.rawValue)
+                try FileManager.default.copyItem(at: URL(fileURLWithPath: produced), to: dest)
+            }
+            return dest
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return nil
+    }
+
     func duplicateScore(slug: String, name: String? = nil) async -> String? {
         do {
             var args: [String: Any] = ["score": slug]

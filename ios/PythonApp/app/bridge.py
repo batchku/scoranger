@@ -7,6 +7,7 @@ mutating op creates an immutable version, exactly like the desktop CLI.
 
 import json
 import os
+import shutil
 import sys
 import traceback
 
@@ -82,6 +83,52 @@ def _dispatch(op, a):
         return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))
+    if op == "export":
+        # Three formats, three sources -- and only two of them are ours.
+        #
+        # A version artifact IS MusicXML, so exporting one resolves a path
+        # rather than re-serialising: writing it back through music21 would
+        # risk changing bytes the user never asked to change. MIDI is a real
+        # conversion and goes through music21. PDF is refused here on purpose:
+        # `render.py` is not vendored into the app, the on-device engraver is
+        # Swift, and chord adjustments and whistle fingerings are applied in
+        # THAT pass -- so a PDF built here would not match the page on screen.
+        fmt = (a.get("format") or "musicxml").lower()
+        slug = a["score"]
+        version = a.get("version")
+        parts = [p.strip() for p in str(a.get("parts") or "").split(",") if p.strip()]
+        stem = f"{slug}-{version}" if version else slug
+
+        if fmt == "pdf":
+            raise ValueError(
+                "PDF is rendered on device by the Swift renderer, not the "
+                "bridge: engraving carries chord adjustments and whistle "
+                "fingerings that only that pass applies.")
+        if fmt not in ("musicxml", "midi"):
+            raise ValueError(f"unknown export format '{fmt}'. "
+                             "Use musicxml, midi, or ask Swift for pdf.")
+
+        out_dir = workspace.score_dir(slug).parent / "exports"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        if fmt == "musicxml" and not parts:
+            src = workspace.resolve_path(slug, version)
+            dest = out_dir / f"{stem}.musicxml"
+            shutil.copyfile(src, dest)
+            return {"path": str(dest), "filename": dest.name, "format": fmt}
+
+        score = _load(slug, version)
+        if parts:
+            ops.keep_parts(score, parts)
+            stem = f"{stem}-{'-'.join(p.lower().replace(' ', '-') for p in parts)}"
+        if fmt == "musicxml":
+            dest = out_dir / f"{stem}.musicxml"
+            score.write("musicxml", fp=str(dest))
+        else:
+            dest = out_dir / f"{stem}.mid"
+            score.write("midi", fp=str(dest))
+        return {"path": str(dest), "filename": dest.name, "format": fmt}
+
     if op == "versions":
         return workspace.load_meta(a["score"])
     if op == "delete-score":

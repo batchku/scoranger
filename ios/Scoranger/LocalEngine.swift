@@ -52,6 +52,24 @@ struct LocalEngine {
     }
 
     /// Absolute path of a version's MusicXML artifact (for rendering).
+    /// Write a version out as MusicXML or MIDI and hand back where it landed.
+    ///
+    /// PDF is deliberately NOT here: the bridge refuses it, because engraving
+    /// on device is Swift and carries chord adjustments and whistle fingerings
+    /// that the Python side never sees. `AppState.exportFile` routes PDF to
+    /// `VerovioRenderer` instead.
+    func exportFile(score: String, version: String?,
+                    format: String, parts: [String] = []) async throws -> String {
+        var args: [String: Any] = ["score": score, "format": format]
+        if let version { args["version"] = version }
+        if !parts.isEmpty { args["parts"] = parts.joined(separator: ",") }
+        let r = try await result(op: "export", args: args)
+        guard let path = r["path"] as? String else {
+            throw LocalEngineError.engine("no path in export result")
+        }
+        return path
+    }
+
     func versionFilePath(score: String, version: String?) async throws -> String {
         var args: [String: Any] = ["score": score]
         if let version { args["version"] = version }
