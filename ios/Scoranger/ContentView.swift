@@ -47,19 +47,6 @@ struct ContentView: View {
     @State private var setlistPicker: SetlistDoc?
     /// The arrangement being put into a set list from its own row.
     @State private var setlistChooserScore: ScoreDoc?
-    @State private var setlistRenameDraft = ""
-    /// Which target the dragged arrangement is currently over. One piece of
-    /// state for all of them, so exactly one thing can be lit at a time.
-    /// The arrangement currently lifted, if any. Every place it could be
-    /// dropped shows itself while it is in the air — before this, the highlight
-    /// only appeared once the finger was already over a target, so lifting a
-    /// row taught the user nothing about where it could go.
-    ///
-    /// SwiftUI's `.onDrag` has no "session ended" callback, so a drag the user
-    /// abandons in mid-air is cleared by the timeout below rather than by an
-    /// event. A drop clears it immediately.
-    @State private var lifted: String?
-    @State private var liftTimeout: Task<Void, Never>?
 
     static let scoreTypes: [UTType] = ([
         UTType(filenameExtension: "musicxml"),

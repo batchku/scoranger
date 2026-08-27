@@ -40,9 +40,7 @@ struct ScoreInfoView: View {
     @State private var renamingPart: Int?
     @State private var draftPartName = ""
     @State private var confirmingDelete = false
-    @State private var renamingPiece = false
     @State private var pieceListOpen = false
-    @State private var draftPieceName = ""
     @State private var draftSlug = ""
     @State private var savedSlug = ""
     @State private var renamingSlug = false
@@ -86,9 +84,6 @@ struct ScoreInfoView: View {
             BandHeader("Arrangement")
             metadataEditor
             SheetRow(label: "Piece") { pieceMenu }
-            if renamingPiece, let piece = currentPiece {
-                renamePieceField(piece)
-            }
             slugEditor
             if let latest = live.latest {
                 SheetRow("Latest version", latest, mono: true)
@@ -272,22 +267,6 @@ struct ScoreInfoView: View {
         .accessibilityIdentifier("piece-choice-\(slug ?? "none")")
     }
 
-    @ViewBuilder
-    private func renamePieceField(_ piece: PieceDoc) -> some View {
-        HStack(spacing: Theme.Metric.s8) {
-            LabeledField("Piece name", text: $draftPieceName, identifier: "piece-name")
-            PanelButton(title: "Cancel") { renamingPiece = false }
-            PanelButton(title: "Rename", kind: .primary) {
-                let name = trimmed(draftPieceName)
-                renamingPiece = false
-                guard !name.isEmpty, name != piece.name else { return }
-                Task { await state.renamePiece(piece: piece.slug, name: name) }
-            }
-        }
-        .padding(.horizontal, Theme.Metric.panelPadding)
-        .padding(.bottom, Theme.Metric.s8)
-    }
-
     // MARK: - Parts
 
     /// A part row, tappable to rename. The name is the staff label engraved on
@@ -295,18 +274,19 @@ struct ScoreInfoView: View {
     @ViewBuilder
     private func partRow(_ part: PartDoc) -> some View {
         if renamingPart == part.index {
-            HStack(spacing: Theme.Metric.s8) {
-                LabeledField("Part name", text: $draftPartName, identifier: "part-name")
-                PanelButton(title: "Cancel") { renamingPart = nil }
-                PanelButton(title: "Rename", kind: .primary) {
-                    let name = trimmed(draftPartName)
-                    renamingPart = nil
-                    Task { await state.renamePart(slug: score.slug,
-                                                  part: "#\(part.index)", name: name) }
-                }
-            }
-            .padding(.horizontal, Theme.Metric.panelPadding)
-            .padding(.vertical, Theme.Metric.s8)
+            EditableTitle(text: part.name, role: .row,
+                          identifier: "part-name",
+                          startEditing: true,
+                          onCommit: { name in
+                              renamingPart = nil
+                              let wanted = trimmed(name)
+                              guard !wanted.isEmpty, wanted != part.name else { return }
+                              Task { await state.renamePart(slug: score.slug,
+                                                            part: "#\(part.index)",
+                                                            name: wanted) }
+                          })
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .padding(.vertical, Theme.Metric.s8)
         } else {
             // ScreenRow, like every other row on a pushed screen. It collapses
             // to ONE accessibility element, so a tap reaches the button rather

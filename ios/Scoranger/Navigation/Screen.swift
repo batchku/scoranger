@@ -248,6 +248,8 @@ struct EditableTitle: View {
     let text: String
     var role: Theme.Role = .titleS
     var identifier: String
+    /// Opens straight into the field, for a row that is already being renamed.
+    var startEditing = false
     var onCommit: (String) -> Void
 
     @State private var editing = false
@@ -291,6 +293,9 @@ struct EditableTitle: View {
                 .accessibilityIdentifier(identifier)
                 .accessibilityLabel("\(text), tap to rename")
             }
+        }
+        .onAppear {
+            if startEditing && !editing { draft = text; editing = true }
         }
     }
 

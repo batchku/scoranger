@@ -750,7 +750,10 @@ final class ScorangerUITests: XCTestCase {
         // the canvas re-engraves the new version by itself
         sleep(6)
         shot("engraved-title-after")
+        goBack()            // arrangement screen -> the piece it belongs to
         let row = app.buttons["arrangement-choice-\(firstArrangement)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20),
+                      "the arrangement is not listed under its piece")
         XCTAssertTrue(row.label.contains("String Quartet"),
                       "sidebar out of step with the engraved title: \(row.label)")
     }
@@ -1551,18 +1554,21 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// The piece is metadata as well, and its name was editable nowhere.
-    func testPieceIsRenameableFromTheSheet() {
+    func testPieceIsRenamedByTappingItsName() {
 
-        openArrangementScreen(firstArrangement)
-        app.buttons["row-details-\(firstArrangement)"].tap()
-        let rename = app.buttons["rename-piece"]
-        XCTAssertTrue(rename.waitForExistence(timeout: 10), "no way to rename the piece")
-        rename.tap()
-        let field = app.textFields["piece-name"]
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        openPieceSheet()
+        let title = app.buttons["piece-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "no piece name to tap")
+        title.tap()
+        let field = app.textFields["piece-title-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10),
+                      "tapping the name should open it for editing in place")
+        XCTAssertFalse(app.buttons["Rename"].exists,
+                       "nothing offers a Rename button any more")
         replaceText(field, with: "Paris Revisited")
-        app.buttons["Rename"].firstMatch.tap()
-        goBack()
+        field.typeText("\n")           // Done commits, as it does for a file name
+        XCTAssertTrue(app.buttons["piece-title"].waitForExistence(timeout: 30),
+                      "the name never went back to being a name")
         XCTAssertTrue(element(labelStartingWith: "Paris Revisited")
                         .waitForExistence(timeout: 30),
                       "the piece heading still shows the old name")

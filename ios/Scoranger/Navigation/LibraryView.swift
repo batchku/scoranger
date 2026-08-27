@@ -413,7 +413,6 @@ struct LibraryView: View {
                     onRowAction(row, .addToSetlist)
                 }
             }
-            editButton("Rename", id: "edit-rename-\(row.id)") { onRowAction(row, .rename) }
             editButton("Delete", id: "edit-delete-\(row.id)") { onRowAction(row, .delete) }
             Spacer()
         }

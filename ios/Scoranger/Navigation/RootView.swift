@@ -29,13 +29,6 @@ struct RootView: View {
     @State private var filters: Set<LibraryFilter> = []
     @State private var editing = false
 
-    @State private var setlistPickerScore: ScoreDoc?
-    @State private var arrangementPickerSetlist: SetlistDoc?
-    @State private var movingScores: [ScoreDoc] = []
-    @State private var detailsScore: ScoreDoc?
-    @State private var renaming: (id: String, isPiece: Bool, isSetlist: Bool, draft: String)?
-    @State private var deleting: LibraryRow?
-    @State private var deletingMany: (ids: Set<String>, kind: LibrarySelectionKind)?
     /// Whether the piece being named is the destination of an import.
     /// Where an import should land, asked BEFORE the file picker (0.4.1 item 9).
     @State private var importDestination: ImportDestination?
@@ -109,25 +102,9 @@ struct RootView: View {
         }
     }
 
-    /// Everything a row's menu can open.
-    private func commitRename() {
-        guard let renaming else { return }
-        let name = renaming.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.renaming = nil
-        guard !name.isEmpty else { return }
-        Task {
-            if renaming.isSetlist {
-                _ = await state.renameSetlist(setlist: renaming.id, name: name)
-            } else if renaming.isPiece {
-                _ = await state.renamePiece(piece: renaming.id, name: name)
-            } else {
-                _ = await state.renameScore(slug: renaming.id, name: name)
-            }
-        }
-    }
-
+    /// Deleting knows what it is deleting: a set list is unmade, a piece takes
+    /// its arrangements with it, an arrangement goes on its own.
     private func commitDelete(_ row: LibraryRow) {
-        deleting = nil
         if segment == .setlists {
             Task { _ = await state.deleteSetlist(row.id) }
         } else if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
@@ -329,13 +306,22 @@ struct RootView: View {
             guard let id = ids.first else { return }
             Task { _ = await state.createArrangement(pieceSlug: id) }
         case .moveToPiece:
-            movingScores = scores
+            libraryPath.append(.moveToPiece(scores.map(\.slug)))
         case .addToSetlist:
-            if let first = scores.first { setlistPickerScore = first }
+            if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
         case .duplicate:
             Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }
         case .delete:
-            deletingMany = (ids, kind)
+            // the undo bar is the confirmation: the row goes at once and comes
+            // back for as long as the engine still holds it
+            for id in ids {
+                switch kind {
+                case .setlists: Task { _ = await state.deleteSetlist(id) }
+                case .pieces:   state.deletePiece(id)
+                default:        state.deleteScore(slug: id)
+                }
+            }
+            editing = false
         }
     }
 
@@ -355,35 +341,33 @@ struct RootView: View {
         case .open:
             open(row)
         case .versions:
-            // a piece opens its arrangement sheet, which lists versions per
-            // arrangement; a lone arrangement opens straight into its own
+            // a piece opens its own screen, which lists its arrangements;
+            // a lone arrangement opens its versions directly
             if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
                 libraryPath.append(.piece(row.id))
-            } else if let score { detailsScore = score }
+            } else {
+                libraryPath.append(.versions(row.id))
+            }
         case .details:
-            if let score { detailsScore = score }
-            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
-                    let first = piece.arrangements.first {
-                detailsScore = state.manifest?.scores.first { $0.slug == first }
+            if score != nil {
+                libraryPath.append(.details(row.id))
+            } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                      let first = piece.arrangements.first {
+                libraryPath.append(.details(first))
             }
         case .addToSetlist:
             // from a SET LIST, pick its arrangements; from an arrangement, pick
             // its set lists -- two directions, two questions
-            if segment == .setlists,
-               let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
-                arrangementPickerSetlist = setlist
-            } else if let score { setlistPickerScore = score }
-            else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
-                    let first = piece.arrangements.first {
-                setlistPickerScore = state.manifest?.scores.first { $0.slug == first }
+            if segment == .setlists {
+                libraryPath.append(.addArrangements(row.id))
+            } else if score != nil {
+                libraryPath.append(.setlistsFor(row.id))
+            } else if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == row.id }),
+                      let first = piece.arrangements.first {
+                libraryPath.append(.setlistsFor(first))
             }
-        case .rename:
-            renaming = (row.id,
-                        (state.manifest?.pieces ?? []).contains { $0.slug == row.id },
-                        segment == .setlists,
-                        row.title)
         case .delete:
-            deleting = row
+            commitDelete(row)
         case .newArrangement:
             Task { _ = await state.createArrangement(pieceSlug: row.id) }
         }
