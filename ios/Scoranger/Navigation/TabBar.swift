@@ -139,7 +139,10 @@ struct LRow: View {
                     .foregroundStyle(Theme.Ink.ink3)
             }
             .padding(.leading, Theme.Metric.s20)
-            .padding(.trailing, onMenu == nil ? Theme.Metric.s20 : 0)
+            // a row with a ☰ keeps its content clear of it; the overlay sits
+            // outside the layout, so nothing else would
+            .padding(.trailing, onMenu == nil ? Theme.Metric.s20
+                                              : Theme.Metric.rowMenuInset)
             .padding(.vertical, 9)
             .frame(minHeight: 56)
             .contentShape(Rectangle())

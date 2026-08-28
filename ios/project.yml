@@ -211,6 +211,9 @@ targets:
       # the library sorts, indexes and searches -- are pure over the manifest,
       # so they are tested the same way: no app, no engine, no screen
       - path: Scoranger/Models.swift
+      # the design tokens, so the metrics a layout depends on can be asserted
+      # (a row must reserve room for the control overlaid on its trailing edge)
+      - path: Scoranger/DesignSystem/Theme.swift
       - path: Scoranger/Navigation/AppRoute.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift

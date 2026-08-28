@@ -197,6 +197,16 @@ enum Theme {
         static let pillButton: CGFloat = 38
         static let hitTarget: CGFloat = 44
 
+        /// Room a library row must keep clear on its trailing edge.
+        ///
+        /// The row's ☰ is drawn as an OVERLAY -- it has to be, since the row
+        /// itself is a button and a button inside a button's label cannot be
+        /// tapped -- so the layout knows nothing about it and ran the row's own
+        /// content underneath: "v001 · 3 Aug" and the chevron came out sitting
+        /// under the ☰. The overlay is one hit target wide with `s8` of its own
+        /// trailing padding; this leaves that much plus a gap.
+        static let rowMenuInset: CGFloat = hitTarget + s8 + s8
+
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let tabBarHeight: CGFloat = 64
         static let scoreTopBar: CGFloat = 52
