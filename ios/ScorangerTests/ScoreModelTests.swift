@@ -305,6 +305,71 @@ final class ScoreModelTests: XCTestCase {
                       "the loop test alone catches nothing here — that is the point")
     }
 
+    // MARK: a bar is only ever selected on purpose
+
+    /// Exactly what `AppState.commitSelection` does with what a stroke caught:
+    /// addresses out of the elements, into a selection through `combining`.
+    /// Nothing here calls `ScoreSelection(_ elements:)` -- and that was the
+    /// bug. The filter that keeps a `<measure>` out of a selection lived in
+    /// that initializer, which only the TESTS call; the app builds selections
+    /// the other way, so the rule was green here and absent on the iPad.
+    private func asTheAppBuildsIt(_ caught: [ScoreElement]) -> ScoreSelection {
+        ScoreSelection(addresses: []).combining(caught.compactMap(\.address),
+                                                mode: .replace)
+    }
+
+    /// Ali: a note in the TOP staff was selected, the chip read "1 element
+    /// from bar 4", and the highlight painted the whole bar across every
+    /// staff. A `<measure>`'s frame spans all the staves, and a stroke catches
+    /// what its band touches, so an imprecise swipe on the top staff caught
+    /// the measure -- one element, no staff of its own, the whole system lit.
+    func testAStrokeNearTheTopStaffDoesNotSelectTheWholeBar() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        let note = try XCTUnwrap(page.elements
+            .filter { $0.kind == .note && $0.address?.staff == 1 }
+            .min { $0.frame.minY < $1.frame.minY })
+        let stroke = [CGPoint(x: note.frame.minX - 5, y: note.frame.midY),
+                      CGPoint(x: note.frame.maxX + 5, y: note.frame.midY)]
+        let selection = asTheAppBuildsIt(page.elements(caughtBy: stroke))
+
+        XCTAssertFalse(selection.addresses.contains { $0.kind == .measure },
+                       "a stroke on one staff selected the bar: \(selection.addresses)")
+        XCTAssertEqual(selection.staves, [1],
+                       "the highlight should stay on the staff that was touched")
+    }
+
+    /// The same, with nothing under the stroke at all: a swipe through empty
+    /// space in a bar used to catch the measure and nothing else, which is a
+    /// whole-bar selection nobody asked for.
+    func testAStrokeThroughEmptySpaceSelectsNoBar() throws {
+        let page = try XCTUnwrap(geometry("a").page(0))
+        let measure = try XCTUnwrap(page.elements.first { $0.kind == .measure })
+        // just inside the bar, above its first staff, where no glyph is drawn
+        let y = measure.frame.minY + 2
+        let stroke = [CGPoint(x: measure.frame.minX + 5, y: y),
+                      CGPoint(x: measure.frame.maxX - 5, y: y)]
+        let selection = asTheAppBuildsIt(page.elements(caughtBy: stroke))
+        XCTAssertFalse(selection.addresses.contains { $0.kind == .measure },
+                       "empty space selected the whole bar: \(selection.addresses)")
+    }
+
+    /// ...and a bar is still reachable the deliberate way. `selectBar` builds
+    /// its selection out of the bar's MEMBERS, so a double-tap still lights
+    /// the bar up -- element by element, on the staff that was tapped.
+    func testABarIsStillSelectableByItsMembers() throws {
+        let model = try geometry("a")
+        let page = try XCTUnwrap(model.page(0))
+        let bar = try XCTUnwrap(page.elements.first { $0.kind == .measure }?.address)
+        let members = model.addresses.filter {
+            $0.measure == bar.measure && $0.staff == 1
+                && !ScoreElementKind.barLike.contains($0.kind)
+        }
+        XCTAssertFalse(members.isEmpty, "a bar with no members cannot be selected")
+        let selection = ScoreSelection(addresses: members)
+        XCTAssertEqual(selection.bars, [bar.measure])
+        XCTAssertEqual(selection.staves, [1])
+    }
+
     func testALoopStillSelectsWhatItEncloses() throws {
         let page = try XCTUnwrap(geometry("a").page(0))
         let note = try XCTUnwrap(page.elements.first { $0.kind == .note })
@@ -351,6 +416,8 @@ final class ScoreModelTests: XCTestCase {
         let selection = ScoreSelection(addresses: [
             ScoreAddress(staff: 0, measure: 3, layer: 1, kind: .measure, ordinal: 0),
             ScoreAddress(staff: 4, measure: 3, layer: 1, kind: .note, ordinal: 0)])
+        XCTAssertEqual(selection.addresses.count, 1,
+                       "a measure handed to a selection is dropped, not kept")
         XCTAssertEqual(selection.staves, [4], "staff 0 is a marker, not a staff")
         XCTAssertFalse(selection.chatReference.contains("0"),
                        selection.chatReference)
@@ -358,14 +425,17 @@ final class ScoreModelTests: XCTestCase {
                       selection.chatReference)
     }
 
-    func testASelectionOfOnlyMeasuresNamesNoStaffAtAll() {
+    /// This used to assert how a measures-only selection READ ("bar 2", no
+    /// staff). It cannot exist any more: a selection drops bar-like addresses
+    /// on the way in, wherever they come from, because a measure's frame spans
+    /// every staff and painting it is what Ali saw when he selected one note.
+    /// A bar is selected as its members instead.
+    func testASelectionOfNothingButMeasuresIsEmpty() {
         let selection = ScoreSelection(addresses: [
             ScoreAddress(staff: 0, measure: 2, layer: 1, kind: .measure, ordinal: 0)])
+        XCTAssertTrue(selection.isEmpty, "\(selection.addresses)")
         XCTAssertTrue(selection.staves.isEmpty)
-        let reference = selection.chatReference
-        XCTAssertTrue(reference.contains("bar 2"), reference)
-        XCTAssertFalse(reference.contains("staff"), reference)
-        XCTAssertFalse(reference.contains("staves"), reference)
+        XCTAssertTrue(selection.bars.isEmpty)
     }
 
     // MARK: - Who gets the touch (build 124)

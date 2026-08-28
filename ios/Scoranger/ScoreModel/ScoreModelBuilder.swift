@@ -101,12 +101,24 @@ struct ScoreSelection: Equatable {
     ///
     /// Bars are still selectable -- deliberately, by double- or triple-tapping
     /// an empty part of one (#10b), which is the only way to ask for a bar and
-    /// so the only way to get one.
+    /// so the only way to get one. That selection is the bar's MEMBERS, never
+    /// the measure element, so it survives this filter untouched.
     static func selectable(_ addresses: [ScoreAddress]) -> [ScoreAddress] {
         addresses.filter { !ScoreElementKind.barLike.contains($0.kind) }
     }
 
-    init(addresses: [ScoreAddress]) { self.addresses = addresses }
+    /// EVERY selection is filtered, not just the one built from elements.
+    ///
+    /// The rule above was written once and reachable only through
+    /// `init(_ elements:)` -- which the tests call and the app does not. The
+    /// app catches elements, takes their addresses, and goes through
+    /// `combining`, so a `<measure>` walked straight in: Ali selected a note
+    /// on the top staff and the highlight painted the whole bar across every
+    /// staff, because that is the shape of a measure's frame. A guard only one
+    /// caller passes through is not a guard.
+    init(addresses: [ScoreAddress]) {
+        self.addresses = Self.selectable(addresses)
+    }
 
     /// This selection, combined with what a new lasso caught.
     ///
