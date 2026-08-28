@@ -508,29 +508,10 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var optionsMenuItems: some View {
-        Button { state.transpose(semitones: 1) } label: {
-            Label("Transpose up a semitone", systemImage: "arrow.up")
-        }
-        Button { state.transpose(semitones: -1) } label: {
-            Label("Transpose down a semitone", systemImage: "arrow.down")
-        }
-        Toggle("Use flats", isOn: Binding(
-            get: { state.useFlats[state.selectedScore?.slug ?? "", default: true] },
-            set: { newValue in
-                if let slug = state.selectedScore?.slug { state.useFlats[slug] = newValue }
-                state.respell(preferFlats: newValue)
-            }))
-        if !isCompact {
-            Button {
-                if let score = state.selectedScore, let vid = state.displayedVersionID {
-                    DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
-                    Task { await state.renderIfNeeded(force: true) }
-                }
-            } label: { Label("Clear markup", systemImage: "pencil.slash") }
-        }
-    }
+    // `optionsMenuItems` lived here: the "…" popover's rows, including the
+    // last stock iOS Toggle in the app. The popover became a pushed screen in
+    // the modal-free revision and nothing has rendered these since -- so this
+    // is dead code that a control audit keeps finding (L33).
 
     private func shortTitle(_ title: String) -> String {
         title.count > 40 ? title.prefix(40).trimmingCharacters(in: .whitespaces) + "…" : title
