@@ -21,6 +21,10 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger"]
         app.launch()
+        // A system sheet left standing by a previous test swallows every tap
+        // that follows it. Launch clears the app's own state; this clears the
+        // one thing it cannot.
+        if app.otherElements["ActivityListView"].exists { dismissSystemSheet() }
         // The library IS the app now (§4C): no Home, no tab bar, and the
         // search field is the first thing that exists on it.
         XCTAssertTrue(app.descendants(matching: .any)["library-search"]
@@ -1205,6 +1209,25 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 60) || copy.waitForExistence(timeout: 60),
                       "exporting produced no share sheet")
         shot("share-sheet")
+        // and PUT IT AWAY. This is the system's sheet, the one modal the app
+        // is allowed, and it was left standing: whichever test ran next then
+        // tapped into it instead of the app and failed somewhere unrelated --
+        // twice in one evening, in two different tests, at the same assertion.
+        dismissSystemSheet()
+    }
+
+    /// Close the share sheet, however this iOS names its way out.
+    private func dismissSystemSheet() {
+        for label in ["Close", "Cancel", "Done"] where app.buttons[label].exists {
+            app.buttons[label].tap()
+            if waitForDisappearance(of: app.otherElements["ActivityListView"], timeout: 5) {
+                return
+            }
+        }
+        // no button: tap the ground above it, which is how a sheet is dismissed
+        if app.otherElements["ActivityListView"].exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.04)).tap()
+        }
     }
 
     /// The title in the score bar opens a band listing the piece's other
