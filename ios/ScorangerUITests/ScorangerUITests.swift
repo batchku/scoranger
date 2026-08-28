@@ -1657,6 +1657,45 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// A selection is about the engraving it was drawn on: changing version
+    /// #44: running an op on a selection keeps the selection, and keeps the
+    /// page you were on. Every op makes a version, and the render path used to
+    /// treat that exactly like opening a different arrangement -- blanking the
+    /// canvas, resetting to page 1, and clearing the selection the op had just
+    /// been run on.
+    func testATransformKeepsTheSelectionAndThePage() {
+        openArrangement(firstArrangement)
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(12)
+
+        var caught = false
+        for y in [0.30, 0.20, 0.42] where !caught {
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+            start.press(forDuration: 0.6,
+                        thenDragTo: canvas.coordinate(
+                            withNormalizedOffset: CGVector(dx: 0.62, dy: y)))
+            caught = app.staticTexts["selection-chip"].waitForExistence(timeout: 8)
+        }
+        guard caught else { return XCTFail("nothing was selected on the page") }
+        if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
+        let before = app.staticTexts["selection-chip"].label
+        let pageBefore = app.staticTexts["counter-pages"].label
+        shot("transform-selection-before")
+
+        // a real op through the … menu, which bumps the version
+        ensureASecondVersion()
+
+        let chip = app.staticTexts["selection-chip"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 40),
+                      "the selection was lost by the transform (was \(before))")
+        XCTAssertEqual(app.staticTexts["counter-pages"].label, pageBefore,
+                       "the transform moved the reader off their page")
+        XCTAssertTrue(canvas.exists, "the canvas did not come back")
+        shot("transform-selection-after")
+    }
+
     /// must not leave a stale selection pointing at bars of a different score.
     func testSwitchingVersionClearsAStaleSelection() {
         openArrangement(firstArrangement)

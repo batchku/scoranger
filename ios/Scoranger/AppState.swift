@@ -908,13 +908,23 @@ final class AppState: ObservableObject {
         guard let score = selectedScore, let vid = displayedVersionID else { return }
         let key = "\(score.slug)/\(vid)"
         guard force || key != renderedKey else { return }
-        // Nothing, rather than the wrong thing.
+        // Nothing, rather than the wrong thing -- but only when the thing has
+        // actually changed.
         //
         // The document was only swapped once the new engrave arrived, so the
-        // PREVIOUS score stayed on screen until then -- opening an arrangement
+        // PREVIOUS score stayed on screen until then: opening an arrangement
         // showed the last one you had open, then flipped. A blank canvas for a
-        // moment is honest; a stale one is not.
-        if renderedKey != nil && renderedKey != key {
+        // moment is honest about a score you have not opened yet.
+        //
+        // It is NOT honest about the score you are editing. Every op makes a
+        // version, so this branch also fired on "transpose these bars up a
+        // tone" -- blanking the whole page, throwing away which page the reader
+        // was on, and clearing the selection the op had just been run on, which
+        // `carrySelection` was then unable to carry because there was nothing
+        // left to carry (#44). The previous engraving of the same music is the
+        // best thing to show until the next one is ready.
+        let transition = RenderTransition.between(previous: renderedKey, next: key)
+        if transition.blanksTheCanvas {
             pageIndex = 0
             pdfDocument = nil
             geometry = nil
@@ -950,6 +960,11 @@ final class AppState: ObservableObject {
             if renderedKey == key {  // selection may have moved while fetching
                 rendered = true
                 pdfDocument = PDFDocument(data: data)
+                // The reader's page is kept across an op, and an op can make
+                // the score shorter -- an index past the end renders as no
+                // pages at all, which is the blank canvas this was avoiding.
+                pageIndex = PagedCanvas.clampedIndex(pageIndex,
+                                                     pageCount: pdfDocument?.pageCount ?? 0)
                 geometry = model
                 chordAdjustments = engravedAdjustments
                 let previousKey = geometryKey

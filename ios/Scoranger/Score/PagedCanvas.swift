@@ -103,6 +103,17 @@ enum PagedCanvas {
         return max(min(byWidth, byHeight), 1)
     }
 
+    /// Keep a remembered page inside a score that may have got shorter.
+    ///
+    /// The reader's page is kept across an op now (#44), and an op can remove
+    /// pages -- dropping a part, or simply engraving tighter. `unit(at:)`
+    /// answers an out-of-range index with NO pages, so an unclamped index is a
+    /// blank canvas: the very thing keeping the page was meant to avoid.
+    static func clampedIndex(_ index: Int, pageCount: Int) -> Int {
+        guard pageCount > 0 else { return 0 }
+        return min(max(index, 0), pageCount - 1)
+    }
+
     /// Coalesce rapid turns to the latest index rather than queueing
     /// animations (§6.4 risk 3).
     static func coalesce(pending: Int?, latest: Int) -> Int {

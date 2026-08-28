@@ -228,6 +228,41 @@ final class PagedCanvasTests: XCTestCase {
                        "a height-bound spread should use the height exactly")
     }
 
+    // MARK: keeping the reader's page across an op (#44)
+
+    func testAPageThatStillExistsIsKept() {
+        XCTAssertEqual(PagedCanvas.clampedIndex(3, pageCount: 9), 3)
+        XCTAssertEqual(PagedCanvas.clampedIndex(0, pageCount: 1), 0)
+    }
+
+    /// An op can make a score shorter -- dropping a part, or engraving tighter.
+    /// An index past the end renders as NO pages, which is exactly the blank
+    /// canvas that keeping the page was meant to avoid.
+    func testAPageThatIsGoneFallsBackToTheLast() {
+        XCTAssertEqual(PagedCanvas.clampedIndex(8, pageCount: 3), 2)
+        XCTAssertEqual(PagedCanvas.clampedIndex(1, pageCount: 1), 0)
+    }
+
+    func testAScoreWithNoPagesAsksForTheFirst() {
+        XCTAssertEqual(PagedCanvas.clampedIndex(4, pageCount: 0), 0)
+        XCTAssertEqual(PagedCanvas.clampedIndex(-2, pageCount: 5), 0)
+    }
+
+    /// The clamp and the unit have to agree, or a kept page is still blank.
+    func testAClampedIndexAlwaysRendersPages() {
+        for pageCount in [1, 2, 3, 9] {
+            for index in [0, 1, 5, 40] {
+                for spread in [true, false] {
+                    let clamped = PagedCanvas.clampedIndex(index, pageCount: pageCount)
+                    XCTAssertFalse(PagedCanvas.unit(at: clamped, pageCount: pageCount,
+                                                    spread: spread).isEmpty,
+                                   "index \(index) of \(pageCount) clamped to "
+                                   + "\(clamped) still renders nothing")
+                }
+            }
+        }
+    }
+
     func testAnUnmeasuredViewportAsksForNothing() {
         XCTAssertEqual(PagedCanvas.fittedPageWidth(viewport: .zero, pageAspect: portrait,
                                                    pages: 1, gutter: 12, margin: 12), 0)
