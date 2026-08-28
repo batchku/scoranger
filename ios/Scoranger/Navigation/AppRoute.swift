@@ -1,38 +1,8 @@
 import Foundation
 
-/// Where the user is.
-///
-/// Browsing and reading are separate places now (NAVIGATION_SYSTEM.md §3): a
-/// bottom tab bar holds Home and My Library, and a score opens OVER them as its
-/// own place, closing back to wherever it came from. That "wherever" is the
-/// reason this is a model rather than a pair of booleans -- the old screen kept
-/// a library overlay, a canvas and a chat overlay alive at once and had nowhere
-/// to put the answer to "what does X do?".
-enum AppTab: String, CaseIterable, Equatable {
-    case home
-    case library
-    /// Drawn, labelled and disabled, so the bar is not re-laid-out when sharing
-    /// lands (§1). We have no accounts and no sharing.
-    case shared
-
-    var title: String {
-        switch self {
-        case .home:    return "Home"
-        case .library: return "My Library"
-        case .shared:  return "Shared · later"
-        }
-    }
-
-    var glyph: String {
-        switch self {
-        case .home:    return "house"
-        case .library: return "line.3.horizontal"
-        case .shared:  return "arrow.left.arrow.right"
-        }
-    }
-
-    var isAvailable: Bool { self != .shared }
-}
+// `AppTab` is gone with the tab bar (§4C). There is one place -- My Library --
+// so where the user is no longer needs a model: a score is open or it is not,
+// and X returns to the library because there is nowhere else to return to.
 
 /// Which half of My Library is showing.
 enum LibrarySegment: String, CaseIterable, Equatable {

@@ -58,6 +58,20 @@ struct SettingsView: View {
             }
             .padding(Theme.Metric.panelPadding)
 
+            BandHeader("About")
+            VStack(alignment: .leading, spacing: Theme.Metric.s8) {
+                // The build stamp had no home once Home went, and a tester who
+                // cannot say which build they are on cannot report anything
+                // useful about it -- every device report in this project has
+                // turned on knowing that.
+                Text(BuildStamp.short)
+                    .typeRole(.data)
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .accessibilityIdentifier("build-stamp")
+                PanelNote(text: "Quote this when reporting anything.")
+            }
+            .padding(Theme.Metric.panelPadding)
+
             BandHeader("Diagnostics")
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 PanelToggle(title: "Show what the canvas is receiving",
@@ -73,7 +87,16 @@ struct SettingsView: View {
                 HStack(spacing: Theme.Metric.s12) {
                     PanelToggle(title: "Use on-device engine", isOn: $state.useLocalEngine)
                 }
-                LED(isOn: state.engineOK)
+                // the caller owns the mode word: the dot says whether the
+                // engine answers, not which engine it is
+                HStack(spacing: Theme.Metric.s6) {
+                    LED(isOn: state.engineOK)
+                    Text(state.useLocalEngine ? "on-device" : "remote")
+                        .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                    Text(state.engineOK ? "reachable" : "unreachable")
+                        .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                }
+                .accessibilityIdentifier("settings-engine-state")
                 keyField(label: "OpenRouter API key",
                          draft: $apiKeyDraft, saved: $savedChatKey,
                          identifier: "openrouter-key",

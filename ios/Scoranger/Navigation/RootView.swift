@@ -1,10 +1,13 @@
 import SwiftUI
 
-/// The app's places (NAVIGATION_SYSTEM.md §3).
+/// The app's places (NAVIGATION_SYSTEM.md §3, §4C).
 ///
-/// Browsing and reading are separate now. A bottom tab bar holds Home and My
-/// Library; a score opens OVER them, full screen, and X closes it back to
-/// wherever it came from. It is not a third tab: it is a document you are in.
+/// There is ONE place: My Library. Home is gone -- it was a lobby in front of
+/// the library, holding a second search field, four large panels and two
+/// "recent" sections of the same rows the library already lists -- and the tab
+/// bar went with it, because one live tab and a disabled placeholder is not a
+/// tab bar. A score opens OVER the library, full screen, and X always closes
+/// back to it. It is not a place: it is a document you are in.
 ///
 /// The score's own state -- page, zoom, selection, chat -- survives a close and
 /// reopen within a session, because `AppState` outlives this view and the score
@@ -12,17 +15,12 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var state: AppState
 
-    @State private var tab: AppTab = .home
-    /// One stack per tab (§8.6). The score view stays OUTSIDE them -- it is
-    /// presented over the tabs, which is what lets its page, zoom and selection
-    /// survive going back to the library and returning.
-    @State private var homePath: [Route] = []
+    /// The library's stack. The score view stays OUTSIDE it -- it is presented
+    /// over the library, which is what lets its page, zoom and selection
+    /// survive going back and returning.
     @State private var libraryPath: [Route] = []
     @State private var scoreOpen = false
-    /// Where the score was opened from, so X knows where to go back to (§3).
-    @State private var cameFrom: AppTab = .home
 
-    @State private var homeSearch = ""
     @State private var librarySearch = ""
     @State private var segment: LibrarySegment = .pieces
     @State private var sort: LibrarySort = .name
@@ -40,26 +38,11 @@ struct RootView: View {
         ZStack {
             Theme.Surface.ground.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                Group {
-                    switch tab {
-                    case .home:
-                        NavigationStack(path: $homePath) {
-                            home.navigationBarHidden(true)
-                                .navigationDestination(for: Route.self) { screen($0, in: .home) }
-                        }
-                    case .library:
-                        NavigationStack(path: $libraryPath) {
-                            library.navigationBarHidden(true)
-                                .navigationDestination(for: Route.self) { screen($0, in: .library) }
-                        }
-                    case .shared:
-                        EmptyView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                TabBar(selection: $tab)
+            NavigationStack(path: $libraryPath) {
+                library.navigationBarHidden(true)
+                    .navigationDestination(for: Route.self) { screen($0) }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(scoreOpen ? 0 : 1)
             // hidden, not unloaded: coming back to the library should not cost
             // a rebuild, and the score is what is expensive to re-open
@@ -74,7 +57,7 @@ struct RootView: View {
                                 state.undoableDelete = nil
                                 Task { await state.sweepDeleted() }
                             })
-                        .padding(.bottom, Theme.Metric.tabBarHeight)
+                        .padding(.bottom, Theme.Metric.s20)
                 }
             }
 
@@ -102,7 +85,6 @@ struct RootView: View {
             importIntoPiece = nil
             if case .success(let url) = result {
                 state.receiveFile(at: url, intoPiece: piece)
-                tab = .library
                 segment = .pieces
             }
         }
@@ -122,11 +104,9 @@ struct RootView: View {
 
     /// What a route shows.
     @ViewBuilder
-    private func screen(_ route: Route, in tab: AppTab) -> some View {
-        let pop = { if tab == .home { _ = homePath.popLast() } else { _ = libraryPath.popLast() } }
-        let push: (Route) -> Void = { r in
-            if tab == .home { homePath.append(r) } else { libraryPath.append(r) }
-        }
+    private func screen(_ route: Route) -> some View {
+        let pop = { _ = libraryPath.popLast() }
+        let push: (Route) -> Void = { libraryPath.append($0) }
         // A route holds the slug it was pushed with, and an arrangement can be
         // MOVED to a new slug from the screen the route points at. Follow the
         // move rather than resolving to nothing.
@@ -160,7 +140,6 @@ struct RootView: View {
                           onOpen: { member in
                               if let setlist = state.manifest?.setlists?
                                   .first(where: { $0.slug == slug }) {
-                                  RecentSetlists.opened(setlist.slug)
                                   state.currentSetlist = setlist.slug
                               }
                               open(member)
@@ -214,20 +193,7 @@ struct RootView: View {
         }
     }
 
-    // MARK: - Places
-
-    private var home: some View {
-        HomeView(search: $homeSearch,
-                 onOpen: openPieceOrArrangement,
-                 onOpenSetlist: openSetlist,
-                 onImport: { homePath.append(.importDestination) },
-                 onNewArrangement: { tab = .library; segment = .pieces },
-                 onNewSetlist: { tab = .library; segment = .setlists },
-                 onAsk: askAboutLastScore,
-                 onSettings: { homePath.append(.settings) },
-                 onAllPieces: { tab = .library; segment = .pieces },
-                 onAllSetlists: { tab = .library; segment = .setlists })
-    }
+    // MARK: - The place
 
     /// A new piece, or one that already exists.
     enum ImportDestination: Equatable { case choosing, newPiece, existing }
@@ -297,6 +263,8 @@ struct RootView: View {
                         }
                     },
                     onImport: { libraryPath.append(.importDestination) },
+                    onAsk: askTarget == nil ? nil : askAboutLastScore,
+                    onSettings: { libraryPath.append(.settings) },
                     onRowAction: handle,
                     onBarAction: handleBar)
     }
@@ -408,34 +376,39 @@ struct RootView: View {
             // used to open a sheet; the sheet is gone, and for a while this
             // set a flag nothing rendered -- so tapping such a piece did
             // nothing at all.
-            if tab == .home { homePath.append(.piece(slug)) }
-            else { libraryPath.append(.piece(slug)) }
+            libraryPath.append(.piece(slug))
         }
     }
 
     private func open(_ slug: String, version: String? = nil) {
-        cameFrom = tab
+        // remembered for Ask, which is all the "recent" the app still keeps
+        LastOpened.arrangement = slug
         state.select(slug: slug, version: version)
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = true }
     }
 
     private func openSetlist(_ setlist: SetlistDoc) {
-        RecentSetlists.opened(setlist.slug)
         state.currentSetlist = setlist.slug
-        tab = .library
         segment = .setlists
         if let first = setlist.arrangements.first { open(first) }
     }
 
-    /// Home's "Ask Scoranger": pick up the last arrangement and open chat on it.
+    /// What `Ask` would open, or nil -- which DISABLES the button rather than
+    /// hiding it, so the action row never re-flows (§4C).
+    private var askTarget: String? {
+        LastOpened.askTarget(lastOpened: LastOpened.arrangement ?? state.selectedSlug,
+                             known: (state.manifest?.scores ?? []).map(\.slug))
+    }
+
+    /// "Ask": pick up the last arrangement and open the chat on it.
     private func askAboutLastScore() {
-        guard let slug = state.selectedSlug ?? state.manifest?.scores.first?.slug else { return }
+        guard let slug = askTarget else { return }
         open(slug)
         state.chatOpenRequest += 1
     }
 
+    /// X always returns to the library, because there is nowhere else.
     private func close() {
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = false }
-        tab = cameFrom
     }
 }

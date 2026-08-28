@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// My Library (NAVIGATION_SYSTEM.md §4.2–4.3).
+/// My Library -- the app (NAVIGATION_SYSTEM.md §4.2-4.3, §4C).
 ///
-/// Segmented Pieces/Setlists, search, sort, filter, Edit, the A–Z rail and a
-/// FAB. The rail is shown only under name sort -- under any other order the
-/// letters would not agree with the rows, so it hides rather than lies.
+/// Home is gone and this is what the app opens on. It gained Home's top row
+/// (help, inbox, settings, and the engine chip) and Home's four actions, as a
+/// compact row under the search field rather than four large panels; it lost
+/// the `+` FAB, which offered exactly what that row now shows permanently.
+///
+/// Segmented Pieces/Setlists, search, the action row, the A-Z rail. The rail is
+/// shown only under name sort -- under any other order the letters would not
+/// agree with the rows, so it hides rather than lies.
 struct LibraryView: View {
     @EnvironmentObject var state: AppState
     @Binding var segment: LibrarySegment
@@ -22,19 +27,26 @@ struct LibraryView: View {
     /// not a popup and not a screen, because it is one field (§5.1).
     var onCreate: (String) -> Void
     var onImport: () -> Void
+    /// Home's actions, rehomed (§4C). `onAsk` is nil when nothing has been
+    /// opened yet, which DISABLES the button rather than hiding it -- a row
+    /// that re-flows under a finger is worse than a dimmed button.
+    var onAsk: (() -> Void)?
+    var onSettings: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
 
     @State private var showSort = false
     @State private var showFilter = false
     @State private var scrollTo: String?
-    @State private var addMenuOpen = false
     @State private var creatingName: String?
     @State private var selected: Set<String> = []
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack(spacing: 0) {
+                topRow
+                    .padding(.horizontal, Theme.Metric.s20)
+                    .padding(.top, Theme.Metric.s12)
                 segmented
                     .padding(.top, Theme.Metric.s12)
                 header
@@ -43,12 +55,6 @@ struct LibraryView: View {
                 list
             }
             .background(Theme.Surface.ground)
-
-            if !(editing && !selected.isEmpty) {
-                fab
-                    .padding(.trailing, Theme.Metric.s20)
-                    .padding(.bottom, Theme.Metric.s20)
-            }
         }
         .overlay(alignment: .bottom) {
             if editing && !selected.isEmpty { actionBar }
@@ -148,6 +154,57 @@ struct LibraryView: View {
         }
     }
 
+    /// Home's top row, rehomed (§4C): the leading trio and the engine chip
+    /// keep their positions, now on the screen the app opens to.
+    private var topRow: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            PanelIconButton(systemName: "questionmark", label: "Help") {}
+            inbox
+            PanelIconButton(systemName: "gearshape", label: "Settings",
+                            action: onSettings)
+                .accessibilityIdentifier("library-settings")
+            Spacer()
+            engineChip
+        }
+    }
+
+    private var inbox: some View {
+        PanelIconButton(systemName: "tray", label: "Inbox") {}
+            .overlay(alignment: .topTrailing) {
+                if !state.pendingImports.isEmpty {
+                    Text("\(state.pendingImports.count)")
+                        .typeRole(.meta)
+                        .foregroundStyle(Theme.Surface.paper)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Circle().fill(Theme.Accent.clay))
+                        .offset(x: 4, y: -4)
+                }
+            }
+    }
+
+    /// The chip prints the mode ONCE. `LED` used to print a word of its own,
+    /// and this chip printed the mode beside it, so it read "on-device
+    /// on-device" -- and the dot's word was about reachability, not the mode,
+    /// so in remote mode it still said "on-device". The dot is a dot now.
+    private var engineChip: some View {
+        HStack(spacing: Theme.Metric.s6) {
+            LED(isOn: state.engineOK)
+            Text(state.useLocalEngine ? "on-device" : "remote")
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+        }
+        .padding(.horizontal, Theme.Metric.s8)
+        .padding(.vertical, 5)
+        .background(Theme.Surface.panel)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                .stroke(Theme.Line.line2, lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("library-engine-chip")
+        .accessibilityLabel("Engine: \(state.useLocalEngine ? "on-device" : "remote"), "
+                            + (state.engineOK ? "reachable" : "unreachable"))
+    }
+
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s8) {
             Text("My library").typeRole(.title).foregroundStyle(Theme.Ink.ink)
@@ -158,36 +215,104 @@ struct LibraryView: View {
         .padding(.top, Theme.Metric.s12)
     }
 
+    /// Search, then the action row: the library's own actions on the left, the
+    /// list's controls on the right (§4C). One bar, two clusters -- what you
+    /// can MAKE, and how you are LOOKING at what you have.
     private var controlBar: some View {
-        VStack(spacing: Theme.Metric.s8) {
+        VStack(spacing: LibraryActionRow.spaceAboveRow) {
             SearchField(placeholder: "Search \(segment.title.lowercased())…",
                         text: $search, identifier: "library-search")
-            HStack(spacing: Theme.Metric.s8) {
-                Button { showSort.toggle(); showFilter = false } label: {
-                    controlLabel("Sort: \(sort.label)")
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library-sort")
+            GeometryReader { geo in
+                let compact = LibraryActionRow.isCompact(width: geo.size.width)
+                HStack(spacing: LibraryActionRow.gap) {
+                    ForEach(LibraryQuickAction.ordered) { action in
+                        quickButton(action, compact: compact)
+                    }
+                    Spacer(minLength: LibraryActionRow.clusterGap)
+                    Button { showSort.toggle(); showFilter = false } label: {
+                        // Sort keeps its value in compact width: its label is
+                        // an ANSWER, not the button's name
+                        rowButton("Sort: \(sort.label)", glyph: "arrow.up.arrow.down",
+                                  iconOnly: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("library-sort")
 
-                Button { showFilter.toggle(); showSort = false } label: {
-                    controlLabel(filters.isEmpty ? "Filter"
-                                 : "Filter · \(filters.count)")
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library-filter")
+                    Button { showFilter.toggle(); showSort = false } label: {
+                        rowButton(filters.isEmpty ? "Filter" : "Filter · \(filters.count)",
+                                  glyph: "line.3.horizontal.decrease",
+                                  iconOnly: compact && filters.isEmpty)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("library-filter")
 
-                Spacer()
-                Button { editing.toggle() } label: {
-                    controlLabel(editing ? "Done" : "Edit", active: editing)
+                    Button { editing.toggle() } label: {
+                        rowButton(editing ? "Done" : "Edit",
+                                  glyph: "checkmark.circle",
+                                  iconOnly: compact, active: editing)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("library-edit")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library-edit")
+                .frame(width: geo.size.width, height: LibraryActionRow.height)
             }
+            .frame(height: LibraryActionRow.height)
             if showSort { sortOptions }
             if showFilter { filterOptions }
         }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.vertical, Theme.Metric.s12)
+        .padding(.horizontal, LibraryActionRow.sidePadding)
+        .padding(.top, Theme.Metric.s12)
+        .padding(.bottom, LibraryActionRow.spaceBelowRow)
+    }
+
+    @ViewBuilder
+    private func quickButton(_ action: LibraryQuickAction, compact: Bool) -> some View {
+        let enabled = action != .ask || onAsk != nil
+        Button {
+            switch action {
+            case .importScore: onImport()
+            case .new:         creatingName = ""
+            case .newSetlist:  segment = .setlists; creatingName = ""
+            case .ask:         onAsk?()
+            }
+        } label: {
+            rowButton(action.title, glyph: action.glyph, iconOnly: compact)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.42)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(action.title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(action.identifier)
+    }
+
+    /// One button of the action row: 32pt, bordered, panel fill, no emphasis.
+    /// At four buttons in a bar a clay fill would shout, and the accent belongs
+    /// to selection and to `#N` (§4C).
+    private func rowButton(_ text: String, glyph: String,
+                           iconOnly: Bool, active: Bool = false) -> some View {
+        HStack(spacing: Theme.Metric.s6) {
+            Image(systemName: glyph).font(.system(size: 13, weight: .medium))
+            if !iconOnly {
+                // one line, at its natural width: "Sort: recently changed" is
+                // the longest label here and it wrapped inside a 32pt button
+                Text(text).font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .foregroundStyle(active ? Theme.Accent.clayStrong : Theme.Ink.ink2)
+        .padding(.horizontal, iconOnly ? 0 : LibraryActionRow.buttonPadding)
+        .frame(width: iconOnly ? LibraryActionRow.buttonHeight : nil,
+               height: LibraryActionRow.buttonHeight)
+        .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                .stroke(active ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        .contentShape(Rectangle())
     }
 
     private func controlLabel(_ text: String, active: Bool = false) -> some View {
@@ -427,96 +552,22 @@ struct LibraryView: View {
             .accessibilityIdentifier(id)
     }
 
+    /// The empty library is the app's FIRST screen now, so it carries the
+    /// welcome -- and the action row stays above it, which is what the words
+    /// point at (§4C).
     private var empty: some View {
         Text(search.isEmpty && filters.isEmpty
-             ? "Nothing here yet. Use + to add something."
+             ? "Nothing here yet — import a score, or make a blank arrangement "
+               + "and ask for what you want."
              : "No matches.")
             .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
             .padding(Theme.Metric.s20)
             .accessibilityIdentifier("library-empty")
     }
 
-    /// The `+`, and the two things it can make (0.4.1 §4).
-    ///
-    /// There was no way to import from the library at all -- import lived only
-    /// on Home -- so the `+` now says what it can do instead of assuming.
-    private var fab: some View {
-        VStack(alignment: .trailing, spacing: Theme.Metric.s8) {
-            if addMenuOpen { addMenu }
-            Button {
-                withAnimation(.easeOut(duration: 0.14)) { addMenuOpen.toggle() }
-            } label: {
-                Image(systemName: addMenuOpen ? "xmark" : "plus")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(addMenuOpen ? Theme.Accent.clayStrong
-                                                 : Theme.Surface.paper)
-                    .frame(width: 54, height: 54)
-                    .background(addMenuOpen ? Theme.Surface.panel : Theme.Accent.clayPress)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-                    .overlay {
-                        if addMenuOpen {
-                            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                                .stroke(Theme.Accent.clay, lineWidth: 1)
-                        }
-                    }
-                    .shadow(color: Color(hex: 0x1A1917).opacity(0.18), radius: 8, y: 3)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("library-add")
-            .accessibilityLabel(addMenuOpen ? "Close" : "Add")
-        }
-    }
-
-    private var addMenu: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            addRow(title: segment == .pieces ? "New" : "New set list",
-                   detail: segment == .pieces
-                       ? "A blank arrangement, filed under a new piece"
-                       : "An empty running order to fill",
-                   glyph: "square", id: "fab-new") { creatingName = "" }
-            Divider().overlay(Theme.Line.line)
-            addRow(title: "Import",
-                   detail: "PDF, MusicXML, MIDI — a PDF goes through OMR",
-                   glyph: "arrow.down.to.line", id: "fab-import") { onImport() }
-        }
-        .frame(width: 250)
-        .background(Theme.Surface.panel)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
-        .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 10, y: 4)
-    }
-
-    private func addRow(title: String, detail: String, glyph: String, id: String,
-                        action: @escaping () -> Void) -> some View {
-        Button {
-            addMenuOpen = false
-            action()
-        } label: {
-            HStack(spacing: Theme.Metric.s8) {
-                Image(systemName: glyph).font(.system(size: 14))
-                    .foregroundStyle(Theme.Accent.clayStrong).frame(width: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink)
-                    Text(detail).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Theme.Metric.s12)
-            .padding(.vertical, 10)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(id)
-    }
+    // The `+` FAB and its New/Import band are gone (§4C). They offered
+    // exactly what the action row now shows permanently, which makes the row
+    // the de-duplication rather than a second way in.
 
     // MARK: - Data
 
@@ -556,7 +607,6 @@ struct LibraryView: View {
     private func open(_ row: LibraryRow) {
         if segment == .setlists,
            let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
-            RecentSetlists.opened(setlist.slug)
             onOpenSetlist(setlist)
             return
         }

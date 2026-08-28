@@ -1,68 +1,9 @@
 import SwiftUI
 
-/// The bottom tab bar (NAVIGATION_SYSTEM.md §5, 12.1).
-///
-/// On iPad this is deliberate rather than accidental (§9.4): iPadOS prefers a
-/// top bar or a sidebar, and we are putting it at the bottom because the iPad
-/// is on a music stand and the reach that matters is one thumb at the near edge.
-///
-/// The active item reuses the pill's own language -- `clayTint` behind a
-/// `clay` mark -- which is the through-line the redesign keeps from the chrome
-/// it replaces (§8).
-struct TabBar: View {
-    @Binding var selection: AppTab
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(AppTab.allCases, id: \.self) { tab in
-                item(tab)
-            }
-        }
-        .frame(height: Theme.Metric.tabBarHeight)
-        .background(Theme.Surface.panel)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
-        }
-    }
-
-    private func item(_ tab: AppTab) -> some View {
-        Button {
-            guard tab.isAvailable else { return }
-            selection = tab
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: tab.glyph)
-                    .font(.system(size: 19, weight: .regular))
-                    .frame(height: 22)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 3)
-                    .background {
-                        if selection == tab && tab.isAvailable {
-                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                .fill(Theme.Accent.clayTint)
-                        }
-                    }
-                Text(tab.title.uppercased())
-                    .typeRole(.meta)
-            }
-            .foregroundStyle(colour(for: tab))
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        // a disabled tab is still announced, so its presence is a promise
-        // rather than a dead pixel
-        .disabled(!tab.isAvailable)
-        .opacity(tab.isAvailable ? 1 : 0.38)
-        .accessibilityIdentifier("tab-\(tab.rawValue)")
-        .accessibilityAddTraits(selection == tab ? [.isSelected] : [])
-    }
-
-    private func colour(for tab: AppTab) -> Color {
-        guard tab.isAvailable else { return Theme.Ink.ink3 }
-        return selection == tab ? Theme.Accent.clayStrong : Theme.Ink.ink2
-    }
-}
+// The bottom tab bar is gone (§4C). It held Home, My Library and a disabled
+// Shared placeholder -- one live tab and a stub, which is not a tab bar. The
+// app opens on My Library, and the Pieces/Setlists segmented control is the
+// only place-switcher. If sharing lands it returns as a third SEGMENT.
 
 /// A search field (12.3). Paper fill so it reads as something to type into,
 /// against the ground the rest of the screen sits on.
@@ -102,7 +43,7 @@ struct SearchField: View {
     }
 }
 
-/// One library/home row (12.4): thumbnail, title, subtitle, derived chips, and
+/// One library row (12.4): thumbnail, title, subtitle, derived chips, and
 /// the trailing meta in mono.
 struct LRow: View {
     let row: LibraryRow

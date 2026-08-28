@@ -21,9 +21,11 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger"]
         app.launch()
-        // Home is the first place now; the library is a tab.
-        XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 90),
-                      "the app never showed its tab bar")
+        // The library IS the app now (§4C): no Home, no tab bar, and the
+        // search field is the first thing that exists on it.
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
+                        .waitForExistence(timeout: 90),
+                      "the app never showed My Library")
         // ...and then wait for the SEED to finish, which is not the same thing.
         //
         // seedLibraryIfEmpty imports the sample scores and only afterwards
@@ -34,13 +36,11 @@ final class ScorangerUITests: XCTestCase {
         // just made, the next could not find the set list the seed had not
         // reached yet. Waiting for the arrangement every test goes on to use
         // waits for the imports; nothing here retries an assertion.
-        app.buttons["tab-library"].tap()
         let anyRow = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", piece)).firstMatch
         XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
                       "the seeded library never finished importing")
-        app.buttons["tab-home"].tap()
     }
 
     /// Relaunch with the Pencil stand-in, so a finger can drive the selection
@@ -63,15 +63,15 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-seedTestLibrary", "-annotateWithFinger",
                                "-uiTestPencil"]
         app.launch()
-        XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 90),
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
+                        .waitForExistence(timeout: 90),
                       "the app never came back after the relaunch")
     }
 
-    /// Open an arrangement the way a person now does: the Library tab, then
-    /// its row. Browsing and reading are separate places (§3), so this is two
-    /// steps rather than one tap on a sidebar that no longer exists.
+    /// Open an arrangement the way a person now does: the library is already
+    /// on screen, so this is its row. Browsing and reading are separate places
+    /// (§3), but browsing is now the app's only place (§4C).
     private func openArrangement(_ slug: String) {
-        app.buttons["tab-library"].tap()
         // An arrangement is not a top-level row: a PIECE is, and a piece is not
         // openable (§2). Opening one means opening one of its arrangements, so
         // this goes the way a person does -- the piece row, then the choice.
@@ -108,12 +108,10 @@ final class ScorangerUITests: XCTestCase {
     /// A row's ☰. Pushes to the item's screen.
     /// Get back to the library's own list, from wherever the test has got to.
     ///
-    /// The score covers the tabs, and the library keeps a navigation stack --
-    /// so "tap tab-library" lands on whatever was last pushed, not on the list.
-    /// Both have to be unwound or the next tap goes somewhere unintended.
+    /// The score covers the library, and the library keeps a navigation stack,
+    /// so both have to be unwound or the next tap goes somewhere unintended.
     private func resetToLibraryRoot() {
         if app.buttons["score-close"].exists { app.buttons["score-close"].tap() }
-        app.buttons["tab-library"].tap()
         for _ in 0..<4 {
             guard app.buttons["segment-pieces"].exists == false else { break }
             let back = app.buttons.matching(
@@ -341,30 +339,22 @@ final class ScorangerUITests: XCTestCase {
         shot("score-top-bar")
     }
 
-    /// Browsing and reading are separate places: X leaves the score and lands
-    /// back where it was opened from (§3).
-    func testTheScoreOpensOverTheTabsAndClosesBack() {
-        app.buttons["tab-library"].tap()
+    /// Reading happens over the library, and X ALWAYS lands back on it -- there
+    /// is nowhere else to land now that Home is gone (§4C).
+    func testTheScoreOpensOverTheLibraryAndClosesBack() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180))
-        XCTAssertFalse(app.buttons["tab-library"].isHittable,
-                       "the score covers the tabs while you are in it")
+        XCTAssertFalse(app.descendants(matching: .any)["library-search"].isHittable,
+                       "the score covers the library while you are in it")
         app.buttons["score-close"].tap()
-        // back to the tab you left from, on the screen you left from -- which
-        // is the piece the arrangement was opened from, not the library root
-        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 20),
-                      "closing the score did not bring the tabs back")
-        XCTAssertTrue(app.buttons["tab-library"].isHittable,
-                      "the tabs are back but unreachable")
-        XCTAssertTrue(app.buttons["segment-pieces"].exists
+        XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 20)
                         || app.buttons.matching(
                             NSPredicate(format: "label BEGINSWITH %@", "Back to")).count > 0,
                       "closing the score did not go back to the library")
         shot("closed-back-to-library")
     }
 
-    func testTheLibraryIsATabWithBothHalves() {
-        app.buttons["tab-library"].tap()
+    func testTheLibraryHasBothHalves() {
         XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["segment-setlists"].exists)
         XCTAssertTrue(app.otherElements["alphabet-rail"].exists
@@ -375,25 +365,44 @@ final class ScorangerUITests: XCTestCase {
         shot("library-setlists")
     }
 
-    func testHomeOffersRealActionsAndTheEngineChip() {
-        app.buttons["tab-home"].tap()
-        XCTAssertTrue(app.buttons["home-import"].waitForExistence(timeout: 30),
-                      "Home has no import action")
-        XCTAssertTrue(app.buttons["home-new-arrangement"].exists)
-        XCTAssertTrue(app.buttons["home-new-setlist"].exists)
-        XCTAssertTrue(app.buttons["home-ask"].exists)
-        // where the reference has an account avatar
-        XCTAssertTrue(app.otherElements["home-engine-chip"].exists
-                        || app.staticTexts["on-device"].exists,
-                      "Home does not say which engine is running")
-        shot("home")
+    /// Home's four actions, on the library where they now live (§4C). Same
+    /// actions, same order, new identifiers -- and no `home-*` left anywhere.
+    func testTheLibraryCarriesTheFourActionsAndTheEngineChip() {
+        XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
+                      "the library has no import action")
+        XCTAssertTrue(app.buttons["library-new"].exists)
+        XCTAssertTrue(app.buttons["library-new-setlist"].exists)
+        XCTAssertTrue(app.buttons["library-ask"].exists)
+        XCTAssertTrue(app.otherElements["library-engine-chip"].exists,
+                      "the library does not say which engine is running")
+        shot("library-action-row")
     }
 
-    func testTheThirdTabIsDrawnButNotUsable() {
-        // a labelled placeholder, so the bar is not re-laid-out when sharing
-        // lands -- and so its absence is a promise rather than a dead pixel
-        XCTAssertTrue(app.buttons["tab-shared"].exists)
-        XCTAssertFalse(app.buttons["tab-shared"].isEnabled)
+    /// The tab bar is gone entirely: one live tab and a disabled placeholder
+    /// was not a tab bar (§4C).
+    func testThereIsNoTabBar() {
+        for id in ["tab-home", "tab-library", "tab-shared"] {
+            XCTAssertFalse(app.buttons[id].exists, "\(id) survived the merge")
+        }
+    }
+
+    /// The `+` offered exactly what the action row now shows permanently, so
+    /// it went with Home rather than becoming a second way in (§4C).
+    func testTheFABIsGone() {
+        XCTAssertFalse(app.buttons["library-add"].exists)
+        XCTAssertTrue(app.buttons["library-import"].exists,
+                      "Import must be permanently visible now that + is gone")
+    }
+
+    /// QA batch 1: the chip printed the mode twice -- `LED` said "on-device"
+    /// and the chip said it again beside it.
+    func testTheEngineChipSaysTheModeOnce() {
+        XCTAssertTrue(app.otherElements["library-engine-chip"].waitForExistence(timeout: 30))
+        let label = app.otherElements["library-engine-chip"].label
+        let saidTwice = label.components(separatedBy: "on-device").count - 1
+        XCTAssertLessThanOrEqual(saidTwice, 1, "the chip repeats the mode: \(label)")
+        XCTAssertEqual(app.staticTexts.matching(identifier: "on-device").count, 0,
+                       "the LED is drawing a label of its own again")
     }
 
     func testTheLibraryOverlayIsGoneFromTheScore() {
@@ -1004,7 +1013,8 @@ final class ScorangerUITests: XCTestCase {
                                "-annotateWithFinger", "-uiTestPencil",
                                "-seedChordChart"]
         app.launch()
-        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 90))
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
+                        .waitForExistence(timeout: 90))
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
@@ -1296,8 +1306,8 @@ final class ScorangerUITests: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger", "-seedBrokenArrangement"]
         app.launch()
-        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 90))
-        app.buttons["tab-library"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
+                        .waitForExistence(timeout: 90))
         app.buttons["segment-pieces"].tap()
 
         // it has no piece, so it sits in the library on its own
@@ -1823,10 +1833,10 @@ final class ScorangerUITests: XCTestCase {
     /// for the name first, then offers arrangements to put in it.
     func testNewSetlistAsksForANameThenOffersArrangements() {
 
-        app.buttons["tab-library"].tap()
         app.buttons["segment-setlists"].tap()
-        app.buttons["library-add"].tap()
-        app.buttons["fab-new"].tap()
+        // New set list is permanently on the action row now; the + that used
+        // to hold it is gone (§4C)
+        app.buttons["library-new-setlist"].tap()
         // naming happens in a band at the top of the list, not in an alert
         let field = app.textFields["inline-rename-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no field to name it in")
@@ -1878,7 +1888,6 @@ final class ScorangerUITests: XCTestCase {
 
     /// The + on an existing set list adds arrangements to it.
     func testAddingAnArrangementToAnExistingSetlist() {
-        app.buttons["tab-library"].tap()
         app.buttons["segment-setlists"].tap()
         // the set list's own ☰ opens its screen; Add arrangements is a row on it
         let menu = app.buttons["row-menu-test-setlist"]

@@ -215,6 +215,7 @@ targets:
       # (a row must reserve room for the control overlaid on its trailing edge)
       - path: Scoranger/DesignSystem/Theme.swift
       - path: Scoranger/Navigation/AppRoute.swift
+      - path: Scoranger/Navigation/LibraryActionRow.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
       - path: Scoranger/Navigation/Route.swift

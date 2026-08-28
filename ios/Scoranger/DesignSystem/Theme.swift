@@ -208,7 +208,6 @@ enum Theme {
         static let rowMenuInset: CGFloat = hitTarget + s8 + s8
 
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
-        static let tabBarHeight: CGFloat = 64
         static let scoreTopBar: CGFloat = 52
         static let scoreTopBarPerformance: CGFloat = 38
         static let thumbStripHeight: CGFloat = 96

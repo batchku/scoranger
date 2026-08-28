@@ -59,26 +59,30 @@ struct NumeralBadge: View {
 
 /// A drawn circle with a halo, never a symbol, and never the only carrier of
 /// its meaning: it sits beside a mono word.
+/// A status dot. Just the dot.
+///
+/// It used to print a word of its own -- "on-device" when lit, "unreachable"
+/// when not -- and that was wrong twice over. On the library's engine chip the
+/// caller printed the mode too, so it read "on-device on-device"; and in
+/// Settings, where it is used bare, it said "on-device" while the app was
+/// talking to a remote engine, because the word was describing REACHABILITY
+/// and being read as the mode.
+///
+/// One of the two had to own the word, and it is the caller: only the caller
+/// knows whether the engine it is lighting is the on-device one or a remote
+/// one. The dot says reachable or not, in colour and to VoiceOver.
 struct LED: View {
     let isOn: Bool
-    var showsLabel = true
 
     var body: some View {
-        HStack(spacing: Theme.Metric.s6) {
-            Circle()
-                .fill(colour)
-                .frame(width: 9, height: 9)
-                .overlay {
-                    Circle().stroke(colour.opacity(0.22), lineWidth: 3)
-                }
-            if showsLabel {
-                Text(isOn ? "on-device" : "unreachable")
-                    .typeRole(.data)
-                    .foregroundStyle(Theme.Ink.ink2)
+        Circle()
+            .fill(colour)
+            .frame(width: 9, height: 9)
+            .overlay {
+                Circle().stroke(colour.opacity(0.22), lineWidth: 3)
             }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(isOn ? "Engine connected" : "Engine unreachable")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(isOn ? "Engine connected" : "Engine unreachable")
     }
 
     private var colour: Color { isOn ? Theme.Status.ok : Theme.Status.danger }

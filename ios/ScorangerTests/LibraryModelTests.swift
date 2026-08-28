@@ -212,14 +212,16 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(LibraryModel.grouped([]).isEmpty)
     }
 
-    // MARK: - The third tab is drawn, not omitted
+    // MARK: - There are two halves of one place, not three tabs
 
-    func testSharingIsShownAsComingRatherThanHidden() {
-        XCTAssertFalse(AppTab.shared.isAvailable,
-                       "the third tab is a labelled placeholder, so the bar does not "
-                       + "re-lay-out when sharing lands")
-        XCTAssertTrue(AppTab.home.isAvailable)
-        XCTAssertTrue(AppTab.library.isAvailable)
+    /// The tab bar is gone (§4C), and with it the disabled Shared placeholder
+    /// that was the point of the test this replaces. The library's two halves
+    /// are the app's only place-switcher; when sharing lands it becomes a third
+    /// SEGMENT here rather than a resurrected tab.
+    func testTheLibraryIsTheOnlyPlaceSwitcher() {
+        XCTAssertEqual(LibrarySegment.allCases, [.pieces, .setlists])
+        XCTAssertEqual(LibrarySegment.pieces.title, "Pieces")
+        XCTAssertEqual(LibrarySegment.setlists.title, "Setlists")
     }
 
     func testEveryModeSaysWhatThePencilDoes() {
