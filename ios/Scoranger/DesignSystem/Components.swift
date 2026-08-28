@@ -7,12 +7,16 @@ import SwiftUI
 /// sections and card headers, with an optional trailing action.
 struct BandHeader<Trailing: View>: View {
     let title: String
+    /// An index letter is a heading, not a label: at the generic 10pt `.label`
+    /// role the "S" over the S's was a speck (L13). The spec asks for 13pt
+    /// Space Grotesk 700 there, which is `.titleS`.
+    var role: Theme.Role = .label
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         HStack(spacing: Theme.Metric.s8) {
             Text(title.uppercased())
-                .typeRole(.label)
+                .typeRole(role)
                 .foregroundStyle(Theme.Accent.clayStrong)
             Spacer(minLength: 0)
             trailing()
@@ -317,6 +321,9 @@ struct StateView: View {
     var message: String?
     var mono: String?
     var actionTitle: String?
+    /// An empty state's action is the ONE thing to do about it, so it is the
+    /// specced primary rather than another bordered button (L12 nit).
+    var actionKind: PanelButton.Kind = .normal
     /// Applied to the TITLE, never to the whole state.
     ///
     /// An identifier on a composite view collapses it into one accessibility
@@ -353,8 +360,8 @@ struct StateView: View {
                     .frame(maxWidth: 300)
             }
             if let actionTitle, let action {
-                PanelButton(title: actionTitle, identifier: "state-action",
-                            action: action)
+                PanelButton(title: actionTitle, kind: actionKind,
+                            identifier: "state-action", action: action)
                     .padding(.top, Theme.Metric.s4)
             }
         }

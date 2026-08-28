@@ -223,6 +223,15 @@ enum Theme {
         /// as a column appearing (L23).
         static let checkboxGutter: CGFloat = hitTarget
 
+        /// The widest a pushed screen's content column gets.
+        ///
+        /// A row is a label and its answer, and on a 1376pt iPad the two ended
+        /// up a metre apart with nothing between them -- the label at the left
+        /// edge and its chevron at the right, which reads as two unrelated
+        /// things rather than as a row (L34). Books stop their measure for the
+        /// same reason.
+        static let readingColumn: CGFloat = 720
+
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let scoreTopBar: CGFloat = 52
         static let scoreTopBarPerformance: CGFloat = 38

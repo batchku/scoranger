@@ -415,7 +415,7 @@ struct LibraryView: View {
                     // lowercase "s" on an unruled 18pt strip, which is not what
                     // a section header looks like anywhere else in the app
                     // (§12.6). One component, so it cannot drift again.
-                    BandHeader(title: group.letter) { EmptyView() }
+                    BandHeader(title: group.letter, role: .titleS) { EmptyView() }
                         .id("letter-\(group.letter)")
                 }
             }
@@ -556,6 +556,7 @@ struct LibraryView: View {
                           ? "Import a score, or make a blank arrangement and ask."
                           : "A set list is a gig's running order of arrangements.",
                       actionTitle: segment == .pieces ? "Import" : "New set list",
+                      actionKind: .primary,
                       identifier: "library-empty",
                       action: { if segment == .pieces { onImport() } else { creatingName = "" } })
                 .frame(maxWidth: .infinity)

@@ -59,40 +59,62 @@ struct ScoreOptionsScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             // Performance mode first and lit, because it is the one entry that
             // changes what every input means (§6 of the navigation system).
-            HStack(spacing: Theme.Metric.s8) {
-                Text("Performance mode").typeRole(.row).foregroundStyle(Theme.Ink.ink)
-                Spacer()
-                Toggle("", isOn: Binding(get: { mode == .performance },
-                                         set: { on in
-                                             mode = on ? .performance : .read
-                                             if on { state.annotation.isOn = false }
-                                             onBack()
-                                         }))
-                    .labelsHidden().tint(Theme.Accent.clay)
-                    .accessibilityIdentifier("more-performance")
-            }
-            .padding(.horizontal, Theme.Metric.s20)
-            .padding(.vertical, 11)
-            .background(Theme.Accent.clayTint)
+            // The app's own switch, not the system's. This was the one stock
+            // iOS control left anywhere in it (L33) -- and it sat in the most
+            // prominent row of the options screen.
+            PanelToggle(title: "Performance mode",
+                        isOn: Binding(get: { mode == .performance },
+                                      set: { on in
+                                          mode = on ? .performance : .read
+                                          if on { state.annotation.isOn = false }
+                                          onBack()
+                                      }))
+                .accessibilityIdentifier("more-performance")
+                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.vertical, 11)
+                .background(Theme.Accent.clayTint)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Theme.Line.line).frame(height: 1)
+                }
 
             ScreenRow(title: "Score display", value: state.twoPageSpread ? "two pages" : "one page",
                       identifier: "more-display") { push("Score display") }
-            ScreenRow(title: "Annotations", identifier: "more-annotations") {
+            // Every row states its current answer where it has one. A screen of
+            // bare labels is a menu; the answers are what make it a summary of
+            // where the score stands (L34).
+            ScreenRow(title: "Annotations",
+                      value: state.annotation.isOn ? "on" : "off",
+                      identifier: "more-annotations") {
                 push("Annotations")
             }
-            ScreenRow(title: "Selection & chat", identifier: "more-selection") {
+            ScreenRow(title: "Selection & chat",
+                      value: state.activeSelection.map {
+                          "\($0.addresses.count) selected"
+                      } ?? "nothing selected",
+                      identifier: "more-selection") {
                 push("Selection & chat")
             }
-            ScreenRow(title: "Transpose", identifier: "more-transpose") { push("Transpose") }
-            ScreenRow(title: "Versions", value: state.displayedVersionID,
+            ScreenRow(title: "Transpose", value: "by interval",
+                      identifier: "more-transpose") { push("Transpose") }
+            ScreenRow(title: "Versions",
+                      value: state.selectedScore.map {
+                          "\(state.displayedVersionID ?? "—") of \($0.versions.count)"
+                      } ?? state.displayedVersionID,
                       identifier: "more-versions") { push("Versions") }
-            ScreenRow(title: "Piece & arrangement details", identifier: "more-details") {
+            ScreenRow(title: "Piece & arrangement details",
+                      value: state.selectedScore.flatMap { score in
+                          state.placement(of: score.slug)?.piece.name
+                      },
+                      identifier: "more-details") {
                 onDetails()
             }
-            ScreenRow(title: "Share & export", identifier: "more-export") {
+            ScreenRow(title: "Share & export", value: "MusicXML · MIDI · PDF",
+                      identifier: "more-export") {
                 push("Share & export")
             }
-            ScreenRow(title: "Settings", identifier: "more-settings") { onSettings() }
+            ScreenRow(title: "Settings",
+                      value: state.useLocalEngine ? "on-device" : "remote",
+                      identifier: "more-settings") { onSettings() }
         }
         .padding(.bottom, Theme.Metric.s32)
     }

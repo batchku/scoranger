@@ -99,8 +99,10 @@ struct ScoreTopBar: View {
                         // The mode, stated: §6 only works if it is visible --
                         // but as bare text it ran straight into the version
                         // beside it and read as "… · v003 Pencil: select".
-                        // A separator and a chip: two facts, told apart.
-                        Text("·").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                        // The chip's own border tells them apart. A "·" as
+                        // well left a dangling separator between the version
+                        // and a box -- punctuation joining a sentence to a
+                        // thing that is not one (#41).
                         MiniChip(text: mode.pencilMeaning)
                             .accessibilityIdentifier("pencil-mode")
                     }

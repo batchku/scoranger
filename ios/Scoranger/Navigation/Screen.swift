@@ -52,7 +52,14 @@ struct Screen<Content: View, Trailing: View>: View {
                 Rectangle().fill(Theme.Line.line).frame(height: 1)
             }
 
-            ScrollView { content() }
+            ScrollView {
+                // The content column is capped and centred. Full-bleed rows on
+                // a 13" iPad put a label and its own chevron 1300pt apart
+                // (L34); a row has to read as one thing.
+                content()
+                    .frame(maxWidth: Theme.Metric.readingColumn)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .background(Theme.Surface.ground)
     }
@@ -109,6 +116,12 @@ struct ScreenRow: View {
                 }
             }
             .contentShape(Rectangle())
+            // A rule under every row. Without one the rows ran together into a
+            // column of floating text, which is most of why these screens read
+            // as unfinished (L34).
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Theme.Line.line).frame(height: 1)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
