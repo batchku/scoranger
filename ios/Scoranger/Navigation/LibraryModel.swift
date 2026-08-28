@@ -208,3 +208,31 @@ enum LibraryModel {
         return String(parts[1].prefix(5))
     }
 }
+
+// MARK: - What the library says it holds (L11)
+
+extension LibraryModel {
+
+    /// The count under "My library", as a phrase rather than a bare number.
+    ///
+    /// It read "My library 1", which names nothing: one what? And an empty
+    /// library read "My library 0", which is a count of nothing where a new
+    /// user needs a sentence. Pieces carry their arrangements too, because
+    /// "7 pieces" alone hides how much is actually in there.
+    static func countPhrase(segment: LibrarySegment, rows: [LibraryRow]) -> String {
+        switch segment {
+        case .pieces:
+            guard !rows.isEmpty else { return "No pieces yet" }
+            let arrangements = rows.reduce(0) { $0 + max($1.arrangementCount, 1) }
+            return "\(plural(rows.count, "piece")) · \(plural(arrangements, "arrangement"))"
+        case .setlists:
+            guard !rows.isEmpty else { return "No set lists yet" }
+            return plural(rows.count, "set list")
+        }
+    }
+
+    /// "1 piece", "2 pieces" -- the noun is never dropped and never mis-agreed.
+    static func plural(_ count: Int, _ noun: String) -> String {
+        "\(count) \(noun)\(count == 1 ? "" : "s")"
+    }
+}

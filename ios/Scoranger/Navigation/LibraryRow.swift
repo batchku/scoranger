@@ -73,11 +73,23 @@ struct LRow: View {
                 }
                 Spacer(minLength: Theme.Metric.s8)
                 if !row.meta.isEmpty {
+                    // Never wrapped, never compressed, and never squeezed by
+                    // the title beside it: "v001 · 19:55" is one short mono
+                    // string and it is what the reader checks at a glance.
                     Text(row.meta).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.Ink.ink3)
+                // No chevron when there is a ☰. Three trailing affordances --
+                // meta, chevron, ☰ -- were two too many, and the chevron said
+                // exactly what the ☰ says: there is more here. The row itself
+                // is still a button; that is what its tap is for.
+                if onMenu == nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.Ink.ink3)
+                }
             }
             .padding(.leading, Theme.Metric.s20)
             // a row with a ☰ keeps its content clear of it; the overlay sits

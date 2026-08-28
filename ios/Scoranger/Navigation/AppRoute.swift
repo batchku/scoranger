@@ -18,14 +18,20 @@ enum LibrarySegment: String, CaseIterable, Equatable {
 enum LibrarySort: String, CaseIterable, Equatable {
     case name, composer, recent, arrangements
 
+    /// Sentence case. These read as options in a revealed list, and a list of
+    /// lowercase fragments reads as debug output rather than as choices.
     var label: String {
         switch self {
-        case .name:         return "name"
-        case .composer:     return "composer"
-        case .recent:       return "recently changed"
-        case .arrangements: return "arrangement count"
+        case .name:         return "Name"
+        case .composer:     return "Composer"
+        case .recent:       return "Recently changed"
+        case .arrangements: return "Arrangement count"
         }
     }
+
+    /// How the Sort button says it, where the label is the ANSWER rather than
+    /// the name of a choice: "Sort: name".
+    var buttonLabel: String { label.lowercased() }
 
     var showsAlphabetRail: Bool { self == .name }
 }
@@ -37,10 +43,10 @@ enum LibraryFilter: String, CaseIterable, Equatable {
 
     var label: String {
         switch self {
-        case .unfiled:    return "unfiled"
+        case .unfiled:    return "Unfiled"
         case .omrDrafts:  return "OMR drafts"
-        case .hasSources: return "has sources"
-        case .inASetlist: return "in a setlist"
+        case .hasSources: return "Has sources"
+        case .inASetlist: return "In a set list"
         }
     }
 }

@@ -394,6 +394,28 @@ final class ScorangerUITests: XCTestCase {
                       "Import must be permanently visible now that + is gone")
     }
 
+    /// L12: the empty library is the first screen a new user meets, so it is a
+    /// STATE with something to do -- not a sentence in the top-left corner.
+    func testAnEmptyLibraryIsAStateWithSomethingToDo() {
+        app.terminate()
+        app.launchArguments = ["-resetLibrary"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
+                        .waitForExistence(timeout: 90))
+        let state = app.descendants(matching: .any)["library-empty"]
+        XCTAssertTrue(state.waitForExistence(timeout: 30), "no empty state")
+        XCTAssertTrue(app.buttons["state-action"].exists,
+                      "the empty library offers nothing to do about it")
+        // and the count says it in words (L11)
+        XCTAssertTrue(app.staticTexts["No pieces yet"].exists,
+                      "the empty library still counts in digits")
+        // Ask has nothing to open, and says so by being disabled rather than
+        // by vanishing and re-flowing the row (§4C)
+        XCTAssertTrue(app.buttons["library-ask"].exists)
+        XCTAssertFalse(app.buttons["library-ask"].isEnabled)
+        shot("empty-library")
+    }
+
     /// QA batch 1: the chip printed the mode twice -- `LED` said "on-device"
     /// and the chip said it again beside it.
     func testTheEngineChipSaysTheModeOnce() {

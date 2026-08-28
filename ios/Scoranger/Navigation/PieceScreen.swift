@@ -283,6 +283,9 @@ struct ArrangementScreen: View {
 /// The one control a row carries (§2, §4). Visible, labelled, never a long
 /// press.
 struct RowMenuButton: View {
+    /// The bordered square itself, inside a full hit target.
+    static let side: CGFloat = 34
+
     var identifier: String
     var label: String
     var isOpen: Bool = false
@@ -293,9 +296,18 @@ struct RowMenuButton: View {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(isOpen ? Theme.Accent.clayStrong : Theme.Ink.ink2)
-                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
-                .background(isOpen ? Theme.Accent.clayTint : Color.clear)
+                // A BUTTON, like every other icon in the app. It was a naked
+                // glyph sitting in the row's trailing edge, so the one control
+                // a row carries did not look like a control at all.
+                .frame(width: RowMenuButton.side, height: RowMenuButton.side)
+                .background(isOpen ? Theme.Accent.clayTint : Theme.Surface.panel)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(isOpen ? Theme.Accent.clay : Theme.Line.line2,
+                                lineWidth: 1)
+                }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -88,6 +88,34 @@ struct LED: View {
     private var colour: Color { isOn ? Theme.Status.ok : Theme.Status.danger }
 }
 
+/// Content revealed in place: the sort and filter options, and anything else
+/// that expands where it was asked for rather than floating over the screen.
+///
+/// It is a CONTAINER because the alternative is what happened -- the library's
+/// sort options were a bare row of chips on the screen's own ground, so a
+/// revealed list did not read as revealed, and every screen that reveals
+/// something would have invented its own version of this.
+///
+/// Well fill, ruled top and bottom: the same language as a band, one step
+/// quieter, so it reads as belonging to the control that opened it.
+struct RevealBand<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.Metric.s12)
+            .padding(.vertical, Theme.Metric.s8)
+            .background(Theme.Surface.well)
+            .overlay(alignment: .top) { hairline }
+            .overlay(alignment: .bottom) { hairline }
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(Theme.Line.line2).frame(height: 1)
+    }
+}
+
 // MARK: - Buttons (§7.11)
 
 /// 13pt/600 label, 2pt radius, hard border. `primary` and `destructive` carry a
@@ -97,6 +125,10 @@ struct PanelButton: View {
 
     let title: String
     var kind: Kind = .normal
+    /// Set ON the button rather than on the wrapper. An identifier applied to
+    /// a composite view from outside did not reach the button inside it: the
+    /// empty library's action was on screen and unfindable.
+    var identifier: String?
     var action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -119,6 +151,7 @@ struct PanelButton: View {
         }
         .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.42)
+        .accessibilityIdentifier(identifier ?? "")
     }
 
     private var fill: Color {
@@ -253,6 +286,14 @@ struct StateView: View {
     var message: String?
     var mono: String?
     var actionTitle: String?
+    /// Applied to the TITLE, never to the whole state.
+    ///
+    /// An identifier on a composite view collapses it into one accessibility
+    /// element and swallows what is inside: with `library-empty` on the state
+    /// itself, the state was findable and its Import button was not there at
+    /// all. This is the same trap the navigation work hit five times; putting
+    /// the identifier on a leaf is the answer.
+    var identifier: String?
     var action: (() -> Void)?
 
     var body: some View {
@@ -263,6 +304,7 @@ struct StateView: View {
             Text(title)
                 .typeRole(.title)
                 .foregroundStyle(Theme.Ink.ink)
+                .accessibilityIdentifier(identifier ?? "")
             if let mono {
                 Text(mono)
                     .typeRole(.data)
@@ -280,7 +322,8 @@ struct StateView: View {
                     .frame(maxWidth: 300)
             }
             if let actionTitle, let action {
-                PanelButton(title: actionTitle, action: action)
+                PanelButton(title: actionTitle, identifier: "state-action",
+                            action: action)
                     .padding(.top, Theme.Metric.s4)
             }
         }

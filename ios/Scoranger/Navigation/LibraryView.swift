@@ -208,7 +208,11 @@ struct LibraryView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s8) {
             Text("My library").typeRole(.title).foregroundStyle(Theme.Ink.ink)
-            Text("\(rows.count)").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+            // a phrase, not a bare number: "My library 1" names nothing, and
+            // "My library 0" is a count where a new reader needs a sentence
+            Text(LibraryModel.countPhrase(segment: segment, rows: rows))
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                .accessibilityIdentifier("library-count")
             Spacer()
         }
         .padding(.horizontal, Theme.Metric.s20)
@@ -232,7 +236,7 @@ struct LibraryView: View {
                     Button { showSort.toggle(); showFilter = false } label: {
                         // Sort keeps its value in compact width: its label is
                         // an ANSWER, not the button's name
-                        rowButton("Sort: \(sort.label)", glyph: "arrow.up.arrow.down",
+                        rowButton("Sort: \(sort.buttonLabel)", glyph: "arrow.up.arrow.down",
                                   iconOnly: false)
                     }
                     .buttonStyle(.plain)
@@ -257,8 +261,8 @@ struct LibraryView: View {
                 .frame(width: geo.size.width, height: LibraryActionRow.height)
             }
             .frame(height: LibraryActionRow.height)
-            if showSort { sortOptions }
-            if showFilter { filterOptions }
+            if showSort { RevealBand { sortOptions } }
+            if showFilter { RevealBand { filterOptions } }
         }
         .padding(.horizontal, LibraryActionRow.sidePadding)
         .padding(.top, Theme.Metric.s12)
@@ -279,12 +283,15 @@ struct LibraryView: View {
             rowButton(action.title, glyph: action.glyph, iconOnly: compact)
         }
         .buttonStyle(.plain)
+        // label and identifier BEFORE .disabled, and no children: .ignore.
+        // Grouping the button into its own element left the disabled state on
+        // the inner button and the identifier on the wrapper, so "Ask" read as
+        // enabled to anything looking it up by id while being grey and inert
+        // on screen. VoiceOver would have said the same wrong thing.
+        .accessibilityLabel(action.title)
+        .accessibilityIdentifier(action.identifier)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.42)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(action.title)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(action.identifier)
     }
 
     /// One button of the action row: 32pt, bordered, panel fill, no emphasis.
@@ -404,13 +411,11 @@ struct LibraryView: View {
                 Section {
                     ForEach(group.rows) { row in rowView(row) }
                 } header: {
-                    Text(group.letter)
-                        .typeRole(.label)
-                        .foregroundStyle(Theme.Accent.clayStrong)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Theme.Metric.s20)
-                        .padding(.vertical, Theme.Metric.s4)
-                        .background(Theme.Surface.band)
+                    // BandHeader rather than a hand-rolled Text: it was a tiny
+                    // lowercase "s" on an unruled 18pt strip, which is not what
+                    // a section header looks like anywhere else in the app
+                    // (§12.6). One component, so it cannot drift again.
+                    BandHeader(title: group.letter) { EmptyView() }
                         .id("letter-\(group.letter)")
                 }
             }
@@ -552,17 +557,34 @@ struct LibraryView: View {
             .accessibilityIdentifier(id)
     }
 
-    /// The empty library is the app's FIRST screen now, so it carries the
-    /// welcome -- and the action row stays above it, which is what the words
-    /// point at (§4C).
+    /// The empty library is the app's FIRST screen now (§4C), so it is a STATE
+    /// rather than a sentence in the top-left corner: centred glyph, title,
+    /// one line of help, and the one button that resolves it.
+    ///
+    /// The action row stays above it either way -- the state's Import and the
+    /// row's Import are the same action, and a new reader should find it
+    /// wherever they look first.
+    @ViewBuilder
     private var empty: some View {
-        Text(search.isEmpty && filters.isEmpty
-             ? "Nothing here yet — import a score, or make a blank arrangement "
-               + "and ask for what you want."
-             : "No matches.")
-            .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-            .padding(Theme.Metric.s20)
-            .accessibilityIdentifier("library-empty")
+        if search.isEmpty && filters.isEmpty {
+            StateView(systemImage: segment == .pieces ? "music.note.list" : "list.bullet",
+                      title: segment == .pieces ? "No music yet" : "No set lists yet",
+                      message: segment == .pieces
+                          ? "Import a score, or make a blank arrangement and ask."
+                          : "A set list is a gig's running order of arrangements.",
+                      actionTitle: segment == .pieces ? "Import" : "New set list",
+                      identifier: "library-empty",
+                      action: { if segment == .pieces { onImport() } else { creatingName = "" } })
+                .frame(maxWidth: .infinity)
+                .padding(.top, Theme.Metric.s32)
+        } else {
+            StateView(systemImage: "magnifyingglass",
+                      title: "No matches",
+                      message: "Nothing here matches what you are looking for.",
+                      identifier: "library-empty")
+                .frame(maxWidth: .infinity)
+                .padding(.top, Theme.Metric.s32)
+        }
     }
 
     // The `+` FAB and its New/Import band are gone (§4C). They offered
