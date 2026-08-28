@@ -8,7 +8,7 @@ final class LibraryActionRowTests: XCTestCase {
 
     func testTheRowCarriesTheFourActionsInThePanelsOldOrder() {
         XCTAssertEqual(LibraryQuickAction.ordered,
-                       [.importScore, .new, .newSetlist, .ask])
+                       [.importScore, .new, .newSetlist])
         XCTAssertEqual(LibraryQuickAction.ordered.count,
                        LibraryQuickAction.allCases.count,
                        "an action exists that the row does not show")
@@ -17,8 +17,7 @@ final class LibraryActionRowTests: XCTestCase {
     /// The ids move with the actions; `home-*` and `library-add` retire.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
-                       ["library-import", "library-new",
-                        "library-new-setlist", "library-ask"])
+                       ["library-import", "library-new", "library-new-setlist"])
         XCTAssertFalse(LibraryQuickAction.allCases
             .contains { $0.identifier.hasPrefix("home-") })
     }
@@ -64,23 +63,8 @@ final class LibraryActionRowTests: XCTestCase {
         XCTAssertGreaterThan(LibraryActionRow.clusterGap, LibraryActionRow.gap)
     }
 
-    // MARK: Ask
-
-    func testAskIsDisabledUntilSomethingHasBeenOpened() {
-        XCTAssertNil(LastOpened.askTarget(lastOpened: nil, known: ["a", "b"]))
-    }
-
-    func testAskOpensTheLastArrangement() {
-        XCTAssertEqual(LastOpened.askTarget(lastOpened: "b", known: ["a", "b"]), "b")
-    }
-
-    /// The remembered arrangement can be deleted between sessions. Ask must go
-    /// back to disabled rather than opening a slug that is not there.
-    func testAskForgetsAnArrangementThatHasBeenDeleted() {
-        XCTAssertNil(LastOpened.askTarget(lastOpened: "gone", known: ["a", "b"]))
-    }
-
-    func testAskIsDisabledInAnEmptyLibrary() {
-        XCTAssertNil(LastOpened.askTarget(lastOpened: "a", known: []))
-    }
+    // The Ask tests went with Ask (#47). It was removed from the library
+    // action row -- the score's own Ask is where a question about an
+    // arrangement belongs -- and `LastOpened`, which existed only to give it
+    // something to open, went with it.
 }

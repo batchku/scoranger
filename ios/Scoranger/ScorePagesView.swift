@@ -119,7 +119,10 @@ struct ScorePagesView: View {
         // turning edit mode off from the pill left the tools on screen. The
         // pill itself has observed the controller since it was written; this is
         // the same fix, in the one place that was missing it.
-        .overlay(alignment: .bottom) { AnnotationBarLayer(controller: annotation) }
+        // The ink bar's layer is NOT here any more. It docked at the bottom of
+        // the page canvas, which stops above the thumbnail strip -- so the bar
+        // could not be moved over the strip or the transport, which is the
+        // clamp Ali ran into (#46). It hangs off the whole score screen now.
     }
 
     /// Turn the scroll view's visible rect into "which slice of each page is on
@@ -461,23 +464,6 @@ private struct SelectionHighlight: View {
     }
 }
 
-private struct AnnotationBarLayer: View {
-    @ObservedObject var controller: AnnotationController
-
-    var body: some View {
-        if controller.isOn {
-            // the pane, so the bar can be moved around inside it and no
-            // further -- the clamp needs to know how much room there is
-            GeometryReader { geo in
-                AnnotationBar(controller: controller, bounds: geo.size)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity,
-                           alignment: .bottom)
-            }
-            .allowsHitTesting(true)
-        }
-    }
-}
-
 private struct PageView: View {
     let page: PDFPage
     let width: CGFloat
@@ -605,11 +591,13 @@ private struct PencilCanvas: UIViewRepresentable {
         context.coordinator.store = store
         context.coordinator.controller = controller
         context.coordinator.publishStrokeCount(canvas)
-        // its own scrolling would fight the score's; only the zoom is wanted
+        // its own scrolling would fight the score's; only the zoom is wanted,
+        // and only the zoom WE set
         canvas.isScrollEnabled = false
         canvas.bouncesZoom = false
         canvas.minimumZoomScale = 1
         canvas.maximumZoomScale = InkSharpness.maximumFactor
+        Self.disableOwnZoom(canvas)
         Self.sharpen(canvas, to: canvasZoom)
         return canvas
     }
@@ -641,6 +629,23 @@ private struct PencilCanvas: UIViewRepresentable {
         canvas.isUserInteractionEnabled = controller.isOn
         canvas.tool = controller.pkTool
         Self.sharpen(canvas, to: canvasZoom)
+        // Again here, not only at creation: a UIScrollView makes its pinch
+        // recognizer lazily, so the one set up in makeUIView was often not
+        // there yet to be turned off (#45).
+        Self.disableOwnZoom(canvas)
+    }
+
+    /// The canvas may be zoomed BY US and never by the reader.
+    ///
+    /// PKCanvasView is a UIScrollView, and giving it a zoom range so PencilKit
+    /// would re-render the ink crisply also handed it a working pinch. In ink
+    /// mode, where the canvas takes touches, a two-finger pinch then zoomed the
+    /// INK on its own -- off-centre, sliding over a score that stayed put
+    /// (#45). The score's own scroll view owns zooming; this one is only ever
+    /// told what scale to draw at.
+    private static func disableOwnZoom(_ canvas: PKCanvasView) {
+        canvas.pinchGestureRecognizer?.isEnabled = false
+        canvas.panGestureRecognizer.isEnabled = false
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

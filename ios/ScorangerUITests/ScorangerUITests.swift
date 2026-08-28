@@ -365,17 +365,50 @@ final class ScorangerUITests: XCTestCase {
         shot("library-setlists")
     }
 
-    /// Home's four actions, on the library where they now live (§4C). Same
-    /// actions, same order, new identifiers -- and no `home-*` left anywhere.
-    func testTheLibraryCarriesTheFourActionsAndTheEngineChip() {
+    /// Home's actions, on the library where they now live (§4C) -- less Ask,
+    /// which Ali had removed (#47).
+    func testTheLibraryCarriesTheMakingActions() {
         XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
                       "the library has no import action")
         XCTAssertTrue(app.buttons["library-new"].exists)
         XCTAssertTrue(app.buttons["library-new-setlist"].exists)
-        XCTAssertTrue(app.buttons["library-ask"].exists)
-        XCTAssertTrue(app.otherElements["library-engine-chip"].exists,
-                      "the library does not say which engine is running")
+        XCTAssertFalse(app.buttons["library-ask"].exists, "Ask is back")
         shot("library-action-row")
+    }
+
+    /// #48-#50: the library's top row is the gear and nothing else. Help and
+    /// the inbox were drawn and inert; the engine chip restated in the corner
+    /// of every screen a question that Settings answers properly.
+    func testTheLibraryTopRowIsJustTheGear() {
+        XCTAssertTrue(app.buttons["library-settings"].waitForExistence(timeout: 30),
+                      "the gear went with the rest of the top row")
+        XCTAssertFalse(app.buttons["Help"].exists, "the ? is back")
+        XCTAssertFalse(app.buttons["Inbox"].exists, "the tray is back")
+        XCTAssertFalse(app.descendants(matching: .any)["library-engine-chip"].exists,
+                       "the engine chip is back")
+    }
+
+    /// #53: which build this is, on the screen the app opens to.
+    func testTheLibraryShowsWhichBuildThisIs() {
+        let stamp = app.staticTexts["build-stamp"]
+        XCTAssertTrue(stamp.waitForExistence(timeout: 30),
+                      "no build stamp on the library")
+        XCTAssertTrue(stamp.label.contains("b"), "the stamp says \(stamp.label)")
+    }
+
+    /// #51: Settings is a panel docked at the trailing edge, with the library
+    /// still there behind it -- not a screen that covers everything.
+    func testSettingsOpensAsAPanelBesideTheLibrary() {
+        app.buttons["library-settings"].tap()
+        let panel = app.descendants(matching: .any)["settings-panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 20), "Settings did not open")
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"].exists,
+                      "the library is gone: this is a full-screen Settings again")
+        XCTAssertLessThan(panel.frame.width, app.windows.firstMatch.frame.width * 0.75,
+                          "the panel covers the screen")
+        shot("settings-panel")
+        app.buttons["Close settings"].tap()
+        XCTAssertTrue(waitForDisappearance(of: panel, timeout: 10))
     }
 
     /// The tab bar is gone entirely: one live tab and a disabled placeholder
@@ -409,26 +442,15 @@ final class ScorangerUITests: XCTestCase {
         // and the count says it in words (L11)
         XCTAssertTrue(app.staticTexts["No pieces yet"].exists,
                       "the empty library still counts in digits")
-        // Ask has nothing to open, and says so by being disabled rather than
-        // by vanishing and re-flowing the row (§4C)
-        XCTAssertTrue(app.buttons["library-ask"].exists)
-        XCTAssertFalse(app.buttons["library-ask"].isEnabled)
         shot("empty-library")
     }
 
-    /// QA batch 1: the chip printed the mode twice -- `LED` said "on-device"
-    /// and the chip said it again beside it.
-    func testTheEngineChipSaysTheModeOnce() {
-        XCTAssertTrue(app.otherElements["library-engine-chip"].waitForExistence(timeout: 30))
-        let label = app.otherElements["library-engine-chip"].label
-        let saidTwice = label.components(separatedBy: "on-device").count - 1
-        XCTAssertLessThanOrEqual(saidTwice, 1, "the chip repeats the mode: \(label)")
-        // ONE, not none: a Text with no identifier of its own is matched by its
-        // label, so the caller's word counts here. Two would mean the LED had
-        // started printing one again beside it, which is the defect.
-        XCTAssertEqual(app.staticTexts.matching(identifier: "on-device").count, 1,
-                       "the mode is printed \(app.staticTexts.matching(identifier: "on-device").count) times")
-    }
+    // The engine-chip tests went with the chip (#50). What they were really
+    // protecting -- that the mode is printed once, and that it says "remote"
+    // in remote mode -- now lives where the chip's job moved to, in Settings,
+    // and the sweep checks it there.
+
+    /// The score screen has no library overlay any more.
 
     func testTheLibraryOverlayIsGoneFromTheScore() {
         openArrangement(firstArrangement)
@@ -1981,6 +2003,32 @@ final class ScorangerUITests: XCTestCase {
         shot("ink-bar")
         app.buttons["Finish annotating"].tap()
         XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 5))
+    }
+
+    /// #45: in ink mode a two-finger pinch zoomed the ANNOTATION layer on its
+    /// own -- the ink slid and flipped over a score that stayed put. The score
+    /// owns zooming; the canvas is only ever told what scale to draw at.
+    func testPinchingInInkModeZoomsTheScoreNotTheInk() {
+        openArrangement(firstArrangement)
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(5)
+        func zoom() -> CGFloat {
+            CGFloat(Double((score.value as? String)?
+                .replacingOccurrences(of: "zoom ", with: "") ?? "0") ?? 0)
+        }
+        app.buttons["score-edit"].tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 20), "no ink bar")
+        let before = zoom()
+        for _ in 0..<6 where zoom() < before * 1.4 {
+            score.pinch(withScale: 3.0, velocity: 2.0)
+        }
+        sleep(2)
+        XCTAssertGreaterThan(zoom(), before * 1.2,
+                             "pinching in ink mode did not zoom the SCORE "
+                             + "(\(before) -> \(zoom())) -- the ink layer took it")
+        shot("ink-mode-zoom")
+        app.buttons["Finish annotating"].tap()
     }
 
     /// Ali's #3: the ink tools floated over the middle of the score. They dock

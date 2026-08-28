@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// What build this is, for a person holding the iPad.
 ///
@@ -29,5 +30,21 @@ enum BuildStamp {
     static var short: String {
         (["v\(version)", "b\(build)"] + (commit.map { [$0] } ?? []))
             .joined(separator: " · ")
+    }
+}
+
+/// The build stamp as a line of its own: centred, muted, out of the way.
+///
+/// Two places show it (#53) -- here on the library, and Settings → About --
+/// and both read the same value out of Info.plist through `BuildStamp`, so
+/// they cannot disagree about which build this is.
+struct BuildStampLine: View {
+    var body: some View {
+        Text(BuildStamp.short)
+            .typeRole(.data)
+            .foregroundStyle(Theme.Ink.ink3.opacity(0.8))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, Theme.Metric.s24)
+            .accessibilityIdentifier("build-stamp")
     }
 }

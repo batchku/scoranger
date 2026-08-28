@@ -178,7 +178,7 @@ struct SetlistScreen: View {
     }
 
     var body: some View {
-        Screen(title: setlist?.name ?? "Set list", backLabel: "My library",
+        Screen(title: "", backLabel: "My library",
                subtitle: summary, onBack: onBack,
                trailing: {
                    PanelButton(title: "Play from the top", kind: .primary) {
@@ -187,6 +187,18 @@ struct SetlistScreen: View {
                    .accessibilityIdentifier("setlist-play")
                }) {
             VStack(alignment: .leading, spacing: 0) {
+                // A set list could not be renamed at all (#52). The name IS
+                // the control, the same as a piece's and an arrangement's --
+                // the engine has had `rename-setlist` all along and nothing on
+                // screen ever called it.
+                EditableTitle(text: setlist?.name ?? "Set list", role: .title,
+                              identifier: "setlist-title") { name in
+                    Task { _ = await state.renameSetlist(setlist: slug, name: name) }
+                }
+                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.top, Theme.Metric.s12)
+                .padding(.bottom, Theme.Metric.s8)
+
                 BandHeader("Running order")
                 ForEach(Array((setlist?.arrangements ?? []).enumerated()), id: \.offset) { index, member in
                     memberRow(member, at: index)

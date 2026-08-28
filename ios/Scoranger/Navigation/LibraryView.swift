@@ -2,10 +2,14 @@ import SwiftUI
 
 /// My Library -- the app (NAVIGATION_SYSTEM.md §4.2-4.3, §4C).
 ///
-/// Home is gone and this is what the app opens on. It gained Home's top row
-/// (help, inbox, settings, and the engine chip) and Home's four actions, as a
-/// compact row under the search field rather than four large panels; it lost
-/// the `+` FAB, which offered exactly what that row now shows permanently.
+/// Home is gone and this is what the app opens on. It took Home's actions as a
+/// compact row under the search field rather than four large panels, and lost
+/// the `+` FAB, which offered exactly what that row shows permanently.
+///
+/// Its top row is the gear alone. Help, the inbox and the engine chip came
+/// across from Home and went again at Ali's word (#48-#50): two of them did
+/// nothing when tapped, and the third restates a settled question on the screen
+/// he reads music from.
 ///
 /// Segmented Pieces/Setlists, search, the action row, the A-Z rail. The rail is
 /// shown only under name sort -- under any other order the letters would not
@@ -27,10 +31,6 @@ struct LibraryView: View {
     /// not a popup and not a screen, because it is one field (§5.1).
     var onCreate: (String) -> Void
     var onImport: () -> Void
-    /// Home's actions, rehomed (§4C). `onAsk` is nil when nothing has been
-    /// opened yet, which DISABLES the button rather than hiding it -- a row
-    /// that re-flows under a finger is worse than a dimmed button.
-    var onAsk: (() -> Void)?
     var onSettings: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
@@ -154,55 +154,21 @@ struct LibraryView: View {
         }
     }
 
-    /// Home's top row, rehomed (§4C): the leading trio and the engine chip
-    /// keep their positions, now on the screen the app opens to.
+    /// The library's top row: the gear, and nothing else (#48-#50).
+    ///
+    /// Help and the inbox were drawn and inert -- a "?" that opened nothing and
+    /// a tray whose count was the only true thing about it. The engine chip
+    /// went with them at Ali's word: which engine is running is a settled
+    /// question he does not want restated on the screen he reads music from,
+    /// and Settings still says it (and says it properly, with the mode and the
+    /// reachability separated).
     private var topRow: some View {
         HStack(spacing: Theme.Metric.s8) {
-            PanelIconButton(systemName: "questionmark", label: "Help") {}
-            inbox
             PanelIconButton(systemName: "gearshape", label: "Settings",
                             action: onSettings)
                 .accessibilityIdentifier("library-settings")
             Spacer()
-            engineChip
         }
-    }
-
-    private var inbox: some View {
-        PanelIconButton(systemName: "tray", label: "Inbox") {}
-            .overlay(alignment: .topTrailing) {
-                if !state.pendingImports.isEmpty {
-                    Text("\(state.pendingImports.count)")
-                        .typeRole(.meta)
-                        .foregroundStyle(Theme.Surface.paper)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Circle().fill(Theme.Accent.clay))
-                        .offset(x: 4, y: -4)
-                }
-            }
-    }
-
-    /// The chip prints the mode ONCE. `LED` used to print a word of its own,
-    /// and this chip printed the mode beside it, so it read "on-device
-    /// on-device" -- and the dot's word was about reachability, not the mode,
-    /// so in remote mode it still said "on-device". The dot is a dot now.
-    private var engineChip: some View {
-        HStack(spacing: Theme.Metric.s6) {
-            LED(isOn: state.engineOK)
-            Text(state.useLocalEngine ? "on-device" : "remote")
-                .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
-        }
-        .padding(.horizontal, Theme.Metric.s8)
-        .padding(.vertical, 5)
-        .background(Theme.Surface.panel)
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier("library-engine-chip")
-        .accessibilityLabel("Engine: \(state.useLocalEngine ? "on-device" : "remote"), "
-                            + (state.engineOK ? "reachable" : "unreachable"))
     }
 
     private var header: some View {
@@ -271,27 +237,22 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func quickButton(_ action: LibraryQuickAction, compact: Bool) -> some View {
-        let enabled = action != .ask || onAsk != nil
         Button {
             switch action {
             case .importScore: onImport()
             case .new:         creatingName = ""
             case .newSetlist:  segment = .setlists; creatingName = ""
-            case .ask:         onAsk?()
             }
         } label: {
             rowButton(action.title, glyph: action.glyph, iconOnly: compact)
         }
         .buttonStyle(.plain)
-        // label and identifier BEFORE .disabled, and no children: .ignore.
-        // Grouping the button into its own element left the disabled state on
-        // the inner button and the identifier on the wrapper, so "Ask" read as
-        // enabled to anything looking it up by id while being grey and inert
-        // on screen. VoiceOver would have said the same wrong thing.
+        // label and identifier, and no children: .ignore -- grouping a button
+        // into its own element puts the identifier on the wrapper and leaves
+        // the state on the button inside it, which is how a dimmed control
+        // came to report itself as enabled.
         .accessibilityLabel(action.title)
         .accessibilityIdentifier(action.identifier)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.42)
     }
 
     /// One button of the action row: 32pt, bordered, panel fill, no emphasis.
@@ -406,7 +367,14 @@ struct LibraryView: View {
                 case .empty, .noMatches: empty
                 }
             }
-            .padding(.bottom, 90)
+            .padding(.bottom, Theme.Metric.s12)
+            // Which build this is, quietly, on the screen the app opens to
+            // (#53). It lives in Settings → About as well; a tester who cannot
+            // say which build they are on cannot report anything useful about
+            // it, and Settings is two taps away from the thing they are
+            // looking at.
+            BuildStampLine()
+                .padding(.bottom, 90)
         }
     }
 

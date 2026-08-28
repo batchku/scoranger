@@ -8,12 +8,15 @@ import Foundation
 /// compact row of bordered buttons under the search field, deliberately quiet:
 /// the lists are what the screen is for.
 enum LibraryQuickAction: String, CaseIterable, Identifiable {
-    case importScore, new, newSetlist, ask
+    case importScore, new, newSetlist
 
     var id: String { rawValue }
 
-    /// The panels' old order, kept so the muscle memory survives the move.
-    static let ordered: [LibraryQuickAction] = [.importScore, .new, .newSetlist, .ask]
+    /// The panels' old order, kept so the muscle memory survives the move --
+    /// less Ask, which Ali had removed (#47): the score's own Ask button is
+    /// where a question about an arrangement belongs, and the library's copy
+    /// was a fourth button that spent most of its life dimmed.
+    static let ordered: [LibraryQuickAction] = [.importScore, .new, .newSetlist]
 
     /// Identifiers move with the actions. The `home-*` ids retire with Home,
     /// and `library-add` with the `+` that used to offer the same two things.
@@ -22,7 +25,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importScore: return "library-import"
         case .new:         return "library-new"
         case .newSetlist:  return "library-new-setlist"
-        case .ask:         return "library-ask"
         }
     }
 
@@ -31,7 +33,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importScore: return "arrow.down.to.line"
         case .new:         return "square"
         case .newSetlist:  return "line.3.horizontal"
-        case .ask:         return "bubble.left"
         }
     }
 
@@ -40,7 +41,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importScore: return "Import"
         case .new:         return "New"
         case .newSetlist:  return "New set list"
-        case .ask:         return "Ask"
         }
     }
 }
@@ -68,31 +68,7 @@ enum LibraryActionRow {
     }
 }
 
-/// The last arrangement opened, so `Ask` has something to open (§4C).
-///
-/// This is what is left of `RecentSetlists`. The library IS the list of
-/// everything, and recency there is a sort rather than a remembered set, so the
-/// only recency the app still keeps is the one thing the engine cannot tell it:
-/// which arrangement was last on screen.
-enum LastOpened {
-    private static let key = "lastOpenedArrangement"
-
-    static var arrangement: String? {
-        get { UserDefaults.standard.string(forKey: key) }
-        set {
-            if let newValue { UserDefaults.standard.set(newValue, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
-        }
-    }
-
-    /// What `Ask` would open, or nil when there is nothing to ask about.
-    ///
-    /// Nil when nothing has been opened, and nil when what was opened has since
-    /// been deleted -- an Ask that opens a slug the manifest no longer has is
-    /// a button that does nothing. Ask is then DISABLED rather than hidden, so
-    /// the row does not re-flow under a finger.
-    static func askTarget(lastOpened: String?, known: [String]) -> String? {
-        guard let lastOpened, known.contains(lastOpened) else { return nil }
-        return lastOpened
-    }
-}
+// `LastOpened` lived here: the one piece of "recent" the app still kept, so
+// the library's Ask button had something to open. Ask is gone from the library
+// (#47) and nothing else read it, so it is gone too rather than left behind as
+// a store nobody consults.

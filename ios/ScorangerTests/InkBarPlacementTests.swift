@@ -21,22 +21,49 @@ final class InkBarPlacementTests: XCTestCase {
         XCTAssertEqual(moved.height, -400, accuracy: 0.001)
     }
 
-    /// Only upward. There is nothing below the dock to move into, and a bar
-    /// dragged off the bottom could not be dragged back.
-    func testItCannotBeMovedDownOutOfReach() {
-        let moved = InkBarPlacement.clamp(CGSize(width: 0, height: 500),
-                                          in: pane, barSize: bar)
-        XCTAssertEqual(moved.height, 0, accuracy: 0.001)
+    /// #46: the bar reaches the thumbnail strip and the transport, because its
+    /// container is the whole score SCREEN now rather than the page canvas
+    /// that stops above them. The travel is measured from a dock at the
+    /// screen's bottom edge, so "over the strip" is a short move UP from there
+    /// -- and every point of the screen is inside the range.
+    func testItCanReachEveryPartOfTheScreen() {
+        let screen = CGSize(width: 1032, height: 1366)
+        let up = InkBarPlacement.clamp(CGSize(width: 0, height: -9000),
+                                       in: screen, barSize: bar)
+        let topWhenRaised = screen.height + up.height - bar.height
+                            - InkBarPlacement.footerInset
+        XCTAssertLessThanOrEqual(topWhenRaised, 1,
+                                 "the bar cannot reach the top of the screen")
+        let strip = InkBarPlacement.clamp(CGSize(width: 0, height: -120),
+                                          in: screen, barSize: bar)
+        XCTAssertEqual(strip.height, -120, accuracy: 0.001,
+                       "a short move up, over the strip, was clamped away")
     }
 
-    func testItStaysInsideThePaneHorizontally() {
-        let sideways = (pane.width - bar.width) / 2
+    /// The one limit left: enough of it stays on screen to take hold of.
+    func testItCannotBePushedEntirelyOffTheScreen() {
+        for offset in [CGSize(width: 9000, height: 0), CGSize(width: -9000, height: 0),
+                       CGSize(width: 0, height: 9000), CGSize(width: 0, height: -9000)] {
+            let moved = InkBarPlacement.clamp(offset, in: pane, barSize: bar)
+            let left = pane.width / 2 + moved.width - bar.width / 2
+            let right = pane.width / 2 + moved.width + bar.width / 2
+            XCTAssertLessThan(left, pane.width, "gone off the right: \(moved)")
+            XCTAssertGreaterThan(right, 0, "gone off the left: \(moved)")
+            let top = pane.height - InkBarPlacement.footerInset - bar.height
+                      + moved.height
+            // a bar shorter than the keep-visible margin can only ever keep
+            // its own height, which is the whole of it
+            let keep = min(InkBarPlacement.mustRemainVisible, bar.height)
+            XCTAssertLessThanOrEqual(top, pane.height - keep + 1,
+                                     "gone off the bottom: \(moved)")
+        }
+    }
+
+    func testItReachesFurtherSidewaysThanTheOldClampAllowed() {
         let far = InkBarPlacement.clamp(CGSize(width: 5000, height: 0),
                                         in: pane, barSize: bar)
-        XCTAssertEqual(far.width, sideways, accuracy: 0.001)
-        let other = InkBarPlacement.clamp(CGSize(width: -5000, height: 0),
-                                          in: pane, barSize: bar)
-        XCTAssertEqual(other.width, -sideways, accuracy: 0.001)
+        XCTAssertGreaterThan(far.width, (pane.width - bar.width) / 2,
+                             "the old inside-the-pane clamp is still in force")
     }
 
     func testItStaysInsideThePaneVertically() {
@@ -55,13 +82,14 @@ final class InkBarPlacementTests: XCTestCase {
                        InkBarPlacement.docked)
     }
 
-    /// A bar wider than its pane clamps to the dock rather than to a negative
-    /// range, which would let it slide off both edges at once.
-    func testABarWiderThanItsPaneDoesNotSlideOff() {
+    /// A bar wider than its pane may still be moved, but never so far that
+    /// less than a handle's worth of it is left on screen.
+    func testABarWiderThanItsPaneStaysReachable() {
         let narrow = CGSize(width: 300, height: 1300)
-        let moved = InkBarPlacement.clamp(CGSize(width: 200, height: 0),
+        let moved = InkBarPlacement.clamp(CGSize(width: 5000, height: 0),
                                           in: narrow, barSize: bar)
-        XCTAssertEqual(moved.width, 0, accuracy: 0.001)
+        let left = narrow.width / 2 + moved.width - bar.width / 2
+        XCTAssertLessThan(left, narrow.width)
     }
 
     func testAPaneWithNoRoomReportsTheBarAsUnmovable() {

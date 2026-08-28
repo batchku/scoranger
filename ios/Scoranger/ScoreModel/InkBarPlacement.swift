@@ -22,18 +22,37 @@ enum InkBarPlacement {
     /// The bar's home. Every offset is measured from the dock.
     static let docked: CGSize = .zero
 
-    /// Keep the bar wholly inside the pane, wherever it is dragged.
+    /// How much of the bar must stay on screen. Anything less and it could be
+    /// pushed off an edge with no way to take hold of it again.
+    static let mustRemainVisible: CGFloat = 60
+
+    /// Where the bar may go: anywhere on the screen (#46).
     ///
-    /// Horizontally it may travel to either edge; vertically only UPWARD, from
-    /// the dock -- there is nothing below it to move into, and a bar dragged
-    /// off the bottom edge would be unreachable.
+    /// It used to be held above the thumbnail strip and inside the pane, and
+    /// Ali asked for the opposite -- the bar is his, and the thing it is
+    /// covering is his business. The only limit left is that some of it stays
+    /// reachable: a bar dragged entirely off an edge could not be dragged back,
+    /// and the tap-to-re-dock is on the bar itself.
+    ///
+    /// DOWNWARD travel is what changed. The strip and the transport are below
+    /// the dock, and holding the bar above them was the clamp he ran into.
     static func clamp(_ offset: CGSize, in bounds: CGSize,
                       barSize: CGSize) -> CGSize {
         guard bounds.width > 0, bounds.height > 0 else { return docked }
-        let sideways = max(0, (bounds.width - barSize.width) / 2)
+        let keepAcross = min(mustRemainVisible, barSize.width)
+        let keepDown = min(mustRemainVisible, barSize.height)
+        // sideways: until all but `keepAcross` has left the screen
+        let sideways = max(0, (bounds.width + barSize.width) / 2 - keepAcross)
+        // up: the whole height of the container, which is the whole SCREEN --
+        // the bar's layer sits on the score screen rather than on the page
+        // canvas, so the strip and the transport are inside it and it can be
+        // moved over them (#46)
         let upward = max(0, bounds.height - barSize.height - footerInset)
+        // down: it docks near the bottom edge already, so this is the last few
+        // points before `keepDown` is all that is left showing
+        let downward = max(0, footerInset + barSize.height - keepDown)
         return CGSize(width: min(max(offset.width, -sideways), sideways),
-                      height: min(max(offset.height, -upward), 0))
+                      height: min(max(offset.height, -upward), downward))
     }
 
     /// A bar bigger than the pane it is in has nowhere to go.

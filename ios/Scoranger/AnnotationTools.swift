@@ -266,3 +266,23 @@ struct AnnotationBar: View {
 private struct InkBarShadow: ViewModifier {
     func body(content: Content) -> some View { Theme.Elevation.pill(content) }
 }
+
+/// The ink bar, shown while markup is on.
+///
+/// It hangs off the whole score SCREEN rather than off the page canvas. The
+/// canvas stops above the thumbnail strip, so a bar docked to it could never be
+/// moved over the strip or the transport however far it was dragged -- which is
+/// the clamp Ali ran into (#46). The screen contains all of them.
+struct AnnotationBarLayer: View {
+    @ObservedObject var controller: AnnotationController
+
+    var body: some View {
+        if controller.isOn {
+            GeometryReader { geo in
+                AnnotationBar(controller: controller, bounds: geo.size)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .bottom)
+            }
+        }
+    }
+}

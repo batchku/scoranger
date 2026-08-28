@@ -187,6 +187,10 @@ enum Theme {
 
         static let libraryWidth: CGFloat = 320
         static let chatWidth: CGFloat = 380
+        /// Settings, docked at the trailing edge rather than covering the
+        /// screen (#51). Wider than the chat: it holds fields and their notes,
+        /// where the chat holds a conversation.
+        static let settingsWidth: CGFloat = 460
         // Retired. The spec's fixed page widths (520, and 436 with both panels
         // open) were derived from a 1180pt mockup; enforcing them on a 1032pt
         // iPad left dead bands beside the score and, because the pane is also

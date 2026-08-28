@@ -33,6 +33,10 @@ struct RootView: View {
     @State private var importIntoPiece: String?
     @State private var showSettings = false
     @State private var showImporter = false
+    /// Settings is a panel docked at the trailing edge, not a screen that
+    /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
+    /// but its own ✕ -- the same shape as the chat panel over the score.
+    @State private var settingsOpen = false
 
     var body: some View {
         ZStack {
@@ -47,6 +51,28 @@ struct RootView: View {
             // hidden, not unloaded: coming back to the library should not cost
             // a rebuild, and the score is what is expensive to re-open
             .allowsHitTesting(!scoreOpen)
+
+            if settingsOpen, !scoreOpen {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    OverlayPanel(edge: .trailing, width: Theme.Metric.settingsWidth) {
+                        VStack(spacing: 0) {
+                            OverlayHeader(subject: {
+                                Text("Settings").typeRole(.title)
+                                    .foregroundStyle(Theme.Ink.ink)
+                            }, trailing: { EmptyView() }, onDismiss: {
+                                withAnimation(.easeOut(duration: 0.18)) {
+                                    settingsOpen = false
+                                }
+                            }, dismissLabel: "Close settings")
+                            ScrollView { SettingsView() }
+                        }
+                    }
+                    .accessibilityIdentifier("settings-panel")
+                    .transition(.move(edge: .trailing))
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
 
             if let undo = state.undoableDelete, !scoreOpen {
                 VStack {
@@ -263,8 +289,9 @@ struct RootView: View {
                         }
                     },
                     onImport: { libraryPath.append(.importDestination) },
-                    onAsk: askTarget == nil ? nil : askAboutLastScore,
-                    onSettings: { libraryPath.append(.settings) },
+                    onSettings: {
+                        withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
+                    },
                     onRowAction: handle,
                     onBarAction: handleBar)
     }
@@ -381,8 +408,6 @@ struct RootView: View {
     }
 
     private func open(_ slug: String, version: String? = nil) {
-        // remembered for Ask, which is all the "recent" the app still keeps
-        LastOpened.arrangement = slug
         state.select(slug: slug, version: version)
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = true }
     }
@@ -391,20 +416,6 @@ struct RootView: View {
         state.currentSetlist = setlist.slug
         segment = .setlists
         if let first = setlist.arrangements.first { open(first) }
-    }
-
-    /// What `Ask` would open, or nil -- which DISABLES the button rather than
-    /// hiding it, so the action row never re-flows (§4C).
-    private var askTarget: String? {
-        LastOpened.askTarget(lastOpened: LastOpened.arrangement ?? state.selectedSlug,
-                             known: (state.manifest?.scores ?? []).map(\.slug))
-    }
-
-    /// "Ask": pick up the last arrangement and open the chat on it.
-    private func askAboutLastScore() {
-        guard let slug = askTarget else { return }
-        open(slug)
-        state.chatOpenRequest += 1
     }
 
     /// X always returns to the library, because there is nowhere else.

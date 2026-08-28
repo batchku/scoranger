@@ -207,6 +207,11 @@ struct ContentView: View {
                     .onChange(of: geo.size.height) { _, new in scoreHeight = new }
             }
         }
+        // The ink bar, over the WHOLE score screen -- strip and transport
+        // included, so it can be moved anywhere on it (#46).
+        .overlay(alignment: .bottom) {
+            AnnotationBarLayer(controller: state.annotation)
+        }
         .background(Theme.Surface.ground)
         .onChange(of: state.annotation.isOn) { _, on in
             // the ink bar can be dismissed from its own control, and the mode
