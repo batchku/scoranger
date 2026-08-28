@@ -20,6 +20,12 @@ final class ScorangerUITests: XCTestCase {
         // tests rename things, and the on-device workspace outlives the app.
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary",
                                "-annotateWithFinger"]
+        // Portrait, every time. The suite's page-geometry assertions are
+        // written for it -- in landscape the fit is bound by HEIGHT, so a page
+        // is narrower than the canvas and "zooming fills the width" is simply
+        // not true. A screenshot harness that rotates the device left the whole
+        // suite reading the wrong geometry.
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
         // A system sheet left standing by a previous test swallows every tap
         // that follows it. Launch clears the app's own state; this clears the
