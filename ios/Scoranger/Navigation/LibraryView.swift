@@ -394,7 +394,17 @@ struct LibraryView: View {
                 if segment == .pieces {
                     ForEach(state.pendingImports) { pending in importingRow(pending) }
                 }
-                if rows.isEmpty && state.pendingImports.isEmpty { empty } else { grouped }
+                // Loading is not emptiness (#42): the manifest is nil until the
+                // engine answers, and claiming "No music yet" in that window
+                // flashed the empty state on every launch of a full library.
+                switch LibraryModel.listState(loaded: state.libraryLoaded,
+                                              rows: rows.count,
+                                              pendingImports: state.pendingImports.count,
+                                              isFiltered: !search.isEmpty || !filters.isEmpty) {
+                case .rows:      grouped
+                case .loading:   loading
+                case .empty, .noMatches: empty
+                }
             }
             .padding(.bottom, 90)
         }
@@ -539,6 +549,16 @@ struct LibraryView: View {
     // is the one the row already states -- the action bar owns what you have
     // selected, the ☰ owns the row it sits on -- and the ☰ is now present in
     // both modes, so nothing lost a way in.
+
+    /// Still looking. It says so quietly and takes the same room the list will,
+    /// so the screen does not jump when the rows arrive.
+    private var loading: some View {
+        StateView(systemImage: "music.note.list",
+                  title: "Opening your library…",
+                  identifier: "library-loading")
+            .frame(maxWidth: .infinity)
+            .padding(.top, Theme.Metric.s32)
+    }
 
     /// The empty library is the app's FIRST screen now (§4C), so it is a STATE
     /// rather than a sentence in the top-left corner: centred glyph, title,

@@ -306,6 +306,60 @@ final class FingeringDiagramTests: XCTestCase {
                       "without it the glyph's own width pushes it off again")
     }
 
+    /// #43: within one row above the staff, some diagrams sat higher and some
+    /// lower. A column is anchored on its bottom row, and a column's bottom
+    /// row is the octave "+" when it has one -- so every fingered-octave note
+    /// hung a whole lyric pitch below the notes either side of it.
+    func testAColumnWithAnOctaveMarkSitsOnTheSameBaselineAsOneWithout() {
+        let top = 1000
+        let plain = (1...6).map {
+            verse($0, "X", x: 2670, y: top + ($0 - 1) * Int(verovioPitch))
+        }.joined()
+        let octaved = (1...6).map {
+            verse($0 + 10, "X", x: 3400, y: top + ($0 - 1) * Int(verovioPitch))
+        }.joined()
+            + verse(17, "+", x: 3400, y: top + 6 * Int(verovioPitch))
+
+        let out = FingeringDiagrams.draw(in: plain + octaved)
+        var columns: [CGFloat: [CGFloat]] = [:]
+        for (x, y) in circleCentres(in: out) {
+            columns[round(x), default: []].append(y)
+        }
+        XCTAssertEqual(columns.count, 2, "expected two columns: \(columns.keys)")
+        let bottoms = columns.values.map { $0.max() ?? 0 }.sorted()
+        XCTAssertEqual(bottoms.first ?? 0, bottoms.last ?? 0, accuracy: 1,
+                       "the two columns' lowest holes are \(bottoms) -- a "
+                       + "diagram carrying a '+' dropped below its neighbour")
+    }
+
+    /// ...and the "+" still hangs BELOW that shared baseline, where it belongs.
+    func testTheOctaveMarkHangsBelowTheSharedBaseline() {
+        let top = 1000
+        let column = (1...6).map {
+            verse($0, "X", x: 2670, y: top + ($0 - 1) * Int(verovioPitch))
+        }.joined() + verse(7, "+", x: 2670, y: top + 6 * Int(verovioPitch))
+        let out = FingeringDiagrams.draw(in: column)
+        let lowestHole = circleCentres(in: out).map(\.1).max() ?? 0
+        let plusY = matches(of: "(?s)<text[^>]*y=\"([-0-9.]+)\"[^>]*>(?:(?!</text>).)*?>\\+<",
+                            in: out).first ?? 0
+        XCTAssertGreaterThan(plusY, lowestHole,
+                             "the octave mark should sit under the holes, not among them")
+    }
+
+    private func circleCentres(in svg: String) -> [(CGFloat, CGFloat)] {
+        guard let re = try? NSRegularExpression(
+                pattern: "M ([-0-9.]+) ([-0-9.]+) A ([0-9.]+)") else { return [] }
+        let ns = svg as NSString
+        return re.matches(in: svg, range: NSRange(location: 0, length: ns.length))
+            .compactMap { m in
+                guard m.numberOfRanges > 3,
+                      let x = Double(ns.substring(with: m.range(at: 1))),
+                      let y = Double(ns.substring(with: m.range(at: 2))),
+                      let r = Double(ns.substring(with: m.range(at: 3))) else { return nil }
+                return (CGFloat(x + r), CGFloat(y))   // path starts at the left edge
+            }
+    }
+
     private func matches(of pattern: String, in text: String) -> [CGFloat] {
         guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString

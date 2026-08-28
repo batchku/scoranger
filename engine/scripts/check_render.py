@@ -266,6 +266,38 @@ if R > 0:
                 f"x={axis:.0f} (off by {abs(px - axis):.0f}, tolerance "
                 f"{R / 4:.0f})")
 
+# -- every diagram in a row sits on ONE baseline (#43) -------------------------
+#
+# Ali circled these through Morrison's Jig: within a single row above the
+# staff, some diagrams sat higher and some lower than their neighbours. A
+# column was anchored on its LAST ROW, and a column's last row is the octave
+# "+" when it has one -- so every fingered-octave note hung a whole lyric pitch
+# below the notes either side of it.
+#
+# Verovio lays every verse of a system on one baseline, so the test is simple:
+# group the drawn columns into systems by their own vertical position, and
+# every column in a system must have its lowest HOLE at the same height.
+if drawn_cols:
+    by_system: dict[int, list[float]] = {}
+    for cx, ys in drawn_cols.items():
+        bottom = max(ys)
+        # a system is a band: columns of one system differ by rounding, not by
+        # a row pitch, and the next system is a page-section away
+        key = next((k for k in by_system if abs(k - bottom) < R * 4), None)
+        by_system.setdefault(key if key is not None else int(bottom), []).append(bottom)
+    for system, bottoms in by_system.items():
+        spread = max(bottoms) - min(bottoms)
+        if spread > 2.0:
+            FAILURES.append(
+                f"the diagrams in the system near y={system} do not share a "
+                f"baseline: their lowest holes span {spread:.0f} units "
+                f"({len(bottoms)} columns, {min(bottoms):.0f}..{max(bottoms):.0f})")
+    check_count = sum(len(b) for b in by_system.values())
+    if check_count < 4:
+        FAILURES.append(
+            f"only {check_count} columns to compare -- the baseline check is "
+            "not measuring anything")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} rendering size check(s) failed")
     for line in FAILURES:

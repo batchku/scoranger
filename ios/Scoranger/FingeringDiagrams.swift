@@ -237,10 +237,19 @@ enum FingeringDiagrams {
             let pitch = rowPitch(of: ys)
             guard pitch > 0 else { return }
             let geometry = holeGeometry(rowPitch: pitch)
-            let last = column.count - 1
-            let bottom = ys[last]
+            // The last HOLE, not the last row: a column's last row is the
+            // octave "+" when it has one, and anchoring there hung every
+            // fingered-octave note a whole lyric pitch below its neighbours.
+            // Every verse of a system shares a baseline, so anchoring every
+            // column on the same row of itself puts the circle stacks on one
+            // line whatever each carries underneath.
+            let holeRows = column.enumerated()
+                .filter { convertible[$0.element] }
+                .map(\.offset)
+            let anchor = holeRows.last ?? (column.count - 1)
+            let bottom = ys[anchor]
             for (row, index) in column.enumerated() {
-                placement[index] = bottom - CGFloat(last - row) * geometry.pitch
+                placement[index] = bottom - CGFloat(anchor - row) * geometry.pitch
                 radii[index] = geometry.radius
             }
             let holeXs = column

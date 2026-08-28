@@ -236,3 +236,33 @@ extension LibraryModel {
         "\(count) \(noun)\(count == 1 ? "" : "s")"
     }
 }
+
+// MARK: - What the list is showing right now (#42)
+
+/// Loading is not emptiness.
+///
+/// At launch the manifest is nil and the engine has not answered yet, which
+/// looks exactly like a library with nothing in it -- so the empty state, with
+/// its "No music yet" and its Import button, flashed up on every launch of a
+/// device that is full of music. The score view already knew the difference
+/// (`AppState.libraryLoaded`); the library itself did not.
+enum LibraryListState: Equatable {
+    /// Still looking. Nothing is known yet, so nothing may be claimed.
+    case loading
+    /// Looked, and there is genuinely nothing here.
+    case empty
+    /// There is music, but not any that matches what was typed.
+    case noMatches
+    case rows
+}
+
+extension LibraryModel {
+
+    static func listState(loaded: Bool, rows: Int, pendingImports: Int,
+                          isFiltered: Bool) -> LibraryListState {
+        if rows > 0 || pendingImports > 0 { return .rows }
+        // An import in flight is content: the row for it is already on screen.
+        guard loaded else { return .loading }
+        return isFiltered ? .noMatches : .empty
+    }
+}

@@ -558,10 +558,21 @@ def _fingering_diagrams(svg: str) -> str:
         # diagrams against their staff and takes the reclaimed space off the
         # top, which is the safe direction: the system above is further away
         # than the staff below, and the column only ever gets shorter.
-        last = len(indices) - 1
-        bottom = ys[last]
+        # ...and specifically at the last HOLE, not the last row.
+        #
+        # A column's last row is the octave "+" when it has one, and anchoring
+        # there hung every fingered-octave note a whole lyric pitch lower than
+        # its neighbours: within one row above the staff some diagrams sat
+        # high and some low, which is what Ali circled through Morrison's Jig.
+        # Verovio lays every verse of a system out on the same baseline, so
+        # anchoring all columns on the same ROW of the column -- their last
+        # hole -- puts every circle stack in a system on one line, whatever
+        # each one carries underneath.
+        holes = [row for row, i in enumerate(indices) if convert[i]]
+        anchor = holes[-1] if holes else len(indices) - 1
+        bottom = ys[anchor]
         for row, i in enumerate(indices):
-            placement[i] = bottom - (last - row) * new_pitch
+            placement[i] = bottom - (anchor - row) * new_pitch
 
     # How far apart two rows of ONE column may sit horizontally.
     #
