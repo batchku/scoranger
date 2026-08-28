@@ -16,7 +16,12 @@ struct ThumbnailStrip: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Theme.Metric.s8) {
+                // LAZY, so only the thumbnails on screen are built. The strip
+                // was an eager HStack, which is why it needed a window of six
+                // pages either side -- and why the pages outside it were blank
+                // (L20). Laziness is the budget now, and it does not lie about
+                // what a page looks like.
+                LazyHStack(spacing: Theme.Metric.s8) {
                     ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                         HStack(spacing: 2) {
                             ForEach(group, id: \.self) { index in thumb(index) }
@@ -54,12 +59,22 @@ struct ThumbnailStrip: View {
         Button { onJump(index) } label: {
             ZStack(alignment: .bottomTrailing) {
                 Group {
-                    if let page = document.page(at: index), near(index) {
-                        Image(uiImage: page.thumbnail(of: CGSize(width: 104, height: 136),
-                                                      for: .mediaBox))
+                    if let drawn = ThumbnailCache.shared.image(
+                        document: document, index: index,
+                        size: CGSize(width: 104, height: 136)) {
+                        Image(uiImage: drawn)
                             .resizable().interpolation(.medium)
                     } else {
+                        // A page that will not draw says so. It used to look
+                        // exactly like a page that had not been drawn YET,
+                        // which is two different problems wearing one face.
                         PageThumb(width: 52, height: 68)
+                            .overlay {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.Status.warn)
+                            }
+                            .accessibilityIdentifier("thumb-failed-\(index)")
                     }
                 }
                 .frame(width: 52, height: 68)
@@ -81,11 +96,6 @@ struct ThumbnailStrip: View {
         .accessibilityLabel("Page \(index + 1)")
     }
 
-    /// Only render what is near what you are looking at (§9.7).
-    private func near(_ index: Int) -> Bool {
-        guard let first = current.first else { return index < 6 }
-        return abs(index - first) <= 6
-    }
 }
 
 /// The transport (12.13).
