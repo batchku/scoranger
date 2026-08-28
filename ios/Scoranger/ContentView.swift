@@ -170,7 +170,13 @@ struct ContentView: View {
                 if state.selectedScore != nil {
                     PositionCounters(pages: pageCounter, bar: barCounter)
                         .padding(.top, Theme.Metric.s8)
-                        .padding(.trailing, Theme.Metric.s12)
+                        // clear of the chat panel: these belong to the music,
+                        // and they were being drawn over the chat's own header
+                        .padding(.trailing,
+                                 ScorePosition.counterTrailingInset(
+                                    chatOpen: chatOpen, isCompact: isCompact,
+                                    chatWidth: Theme.Metric.chatWidth,
+                                    base: Theme.Metric.s12))
                         .allowsHitTesting(false)
                 }
             }

@@ -37,3 +37,23 @@ enum ScorePosition {
         measuresOnScreen.filter { $0 > 0 }.min()
     }
 }
+
+// MARK: - Where the counters sit (L29)
+
+extension ScorePosition {
+
+    /// How far in from the trailing edge the page/bar counters sit.
+    ///
+    /// They are pinned to the trailing edge of the score STACK, which runs the
+    /// full width -- so with the chat open they were drawn on top of its own
+    /// header and buried the model chip under "pp. 1-2 / 9". The counters
+    /// belong to the music, so they stop where the music does.
+    ///
+    /// On a compact width the chat COVERS the score rather than sitting beside
+    /// it, and the counters stay with the score underneath.
+    static func counterTrailingInset(chatOpen: Bool, isCompact: Bool,
+                                     chatWidth: CGFloat, base: CGFloat) -> CGFloat {
+        guard chatOpen, !isCompact else { return base }
+        return base + chatWidth
+    }
+}

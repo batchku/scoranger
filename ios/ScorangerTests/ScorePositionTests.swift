@@ -85,3 +85,30 @@ final class ScorePositionTests: XCTestCase {
         XCTAssertNil(ScorePosition.bar(measuresOnScreen: [0, 0]))
     }
 }
+
+/// L29: the page and bar counters were drawn over the chat panel's header,
+/// burying the model chip under "pp. 1–2 / 9".
+final class CounterPlacementTests: XCTestCase {
+
+    func testTheCountersStayOverTheMusicWhenChatOpens() {
+        let inset = ScorePosition.counterTrailingInset(chatOpen: true, isCompact: false,
+                                                       chatWidth: 380, base: 12)
+        XCTAssertEqual(inset, 392, accuracy: 0.001,
+                       "the counters should clear the whole chat panel")
+    }
+
+    func testWithoutChatTheySitWhereTheyAlwaysDid() {
+        XCTAssertEqual(ScorePosition.counterTrailingInset(chatOpen: false, isCompact: false,
+                                                          chatWidth: 380, base: 12),
+                       12, accuracy: 0.001)
+    }
+
+    /// On a compact width the chat COVERS the score instead of sitting beside
+    /// it, so there is nothing to clear -- insetting there would push the
+    /// counters into the middle of the page.
+    func testOnACompactWidthTheyDoNotMove() {
+        XCTAssertEqual(ScorePosition.counterTrailingInset(chatOpen: true, isCompact: true,
+                                                          chatWidth: 380, base: 12),
+                       12, accuracy: 0.001)
+    }
+}

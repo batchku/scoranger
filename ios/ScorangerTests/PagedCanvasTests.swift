@@ -185,6 +185,49 @@ final class PagedCanvasTests: XCTestCase {
         }
     }
 
+    /// L21 was reported as a landscape two-page spread clipped at the top, so
+    /// the canvases the app actually runs on are named here rather than left
+    /// to three round numbers. 1376x832 is the measured landscape canvas of an
+    /// iPad Pro 13" with the top bar and the thumbnail strip on screen -- the
+    /// exact frame the report was taken from.
+    func testTheRealDeviceCanvasesFitASpread() {
+        let canvases: [(String, CGSize)] = [
+            ("iPad Pro 13 landscape", CGSize(width: 1376, height: 832)),
+            ("iPad Pro 13 portrait", CGSize(width: 1032, height: 1176)),
+            ("iPad Air 11 landscape", CGSize(width: 1180, height: 700)),
+            ("iPad Air 11 portrait", CGSize(width: 820, height: 1060)),
+            ("iPhone landscape", CGSize(width: 852, height: 300)),
+        ]
+        for (name, viewport) in canvases {
+            for pages in [1, 2] {
+                let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
+                                                    pages: pages, gutter: 12, margin: 12)
+                // the page is padded 12 top and bottom by the unit's own layout
+                let tall = w * portrait + 24
+                XCTAssertLessThanOrEqual(tall, viewport.height + 0.5,
+                                         "\(name) x\(pages): a \(tall)pt unit in a "
+                                         + "\(viewport.height)pt canvas is clipped")
+                let wide = w * CGFloat(pages) + 12 * CGFloat(pages - 1) + 24
+                XCTAssertLessThanOrEqual(wide, viewport.width + 0.5, "\(name) x\(pages)")
+            }
+        }
+    }
+
+    /// A landscape canvas is bound by its HEIGHT, and a spread must not be
+    /// sized from the width alone -- that is what the report says went wrong.
+    func testALandscapeSpreadIsBoundByHeightNotWidth() {
+        let viewport = CGSize(width: 1376, height: 832)
+        let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
+                                            pages: 2, gutter: 12, margin: 12)
+        let byWidthAlone = (viewport.width - 24 - 12) / 2
+        XCTAssertLessThan(w, byWidthAlone,
+                          "the height did not bind: sizing from width alone gives "
+                          + "\(byWidthAlone)pt pages, which are \(byWidthAlone * portrait)pt tall "
+                          + "in a \(viewport.height)pt canvas")
+        XCTAssertEqual(w * portrait + 24, viewport.height, accuracy: 0.5,
+                       "a height-bound spread should use the height exactly")
+    }
+
     func testAnUnmeasuredViewportAsksForNothing() {
         XCTAssertEqual(PagedCanvas.fittedPageWidth(viewport: .zero, pageAspect: portrait,
                                                    pages: 1, gutter: 12, margin: 12), 0)

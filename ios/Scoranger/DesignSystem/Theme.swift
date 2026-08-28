@@ -215,6 +215,14 @@ enum Theme {
         /// trailing padding; this leaves that much plus a gap.
         static let rowMenuInset: CGFloat = hitTarget + s8 + s8
 
+        /// The gutter Edit mode's checkbox lives in.
+        ///
+        /// Exactly one hit target, and nothing either side of it: with 8pt of
+        /// its own leading padding the whole list stepped 52pt sideways on
+        /// entering Edit mode, which reads as the screen changing rather than
+        /// as a column appearing (L23).
+        static let checkboxGutter: CGFloat = hitTarget
+
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let scoreTopBar: CGFloat = 52
         static let scoreTopBarPerformance: CGFloat = 38

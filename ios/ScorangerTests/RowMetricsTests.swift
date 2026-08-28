@@ -27,3 +27,24 @@ final class RowMetricsTests: XCTestCase {
             Theme.Metric.s8)
     }
 }
+
+/// L23: entering Edit mode shifted the whole list sideways by more than the
+/// checkbox is wide, so the screen looked like it had changed rather than like
+/// a column had appeared.
+extension RowMetricsTests {
+
+    func testTheCheckboxGutterIsExactlyOneHitTarget() {
+        XCTAssertEqual(Theme.Metric.checkboxGutter, Theme.Metric.hitTarget,
+                       "the gutter is the checkbox, and nothing either side of it")
+    }
+
+    /// The rule stated as the shift a reader sees: the content moves by the
+    /// gutter, not by the gutter plus whatever padding crept in around it.
+    func testEnteringEditModeMovesTheRowByTheGutterAlone() {
+        let plainLeading = Theme.Metric.s20
+        let editingLeading = Theme.Metric.checkboxGutter + Theme.Metric.s20
+        XCTAssertEqual(editingLeading - plainLeading, Theme.Metric.checkboxGutter,
+                       accuracy: 0.001)
+        XCTAssertLessThanOrEqual(Theme.Metric.checkboxGutter, 44)
+    }
+}

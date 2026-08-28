@@ -428,9 +428,13 @@ struct LibraryView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if editing { checkbox(row) }
+                // The ☰ stays in EDIT mode too. It was swapped for a chevron
+                // there, which undoes the rule the row was just given (L14):
+                // the ☰ is the one control a row carries, and a chevron beside
+                // a checkbox is a second thing pretending to be one.
                 LRow(row: row, identifier: "row-\(row.id)",
                      action: { editing ? toggle(row) : open(row) },
-                     onMenu: editing ? nil : { onRowMenu(row) })
+                     onMenu: { onRowMenu(row) })
                 // A set list's own "+": choosing which arrangements are in it,
                 // which is the other direction from an arrangement's "add to
                 // set list" and answers a different question.
@@ -449,7 +453,6 @@ struct LibraryView: View {
                     .padding(.trailing, Theme.Metric.s12)
                 }
             }
-            if editing { editingActions(row) }
             Divider().overlay(Theme.Line.line)
         }
     }
@@ -468,14 +471,14 @@ struct LibraryView: View {
                 .font(.system(size: 17))
                 .foregroundStyle(selected.contains(row.id) ? Theme.Accent.clayStrong
                                                            : Theme.Ink.ink3)
-                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                .frame(width: Theme.Metric.checkboxGutter,
+                       height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("row-select-\(row.id)")
         .accessibilityLabel("Select \(row.title)")
         .accessibilityAddTraits(selected.contains(row.id) ? [.isSelected] : [])
-        .padding(.leading, Theme.Metric.s8)
     }
 
     private func toggle(_ row: LibraryRow) {
@@ -529,33 +532,13 @@ struct LibraryView: View {
 
     /// Edit mode puts the same actions on screen as buttons.
     ///
-    /// A context menu is a long press, which is invisible to Switch Control and
-    /// undiscoverable to anyone who has not been told -- so every action it
-    /// carries also has a plain button here. This is the same rule the page-turn
-    /// zones follow (§6.6): a gesture may be the fast way, never the only way.
-    private func editingActions(_ row: LibraryRow) -> some View {
-        HStack(spacing: Theme.Metric.s6) {
-            if segment == .pieces {
-                editButton("Versions", id: "edit-versions-\(row.id)") {
-                    onRowAction(row, .versions)
-                }
-                editButton("Set lists", id: "edit-setlists-\(row.id)") {
-                    onRowAction(row, .addToSetlist)
-                }
-            }
-            editButton("Delete", id: "edit-delete-\(row.id)") { onRowAction(row, .delete) }
-            Spacer()
-        }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.bottom, Theme.Metric.s8)
-    }
-
-    private func editButton(_ title: String, id: String,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) { controlLabel(title) }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(id)
-    }
+    // Edit mode no longer repeats each row's actions underneath it (L22).
+    // Versions / Set lists / Delete were drawn per row AND in the action bar
+    // at the bottom, which is the same verbs twice with different scope: the
+    // bar acts on everything ticked, the row buttons on one row. The division
+    // is the one the row already states -- the action bar owns what you have
+    // selected, the ☰ owns the row it sits on -- and the ☰ is now present in
+    // both modes, so nothing lost a way in.
 
     /// The empty library is the app's FIRST screen now (§4C), so it is a STATE
     /// rather than a sentence in the top-left corner: centred glyph, title,
