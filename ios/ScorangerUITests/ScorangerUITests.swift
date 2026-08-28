@@ -401,8 +401,11 @@ final class ScorangerUITests: XCTestCase {
         let label = app.otherElements["library-engine-chip"].label
         let saidTwice = label.components(separatedBy: "on-device").count - 1
         XCTAssertLessThanOrEqual(saidTwice, 1, "the chip repeats the mode: \(label)")
-        XCTAssertEqual(app.staticTexts.matching(identifier: "on-device").count, 0,
-                       "the LED is drawing a label of its own again")
+        // ONE, not none: a Text with no identifier of its own is matched by its
+        // label, so the caller's word counts here. Two would mean the LED had
+        // started printing one again beside it, which is the defect.
+        XCTAssertEqual(app.staticTexts.matching(identifier: "on-device").count, 1,
+                       "the mode is printed \(app.staticTexts.matching(identifier: "on-device").count) times")
     }
 
     func testTheLibraryOverlayIsGoneFromTheScore() {
