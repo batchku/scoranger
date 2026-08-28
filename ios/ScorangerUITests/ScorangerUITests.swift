@@ -1214,8 +1214,14 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(more.isSelected, "the … button did not take: the action never ran")
         XCTAssertFalse(app.buttons["Highlight a passage for chat"].exists,
                        "the bar-estimate highlight toggle is still in the options menu")
-        XCTAssertTrue(app.staticTexts["Performance mode"].waitForExistence(timeout: 5),
+        // Performance mode is the app's own PanelToggle now, not a stock iOS
+        // Toggle and not a bare label (L33), so it is exposed as a SWITCH --
+        // which is what it should have been reported as all along.
+        let performance = app.descendants(matching: .any)["more-performance"].firstMatch
+        XCTAssertTrue(performance.waitForExistence(timeout: 5),
                       "the … menu did not open (no Performance mode row)")
+        XCTAssertTrue(app.switches["Performance mode"].exists,
+                      "Performance mode is not a switch to a screen reader")
         // by identifier rather than by type: a menu row is a stack inside a
         // Button, which XCUITest reports as a container rather than a button --
         // the same reason the canvas is looked up this way
