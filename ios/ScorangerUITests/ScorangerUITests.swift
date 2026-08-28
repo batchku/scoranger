@@ -1690,8 +1690,18 @@ final class ScorangerUITests: XCTestCase {
         let chip = app.staticTexts["selection-chip"]
         XCTAssertTrue(chip.waitForExistence(timeout: 40),
                       "the selection was lost by the transform (was \(before))")
-        XCTAssertEqual(app.staticTexts["counter-pages"].label, pageBefore,
-                       "the transform moved the reader off their page")
+        // The page they are ON, not the whole readout: a transform can change
+        // how many pages the score HAS -- this one engraves to 8 where it was
+        // 9 -- and that is the score changing, not the reader being moved.
+        func pageNumber(_ label: String) -> String {
+            label.split(separator: "/").first.map {
+                $0.trimmingCharacters(in: .whitespaces)
+            } ?? label
+        }
+        XCTAssertEqual(pageNumber(app.staticTexts["counter-pages"].label),
+                       pageNumber(pageBefore),
+                       "the transform moved the reader off their page "
+                       + "(\(pageBefore) -> \(app.staticTexts["counter-pages"].label))")
         XCTAssertTrue(canvas.exists, "the canvas did not come back")
         shot("transform-selection-after")
     }
