@@ -244,6 +244,68 @@ final class FingeringDiagramTests: XCTestCase {
                        "the octave mark did not scale with its holes")
     }
 
+    // MARK: - Where the column lands
+
+    /// Ali's screenshot: a wide gap between the staff and the diagrams under
+    /// it. The column is about half as tall as the space Verovio laid out, so
+    /// which end stays put decides where the saved height goes. Held at the
+    /// TOP, every row below rises and the lowest hole floats. Held at the
+    /// BOTTOM, the diagrams stay against their staff and the space comes off
+    /// the top -- away from the system above, which is the safe direction.
+    ///
+    /// Mirrors engine/scoranger_engine/render.py; engine/scripts/check_render.py
+    /// asserts the same thing off a real engraving.
+    func testTheColumnHangsFromItsBottomRow() {
+        let top: CGFloat = 1000
+        let column = (1...6)
+            .map { verse($0, "X", y: Int(top) + ($0 - 1) * Int(verovioPitch)) }
+            .joined()
+        let out = FingeringDiagrams.draw(in: column)
+        let cys = matches(of: "M [-0-9.]+ ([-0-9.]+) A", in: out).sorted()
+        XCTAssertEqual(cys.count, 6, "every hole should be drawn: \(out)")
+
+        let (pitch, radius) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        let lastVerseY = top + 5 * verovioPitch
+        let expectedBottom = lastVerseY - FingeringDiagrams.centreYVsRadius * radius
+        XCTAssertEqual(cys.last ?? 0, expectedBottom, accuracy: 1,
+                       "the bottom hole must stay where its verse was, against the staff")
+        XCTAssertEqual((cys.last ?? 0) - (cys.first ?? 0), 5 * pitch, accuracy: 1)
+        // and the column only ever got shorter, so the top moved DOWN
+        XCTAssertGreaterThan(cys.first ?? 0,
+                             top - FingeringDiagrams.centreYVsRadius * radius,
+                             "the column grew upward, toward the system above")
+    }
+
+    /// A hole becomes a circle whose centre is offset from the verse's text
+    /// anchor, so a "+" left at that anchor hangs to one side of the circles it
+    /// belongs to. Worse, Verovio centres each verse on its OWN glyph width, so
+    /// the "+" is not even at the holes' x: on a real page two notes came out a
+    /// third of a hole further off. The column has one axis and every row is
+    /// drawn on it.
+    func testTheOctaveMarkIsCentredOnItsColumn() {
+        let holeX = 2670
+        let column = (1...6)
+            .map { verse($0, "X", x: holeX, y: 1000 + ($0 - 1) * Int(verovioPitch)) }
+            .joined()
+            // Verovio's own placement for the "+" glyph: near, but not equal
+            + verse(7, "+", x: holeX + 37, y: 1000 + 6 * Int(verovioPitch))
+        let out = FingeringDiagrams.draw(in: column)
+
+        let cxs = Set(matches(of: "M ([-0-9.]+) [-0-9.]+ A", in: out)
+            .map { $0 + (radius(of: out) ?? 0) }.map { round($0) })
+        XCTAssertEqual(cxs.count, 1, "the holes should share one axis: \(cxs)")
+
+        // (?s) so "." reaches across the newlines inside a <text> block
+        let plusX = matches(of: "(?s)<text[^>]*?x=\"([-0-9.]+)\"[^>]*>(?:(?!</text>).)*?>\\+<",
+                            in: out)
+        XCTAssertEqual(plusX.count, 1, "the octave mark should still be there: \(out)")
+        let (_, r) = FingeringDiagrams.holeGeometry(rowPitch: verovioPitch)
+        XCTAssertEqual(plusX.first ?? 0, cxs.first ?? 0, accuracy: r / 4,
+                       "the octave mark is not under the circles it belongs to")
+        XCTAssertTrue(out.contains("text-anchor=\"middle\""),
+                      "without it the glyph's own width pushes it off again")
+    }
+
     private func matches(of pattern: String, in text: String) -> [CGFloat] {
         guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString

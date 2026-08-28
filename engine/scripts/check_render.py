@@ -33,9 +33,12 @@ FAILURES: list[str] = []
 
 # The app's option set (VerovioRenderer.options), so what is measured here is
 # what a user sees.
-APP_OPTIONS = {"scale": 45, "footer": "none", "adjustPageHeight": True,
+# page geometry comes from the renderer itself, so this measures the page a
+# reader actually gets rather than a copy that drifted from it
+APP_OPTIONS = {"scale": 45, "footer": "none",
                "pageMarginTop": 100, "pageMarginBottom": 100,
-               "pageMarginLeft": 120, "pageMarginRight": 120}
+               "pageMarginLeft": 120, "pageMarginRight": 120,
+               **render.page_options()}
 
 CHORDS = [{"measure": 1, "symbol": "Em"}, {"measure": 5, "symbol": "D"},
           {"measure": 9, "symbol": "G"}]
@@ -177,6 +180,91 @@ elif drawn_radii:
     if not any(abs(p - want_plus) < 1.0 for p in plus):
         FAILURES.append(f"the octave '+' renders at {plus}; sized from the circles beside it "
                         f"it should be {want_plus:.1f}")
+
+# -- the column HUGS ITS STAFF, and the "+" sits under it ---------------------
+#
+# Both of Ali's fingering bugs are about WHERE the redrawn column lands, so
+# both are measured in one frame: the circle centres our pass actually drew,
+# against the verse positions Verovio laid out, converted into that same frame
+# by the offsets `_draw_hole` applies.
+#
+# Getting the frame right is the whole check. A first draft compared the drawn
+# circles' path start -- which is the LEFT EDGE, not the centre -- against the
+# raw verse x, and the two never matched: every assertion quietly skipped and
+# the file stayed green with both fixes reverted.
+R = drawn_radii[0] if drawn_radii else 0.0
+if R > 0:
+    def frame(x: float, y: float) -> tuple[float, float]:
+        """A verse's laid-out position, as the circle centre it becomes."""
+        return (x + render.HOLE_CENTRE_X_VS_RADIUS * R,
+                y - render.HOLE_CENTRE_Y_VS_RADIUS * R)
+
+    drawn_cols: dict[float, list[float]] = {}
+    for x, y in centres:  # a circle path starts at its left edge
+        drawn_cols.setdefault(round(x + R, 1), []).append(y)
+
+    # Only the holes: the "+" is a different glyph, and Verovio places each
+    # verse on its own width, so its x is not the column's.
+    rows = re.findall(
+        r'class="verse".{0,600}?<text[^>]*?x="([-\d.]+)"[^>]*?y="([-\d.]+)"'
+        r'.{0,400}?>([^<]{1,3})<', fing_svg, re.S)
+    orig_cols: dict[float, list[float]] = {}
+    for x, y, glyph in rows:
+        if glyph not in ("X", "O", "/"):
+            continue
+        cx, cy = frame(float(x), float(y))
+        orig_cols.setdefault(round(cx, 1), []).append(cy)
+
+    if not orig_cols:
+        FAILURES.append("no laid-out hole verses to measure the column against")
+    paired = 0
+    for cx, ys in drawn_cols.items():
+        near = [k for k in orig_cols if abs(k - cx) <= R / 2]
+        if not near or len(ys) < 2:
+            continue
+        was = orig_cols[min(near, key=lambda k: abs(k - cx))]
+        if len(was) < 2:
+            continue
+        paired += 1
+        # anchored at the BOTTOM: its lowest hole stays where Verovio put the
+        # lowest verse. Anchored at the top instead -- which is what put the
+        # gap in Ali's screenshot -- the whole column rises by the height it
+        # saved, five row pitches' worth.
+        if max(ys) < max(was) - R:
+            FAILURES.append(
+                f"the column at x={cx:.0f} pulled AWAY from its staff: lowest "
+                f"hole at {max(ys):.0f} where the verse it replaces sat at "
+                f"{max(was):.0f}. Anchor the column at its bottom row.")
+        # and it only ever got shorter, so the top moved DOWN, never up toward
+        # the system above
+        if min(ys) < min(was) - R:
+            FAILURES.append(
+                f"the column at x={cx:.0f} grew upward toward the system "
+                f"above: top {min(ys):.0f} vs {min(was):.0f}")
+    if paired < 3:
+        FAILURES.append(
+            f"only {paired} columns could be paired with their verses -- the "
+            "hug check is not measuring anything")
+
+    # -- and the octave "+" is centred on the column's own axis ---------------
+    #
+    # A hole becomes a circle whose centre is offset from the verse anchor, so
+    # a "+" left at its raw anchor hangs a full offset to one side; and because
+    # Verovio centres it on ITS glyph width, its raw anchor is not even the
+    # holes' anchor -- two notes in this fixture are a further 37 units out.
+    plus_marks = re.findall(
+        r'<text[^>]*?x="([-\d.]+)"[^>]*>(?:(?!</text>).)*?>\+<', drawn, re.S)
+    if not plus_marks:
+        FAILURES.append("no octave '+' found to check for centring")
+    for raw in plus_marks:
+        px = float(raw)
+        axis = min(drawn_cols, key=lambda c: abs(c - px))
+        # a quarter of a hole: visibly under the column, not merely near it
+        if abs(px - axis) > R / 4:
+            FAILURES.append(
+                f"the octave '+' at x={px:.0f} is not on its column's axis at "
+                f"x={axis:.0f} (off by {abs(px - axis):.0f}, tolerance "
+                f"{R / 4:.0f})")
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} rendering size check(s) failed")

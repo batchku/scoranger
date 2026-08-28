@@ -30,21 +30,36 @@ actor VerovioRenderer {
               t.setResourcePath(dataPath) else {
             throw RenderError.resourcesMissing
         }
-        // A4 portrait-ish pages at a comfortable reading scale
-        // adjustPageHeight trims each page to its content. Without it Verovio
-        // pads every page to full A4 height (29700 units regardless of what is
-        // on it), so a partly-filled page renders as a tall white void that
-        // reads as broken layout rather than as a page break.
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
         toolkit = t
         return t
     }
 
+    /// A page is a FIXED size: US Letter portrait, which is what the sources
+    /// are (the sample PDFs measure 8.5x11 and 8.26x11.69, both portrait).
+    ///
+    /// This replaces `adjustPageHeight`, which trimmed each page to its own
+    /// content. That went in at build 119 for a real reason -- without it a
+    /// partly filled last page rendered as a tall white void. But trimming
+    /// means a page holding less music is a SHORTER page, which is what Ali's
+    /// two-page spread showed: the left page's bottom edge above the right's.
+    /// Paper does not do that. White at the bottom of a partial page is
+    /// correct; pages of different heights never are.
+    ///
+    /// The unit is MEASURED at 96 to the inch, not converted from Verovio's
+    /// documented millimetres -- see the note in render.py, which these values
+    /// mirror. Keep the two in step.
+    static let unitsPerInch: Double = 96
+    static let pageWidthUnits = Int(8.5 * unitsPerInch)
+    static let pageHeightUnits = Int(11.0 * unitsPerInch)
+
     /// The full option set every time: passing a partial one risks the rest
-    /// reverting to Verovio's defaults, which would quietly change page size.
+    /// reverting to Verovio's defaults, which would quietly bring back the
+    /// trimmed, uneven pages.
     private static func options(lyricSize: Double) -> String {
         """
-        {"scale": 45, "footer": "none", "adjustPageHeight": true,
+        {"scale": 45, "footer": "none", "adjustPageHeight": false,
+         "pageWidth": \(pageWidthUnits), "pageHeight": \(pageHeightUnits),
          "pageMarginTop": 100, "pageMarginBottom": 100,
          "pageMarginLeft": 120, "pageMarginRight": 120,
          "lyricSize": \(lyricSize)}

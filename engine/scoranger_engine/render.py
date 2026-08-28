@@ -17,16 +17,46 @@ _tk = None
 _tk_lock = threading.Lock()
 
 
+# A page is a fixed size, in Verovio's units of 1/100 mm. US Letter portrait,
+# because that is what the sources are: the sample PDFs in this repo measure
+# 8.5x11 and 8.26x11.69, both portrait.
+#
+# This replaces `adjustPageHeight`, which trimmed each page to its own content.
+# That was added in build 119 for a real reason -- without it Verovio pads every
+# page to full height and a partly filled last page exports as a tall white
+# void. But trimming means a page with less music on it is a SHORTER page, and
+# Ali's two-page spread showed exactly that: the left page's bottom edge sitting
+# higher than the right's. Paper does not do that. A partial page with white at
+# the bottom is correct; pages of different heights never are.
+# MEASURED, not assumed. Verovio's docs describe page dimensions in tenths of a
+# millimetre, and both that reading and hundredths produce pages tens of inches
+# across once the SVG reaches cairosvg. What the output actually honours is 96
+# units to the inch, established by rendering at a known width and measuring the
+# PDF: 2159 units came out 22.49in, so 2159/22.49 = 96.0.
+#
+# Anyone changing these should re-measure rather than convert -- check_page_size
+# asserts the inches, so a wrong unit fails loudly instead of shipping a page
+# the size of a wall.
+UNITS_PER_INCH = 96
+PAGE_WIDTH_UNITS = int(8.5 * UNITS_PER_INCH)   # 816
+PAGE_HEIGHT_UNITS = int(11.0 * UNITS_PER_INCH)  # 1056
+
+
+def page_options() -> dict:
+    """The page geometry both renderers use. Mirrored in VerovioRenderer.swift."""
+    return {"adjustPageHeight": False,
+            "pageWidth": PAGE_WIDTH_UNITS,
+            "pageHeight": PAGE_HEIGHT_UNITS}
+
+
 def _toolkit():
     global _tk
     if _tk is None:
         import verovio
         _tk = verovio.toolkit()
-        # Parity with the on-device renderer: trim each page to its content.
-        # Verovio otherwise pads every page to full A4 height, so a partly
-        # filled page exports as a tall white void. Passed as a dict — this
-        # binding rejects the JSON-string form setOptions also accepts.
-        _tk.setOptions({"adjustPageHeight": True})
+        # Passed as a dict -- this binding rejects the JSON-string form
+        # setOptions also accepts.
+        _tk.setOptions(page_options())
     return _tk
 
 
@@ -508,11 +538,20 @@ def _fingering_diagrams(svg: str) -> str:
         if pitch <= 0:
             return
         new_pitch, _radius = hole_geometry(pitch)
-        # anchored at the TOP row, so the column keeps its distance from the
-        # staff and the space it gives up comes off the bottom, where there is
-        # nothing to collide with
+        # Anchored at the BOTTOM row -- the one nearest the staff.
+        #
+        # It used to anchor at the top, and that is what put the big gap in
+        # Ali's screenshot: our pitch is about half the lyric pitch Verovio
+        # laid out, so holding the TOP fixed pulled every row below it upward
+        # and the lowest hole ended up half a column's height above where the
+        # staff expected it. Holding the BOTTOM fixed instead keeps the
+        # diagrams against their staff and takes the reclaimed space off the
+        # top, which is the safe direction: the system above is further away
+        # than the staff below, and the column only ever gets shorter.
+        last = len(indices) - 1
+        bottom = ys[last]
         for row, i in enumerate(indices):
-            placement[i] = ys[0] + row * new_pitch
+            placement[i] = bottom - (last - row) * new_pitch
 
     # How far apart two rows of ONE column may sit horizontally.
     #
@@ -554,8 +593,19 @@ def _fingering_diagrams(svg: str) -> str:
         column.append(i)
     place(column)
 
-    # the radius belongs to the column too, from the same original pitch
+    # the radius belongs to the column too, from the same original pitch --
+    # and so does the horizontal AXIS.
+    #
+    # Verovio centres each verse on its own glyph width, so the rows of one
+    # note do not all start at the same x: an "X" row and an "O" row can be ten
+    # units apart, and the octave "+" -- a different glyph again -- came out
+    # thirty-seven units off on two notes of the fixture. Drawn from its own x,
+    # each row lands on a slightly different axis and the "+" hangs beside the
+    # circles instead of under them, which is what Ali photographed. A column
+    # is one column: it gets ONE x, taken from its holes (the "+" is the odd
+    # glyph, so it does not get a vote), and every row is drawn on it.
     radii: dict[int, float] = {}
+    anchors: dict[int, float] = {}
     column = []
     for i, v in enumerate(parsed):
         if v["y"] is None or not (convert[i] or (v["tagged"] and v["text"] == "+")):
@@ -570,6 +620,12 @@ def _fingering_diagrams(svg: str) -> str:
                 _p, r = hole_geometry(pitch)
                 for j in column:
                     radii[j] = r
+            holes = sorted(parsed[j]["x"] for j in column
+                           if convert[j] and parsed[j]["x"] is not None)
+            if holes:
+                axis = holes[len(holes) // 2]
+                for j in column:
+                    anchors[j] = axis
 
     out, cursor = [], 0
     for index, (wanted, v) in enumerate(zip(convert, parsed)):
@@ -577,10 +633,12 @@ def _fingering_diagrams(svg: str) -> str:
         out.append(svg[cursor:match.start()])
         if wanted:
             out.append(_draw_hole(v["block"], y=placement.get(index),
-                                  radius=radii.get(index)))
+                                  radius=radii.get(index),
+                                  anchor_x=anchors.get(index)))
         elif v["tagged"] and v["text"] == "+":
             out.append(_scale_text(v["block"], y=placement.get(index),
-                                   radius=radii.get(index)))
+                                   radius=radii.get(index),
+                                   anchor_x=anchors.get(index)))
         else:
             out.append(v["block"])
         cursor = match.end()
@@ -589,11 +647,20 @@ def _fingering_diagrams(svg: str) -> str:
 
 
 def _scale_text(block: str, y: float | None = None,
-                radius: float | None = None) -> str:
+                radius: float | None = None,
+                anchor_x: float | None = None) -> str:
     """Shrink a verse's glyph to the diagram scale, leaving it as text.
 
     The octave "+" is not a hole, but it belongs to the column and has to move
     and shrink with it, or it floats where the old spacing put it.
+
+    It also has to sit UNDER the column rather than beside it. A hole is drawn
+    as a circle whose centre is offset from the verse's text anchor
+    (`HOLE_CENTRE_X_VS_RADIUS * r`); the "+" stayed at the raw anchor, so it
+    hung to one side of the circles it belongs to. It is centred on the same
+    axis as the circles here -- the COLUMN's `anchor_x`, not its own, because
+    Verovio placed this glyph by its own width -- with `text-anchor="middle"`
+    so the glyph's width stops mattering from here on.
     """
     if radius is not None:
         size = radius * 2 * OCTAVE_MARK_VS_DIAMETER
@@ -608,15 +675,27 @@ def _scale_text(block: str, y: float | None = None,
         block = _Y_RE.sub(lambda m: m.group(0).replace(f'y="{m.group(1)}"',
                                                        f'y="{y:g}"'),
                           block, count=1)
+    if radius is not None:
+        # onto the circles' own axis, and anchored at its middle so the glyph
+        # width does not push it off again
+        found = _X_RE.search(block)
+        if found:
+            base = anchor_x if anchor_x is not None else float(found.group(1))
+            centre = base + HOLE_CENTRE_X_VS_RADIUS * radius
+            block = _X_RE.sub(f'<text x="{centre:g}"', block, count=1)
+            if "text-anchor" not in block.split(">", 1)[0]:
+                block = block.replace("<text ", '<text text-anchor="middle" ', 1)
     return block
 
 
 def _draw_hole(block: str, y: float | None = None,
-               radius: float | None = None) -> str:
+               radius: float | None = None,
+               anchor_x: float | None = None) -> str:
     """One verse, already judged to be a hole.
 
-    `y` and `radius` come from the column: the row is re-placed at our own
-    pitch and drawn at our own size, neither of which is the font's any more.
+    `y`, `radius` and `anchor_x` come from the column: the row is re-placed at
+    our own pitch, drawn at our own size, and set on the column's one vertical
+    axis -- none of which is the font's any more.
     Without them (a lone verse with no column to measure) it falls back to the
     old font-derived geometry.
     """
@@ -631,7 +710,8 @@ def _draw_hole(block: str, y: float | None = None,
     if radius is not None:
         r = radius
         base_y = y if y is not None else float(ymatch.group(1))
-        cx = float(x.group(1)) + HOLE_CENTRE_X_VS_RADIUS * r
+        base_x = anchor_x if anchor_x is not None else float(x.group(1))
+        cx = base_x + HOLE_CENTRE_X_VS_RADIUS * r
         cy = base_y - HOLE_CENTRE_Y_VS_RADIUS * r
         stroke = HOLE_STROKE_VS_RADIUS * r
     else:
@@ -691,7 +771,11 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         # MusicXML's lyric placement, so the move is made on the MEI and the
         # document reloaded — the same round trip the chart styling below uses.
         above = mei_with_fingerings_above(mei)
-        tk.setOptions({"lyricSize": lyric_size_for(fingerings=above is not None)})
+        # The page geometry rides along with every setOptions call: a partial
+        # one risks the rest reverting to Verovio's defaults, which would
+        # quietly bring back the trimmed, uneven pages.
+        tk.setOptions({**page_options(),
+                       "lyricSize": lyric_size_for(fingerings=above is not None)})
         if above is not None:
             mei = above
             if not tk.loadData(mei):

@@ -73,8 +73,8 @@ enum FingeringDiagrams {
     static let octaveMarkVsDiameter: CGFloat = 0.85
 
     // centre offsets relative to the RADIUS, so they hold at any circle size
-    private static let centreXVsRadius = centreX / radius
-    private static let centreYVsRadius = -centreY / radius
+    static let centreXVsRadius = centreX / radius
+    static let centreYVsRadius = -centreY / radius
     private static let strokeVsRadius = strokeWidth / radius
 
     /// (row pitch, circle radius) for a column, from Verovio's own pitch.
@@ -201,8 +201,17 @@ enum FingeringDiagrams {
         // Where each row is REDRAWN. The spacing is not asked of Verovio --
         // its lyric line height also sizes chord symbols, and shrinking that
         // once halved every chord name on the page -- so the rows are simply
-        // re-placed here, anchored at the top of the column so the space they
-        // give up comes off the bottom, where there is nothing to collide with.
+        // re-placed here, anchored at the BOTTOM row, the one nearest the
+        // staff.
+        //
+        // It anchored at the top once, and that is what put the big gap in
+        // Ali's screenshot: our pitch is about half the one Verovio laid out,
+        // so holding the top fixed pulled every row below it upward and the
+        // lowest hole floated half a column above the staff it belongs to.
+        // Holding the bottom fixed keeps the diagrams against their staff and
+        // takes the reclaimed space off the top, which is the safe direction --
+        // the column only ever gets shorter, so it cannot reach the system
+        // above.
         let allYs = verses.compactMap { verseY($0.block) }
         let typicalPitch = rowPitch(of: allYs.enumerated()
             .filter { $0.offset == 0 || allYs[$0.offset] > allYs[$0.offset - 1] }
@@ -211,6 +220,15 @@ enum FingeringDiagrams {
 
         var placement: [Int: CGFloat] = [:]
         var radii: [Int: CGFloat] = [:]
+        // The column's one horizontal AXIS. Verovio centres each verse on its
+        // own glyph width, so the rows of one note do not share an x: an "X"
+        // row and an "O" row can be ten units apart, and the octave "+" -- a
+        // different glyph again -- lands as much as a third of a hole off.
+        // Drawn from its own x each row sits on a slightly different axis and
+        // the "+" hangs beside the circles rather than under them. A column is
+        // one column: it gets ONE x, taken from its holes, since the "+" is the
+        // odd glyph and does not get a vote.
+        var anchors: [Int: CGFloat] = [:]
         var column: [Int] = []
 
         func settle() {
@@ -219,9 +237,19 @@ enum FingeringDiagrams {
             let pitch = rowPitch(of: ys)
             guard pitch > 0 else { return }
             let geometry = holeGeometry(rowPitch: pitch)
+            let last = column.count - 1
+            let bottom = ys[last]
             for (row, index) in column.enumerated() {
-                placement[index] = ys[0] + CGFloat(row) * geometry.pitch
+                placement[index] = bottom - CGFloat(last - row) * geometry.pitch
                 radii[index] = geometry.radius
+            }
+            let holeXs = column
+                .filter { convertible[$0] }
+                .compactMap { verseX(verses[$0].block) }
+                .sorted()
+            if !holeXs.isEmpty {
+                let axis = holeXs[holeXs.count / 2]
+                for index in column { anchors[index] = axis }
             }
         }
 
@@ -245,14 +273,17 @@ enum FingeringDiagrams {
             out += ns.substring(with: NSRange(location: cursor,
                                               length: verse.range.location - cursor))
             if convertible[index],
-               let drawn = rewrite(verse.block, y: placement[index], radius: radii[index]) {
+               let drawn = rewrite(verse.block, y: placement[index],
+                                   radius: radii[index],
+                                   anchorX: anchors[index]) {
                 out += drawn
             } else if verse.tagged, verse.text == octave {
                 // it belongs to the column, so it moves and shrinks with it --
                 // left alone it stands twice as tall as its own holes, in the
                 // place the old spacing put it
                 out += scaleText(verse.block, y: placement[index],
-                                 radius: radii[index]) ?? verse.block
+                                 radius: radii[index],
+                                 anchorX: anchors[index]) ?? verse.block
             } else {
                 out += verse.block
             }
@@ -330,7 +361,8 @@ enum FingeringDiagrams {
     }
 
     private static func rewrite(_ block: String, y: CGFloat? = nil,
-                                radius: CGFloat? = nil) -> String? {
+                                radius: CGFloat? = nil,
+                                anchorX: CGFloat? = nil) -> String? {
         guard let symbol = fingeringSymbol(in: block),
               let x = number(of: "<text x=\"([-0-9.]+)\"", in: block),
               let textY = number(of: "<text[^>]*y=\"([-0-9.]+)\"", in: block),
@@ -348,7 +380,7 @@ enum FingeringDiagrams {
         let cx: CGFloat, cy: CGFloat, r: CGFloat, strokeAt: CGFloat
         if let radius {
             r = radius
-            cx = x + centreXVsRadius * r
+            cx = (anchorX ?? x) + centreXVsRadius * r
             cy = (y ?? textY) - centreYVsRadius * r
             strokeAt = strokeVsRadius * r
         } else {
@@ -381,8 +413,16 @@ enum FingeringDiagrams {
     }
 
     /// Shrink a verse's glyph to the diagram scale, leaving it as text.
+    ///
+    /// The octave "+" also has to sit UNDER its column rather than beside it.
+    /// A hole becomes a circle whose centre is offset from the verse's text
+    /// anchor, so a "+" left at that anchor hangs a full offset to one side --
+    /// and because Verovio placed it by its own glyph width, its anchor is not
+    /// even the holes' anchor. It goes on the COLUMN's axis here, with
+    /// `text-anchor="middle"` so the glyph's width stops mattering.
     private static func scaleText(_ block: String, y: CGFloat? = nil,
-                                  radius: CGFloat? = nil) -> String? {
+                                  radius: CGFloat? = nil,
+                                  anchorX: CGFloat? = nil) -> String? {
         guard let re = try? NSRegularExpression(pattern: "<tspan font-size=\"([0-9.]+)px\">"),
               let m = re.firstMatch(in: block,
                                     range: NSRange(location: 0, length: (block as NSString).length)),
@@ -402,6 +442,17 @@ enum FingeringDiagrams {
                 in: ym.range,
                 with: mns.substring(with: ym.range(at: 1)) + "\(y)"
                     + mns.substring(with: ym.range(at: 2)))
+        }
+        if let radius, let own = number(of: "<text x=\"([-0-9.]+)\"", in: moved) {
+            let centre = (anchorX ?? own) + centreXVsRadius * radius
+            if let xre = try? NSRegularExpression(pattern: "<text x=\"[-0-9.]+\""),
+               let xm = xre.firstMatch(
+                   in: moved,
+                   range: NSRange(location: 0, length: (moved as NSString).length)) {
+                moved = (moved as NSString).replacingCharacters(
+                    in: xm.range,
+                    with: "<text text-anchor=\"middle\" x=\"\(centre)\"")
+            }
         }
         return moved
     }
