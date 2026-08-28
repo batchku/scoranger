@@ -114,7 +114,7 @@ targets:
         # Several builds share a version while its bugs get fixed.
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
-        CURRENT_PROJECT_VERSION: 144
+        CURRENT_PROJECT_VERSION: 145
         MARKETING_VERSION: 0.4.4
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
