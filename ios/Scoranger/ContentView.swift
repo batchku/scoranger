@@ -250,7 +250,14 @@ struct ContentView: View {
 
     private var scoreTitle: String {
         guard let score = state.selectedScore else { return "No arrangement" }
-        return score.title ?? score.name
+        // Never the slug. Scores imported before the engine learned to refuse
+        // a file name as a title still carry one, and rewriting someone's
+        // names underneath them is not the fix -- so the view says what it
+        // does know instead (L18).
+        let piece = state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
+        return ScoreTitle.display(title: score.title, name: score.name,
+                                  slug: score.slug, pieceName: piece?.name,
+                                  parts: (state.displayedVersion?.parts ?? []).map(\.name))
     }
 
     private var scoreSubtitle: String {

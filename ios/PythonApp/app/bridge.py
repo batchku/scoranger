@@ -69,7 +69,8 @@ def _dispatch(op, a):
         name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
         # music21 seeds the movement title with the file name, extension and
         # all, and that is what engraves; normalize before the first version
-        name = ops.clean_imported_metadata(score, name)["title"]
+        stem = os.path.splitext(os.path.basename(a["path"]))[0]
+        name = ops.clean_imported_metadata(score, name, source_stem=stem)["title"]
         slug, entry = workspace.create_score(name, score, op="import", args={"source": a["path"]})
         piece = None
         if a.get("piece"):

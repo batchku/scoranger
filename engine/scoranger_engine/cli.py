@@ -55,7 +55,7 @@ def cmd_import(a):
     # music21 seeds the movement title with the file name, extension and all,
     # and that is what Verovio engraves -- so the title is normalized on the way
     # in rather than surfacing as "my-score.mxl" at the top of the page.
-    name = ops.clean_imported_metadata(score, name)["title"]
+    name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
     slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
     out = {"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)}
     # imperfect sources import and say so; they are never refused

@@ -1400,7 +1400,8 @@ def set_metadata(score, title: str | None = None, composer: str | None = None,
     return score_metadata(score)
 
 
-def clean_imported_metadata(score, fallback_title: str) -> dict:
+def clean_imported_metadata(score, fallback_title: str,
+                            source_stem: str | None = None) -> dict:
     """Give a freshly imported score one sane title.
 
     Drops music21's filename-derived movement title (it is a file name, not a
@@ -1413,12 +1414,60 @@ def clean_imported_metadata(score, fallback_title: str) -> dict:
         score.metadata = m21metadata.Metadata()
     md = score.metadata
     candidates = [md.title, md.movementName]
-    title = next((c for c in candidates if c and not _looks_like_a_filename(c)), None)
-    return set_metadata(score, title=title or fallback_title)
+    title = next((c for c in candidates
+                  if c and not _is_junk_title(c, source_stem)), None)
+    # The fallback is the name the caller imported under, and that can be a
+    # file stem too -- a score dropped in as "sous-le-ciel-quartet.musicxml"
+    # has nothing else to offer. Rather than engrave a slug, spell it: the same
+    # words, spaced and sentence-cased. Nothing is invented.
+    return set_metadata(score, title=title or humanise_title(fallback_title))
 
 
-def _looks_like_a_filename(text: str) -> bool:
-    return bool(re.search(r"\.(musicxml|xml|mxl|mid|midi|pdf)$", text.strip(), re.I))
+def humanise_title(text: str) -> str:
+    """A slug spelled out. "sous-le-ciel-quartet" -> "Sous le ciel quartet"."""
+    value = (text or "").strip()
+    if not value or not _is_junk_title(value):
+        return value
+    value = re.sub(r"\.(musicxml|xml|mxl|mid|midi|pdf)$", "", value, flags=re.I)
+    spaced = re.sub(r"[-_]+", " ", value).strip()
+    spaced = re.sub(r"\s+", " ", spaced)
+    if not spaced:
+        return value
+    return spaced[0].upper() + spaced[1:]
+
+
+# Titles that are not titles: what music21 leaves behind when a file carries
+# none of its own. Whatever is here ENGRAVES at the top of the page, which is
+# how Ali got a file name as the name of his music.
+_PLACEHOLDER_TITLES = {"music21 fragment", "untitled", "untitled score",
+                       "score", "no title"}
+
+
+def _is_junk_title(text: str, source_stem: str | None = None) -> bool:
+    """Is this a file name or a placeholder wearing a title's clothes?
+
+    Four ways, because catching only the first let a slug engrave at the top of
+    Ali's score -- "sous-le-ciel-quartet" reached the page and the top bar, and
+    the app showed it twice:
+
+      - it carries an extension: "my-score.mxl"
+      - it IS the file it came from, stem for stem
+      - it is slug-shaped: no spaces, and words joined by - or _
+      - it is a placeholder music21 wrote itself: "Music21 Fragment"
+
+    A one-word title is NOT slug-shaped. "Nocturne" is a title; a real title
+    with a hyphen ("Jean-Pierre Rampal suite") has spaces around the rest of it.
+    """
+    value = text.strip()
+    if not value:
+        return False
+    if value.casefold() in _PLACEHOLDER_TITLES:
+        return True
+    if re.search(r"\.(musicxml|xml|mxl|mid|midi|pdf)$", value, re.I):
+        return True
+    if source_stem and value.casefold() == source_stem.strip().casefold():
+        return True
+    return not re.search(r"\s", value) and bool(re.search(r"[-_]", value))
 
 
 
