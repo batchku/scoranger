@@ -1809,7 +1809,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "no two-page toggle")
         XCTAssertEqual(toggle.value as? String, "0",
                        "one page at a time is the default")
-        goBack()
+        closeSettings()
     }
 
     private func setTwoPageSpread(on: Bool) {
