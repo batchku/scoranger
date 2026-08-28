@@ -86,6 +86,12 @@ struct RootView: View {
         .task {
             // reclaim anything whose undo window passed while the app was shut
             await state.sweepDeleted()
+            // and clear pieces left holding nothing by a build that shipped
+            // without the empty-piece rule. tidyPieces existed and worked and
+            // was called from NOWHERE, so Ali's "Morrison's Jig -- 0
+            // arrangements" survived every launch: the sweep that was supposed
+            // to remove it never ran.
+            await state.tidyPieces()
             Theme.verifyFontsRegistered()
             state.resetViewPreferencesForTesting()
             state.startPolling()
