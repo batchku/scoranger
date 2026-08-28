@@ -221,6 +221,16 @@ final class ScorangerUITests: XCTestCase {
         sleep(8)
     }
 
+    /// Close Settings, whichever shape it is: a docked panel from the library
+    /// (#51), a pushed screen from the score.
+    private func closeSettings() {
+        if app.buttons["Close settings"].exists {
+            app.buttons["Close settings"].tap()
+        } else {
+            goBack()
+        }
+    }
+
     private func goBack() {
         let byId = app.buttons["screen-back"].firstMatch
         if byId.exists && byId.isHittable { byId.tap(); return }
@@ -400,7 +410,7 @@ final class ScorangerUITests: XCTestCase {
     /// still there behind it -- not a screen that covers everything.
     func testSettingsOpensAsAPanelBesideTheLibrary() {
         app.buttons["library-settings"].tap()
-        let panel = app.descendants(matching: .any)["settings-panel"]
+        let panel = app.descendants(matching: .any)["settings-panel"].firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 20), "Settings did not open")
         XCTAssertTrue(app.descendants(matching: .any)["library-search"].exists,
                       "the library is gone: this is a full-screen Settings again")
@@ -988,7 +998,7 @@ final class ScorangerUITests: XCTestCase {
                 NSPredicate(format: "label CONTAINS %@", "no key")).count > 0,
             "the key fields do not say which key is in use")
         shot("settings-labelled")
-        goBack()
+        closeSettings()
     }
 
     // MARK: - Order (build 125)
@@ -1808,7 +1818,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no two-page toggle in settings")
         if (toggle.value as? String == "1") != on { toggle.tap() }
         XCTAssertEqual(toggle.value as? String, on ? "1" : "0")
-        goBack()
+        closeSettings()
     }
 
     /// Drag a lasso across a horizontal band and return the first bar number
@@ -1978,13 +1988,13 @@ final class ScorangerUITests: XCTestCase {
 
 
 
-    func testSettingsIsAPanelSheet() {
-        app.buttons["Settings"].tap()
+    func testSettingsIsAPanel() {
+        app.buttons["Settings"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["ON-DEVICE ENGINE"].waitForExistence(timeout: 10),
-                      "settings did not open as a panel sheet")
+                      "settings did not open")
         XCTAssertTrue(app.staticTexts["CHAT MODEL"].exists)
         shot("settings-sheet")
-        goBack()
+        closeSettings()
     }
 
     // MARK: - Markup
