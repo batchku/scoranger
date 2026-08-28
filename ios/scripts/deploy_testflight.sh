@@ -43,9 +43,26 @@ PY=$(python_with_cryptography)
 # directory EXISTS let a stale copy ship: `adjust_element` was written, tested
 # and shipped in the engine while the app carried an ops.py without it, so the
 # feature simply was not there on device and nothing said so.
-for f in __init__.py ops.py workspace.py db.py; do
+#
+# The list comes from vendor_engine.sh rather than being written out again
+# here. Not every engine module goes to the device -- render, server, chat and
+# cli are host-only, and the bridge stands in for them -- so "compare every
+# .py" would fail on files that are absent on purpose. But a list kept in two
+# places is a list that drifts, and this one only ever guarded the four modules
+# someone happened to write down.
+VENDORED=$(sed -n 's/^for f in \(.*\); do$/\1/p' scripts/vendor_engine.sh | head -1)
+[[ -n "$VENDORED" ]] || die "cannot read the vendored module list from scripts/vendor_engine.sh"
+for f in $VENDORED; do
+  [[ -f "PythonApp/app/scoranger_engine/$f" ]] \
+    || die "vendored $f is MISSING -- run scripts/vendor_engine.sh"
   cmp -s "../engine/scoranger_engine/$f" "PythonApp/app/scoranger_engine/$f" \
     || die "vendored $f is stale -- run scripts/vendor_engine.sh"
+done
+# and nothing else is sitting there from an older vendoring
+for got in PythonApp/app/scoranger_engine/*.py; do
+  f="$(basename "$got")"
+  [[ " $VENDORED " == *" $f "* ]] \
+    || die "vendored $f is not in vendor_engine.sh's list -- run scripts/vendor_engine.sh"
 done
 
 [[ -f "$SIGNING_PROFILE" ]] || die "no provisioning profile at $SIGNING_PROFILE -- run scripts/bootstrap_signing.sh"
