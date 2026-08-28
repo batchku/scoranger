@@ -17,9 +17,8 @@ _tk = None
 _tk_lock = threading.Lock()
 
 
-# A page is a fixed size, in Verovio's units of 1/100 mm. US Letter portrait,
-# because that is what the sources are: the sample PDFs in this repo measure
-# 8.5x11 and 8.26x11.69, both portrait.
+# A page is a fixed size. US Letter portrait, because that is what the sources
+# are: the sample PDFs in this repo measure 8.5x11 and 8.26x11.69, both portrait.
 #
 # This replaces `adjustPageHeight`, which trimmed each page to its own content.
 # That was added in build 119 for a real reason -- without it Verovio pads every
@@ -28,25 +27,36 @@ _tk_lock = threading.Lock()
 # Ali's two-page spread showed exactly that: the left page's bottom edge sitting
 # higher than the right's. Paper does not do that. A partial page with white at
 # the bottom is correct; pages of different heights never are.
-# MEASURED, not assumed. Verovio's docs describe page dimensions in tenths of a
-# millimetre, and both that reading and hundredths produce pages tens of inches
-# across once the SVG reaches cairosvg. What the output actually honours is 96
-# units to the inch, established by rendering at a known width and measuring the
-# PDF: 2159 units came out 22.49in, so 2159/22.49 = 96.0.
 #
-# Anyone changing these should re-measure rather than convert -- check_page_size
-# asserts the inches, so a wrong unit fails loudly instead of shipping a page
-# the size of a wall.
-UNITS_PER_INCH = 96
-PAGE_WIDTH_UNITS = int(8.5 * UNITS_PER_INCH)   # 816
-PAGE_HEIGHT_UNITS = int(11.0 * UNITS_PER_INCH)  # 1056
+# TWO different measurements, and conflating them cost a build.
+#
+#   - Verovio lays out in TENTHS OF A MILLIMETRE. Its own A4 default, 2100 x
+#     2970, is 210mm x 297mm. US Letter is 215.9 x 279.4mm, so 2159 x 2794.
+#     This is what decides how much music fits on a page.
+#   - The PDF's physical size is set separately, when cairosvg renders the SVG.
+#     Verovio emits the page as `units * scale/100` pixels, and cairosvg reads
+#     pixels at 96 to the inch, so the two are only related through the scale
+#     option -- change the scale and the paper would change size with it.
+#
+# The first version of this set the page to 816 x 1056, having measured the PDF
+# and concluded there were 96 units to the inch. The PDFs came out 8.5x11 and
+# the check passed, because that arithmetic is right for the OUTPUT and wrong
+# for the LAYOUT: Verovio was being told the paper was 82 x 106mm, a page the
+# size of a postcard, and a 90-bar jig came out over thirty pages of enormous
+# notes. The check now asserts the pagination as well as the inches.
+PAGE_WIDTH_TENTHS_MM = 2159   # 215.9mm
+PAGE_HEIGHT_TENTHS_MM = 2794  # 279.4mm
+
+# What the PDF is rendered at: 8.5 x 11 inches, in cairosvg's pixels-at-96-dpi.
+PDF_WIDTH_PX = 816
+PDF_HEIGHT_PX = 1056
 
 
 def page_options() -> dict:
     """The page geometry both renderers use. Mirrored in VerovioRenderer.swift."""
     return {"adjustPageHeight": False,
-            "pageWidth": PAGE_WIDTH_UNITS,
-            "pageHeight": PAGE_HEIGHT_UNITS}
+            "pageWidth": PAGE_WIDTH_TENTHS_MM,
+            "pageHeight": PAGE_HEIGHT_TENTHS_MM}
 
 
 def _toolkit():
@@ -812,7 +822,10 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
                         src))
                 for p in range(1, n_pages + 1)]
     for svg in svgs:
-        pdf_page = cairosvg.svg2pdf(bytestring=svg.encode())
+        # the page's PHYSICAL size, which is not the size Verovio drew it at
+        pdf_page = cairosvg.svg2pdf(bytestring=svg.encode(),
+                                    output_width=PDF_WIDTH_PX,
+                                    output_height=PDF_HEIGHT_PX)
         writer.append(PdfReader(io.BytesIO(pdf_page)))
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)

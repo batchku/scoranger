@@ -483,7 +483,15 @@ private struct PageView: View {
             PDFPageImage(page: page,
                          size: CGSize(width: width, height: height),
                          rasterZoom: rasterZoom)
-            PencilCanvas(store: drawingStore, key: drawingKey, controller: annotation)
+            // The canvas is laid out at the zoomed size and scaled back down,
+            // so PencilKit magnifies the ink itself instead of the outer
+            // transform stretching a picture of it. See InkSharpness.
+            let ink = InkSharpness.canvasZoom(zoom: rasterZoom)
+            PencilCanvas(store: drawingStore, key: drawingKey,
+                         controller: annotation, canvasZoom: ink)
+                .frame(width: width * ink, height: height * ink)
+                .scaleEffect(1 / ink, anchor: .topLeading)
+                .frame(width: width, height: height, alignment: .topLeading)
         }
         .frame(width: width, height: height)
         .background(Theme.Surface.paper)
@@ -536,6 +544,10 @@ private struct PencilCanvas: UIViewRepresentable {
     let store: DrawingStore
     let key: String
     @ObservedObject var controller: AnnotationController
+    /// What PencilKit is asked to magnify the ink by. The view is laid out
+    /// this much larger and scaled back down, so the strokes are RE-DRAWN at
+    /// the zoom rather than stretched with everything else.
+    var canvasZoom: CGFloat = 1
 
     /// The simulator has no Pencil, so UI tests ask for finger drawing to be
     /// able to exercise strokes and undo at all.
@@ -583,7 +595,28 @@ private struct PencilCanvas: UIViewRepresentable {
         context.coordinator.store = store
         context.coordinator.controller = controller
         context.coordinator.publishStrokeCount(canvas)
+        // its own scrolling would fight the score's; only the zoom is wanted
+        canvas.isScrollEnabled = false
+        canvas.bouncesZoom = false
+        canvas.minimumZoomScale = 1
+        canvas.maximumZoomScale = InkSharpness.maximumFactor
+        Self.sharpen(canvas, to: canvasZoom)
         return canvas
+    }
+
+    /// Hand the magnification to PencilKit.
+    ///
+    /// Setting `contentScaleFactor` -- on the canvas, on every subview, with
+    /// the drawing reassigned to force a repaint -- was tried first and
+    /// changed nothing on screen: PencilKit renders its strokes on its own
+    /// terms and does not take that as an instruction to redraw. Its own
+    /// `zoomScale` does, which is what laying the canvas out large and scaling
+    /// it back down is for.
+    private static func sharpen(_ canvas: PKCanvasView, to zoom: CGFloat) {
+        let wanted = max(1, min(zoom, InkSharpness.maximumFactor))
+        guard InkSharpness.isWorthRedrawing(from: canvas.zoomScale,
+                                            to: wanted) else { return }
+        canvas.zoomScale = wanted
     }
 
     func updateUIView(_ canvas: UndoableCanvas, context: Context) {
@@ -597,6 +630,7 @@ private struct PencilCanvas: UIViewRepresentable {
         context.coordinator.controller = controller
         canvas.isUserInteractionEnabled = controller.isOn
         canvas.tool = controller.pkTool
+        Self.sharpen(canvas, to: canvasZoom)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

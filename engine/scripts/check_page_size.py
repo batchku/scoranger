@@ -63,12 +63,20 @@ def main() -> int:
 
     print("the size the renderer is set to")
     check("a fixed page height is configured",
-          render.PAGE_HEIGHT_UNITS > 0, str(getattr(render, "PAGE_HEIGHT_UNITS", None)))
+          render.PAGE_HEIGHT_TENTHS_MM > 0, str(render.PAGE_HEIGHT_TENTHS_MM))
     check("a fixed page width is configured",
-          render.PAGE_WIDTH_UNITS > 0, str(getattr(render, "PAGE_WIDTH_UNITS", None)))
+          render.PAGE_WIDTH_TENTHS_MM > 0, str(render.PAGE_WIDTH_TENTHS_MM))
     check("it is portrait, like the sources",
-          render.PAGE_HEIGHT_UNITS > render.PAGE_WIDTH_UNITS,
-          f"{render.PAGE_WIDTH_UNITS}x{render.PAGE_HEIGHT_UNITS}")
+          render.PAGE_HEIGHT_TENTHS_MM > render.PAGE_WIDTH_TENTHS_MM,
+          f"{render.PAGE_WIDTH_TENTHS_MM}x{render.PAGE_HEIGHT_TENTHS_MM}")
+    # The layout size is in tenths of a millimetre -- Verovio's own A4 default
+    # is 2100x2970 -- so US Letter is 2159x2794. Asserted as MILLIMETRES rather
+    # than as the two numbers, because the bug this catches was setting them in
+    # a different unit entirely and getting a postcard.
+    check("the page Verovio lays out on is really US Letter",
+          abs(render.PAGE_WIDTH_TENTHS_MM / 10 - 215.9) < 1
+          and abs(render.PAGE_HEIGHT_TENTHS_MM / 10 - 279.4) < 1,
+          f"{render.PAGE_WIDTH_TENTHS_MM / 10}mm x {render.PAGE_HEIGHT_TENTHS_MM / 10}mm")
 
     print("\na score that runs to several pages, ending part way down one")
     src = workspace / "long.musicxml"
@@ -93,6 +101,20 @@ def main() -> int:
         print(f"       every page is {inches[0]}x{inches[1]} inches")
         check("it is US Letter portrait",
               inches == (8.5, 11.0), f"{inches[0]}x{inches[1]}")
+
+    # The assertion the first version of this check was missing.
+    #
+    # It measured the paper and not the music, so a page told to Verovio in the
+    # wrong unit -- 82 x 106mm, a postcard -- passed cleanly: the PDF was still
+    # 8.5x11, because the physical size is applied afterwards. What gave it away
+    # on the iPad was the page counter reading 131. A page that is really Letter
+    # takes a 90-bar single-staff jig in a handful of pages; a postcard takes
+    # thirty.
+    print("\nand the music is laid out for a page that size")
+    check("ninety bars of one staff fit in a handful of pages",
+          pages <= 6,
+          f"{pages} pages -- at that rate the page Verovio is laying out on is "
+          f"far smaller than the paper it is printed on")
 
     print("\nthe same holds for a short score that fills less than one page")
     short_src = workspace / "short.musicxml"

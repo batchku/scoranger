@@ -46,12 +46,18 @@ actor VerovioRenderer {
     /// Paper does not do that. White at the bottom of a partial page is
     /// correct; pages of different heights never are.
     ///
-    /// The unit is MEASURED at 96 to the inch, not converted from Verovio's
-    /// documented millimetres -- see the note in render.py, which these values
-    /// mirror. Keep the two in step.
-    static let unitsPerInch: Double = 96
-    static let pageWidthUnits = Int(8.5 * unitsPerInch)
-    static let pageHeightUnits = Int(11.0 * unitsPerInch)
+    /// Verovio lays out in TENTHS OF A MILLIMETRE -- its own A4 default,
+    /// 2100 x 2970, is 210 x 297mm -- so US Letter is 2159 x 2794. Mirrors
+    /// render.py's PAGE_WIDTH_TENTHS_MM / PAGE_HEIGHT_TENTHS_MM; keep the two
+    /// in step.
+    ///
+    /// These were 816 x 1056 for one build, from measuring an exported PDF and
+    /// reading 96 units to the inch off it. That is the arithmetic for the
+    /// PDF's physical size, which is applied separately, and it told Verovio
+    /// the paper was 82 x 106mm. The engraving was laid out for a postcard:
+    /// this quartet paginated to 131 pages of enormous notes.
+    static let pageWidthTenthsMM = 2159
+    static let pageHeightTenthsMM = 2794
 
     /// The full option set every time: passing a partial one risks the rest
     /// reverting to Verovio's defaults, which would quietly bring back the
@@ -59,7 +65,7 @@ actor VerovioRenderer {
     private static func options(lyricSize: Double) -> String {
         """
         {"scale": 45, "footer": "none", "adjustPageHeight": false,
-         "pageWidth": \(pageWidthUnits), "pageHeight": \(pageHeightUnits),
+         "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
          "pageMarginTop": 100, "pageMarginBottom": 100,
          "pageMarginLeft": 120, "pageMarginRight": 120,
          "lyricSize": \(lyricSize)}
