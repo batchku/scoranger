@@ -285,9 +285,14 @@ struct OverlayHeader<Subject: View, Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Metric.s8) {
+            // The subject wins the space. Without this the model chip took
+            // what it wanted and the chat's own title truncated to
+            // "Sous le ciel quart…" with room to spare beside it (L30).
             subject()
+                .layoutPriority(1)
             Spacer(minLength: Theme.Metric.s8)
             trailing()
+                .layoutPriority(0)
             PanelIconButton(systemName: "xmark", label: dismissLabel,
                             size: 30, action: onDismiss)
         }

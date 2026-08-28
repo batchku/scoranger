@@ -454,6 +454,10 @@ struct ContentView: View {
                         Text(state.chatModel.isEmpty ? (catalog.default) : state.chatModel)
                             .typeRole(.data)
                             .foregroundStyle(Theme.Ink.ink2)
+                            // one line at its natural width: with the title
+                            // taking priority the chip started wrapping instead
+                            .lineLimit(1)
+                            .fixedSize()
                             .padding(.vertical, Theme.Metric.s4)
                             .padding(.horizontal, Theme.Metric.s6)
                             .overlay {

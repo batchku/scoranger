@@ -12,7 +12,14 @@ struct ChatView: View {
     /// How tall the input box is, in lines of text. Six by default: three was
     /// enough for "transpose down a third" and not for anything a person
     /// actually wants to say about a selection.
-    @AppStorage("chatInputLines") private var inputLines: Double = 6
+    /// Zero means AUTO: the box is the size of what is in it, one line to
+    /// four, and grows as you type. The grip still overrides it.
+    ///
+    /// It used to default to six lines, so an empty chat opened with a 200pt
+    /// box holding a one-line placeholder and the conversation above it was
+    /// squeezed into what was left (L31). A NEW key, because the six is stored
+    /// on every device that has run this app and the stored value is the bug.
+    @AppStorage("chatInputLines2") private var inputLines: Double = 0
     /// Live drag offset, applied on top of `inputLines` until the grip is let go.
     @State private var dragLines: Double = 0
 
@@ -23,10 +30,20 @@ struct ChatView: View {
     /// like it is moving lines rather than pixels.
     private static let lineHeight: CGFloat = 21
 
-    private var effectiveLines: Int {
-        Int(min(max(inputLines + dragLines, Self.lineRange.lowerBound),
-                Self.lineRange.upperBound).rounded())
+    /// How many lines the box is DRAGGED to, or nil while it is auto-sized.
+    private var draggedLines: Int? {
+        let combined = inputLines + dragLines
+        guard combined >= Self.lineRange.lowerBound else { return nil }
+        return Int(min(combined, Self.lineRange.upperBound).rounded())
     }
+
+    /// What the grip reports, and the cap the text may grow to.
+    private var effectiveLines: Int { draggedLines ?? Self.autoLines }
+
+    /// The cap an auto-sized box grows to before it scrolls. Four lines is a
+    /// sentence and a half -- past that the conversation above matters more
+    /// than seeing the whole of what you are typing.
+    private static let autoLines = 4
 
     private var slug: String? { state.selectedScore?.slug }
     /// How many arrangements the open one shares its piece with (1 = it's alone,
@@ -256,8 +273,10 @@ struct ChatView: View {
                 // which is white wherever the OS thinks it is dark
                 .foregroundStyle(Theme.Ink.ink)
                 .tint(Theme.Accent.clay)
-                .lineLimit(1...effectiveLines)
-                .frame(minHeight: CGFloat(effectiveLines) * Self.lineHeight,
+                // One line, growing to the cap -- or to whatever the grip was
+                // dragged to, which is the one thing that pins the height.
+                .lineLimit(1...max(effectiveLines, Self.autoLines))
+                .frame(minHeight: draggedLines.map { CGFloat($0) * Self.lineHeight },
                        alignment: .topLeading)
                 .focused($inputFocused)
                 .onSubmit(send)
@@ -291,8 +310,24 @@ struct ChatView: View {
                 }
             }
 
-            PanelButton(title: "Send", kind: .primary, action: send)
-                .disabled(state.chatBusy || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            // A GLYPH, not the word. "Send" was laid out beside a field that
+            // takes the rest of the row, and at the panel's width the label was
+            // clipped to "Sen…" (L32). An icon cannot be clipped.
+            Button(action: send) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Surface.paper)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.Accent.clayPress)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat-send")
+            .accessibilityLabel("Send")
+            .disabled(state.chatBusy || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            .opacity(state.chatBusy || draft.trimmingCharacters(in: .whitespaces).isEmpty
+                     ? 0.42 : 1)
         }
         .padding(Theme.Metric.s12)
         .background(Theme.Surface.panel)
