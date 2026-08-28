@@ -193,7 +193,15 @@ enum Theme {
         // the scroll view, capped how far zoom could pan. The canvas now takes
         // the full gap between the panels. Kept documented rather than deleted
         // so the numbers are not reintroduced from the spec by mistake.
-        static let pillHeight: CGFloat = 50
+        /// What the score keeps clear at the bottom of its canvas, so the
+        /// docked ink bar never sits on the last system.
+        ///
+        /// This was `pillHeight`, and the pill lost its score-view role in the
+        /// redesign -- the number outlived the thing it measured, which is how
+        /// a layout ends up reserving space for something that is not there.
+        /// The ink bar is what is down there now: its own 44pt plus the 8pt it
+        /// docks off the edge.
+        static let scoreBottomChrome: CGFloat = 52
         static let pillButton: CGFloat = 38
         static let hitTarget: CGFloat = 44
 

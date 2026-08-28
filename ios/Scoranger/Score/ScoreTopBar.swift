@@ -96,9 +96,13 @@ struct ScoreTopBar: View {
                     HStack(spacing: Theme.Metric.s6) {
                         Text(subtitle).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
                             .lineLimit(1)
-                        // the mode, stated: §6 only works if it is visible
-                        Text(mode.pencilMeaning).typeRole(.data)
-                            .foregroundStyle(Theme.Accent.clayStrong)
+                        // The mode, stated: §6 only works if it is visible --
+                        // but as bare text it ran straight into the version
+                        // beside it and read as "… · v003 Pencil: select".
+                        // A separator and a chip: two facts, told apart.
+                        Text("·").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                        MiniChip(text: mode.pencilMeaning)
+                            .accessibilityIdentifier("pencil-mode")
                     }
                 }
                 Image(systemName: "chevron.down")

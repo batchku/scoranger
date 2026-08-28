@@ -116,6 +116,32 @@ struct RevealBand<Content: View>: View {
     }
 }
 
+/// A small bordered chip for a piece of STATE, next to the text it qualifies.
+///
+/// It exists because a state set as bare text runs into whatever is beside it:
+/// "Pencil: select" sat against the version with nothing between them and read
+/// as "… · v003 Pencil: select", one sentence made of two facts.
+struct MiniChip: View {
+    let text: String
+    var tint: Color = Theme.Accent.clayStrong
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, Theme.Metric.s6)
+            .padding(.vertical, 2)
+            .background(Theme.Surface.panel)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                    .stroke(Theme.Line.line2, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+            .lineLimit(1)
+            .fixedSize()
+    }
+}
+
 // MARK: - Buttons (§7.11)
 
 /// 13pt/600 label, 2pt radius, hard border. `primary` and `destructive` carry a

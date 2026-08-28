@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var optionsSection: String?
     @State private var chatOpen = false
     @State private var didSetInitialOverlays = false
+    /// The height the score view has, so the title band can be capped against
+    /// it rather than taking whatever it is offered (L16).
+    @State private var scoreHeight: CGFloat = 0
 
     @State private var showSettings = false
     @State private var showImporter = false
@@ -150,7 +153,8 @@ struct ContentView: View {
                                       state.titleMenuOpen = false
                                       optionsSection = "Versions"
                                       scoreScreen = .options
-                                  })
+                                  },
+                                  available: scoreHeight)
             }
             ZStack(alignment: .top) {
                 Theme.Surface.ground
@@ -188,6 +192,13 @@ struct ContentView: View {
                               onPrevious: { stepSetlist(-1) },
                               onNext: { stepSetlist(1) })
                 }
+            }
+        }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { scoreHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { _, new in scoreHeight = new }
             }
         }
         .background(Theme.Surface.ground)

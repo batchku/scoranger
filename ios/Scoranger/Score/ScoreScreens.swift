@@ -263,12 +263,42 @@ struct TitleSwitcherBand: View {
     var onPickArrangement: (String) -> Void
     var onPickVersion: (String?) -> Void
     var onAllVersions: () -> Void
+    /// The height the score has to give: the band takes what it needs of it,
+    /// up to `TitleBandLayout.maxFraction`, and scrolls past that.
+    var available: CGFloat = 0
 
     private var piece: PieceDoc? {
         state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
     }
 
+    private var shownVersions: [VersionDoc] { Array(score.versions.suffix(4).reversed()) }
+    private var hasAllVersionsRow: Bool { score.versions.count > 4 }
+
+    private var contentHeight: CGFloat {
+        TitleBandLayout.contentHeight(arrangements: (piece?.arrangements ?? [score.slug]).count,
+                                      versions: shownVersions.count,
+                                      hasAllVersionsRow: hasAllVersionsRow)
+    }
+
     var body: some View {
+        ScrollView {
+            columns
+        }
+        .frame(height: TitleBandLayout.height(content: contentHeight,
+                                              available: available))
+        .scrollDisabled(!TitleBandLayout.scrolls(content: contentHeight,
+                                                 available: available))
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        // NO identifier on this container. An identifier on a stack is taken by
+        // its children: the two columns became two buttons both called
+        // "title-switcher" and every row inside them -- the arrangements, the
+        // versions -- stopped existing. The band was open and unusable, and the
+        // only way to switch version while reading went with it.
+        .accessibilityElement(children: .contain)
+    }
+
+    private var columns: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
@@ -284,39 +314,46 @@ struct TitleSwitcherBand: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Rectangle().fill(Theme.Line.line).frame(width: 1)
-
             VStack(alignment: .leading, spacing: 0) {
                 BandHeader("Versions")
-                ForEach(Array(score.versions.suffix(4).reversed()), id: \.id) { version in
-                    switchRow(title: version.id, number: nil,
+                ForEach(shownVersions, id: \.id) { version in
+                    // What MADE the version, not just its id: "v003 / v002 /
+                    // v001" told a reader nothing, so switching version while
+                    // reading was a guess.
+                    switchRow(title: TitleBandLayout.versionLabel(
+                                        prompt: version.turn?.prompt, op: version.op),
+                              number: nil,
+                              detail: version.id,
                               selected: version.id == state.displayedVersionID,
                               id: "menu-version-\(version.id)") {
                         onPickVersion(version.id == score.latest ? nil : version.id)
                     }
                 }
-                if score.versions.count > 4 {
+                if hasAllVersionsRow {
                     ScreenRow(title: "All \(score.versions.count) versions",
                               identifier: "menu-all-versions", action: onAllVersions)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Theme.Surface.panel)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
-        // NO identifier on this container. An identifier on a stack is taken by
-        // its children: the two columns became two buttons both called
-        // "title-switcher" and every row inside them -- the arrangements, the
-        // versions -- stopped existing. The band was open and unusable, and the
-        // only way to switch version while reading went with it.
-        .accessibilityElement(children: .contain)
+        // The rule between the columns is an OVERLAY, not a member of the
+        // stack. As a member it was `Rectangle().frame(width: 1)` -- a shape
+        // with a width and no height, which takes every point it is offered
+        // and took the band with it: five rows filled half the screen and the
+        // music was squeezed into what was left.
+        .overlay { Rectangle().fill(Theme.Line.line).frame(width: 1) }
     }
 
-    private func switchRow(title: String, number: Int?, selected: Bool, id: String,
+    private func switchRow(title: String, number: Int?, detail: String? = nil,
+                           selected: Bool, id: String,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: Theme.Metric.s8) {
                 if let number { NumeralBadge(number: number, role: .numeralM) }
+                if let detail {
+                    Text(detail).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                        .fixedSize()
+                }
                 Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink).lineLimit(1)
                 Spacer(minLength: Theme.Metric.s8)
                 if selected {
@@ -331,7 +368,7 @@ struct TitleSwitcherBand: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
+        .accessibilityLabel(detail.map { "\($0), \(title)" } ?? title)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier(id)
     }

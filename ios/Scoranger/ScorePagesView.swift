@@ -69,7 +69,10 @@ struct ScorePagesView: View {
                            annotationActive: annotation.isOn,
                            // the pill floats over the canvas: 50pt of pill, its
                            // 20pt bottom padding, and 12 of breathing room
-                           bottomChrome: Theme.Metric.pillHeight
+                           // the ink bar's height, not the pill's -- the pill
+                           // lost its score-view role and this inset outlived
+                           // the thing it was measuring (batch-2 #9)
+                           bottomChrome: Theme.Metric.scoreBottomChrome
                                + Theme.Metric.s20 + Theme.Metric.s12,
                            onVisibleRectChange: { rect, content in
                                visibleRect = rect
