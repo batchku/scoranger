@@ -43,6 +43,12 @@ final class AnnotationController: ObservableObject {
     }
 
     @Published var isOn = false
+
+    /// Where the reader has moved the ink tools to, measured from the dock.
+    /// Held here rather than in the bar so it survives leaving ink mode and
+    /// coming back -- a bar that jumps home every time is a bar that has to be
+    /// moved every time.
+    @Published var barOffset: CGSize = InkBarPlacement.docked
     @Published var tool: Tool = .pen
     @Published var ink: Ink = .red
     /// Mirrors the focused canvas's undo manager so the button can enable and
@@ -99,14 +105,31 @@ final class UndoableCanvas: PKCanvasView {
     override var undoManager: UndoManager? { ownUndoManager }
 }
 
-/// The ink bar (§7.9): pill language, sitting 74 from the bottom so it stacks
-/// above the canvas toolbar. Pen · eraser · divider · five inks · divider ·
-/// undo · exit. The live ink grows and takes a ring and a tick.
+/// The ink bar (§7.9): pill language, docked in the footer under the page.
+/// Handle · pen · eraser · divider · five inks · divider · undo · exit. The
+/// live ink grows and takes a ring and a tick.
+///
+/// It sat 74 points off the bottom, which is over the music on any page that
+/// runs the height of the pane -- see InkBarPlacement, which also holds the
+/// rule for how far the handle may move it.
 struct AnnotationBar: View {
     @ObservedObject var controller: AnnotationController
+    /// The pane the bar is free to move around in.
+    var bounds: CGSize = .zero
+
+    @State private var dragging: CGSize = .zero
+    @State private var barSize: CGSize = .zero
+
+    private var offset: CGSize {
+        InkBarPlacement.clamp(
+            CGSize(width: controller.barOffset.width + dragging.width,
+                   height: controller.barOffset.height + dragging.height),
+            in: bounds, barSize: barSize)
+    }
 
     var body: some View {
         HStack(spacing: Theme.Metric.s6) {
+            handle
             toolButton(.pen, systemImage: "pencil.tip", label: "Draw")
             toolButton(.eraser, systemImage: "eraser", label: "Erase")
 
@@ -150,7 +173,39 @@ struct AnnotationBar: View {
         .clipShape(Capsule())
         .overlay { Capsule().stroke(Theme.Line.line2, lineWidth: 1) }
         .modifier(InkBarShadow())
-        .padding(.bottom, 74)
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { barSize = geo.size }
+                    .onChange(of: geo.size) { _, new in barSize = new }
+            }
+        }
+        .offset(x: offset.width, y: offset.height)
+        .padding(.bottom, InkBarPlacement.footerInset)
+    }
+
+    /// Drag to move the tools off whatever they are covering; tap to put them
+    /// back. The tap matters: it is the way back for anyone who cannot easily
+    /// drag, and it means the bar can never be stranded.
+    private var handle: some View {
+        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Theme.Ink.ink3)
+            .frame(width: 34, height: 34)
+            .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .onChanged { dragging = $0.translation }
+                    .onEnded { _ in
+                        controller.barOffset = offset
+                        dragging = .zero
+                    })
+            .onTapGesture { controller.barOffset = InkBarPlacement.docked }
+            .accessibilityIdentifier("ink-bar-handle")
+            .accessibilityLabel("Move the ink tools")
+            .accessibilityHint("Drag to move them; tap to put them back")
+            .accessibilityAddTraits(.isButton)
     }
 
     private var separator: some View {

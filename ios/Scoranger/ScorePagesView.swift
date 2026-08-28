@@ -463,7 +463,14 @@ private struct AnnotationBarLayer: View {
 
     var body: some View {
         if controller.isOn {
-            AnnotationBar(controller: controller)
+            // the pane, so the bar can be moved around inside it and no
+            // further -- the clamp needs to know how much room there is
+            GeometryReader { geo in
+                AnnotationBar(controller: controller, bounds: geo.size)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .bottom)
+            }
+            .allowsHitTesting(true)
         }
     }
 }

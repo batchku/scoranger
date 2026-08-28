@@ -1943,6 +1943,48 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: app.buttons["Draw"], timeout: 5))
     }
 
+    /// Ali's #3: the ink tools floated over the middle of the score. They dock
+    /// in the footer now, and the handle moves them off whatever they are
+    /// covering -- with a tap to put them back, so a bar dragged somewhere
+    /// awkward is never stranded.
+    func testTheInkToolsDockAndCanBeMovedAndPutBack() {
+        openArrangement(firstArrangement)
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180),
+                      "the score never engraved")
+        sleep(5)
+        app.buttons["score-edit"].tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 20),
+                      "the ink bar did not open")
+
+        let handle = app.descendants(matching: .any)["ink-bar-handle"]
+        XCTAssertTrue(handle.waitForExistence(timeout: 10), "no move handle")
+
+        // docked: in the bottom of the pane, below the music rather than over it
+        let docked = handle.frame
+        XCTAssertGreaterThan(docked.midY, score.frame.midY,
+                             "the tools should start in the footer, not mid-score")
+
+        // the handle moves them
+        handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1,
+                   thenDragTo: score.coordinate(
+                    withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        sleep(1)
+        let moved = handle.frame
+        XCTAssertLessThan(moved.midY, docked.midY - 100,
+                          "the handle did not move the tools: \(docked) -> \(moved)")
+
+        // ...and a tap puts them back, which is the way home for anyone who
+        // cannot drag
+        handle.tap()
+        sleep(1)
+        XCTAssertEqual(handle.frame.midY, docked.midY, accuracy: 8,
+                       "tapping the handle did not re-dock the tools")
+
+        app.buttons["Finish annotating"].tap()
+    }
+
     /// The build-116 bug: draw, undo, switch colour, draw, undo. The first
     /// stroke must not come back. Stroke counts are read off the canvas.
     func testAnnotationUndoAcrossColourChange() {
