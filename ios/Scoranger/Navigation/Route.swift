@@ -28,7 +28,6 @@ enum Route: Hashable {
     case parts(String)
     /// Title, composer, arranger, slug.
     case details(String)
-    /// Where an import should land, asked before the file picker (item 9).
     /// Settings, and its second layer (§6).
     case settings
     case settingsSection(String)
