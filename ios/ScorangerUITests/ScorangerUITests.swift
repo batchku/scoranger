@@ -1703,10 +1703,14 @@ final class ScorangerUITests: XCTestCase {
         let before = grip.value as? String ?? ""
         print("GRIP before: \(before)")
 
-        // drag it up: the box grows toward the conversation
+        // Drag whichever way has room. The size is remembered between runs,
+        // so a test that always drags UP asserts nothing once someone has left
+        // it at the 14-line maximum -- which is exactly how this first failed.
+        let lines = Int(before.split(separator: " ").first ?? "") ?? 0
         let canvas = app.windows.firstMatch
         let from = grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.45))
+        let to = canvas.coordinate(withNormalizedOffset:
+                                    CGVector(dx: 0.82, dy: lines >= 8 ? 0.92 : 0.45))
         from.press(forDuration: 0.15, thenDragTo: to)
         sleep(1)
         let after = grip.value as? String ?? ""
