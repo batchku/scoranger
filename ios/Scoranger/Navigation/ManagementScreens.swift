@@ -486,58 +486,6 @@ struct PartsScreen: View {
     private var name: String? { score.map { $0.title ?? $0.name } }
 }
 
-/// Where an import should land, asked before the file picker (item 9, §2).
-///
-/// A screen rather than a sheet. The old flow picked a file first and put the
-/// result wherever it landed, which is how Ali lost an import: the answer to
-/// "where did it go?" was nowhere he had been asked about.
-struct ImportDestinationScreen: View {
-    @EnvironmentObject var state: AppState
-    var onBack: () -> Void
-    var onNewPiece: (String) -> Void
-    var onExisting: (String) -> Void
-
-    @State private var naming = false
-    @State private var draft = ""
-
-    var body: some View {
-        Screen(title: "Import", backLabel: "Back",
-               subtitle: "Where should it go?", onBack: onBack) {
-            VStack(alignment: .leading, spacing: 0) {
-                BandHeader("A new piece")
-                if naming {
-                    InlineRenameRow(text: $draft,
-                                    onSave: {
-                                        let name = draft.trimmingCharacters(
-                                            in: .whitespacesAndNewlines)
-                                        naming = false
-                                        guard !name.isEmpty else { return }
-                                        onNewPiece(name)
-                                    },
-                                    onCancel: { naming = false })
-                } else {
-                    ScreenRow(title: "New piece",
-                              value: "appears in My Library while it imports",
-                              leads: false, identifier: "import-new-piece") {
-                        draft = ""
-                        naming = true
-                    }
-                }
-
-                BandHeader("Or add to")
-                ForEach(state.manifest?.pieces ?? []) { piece in
-                    ScreenRow(title: piece.name,
-                              value: "\(piece.arrangements.count)",
-                              leads: false,
-                              identifier: "import-into-\(piece.slug)") {
-                        onExisting(piece.slug)
-                    }
-                }
-            }
-            .padding(.bottom, Theme.Metric.s32)
-        }
-    }
-}
 
 /// An arrangement's details.
 ///

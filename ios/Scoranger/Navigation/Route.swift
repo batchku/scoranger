@@ -29,7 +29,6 @@ enum Route: Hashable {
     /// Title, composer, arranger, slug.
     case details(String)
     /// Where an import should land, asked before the file picker (item 9).
-    case importDestination
     /// Settings, and its second layer (§6).
     case settings
     case settingsSection(String)
@@ -39,7 +38,7 @@ enum Route: Hashable {
     /// count taps out of.
     var backLabel: String {
         switch self {
-        case .piece, .setlist, .importDestination, .settings:
+        case .piece, .setlist, .settings:
             return "My library"
         case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
              .versions, .parts, .details, .settingsSection:
@@ -89,7 +88,7 @@ extension Route {
         case .versions(let s):        return .versions(now(s))
         case .parts(let s):           return .parts(now(s))
         case .details(let s):         return .details(now(s))
-        case .piece, .setlist, .importDestination, .settings, .settingsSection:
+        case .piece, .setlist, .settings, .settingsSection:
             return self
         }
     }

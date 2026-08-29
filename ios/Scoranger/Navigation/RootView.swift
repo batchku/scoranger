@@ -27,9 +27,9 @@ struct RootView: View {
     @State private var filters: Set<LibraryFilter> = []
     @State private var editing = false
 
-    /// Whether the piece being named is the destination of an import.
-    /// Where an import should land, asked BEFORE the file picker (0.4.1 item 9).
-    @State private var importDestination: ImportDestination?
+    /// The piece an import should land in, set only by a piece's own "Import
+    /// into this piece". A plain Import leaves it nil and the score arrives
+    /// unfiled.
     @State private var importIntoPiece: String?
     @State private var showSettings = false
     @State private var showImporter = false
@@ -195,22 +195,6 @@ struct RootView: View {
             // every manifest tick closed the screen the instant a move landed
             DetailsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
-        case .importDestination:
-            ImportDestinationScreen(onBack: pop,
-                                    onNewPiece: { name in
-                                        Task {
-                                            let slug = await state.createPiece(named: name)
-                                            importIntoPiece = slug
-                                            pop()
-                                            showImporter = true
-                                        }
-                                    },
-                                    onExisting: { pieceSlug in
-                                        importIntoPiece = pieceSlug
-                                        pop()
-                                        showImporter = true
-                                    })
-                .navigationBarHidden(true)
         case .settings, .settingsSection:
             Screen(title: "Settings", backLabel: "My library", onBack: pop) {
                 SettingsView()
@@ -221,40 +205,10 @@ struct RootView: View {
 
     // MARK: - The place
 
-    /// A new piece, or one that already exists.
-    enum ImportDestination: Equatable { case choosing, newPiece, existing }
-
-    /// Ask first, then pick the file.
-    ///
-    /// The old flow picked a file and then put the result wherever it landed --
-    /// which was Unfiled, reachable only by scrolling past every piece, with an
-    /// inbox badge on Home that was not tappable. Ali could not find what he
-    /// had imported. Asking first means the answer to "where did it go?" is
-    /// something the user chose.
-    private func chooserRow(title: String, detail: String, id: String,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: Theme.Metric.s8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).typeRole(.row).foregroundStyle(Theme.Ink.ink)
-                    if !detail.isEmpty {
-                        Text(detail).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                    }
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Theme.Ink.ink3)
-            }
-            .padding(.horizontal, Theme.Metric.panelPadding)
-            .padding(.vertical, Theme.Metric.sheetRowVertical)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(id)
-    }
+    // The "where should this land?" chooser lived here -- an enum, a screen
+    // and a row builder. It is gone (see `onImport` above): it asked a
+    // question before the file picker that is better answered after, and the
+    // path through it was broken outright.
 
     private var library: some View {
         LibraryView(segment: $segment, search: $librarySearch, sort: $sort,
@@ -288,7 +242,19 @@ struct RootView: View {
                             }
                         }
                     },
-                    onImport: { libraryPath.append(.importDestination) },
+                    // Straight to the system picker. It used to push a screen
+                    // asking WHICH PIECE first, and that screen could not
+                    // deliver: naming a new piece ran `pop()` and
+                    // `showImporter = true` in the same tick, so SwiftUI threw
+                    // the presentation away mid-transition and the file picker
+                    // never appeared. Import was unusable.
+                    //
+                    // The question it asked is answerable later and better: a
+                    // score arrives UNFILED, it is visible in the library as
+                    // its own row, and filing it is Move to piece whenever you
+                    // like. Asking first put a modal-shaped question in front
+                    // of the one thing the button exists to do.
+                    onImport: { showImporter = true },
                     onSettings: {
                         withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
                     },

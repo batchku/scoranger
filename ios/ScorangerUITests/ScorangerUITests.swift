@@ -408,6 +408,33 @@ final class ScorangerUITests: XCTestCase {
                        "the engine chip is back")
     }
 
+    /// Import opens the file picker. Nothing else, and nothing first.
+    ///
+    /// It used to push a "which piece should this land in?" screen, and that
+    /// screen could not deliver: naming a new piece popped the navigation
+    /// stack and asked to present the picker in the same tick, so SwiftUI
+    /// dropped the presentation mid-transition. You named a piece and the
+    /// picker never came. Import was unusable, and no test covered it -- which
+    /// is why it could break in silence.
+    func testImportGoesStraightToTheFilePicker() {
+        XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
+                      "no Import button")
+        XCTAssertFalse(app.buttons["Cancel"].exists,
+                       "something was already presented before Import was tapped")
+        app.buttons["library-import"].tap()
+
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 20),
+                      "tapping Import did not open the file picker")
+        // and it got there without asking anything first
+        XCTAssertFalse(app.textFields["inline-rename-field"].exists,
+                       "Import stopped to ask for a name")
+        XCTAssertEqual(app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Back to")).count, 0,
+                       "Import pushed a screen instead of opening the picker")
+        shot("import-picker")
+        app.buttons["Cancel"].tap()
+    }
+
     /// #53: which build this is, on the screen the app opens to.
     func testTheLibraryShowsWhichBuildThisIs() {
         let stamp = app.staticTexts["build-stamp"]
