@@ -42,7 +42,7 @@ spelled once, `+` offering New and Import.
 | **Anchored bar** (bottom, above the tab bar) | multi-select actions, undo | anything that blocks the list behind it |
 | **Tap-to-edit** — the value becomes a field where it sits | every editable value: names, composer, keys, hostnames, the model alias | values on a row whose tap already opens something (§4A) |
 | **Drag-and-drop** | *nothing* | filing, ordering, membership, reparenting — all of it is buttons and screens now (§4B) |
-| **Drag to reposition a floating control** | the ink bar's handle, and nothing else (§4B.1) | reaching any feature |
+| **Drag to reposition or resize a floating control** | the ink bar's move handle and the chat box's resize grip, and nothing else (§4B.1) | reaching any feature |
 | **Compact action row** — small bordered buttons in the screen's control bar | the four library-level actions (§4C) | anything about one row; that is `☰` |
 
 A bar is not a modal: it is anchored, blocks nothing, and the content scrolls
@@ -257,6 +257,7 @@ and recent set lists. All of it goes, and what survives moves into My Library.
 
 | Removed | Why | What replaces it |
 |---|---|---|
+| **Ask, from the action row** *(amended 2026-08-28, #47)* | Ali asked for it directly: three creation actions read as a row, four with a conversational one read as a toolbar | Chat is reached from the score view's Ask button, where there is an arrangement for it to talk about |
 | The Home screen | A lobby in front of the library | My Library is the app's root |
 | `RECENT PIECES` / `RECENT SETLISTS` sections and their `All … ›` links | The library **is** the list; recency is a sort, not a section | `Sort: recently changed` in the library's control bar |
 | The four large coloured panels | Two thirds of the screen for four occasional actions | the compact action row below |
@@ -275,14 +276,18 @@ already are:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  ?   ✉²   ⚙                                          ● on-device         │  44pt
+│  ⚙                                                                       │  44pt
 │  My Library            7 pieces · 9 arrangements                         │
 │  ⌕ Search in my library                                                  │  40pt
-│  ⤓ Import   ▢ New   ☰ New set list   ⌸ Ask        ⇅ Sort: name  ⌗ Filter  Edit │  44pt
+│  ⤓ Import   ▢ New   ☰ New set list        ⇅ Sort: name   ⌗ Filter   Edit │  44pt
 │ ─────────────────────────────────────────────────────────────────────── │
 │  rows…                                                                   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+*Amended 2026-08-28 to match 0.4.7: the top row is the settings gear alone —
+help, inbox and the engine chip went with it — and **Ask has left the action
+row** (#47). The build stamp is centred under the list.*
 
 | Property | Value |
 |---|---|
@@ -291,26 +296,27 @@ already are:
 | Button | 32pt tall, 1pt `line2` border, radius 2 (`rCtl`), `panel` fill, 10pt horizontal padding, 13pt/600 label after a 13pt SF Symbol |
 | Gap within a cluster | **8pt** |
 | Gap between the clusters | **16pt minimum**, a `Spacer(minLength: 16)` between them |
-| Order, left cluster | Import · New · New set list · Ask — the panels' old order |
+| Order, left cluster | Import · New · New set list — the panels' old order, less Ask (#47) |
 | Order, right cluster | Sort (shows its value) · Filter · Edit |
 | Space above / below | 12pt from the search field, **16pt** to the first row or band |
 | Compact width (< 700pt) | the left cluster drops its labels to 32×32 icon buttons, same order and identifiers; `Sort` keeps its value, `Filter` and `Edit` become icons |
 | Emphasis | none. `Import` is **not** tinted: at four buttons in a bar, a clay fill would shout. The accent stays for selection and `#N` |
 
 Identifiers move with the actions: `library-import`, `library-new`,
-`library-new-setlist`, `library-ask` (retiring `home-import`,
-`home-new-arrangement`, `home-new-setlist`, `home-ask`, and `library-add`).
+`library-new-setlist` (retiring `home-import`, `home-new-arrangement`,
+`home-new-setlist`, `home-ask`, `library-ask` and `library-add`).
 
 ### What moves to the library's top row
-The help, inbox (with its count) and settings icons, and the engine chip, all
-keep their Home positions — leading trio, chip trailing — now on My Library.
-The chip prints the mode **once**: `LED` becomes a dot with no label of its own.
+*Amended 2026-08-28:* the top row is now **the settings gear alone**. Help, the
+inbox and the engine chip were removed in 0.4.7 — the chip's job (which engine,
+is it reachable) belongs in Settings, where the engine is chosen, and the row
+reads as chrome rather than a toolbar. `LED` still prints the mode once, in
+Settings.
 
 ### Behaviour after the merge
 - The app launches on My Library, on the segment last used.
-- **Ask** opens the last-opened arrangement with the chat panel open; with
-  nothing opened yet it is disabled rather than hidden, so the row never
-  re-flows.
+- **Ask is not in the library** (#47). Chat lives in the score view, where an
+  arrangement is open for it to talk about.
 - The score view still presents over the library and `✕` always returns to it —
   `cameFrom` and its two cases go away.
 - **Empty library** is now the app's first screen, so it carries the welcome:
@@ -320,21 +326,27 @@ The chip prints the mode **once**: `LED` becomes a dot with no label of its own.
 - When sharing lands, the second place returns as a third segment
   (`Pieces / Setlists / Shared`), not as a resurrected tab bar.
 
-### 4B.1 The one drag left, and why it is allowed
+### 4B.1 The two drags left, and why they are allowed
 
-The ink bar carries a move handle (`✥`, labelled "Move the ink tools"). It is
-the only drag in the app and it stays, by Ali's own request in the 0.4.4 batch:
-the tools dock in the footer, and the handle moves them off whatever they are
-covering.
+**Both are Ali's own decisions. A future "kill every drag" pass must not
+remove them without asking him again.**
 
-It does not break §4B, which is about features that can only be REACHED by
-dragging. Every tool on the bar is reachable where it sits; the drag only
-changes where the bar is. And a TAP on the handle re-docks it, so the drag is
-never the only way back — that is the rule §4B actually protects.
+1. **The ink bar's move handle** (`✥`, "Move the ink tools"). Asked for in the
+   0.4.4 batch and reaffirmed against the QA sweep's L24, which read it as an
+   unexplained glyph: he uses it deliberately, and #46 then widened its range
+   to the whole screen rather than narrowing it.
+2. **The chat box's resize grip**, the capsule above the message field. Kept as
+   a resize by Ali's decision on L35, over the alternative of a two-width
+   toggle in the chat header.
 
-Recorded here because the QA sweep read it as an unexplained glyph (L24). If
-Ali would rather it went, removing it is a five-line change and the bar simply
-stays docked.
+Neither breaks §4B, which is about features that can only be REACHED by
+dragging. Every tool on the ink bar is reachable where it sits, and the drag
+only changes where the bar is; a TAP on the handle re-docks it, so the drag is
+never the only way back. The chat box types, sends and scrolls at any size, and
+it auto-sizes to what you have written (#31) — the grip only overrides that.
+
+That is the rule §4B actually protects: a gesture may be the fast way, never
+the only way.
 
 ## 5. Inline patterns — `mf-07-inline-patterns.png`
 

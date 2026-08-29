@@ -209,26 +209,46 @@ enum LibraryModel {
     }
 }
 
-// MARK: - What the library says it holds (L11)
+// MARK: - What the library says it holds (L11, #39)
 
 extension LibraryModel {
 
-    /// The count under "My library", as a phrase rather than a bare number.
+    /// The count under "My library", as a phrase rather than a bare number --
+    /// and counting the rows that are actually on screen, by what they are.
     ///
-    /// It read "My library 1", which names nothing: one what? And an empty
-    /// library read "My library 0", which is a count of nothing where a new
-    /// user needs a sentence. Pieces carry their arrangements too, because
-    /// "7 pieces" alone hides how much is actually in there.
+    /// It read "My library 1", which names nothing. Then it read "2 pieces · 2
+    /// arrangements" over two rows that were both UNFILED ARRANGEMENTS (#39):
+    /// an arrangement with no piece is not a piece, and the total counted the
+    /// same music twice under two names. Neither number matched what the
+    /// reader could see.
+    ///
+    /// So the header counts top-level ROWS by their true kind, and nothing
+    /// else: "1 piece · 3 unfiled" over four rows. The cross-total is gone on
+    /// purpose -- arrangements inside a piece are visible when you open it,
+    /// and a number in the header that does not match the rows under it is
+    /// the whole of what went wrong here.
     static func countPhrase(segment: LibrarySegment, rows: [LibraryRow]) -> String {
         switch segment {
         case .pieces:
             guard !rows.isEmpty else { return "No pieces yet" }
-            let arrangements = rows.reduce(0) { $0 + max($1.arrangementCount, 1) }
-            return "\(plural(rows.count, "piece")) · \(plural(arrangements, "arrangement"))"
+            let unfiled = rows.filter(isUnfiled).count
+            let pieces = rows.count - unfiled
+            switch (pieces, unfiled) {
+            case (0, let u):  return "\(plural(u, "unfiled arrangement"))"
+            case (let p, 0):  return plural(p, "piece")
+            case (let p, let u): return "\(plural(p, "piece")) · \(u) unfiled"
+            }
         case .setlists:
             guard !rows.isEmpty else { return "No set lists yet" }
             return plural(rows.count, "set list")
         }
+    }
+
+    /// An arrangement that belongs to no piece. The row says so itself -- the
+    /// same signal the Unfiled filter reads, so the header and the filter can
+    /// never disagree about what is unfiled.
+    static func isUnfiled(_ row: LibraryRow) -> Bool {
+        row.chips.contains { $0.text == "UNFILED" }
     }
 
     /// "1 piece", "2 pieces" -- the noun is never dropped and never mis-agreed.

@@ -1686,6 +1686,37 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// A selection is about the engraving it was drawn on: changing version
+    /// L35: the chat box's resize grip STAYS. Ali chose it over a two-width
+    /// toggle, and it is one of the two sanctioned drags in the app
+    /// (NAV_MODAL_FREE_0.4.2 §4B.1) -- so a future "remove every drag" pass
+    /// fails here rather than quietly taking it away.
+    func testTheChatBoxKeepsItsResizeGrip() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never engraved")
+        app.buttons["score-ask"].tap()
+
+        let grip = app.descendants(matching: .any)["chat-input-grip"].firstMatch
+        XCTAssertTrue(grip.waitForExistence(timeout: 20),
+                      "the chat box's resize grip is gone")
+        // the grip publishes the size it is set to, which is what it is for
+        let before = grip.value as? String ?? ""
+        print("GRIP before: \(before)")
+
+        // drag it up: the box grows toward the conversation
+        let canvas = app.windows.firstMatch
+        let from = grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.45))
+        from.press(forDuration: 0.15, thenDragTo: to)
+        sleep(1)
+        let after = grip.value as? String ?? ""
+        print("GRIP after: \(after)")
+        XCTAssertNotEqual(after, before,
+                          "dragging the grip did not resize the box (\(before))")
+        shot("chat-grip-resized")
+        app.buttons["Close chat"].tap()
+    }
+
     /// #44: running an op on a selection keeps the selection, and keeps the
     /// page you were on. Every op makes a version, and the render path used to
     /// treat that exactly like opening a different arrangement -- blanking the
