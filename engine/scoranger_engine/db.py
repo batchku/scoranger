@@ -37,6 +37,8 @@ class SqliteRepository:
                 "CREATE TABLE IF NOT EXISTS pieces (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS setlists (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.commit()
 
     # -- scores collection ------------------------------------------------
@@ -96,6 +98,29 @@ class SqliteRepository:
     def delete_piece(self, piece_id: str) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM pieces WHERE id = ?", (piece_id,))
+            self._conn.commit()
+
+    # -- books collection (a collection arrangements are taken OUT of) --------
+
+    def set_book(self, book_id: str, doc: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO books (id, doc) VALUES (?, ?)"
+                " ON CONFLICT(id) DO UPDATE SET doc = excluded.doc",
+                (book_id, json.dumps(doc)))
+            self._conn.commit()
+
+    def get_book(self, book_id: str) -> dict | None:
+        row = self._conn.execute("SELECT doc FROM books WHERE id = ?", (book_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def list_books(self) -> list[dict]:
+        rows = self._conn.execute("SELECT doc FROM books ORDER BY id").fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    def delete_book(self, book_id: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
             self._conn.commit()
 
     # -- setlists collection (ordered groups of pieces) ----------------------

@@ -1132,6 +1132,26 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Import a PDF as a BOOK: a collection to take arrangements out of.
+    func importBook(at url: URL) {
+        Task {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let tmp = FileManager.default.temporaryDirectory
+                    .appending(path: url.lastPathComponent)
+                try? FileManager.default.removeItem(at: tmp)
+                try FileManager.default.copyItem(at: url, to: tmp)
+                _ = try await local.importBook(
+                    fileURL: tmp, name: url.deletingPathExtension().lastPathComponent)
+                try? FileManager.default.removeItem(at: tmp)
+                await refresh()
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     /// A file handed to us by the system (share sheet / "Open in").
     /// `piece` files the resulting arrangement under that piece (the sidebar's
     /// per-piece import); nil leaves it unfiled.

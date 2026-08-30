@@ -6,8 +6,15 @@ import Foundation
 
 /// Which half of My Library is showing.
 enum LibrarySegment: String, CaseIterable, Equatable {
-    case pieces, setlists
-    var title: String { self == .pieces ? "Pieces" : "Setlists" }
+    case pieces, setlists, books
+
+    var title: String {
+        switch self {
+        case .pieces:   return "Pieces"
+        case .setlists: return "Setlists"
+        case .books:    return "Books"
+        }
+    }
 }
 
 /// How the library is ordered.

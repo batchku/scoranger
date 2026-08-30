@@ -83,6 +83,27 @@ struct LocalEngine {
         return (r["version"] as? String) ?? ""
     }
 
+    /// Import a PDF as a BOOK: a collection to take arrangements out of.
+    func importBook(fileURL: URL, name: String?) async throws -> String {
+        var args: [String: Any] = ["path": fileURL.path]
+        if let name { args["name"] = name }
+        return (try await result(op: "import-book", args: args)["book"] as? String) ?? ""
+    }
+
+    /// Take pages out of a book as a new PDF arrangement.
+    @discardableResult
+    func extractFromBook(_ book: String, from: Int, to: Int, name: String,
+                         piece: String?) async throws -> String {
+        var args: [String: Any] = ["book": book, "from_page": from,
+                                   "to_page": to, "name": name]
+        if let piece { args["piece"] = piece }
+        return (try await result(op: "book-extract", args: args)["score"] as? String) ?? ""
+    }
+
+    func deleteBook(_ slug: String) async throws {
+        _ = try await result(op: "delete-book", args: ["book": slug])
+    }
+
     func deleteScore(_ slug: String) async throws {
         _ = try await result(op: "delete-score", args: ["score": slug])
     }

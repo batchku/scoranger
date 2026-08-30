@@ -94,6 +94,23 @@ enum LibraryModel {
 
     // MARK: - Setlists
 
+    /// Books: a collection is one row, and what it says about itself is how
+    /// long it is. No chips -- a book has no arrangements of its own, which is
+    /// exactly what distinguishes it from a piece.
+    static func bookRows(manifest: Manifest) -> [LibraryRow] {
+        (manifest.books ?? []).map { book in
+            LibraryRow(id: book.slug,
+                       title: book.name,
+                       subtitle: book.pages.map { "\($0) pages" } ?? "",
+                       chips: [],
+                       meta: "",
+                       sortName: book.name,
+                       composer: "",
+                       changed: "",
+                       arrangementCount: 0)
+        }
+    }
+
     static func setlistRows(manifest: Manifest) -> [LibraryRow] {
         let scores = Dictionary(uniqueKeysWithValues: manifest.scores.map { ($0.slug, $0) })
         let pieces = manifest.pieces ?? []
@@ -241,6 +258,9 @@ extension LibraryModel {
         case .setlists:
             guard !rows.isEmpty else { return "No set lists yet" }
             return plural(rows.count, "set list")
+        case .books:
+            guard !rows.isEmpty else { return "No books yet" }
+            return plural(rows.count, "book")
         }
     }
 

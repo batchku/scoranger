@@ -12,6 +12,7 @@ that produced it and a snapshot of the resulting parts.
 import json
 import os
 import re
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -214,6 +215,98 @@ def _write_pdf_version(slug: str, pdf_path: Path, op: str, args: dict,
     repo.set_score(slug, score_doc)
     rebuild_manifest()
     return doc
+
+
+def books_dir() -> Path:
+    return WORKSPACE / "books"
+
+
+def book_path(slug: str) -> Path:
+    return books_dir() / f"{slug}.pdf"
+
+
+def list_books() -> list:
+    return _repo().list_books()
+
+
+def create_book(name: str, pdf_path) -> tuple[str, dict]:
+    """Store a PDF as a BOOK: a collection arrangements are taken out of.
+
+    A book is not a piece and not an arrangement. A fake book is one file
+    holding hundreds of tunes; filing it as an arrangement would put all of
+    them under one title, and filing it as a piece would claim it is one
+    composition. It is neither -- it is a place to take pieces FROM.
+    """
+    import shutil
+
+    from pypdf import PdfReader
+
+    source = Path(pdf_path)
+    if not source.exists():
+        raise FileNotFoundError(f"No such file: {source}")
+    if artifact_kind(source) != "pdf":
+        raise ValueError(f"{source.name} is not a PDF")
+
+    repo = _repo()
+    base = slugify(name)
+    slug, n = base, 2
+    while repo.get_book(slug) is not None:
+        slug = f"{base}-{n}"
+        n += 1
+    books_dir().mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, book_path(slug))
+    doc = {"id": slug, "slug": slug, "name": name,
+           "pages": len(PdfReader(str(book_path(slug))).pages),
+           "created": _now()}
+    repo.set_book(slug, doc)
+    rebuild_manifest()
+    return slug, doc
+
+
+def delete_book(slug: str) -> None:
+    _repo().delete_book(slug)
+    book_path(slug).unlink(missing_ok=True)
+    rebuild_manifest()
+
+
+def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
+                      piece: str | None = None) -> tuple[str, dict]:
+    """Take pages out of a book as a new PDF arrangement.
+
+    Page numbers are 1-based and inclusive, as printed. The pages are COPIED:
+    a book is a reference and taking a tune out of it must not cut it up.
+
+    The result is an ordinary PDF arrangement, so everything that already works
+    for a scan works for it -- it reads, it takes Pencil markup, and OMR can
+    turn it into notation.
+    """
+    from pypdf import PdfReader, PdfWriter
+
+    doc = _repo().get_book(slug)
+    if doc is None:
+        have = [b["slug"] for b in _repo().list_books()]
+        raise FileNotFoundError(f"No book '{slug}'. Have: {have}")
+    total = int(doc.get("pages") or 0)
+    if from_page < 1 or to_page > total or from_page > to_page:
+        raise ValueError(
+            f"pages {from_page}-{to_page} are not in '{doc['name']}', "
+            f"which has pages 1-{total}")
+
+    reader = PdfReader(str(book_path(slug)))
+    writer = PdfWriter()
+    for index in range(from_page - 1, to_page):
+        writer.add_page(reader.pages[index])
+    staging = Path(tempfile.mkdtemp()) / f"{slugify(name)}.pdf"
+    with open(staging, "wb") as f:
+        writer.write(f)
+
+    score_slug, entry = create_pdf_score(
+        name, staging, op="book-extract",
+        args={"book": slug, "pages": f"{from_page}-{to_page}"})
+    if piece:
+        assign_score_to_piece(score_slug, piece, create_if_missing=True)
+    rebuild_manifest()
+    return score_slug, entry
 
 
 def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
@@ -886,8 +979,10 @@ def rebuild_manifest() -> dict:
         setlists.append({"slug": doc["slug"], "name": doc["name"],
                          "arrangements": [s for s in doc.get("scores") or []
                                           if s in known]})
+    books = [{"slug": b["slug"], "name": b["name"], "pages": b.get("pages")}
+             for b in sorted(repo.list_books(), key=lambda x: x["name"].lower())]
     manifest = {"generated": _now(), "scores": scores, "pieces": pieces,
-                "setlists": setlists}
+                "setlists": setlists, "books": books}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest

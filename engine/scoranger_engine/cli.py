@@ -323,6 +323,22 @@ def cmd_bulk_import(a):
         _emit({"plan": plan, "result": bulk.run(plan, dry_run=True)})
 
 
+def cmd_import_book(a):
+    src = Path(a.file).expanduser()
+    slug, doc = workspace.create_book(a.name or src.stem, src)
+    _emit({"book": slug, "name": doc["name"], "pages": doc["pages"]})
+
+
+def cmd_book_extract(a):
+    slug, entry = workspace.extract_from_book(a.book, a.from_page, a.to_page,
+                                              a.name, a.piece)
+    _emit({"score": slug, "version": entry["id"], "piece": a.piece})
+
+
+def cmd_books(a):
+    _emit({"books": workspace.list_books()})
+
+
 def cmd_piece_create(a):
     _emit(workspace.create_piece(a.name))
 
@@ -649,6 +665,25 @@ def main() -> None:
                    help="actually write. Without it nothing is created: this "
                         "runs across a whole library and the tree is worth reading first")
     s.set_defaults(fn=cmd_bulk_import)
+
+    s = sub.add_parser("import-book",
+                       help="Import a PDF as a BOOK (a collection to take "
+                            "arrangements out of, not a piece)")
+    s.add_argument("file")
+    s.add_argument("--name")
+    s.set_defaults(fn=cmd_import_book)
+
+    s = sub.add_parser("book-extract",
+                       help="Take pages out of a book as a new arrangement")
+    s.add_argument("book")
+    s.add_argument("--from-page", dest="from_page", type=int, required=True)
+    s.add_argument("--to-page", dest="to_page", type=int, required=True)
+    s.add_argument("--name", required=True)
+    s.add_argument("--piece", help="file it under this piece (created if missing)")
+    s.set_defaults(fn=cmd_book_extract)
+
+    s = sub.add_parser("books", help="List the books in the workspace")
+    s.set_defaults(fn=cmd_books)
 
     s = sub.add_parser("piece-create", help="Create a piece (a work that groups arrangements)")
     s.add_argument("name")

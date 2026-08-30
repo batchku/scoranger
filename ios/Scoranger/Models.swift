@@ -2,6 +2,19 @@ import Foundation
 
 // Mirrors the engine's manifest/chat JSON (decoded with .convertFromSnakeCase).
 
+/// A collection to take arrangements out of.
+///
+/// A PIECE is a composition and holds arrangements. A BOOK holds many
+/// compositions, and arrangements are EXTRACTED from it: a fake book filed as
+/// an arrangement would put hundreds of tunes under one title.
+struct BookDoc: Codable, Identifiable, Hashable {
+    var slug: String
+    var name: String
+    var pages: Int?
+
+    var id: String { slug }
+}
+
 struct Manifest: Codable, Equatable {
     /// The engine stamps this on every rebuild, so it differs even when
     /// nothing about the library did. Deliberately left out of equality:
@@ -10,10 +23,13 @@ struct Manifest: Codable, Equatable {
     var scores: [ScoreDoc]
     var pieces: [PieceDoc]?
     var setlists: [SetlistDoc]?
+    /// Collections that arrangements are taken OUT of -- a fake book, a
+    /// method book. Not pieces, and not arrangements.
+    var books: [BookDoc]?
 
     static func == (lhs: Manifest, rhs: Manifest) -> Bool {
         lhs.scores == rhs.scores && lhs.pieces == rhs.pieces
-            && lhs.setlists == rhs.setlists
+            && lhs.setlists == rhs.setlists && lhs.books == rhs.books
     }
 }
 

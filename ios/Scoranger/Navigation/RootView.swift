@@ -34,6 +34,11 @@ struct RootView: View {
     @State private var importIntoPiece: String?
     @State private var showSettings = false
     @State private var showImporter = false
+    /// Separate pickers, deliberately. One picker that takes files OR a folder
+    /// makes the reader guess what they are choosing; three named actions say
+    /// it. (Import file / Import folder / Import book.)
+    @State private var showFolderImporter = false
+    @State private var showBookImporter = false
     /// Settings is a panel docked at the trailing edge, not a screen that
     /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
     /// but its own ✕ -- the same shape as the chat panel over the score.
@@ -154,6 +159,24 @@ struct RootView: View {
                     }
                 }
             }
+        }
+        // A FOLDER: one directory per piece, its files the arrangements.
+        // Planned and shown before anything is written.
+        .fileImporter(isPresented: $showFolderImporter,
+                      allowedContentTypes: [.folder]) { result in
+            guard case .success(let folder) = result else { return }
+            Task {
+                if await state.previewFolderImport(at: folder) {
+                    libraryPath.append(.folderImport)
+                }
+            }
+        }
+        // A BOOK: a collection to take arrangements out of, not a piece.
+        .fileImporter(isPresented: $showBookImporter,
+                      allowedContentTypes: [.pdf]) { result in
+            guard case .success(let url) = result else { return }
+            state.importBook(at: url)
+            segment = .books
         }
     }
 
@@ -300,6 +323,8 @@ struct RootView: View {
                     // like. Asking first put a modal-shaped question in front
                     // of the one thing the button exists to do.
                     onImport: { showImporter = true },
+                    onImportFolder: { showFolderImporter = true },
+                    onImportBook: { showBookImporter = true },
                     onSettings: {
                         withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
                     },

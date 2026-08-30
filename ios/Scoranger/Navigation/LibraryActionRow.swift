@@ -8,7 +8,7 @@ import Foundation
 /// compact row of bordered buttons under the search field, deliberately quiet:
 /// the lists are what the screen is for.
 enum LibraryQuickAction: String, CaseIterable, Identifiable {
-    case importScore, new, newSetlist
+    case importScore, importFolder, importBook, new, newSetlist
 
     var id: String { rawValue }
 
@@ -16,13 +16,16 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     /// less Ask, which Ali had removed (#47): the score's own Ask button is
     /// where a question about an arrangement belongs, and the library's copy
     /// was a fourth button that spent most of its life dimmed.
-    static let ordered: [LibraryQuickAction] = [.importScore, .new, .newSetlist]
+    static let ordered: [LibraryQuickAction] = [.importScore, .importFolder,
+                                                .importBook, .new, .newSetlist]
 
     /// Identifiers move with the actions. The `home-*` ids retire with Home,
     /// and `library-add` with the `+` that used to offer the same two things.
     var identifier: String {
         switch self {
-        case .importScore: return "library-import"
+        case .importScore:  return "library-import"
+        case .importFolder: return "library-import-folder"
+        case .importBook:   return "library-import-book"
         case .new:         return "library-new"
         case .newSetlist:  return "library-new-setlist"
         }
@@ -30,7 +33,9 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
 
     var glyph: String {
         switch self {
-        case .importScore: return "arrow.down.to.line"
+        case .importScore:  return "arrow.down.to.line"
+        case .importFolder: return "folder"
+        case .importBook:   return "books.vertical"
         case .new:         return "square"
         case .newSetlist:  return "line.3.horizontal"
         }
@@ -38,7 +43,9 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .importScore: return "Import"
+        case .importScore:  return "Import file"
+        case .importFolder: return "Import folder"
+        case .importBook:   return "Import book"
         case .new:         return "New"
         case .newSetlist:  return "New set list"
         }

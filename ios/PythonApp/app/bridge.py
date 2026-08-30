@@ -80,6 +80,20 @@ def _dispatch(op, a):
         if entry.get("rhythm_warnings"):
             out["rhythm_warnings"] = entry["rhythm_warnings"]
         return out
+    if op == "import-book":
+        # A BOOK, not a piece and not an arrangement: a collection that
+        # arrangements are taken out of.
+        name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
+        slug, doc = workspace.create_book(name, a["path"])
+        return {"book": slug, "name": doc["name"], "pages": doc["pages"]}
+    if op == "book-extract":
+        slug, entry = workspace.extract_from_book(
+            a["book"], int(a["from_page"]), int(a["to_page"]),
+            a["name"], a.get("piece"))
+        return {"score": slug, "version": entry["id"], "piece": a.get("piece")}
+    if op == "delete-book":
+        workspace.delete_book(a["book"])
+        return {"deleted": a["book"]}
     if op == "bulk-import":
         # A whole exported library at once: one folder per piece, its files the
         # arrangements. Plans FIRST and writes only when asked -- this runs

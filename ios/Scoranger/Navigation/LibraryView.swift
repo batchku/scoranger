@@ -31,6 +31,10 @@ struct LibraryView: View {
     /// not a popup and not a screen, because it is one field (§5.1).
     var onCreate: (String) -> Void
     var onImport: () -> Void
+    /// A whole exported library: one folder per piece. Planned before it is run.
+    var onImportFolder: () -> Void = {}
+    /// A collection to take arrangements out of, rather than a piece.
+    var onImportBook: () -> Void = {}
     var onSettings: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
@@ -239,9 +243,11 @@ struct LibraryView: View {
     private func quickButton(_ action: LibraryQuickAction, compact: Bool) -> some View {
         Button {
             switch action {
-            case .importScore: onImport()
-            case .new:         creatingName = ""
-            case .newSetlist:  segment = .setlists; creatingName = ""
+            case .importScore:  onImport()
+            case .importFolder: onImportFolder()
+            case .importBook:   onImportBook()
+            case .new:          creatingName = ""
+            case .newSetlist:   segment = .setlists; creatingName = ""
             }
         } label: {
             rowButton(action.title, glyph: action.glyph, iconOnly: compact)
@@ -567,10 +573,16 @@ struct LibraryView: View {
 
     private var rows: [LibraryRow] {
         guard let manifest = state.manifest else { return [] }
-        var base = segment == .pieces
-            ? LibraryModel.pieceRows(manifest: manifest)
+        var base: [LibraryRow]
+        switch segment {
+        case .pieces:
+            base = LibraryModel.pieceRows(manifest: manifest)
                 + LibraryModel.unfiledRows(manifest: manifest)
-            : LibraryModel.setlistRows(manifest: manifest)
+        case .setlists:
+            base = LibraryModel.setlistRows(manifest: manifest)
+        case .books:
+            base = LibraryModel.bookRows(manifest: manifest)
+        }
         base = applyFilters(base, manifest: manifest)
         return LibraryModel.sorted(LibraryModel.searched(base, query: search), by: sort)
     }
