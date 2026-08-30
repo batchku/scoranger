@@ -4,6 +4,8 @@ import XCTest
 /// #60: the way out of the score may never be squeezed off the bar.
 final class ScoreBarLayoutTests: XCTestCase {
     /// The widths that actually matter, bar-width (not screen) in points.
+    /// The narrowest bar the app has to seat: an iPhone SE.
+    private let iPhoneSE: CGFloat = 375
     private let iPhonePortrait: CGFloat = 390
     private let iPhoneLandscape: CGFloat = 844
     private let iPadPortrait: CGFloat = 834
@@ -11,7 +13,8 @@ final class ScoreBarLayoutTests: XCTestCase {
 
     /// The bug, stated as a test: whatever else goes, ✕ and the actions fit.
     func testEveryRealWidthSeatsTheWayOutAndTheActions() {
-        for width in [iPhonePortrait, iPhoneLandscape, iPadPortrait, iPadLandscape] {
+        for width in [iPhoneSE, iPhonePortrait, iPhoneLandscape,
+                      iPadPortrait, iPadLandscape] {
             let fit = ScoreBarLayout.fit(barWidth: width)
             XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
                           "the bar overflows at \(width)pt: \(fit) — this is how ✕ "

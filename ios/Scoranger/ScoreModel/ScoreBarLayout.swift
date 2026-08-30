@@ -43,7 +43,12 @@ enum ScoreBarLayout {
     static let versionsWidth: CGFloat = 110
     static let modeChipWidth: CGFloat = 90
     /// Less than this and the title is not a title any more.
-    static let titleMinimum: CGFloat = 100
+    ///
+    /// 90, not 100: the narrowest common iPhone is 375pt, and the essentials
+    /// plus two layout cells plus 100 came to 381 -- six points over. A hard
+    /// minimum that does not fit is how something gets pushed off the bar, and
+    /// that is #60.
+    static let titleMinimum: CGFloat = 90
 
     /// The bar's fixed furniture: the way out, three actions, and their gaps.
     static var essentials: CGFloat {
