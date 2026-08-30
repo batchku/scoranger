@@ -683,6 +683,11 @@ final class AppState: ObservableObject {
     /// The folder import a reader is looking at before deciding to run it.
     @Published var folderImportPlan: FolderImportPlan?
     @Published var folderImportBusy = false
+    /// Pieces the reader has deselected on the plan screen. A whole exported
+    /// library usually holds something that does not belong -- a fake book, a
+    /// lyrics sheet -- and taking it out at import is easier than unpicking it
+    /// afterwards.
+    @Published var folderImportExcluded: Set<String> = []
     /// What the last run actually did, so the screen can report rather than
     /// just closing and leaving the reader to count rows.
     @Published var folderImportResult: String?
@@ -702,6 +707,7 @@ final class AppState: ObservableObject {
                 return false
             }
             folderImportPlan = plan
+            folderImportExcluded = []
             folderImportResult = nil
             return !plan.isEmpty
         } catch {
@@ -718,7 +724,9 @@ final class AppState: ObservableObject {
         let scoped = plan.folder.startAccessingSecurityScopedResource()
         defer { if scoped { plan.folder.stopAccessingSecurityScopedResource() } }
         do {
-            let payload = try await local.bulkImport(folder: plan.folder, commit: true)
+            let payload = try await local.bulkImport(
+                folder: plan.folder, commit: true,
+                exclude: Array(folderImportExcluded))
             let result = payload["result"] as? [String: Any]
             let imported = (result?["imported"] as? [Any])?.count ?? 0
             let failed = (result?["failed"] as? [Any])?.count ?? 0
@@ -1129,6 +1137,24 @@ final class AppState: ObservableObject {
             } catch {
                 lastError = error.localizedDescription
             }
+        }
+    }
+
+    /// Take a page range out of a book as a new arrangement.
+    ///
+    /// Returns the slug so the caller can open what it just made. The book is
+    /// unchanged: the pages are copied.
+    @discardableResult
+    func extractFromBook(_ book: String, from: Int, to: Int, name: String,
+                         piece: String?) async -> String? {
+        do {
+            let slug = try await local.extractFromBook(book, from: from, to: to,
+                                                       name: name, piece: piece)
+            await refresh()
+            return slug
+        } catch {
+            lastError = error.localizedDescription
+            return nil
         }
     }
 

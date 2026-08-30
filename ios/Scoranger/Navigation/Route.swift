@@ -31,6 +31,8 @@ enum Route: Hashable {
     /// Settings, and its second layer (§6).
     case settings
     case settingsSection(String)
+    /// A book, and the pages you might take out of it.
+    case book(String)
     /// The plan for importing a whole exported folder, read before it is run.
     /// Carries nothing: the plan itself lives on AppState, because a route is
     /// a place and this one can only be reached by having just made one.
@@ -44,7 +46,7 @@ enum Route: Hashable {
         case .piece, .setlist, .settings:
             return "My library"
         case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
-             .versions, .parts, .details, .settingsSection, .folderImport:
+             .versions, .parts, .details, .settingsSection, .folderImport, .book:
             return "Back"
         }
     }
@@ -91,7 +93,7 @@ extension Route {
         case .versions(let s):        return .versions(now(s))
         case .parts(let s):           return .parts(now(s))
         case .details(let s):         return .details(now(s))
-        case .piece, .setlist, .settings, .settingsSection, .folderImport:
+        case .piece, .setlist, .settings, .settingsSection, .folderImport, .book:
             return self
         }
     }

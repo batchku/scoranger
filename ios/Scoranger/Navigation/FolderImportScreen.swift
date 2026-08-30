@@ -25,11 +25,23 @@ struct FolderImportScreen: View {
                     }
                     BandHeader("Pieces")
                     ForEach(plan.pieces) { piece in
+                        let excluded = state.folderImportExcluded.contains(piece.piece)
                         ScreenRow(title: piece.piece,
-                                  value: countLabel(piece.arrangements.count),
+                                  value: excluded ? "skipped"
+                                                  : countLabel(piece.arrangements.count),
                                   leads: false,
-                                  identifier: "folder-piece-\(piece.piece)") {}
-                        ForEach(piece.arrangements) { arrangement in
+                                  isSelected: !excluded,
+                                  identifier: "folder-piece-\(piece.piece)") {
+                            // tap a piece to leave it out: a library usually
+                            // holds something that does not belong, and taking
+                            // it out here is easier than unpicking it after
+                            if excluded {
+                                state.folderImportExcluded.remove(piece.piece)
+                            } else {
+                                state.folderImportExcluded.insert(piece.piece)
+                            }
+                        }
+                        ForEach(excluded ? [] : piece.arrangements) { arrangement in
                             ScreenRow(title: arrangement.name,
                                       value: arrangement.kind == "pdf" ? "PDF" : "notation",
                                       leads: false,
@@ -46,7 +58,7 @@ struct FolderImportScreen: View {
     @ViewBuilder
     private func header(_ plan: FolderImportPlan) -> some View {
         VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-            Text(plan.summary).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+            Text(summary(plan)).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
             if plan.ignored > 0 {
                 // said out loud: a migration that quietly drops files is worse
                 // than one that refuses
@@ -61,6 +73,15 @@ struct FolderImportScreen: View {
             .accessibilityIdentifier("folder-import-commit")
         }
         .padding(Theme.Metric.panelPadding)
+    }
+
+    /// What will actually be written, once the deselected pieces are taken out.
+    private func summary(_ plan: FolderImportPlan) -> String {
+        let kept = plan.pieces.filter { !state.folderImportExcluded.contains($0.piece) }
+        let arrangements = kept.reduce(0) { $0 + $1.arrangements.count }
+        let p = kept.count == 1 ? "1 piece" : "\(kept.count) pieces"
+        let a = arrangements == 1 ? "1 arrangement" : "\(arrangements) arrangements"
+        return "\(p), \(a)"
     }
 
     private func countLabel(_ n: Int) -> String {

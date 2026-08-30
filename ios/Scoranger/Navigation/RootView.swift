@@ -219,6 +219,10 @@ struct RootView: View {
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
+        case .book(let slug):
+            BookScreen(slug: slug, onBack: pop, onOpen: { open($0) })
+                .navigationBarHidden(true)
+                .accessibilityIdentifier("screen-book-\(slug)")
         case .folderImport:
             FolderImportScreen(onBack: pop)
                 .navigationBarHidden(true)
@@ -284,6 +288,7 @@ struct RootView: View {
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
+                    onOpenBook: { libraryPath.append(.book($0)) },
                     onRowMenu: { row in
                         // A piece opens its own screen; an unfiled arrangement
                         // opens the arrangement screen (§3.5's rule: both need

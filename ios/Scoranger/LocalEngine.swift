@@ -63,9 +63,11 @@ struct LocalEngine {
     /// this runs across an entire library, and the shape of someone's library
     /// is worth reading before it exists.
     func bulkImport(folder: URL, commit: Bool,
-                    manifest: [[String: Any]]? = nil) async throws -> [String: Any] {
+                    manifest: [[String: Any]]? = nil,
+                    exclude: [String] = []) async throws -> [String: Any] {
         var args: [String: Any] = ["folder": folder.path, "commit": commit]
         if let manifest { args["manifest"] = manifest }
+        if !exclude.isEmpty { args["exclude"] = exclude }
         return try await result(op: "bulk-import", args: args)
     }
 

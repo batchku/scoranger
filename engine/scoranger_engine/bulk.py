@@ -134,6 +134,24 @@ def plan(files: list[str], manifest: list[dict] | None = None) -> dict:
                        "pending": len(pending), "ignored": len(ignored)}}
 
 
+def without(plan_: dict, excluded) -> dict:
+    """The plan with some pieces left out, by name.
+
+    A whole exported library usually holds something that does not belong -- a
+    fake book, a lyrics sheet -- and taking it out at import is easier than
+    unpicking it afterwards. The counts are recomputed so what the reader
+    approves is what gets written.
+    """
+    names = set(excluded or [])
+    if not names:
+        return plan_
+    kept = [p for p in plan_["pieces"] if p["piece"] not in names]
+    return dict(plan_, pieces=kept,
+                counts={**plan_["counts"],
+                        "pieces": len(kept),
+                        "arrangements": sum(len(p["arrangements"]) for p in kept)})
+
+
 def describe(plan_: dict) -> str:
     """The tree, for a person to read before anything is written."""
     lines = []

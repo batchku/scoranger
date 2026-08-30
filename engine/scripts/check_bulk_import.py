@@ -162,6 +162,22 @@ def check_arrangement_names_are_tidied() -> None:
           f"a trailing 'copy' is dropped: {names}")
 
 
+def check_pieces_can_be_left_out() -> None:
+    """The reader deselects on the plan screen; the counts follow."""
+    print("leaving a piece out")
+    plan = bulk.plan(["Real Book/RealBk1.pdf", "Bucimis/Bucimis.pdf",
+                      "Nature Boy/Nature Boy.pdf"])
+    check(plan["counts"]["pieces"] == 3, "all three are planned")
+    kept = bulk.without(plan, ["Real Book"])
+    check(set(tree(kept)) == {"Bucimis", "Nature Boy"},
+          f"the deselected piece is not written: {set(tree(kept))}")
+    check(kept["counts"]["pieces"] == 2 and kept["counts"]["arrangements"] == 2,
+          f"and the counts follow it: {kept['counts']}")
+    check(plan["counts"]["pieces"] == 3,
+          "the original plan is untouched -- the screen still shows what it showed")
+    check(bulk.without(plan, []) is plan, "excluding nothing changes nothing")
+
+
 def check_the_order_of_files_does_not_matter() -> None:
     print("order")
     names = ["Nature Boy - trio.pdf", "Autumn Leaves.pdf", "Nature Boy.pdf"]
@@ -191,6 +207,7 @@ def main() -> int:
     check_grouping_is_forgiving_about_spelling()
     check_an_explicit_manifest_wins()
     check_every_score_is_accounted_for()
+    check_pieces_can_be_left_out()
     check_the_order_of_files_does_not_matter()
     check_a_dry_run_writes_nothing(Path("workspace"))
 

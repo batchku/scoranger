@@ -24,6 +24,9 @@ struct LibraryView: View {
     var onOpenPiece: (String) -> Void
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
+    /// A book opens its own screen: you do not read a book here, you take
+    /// arrangements out of it.
+    var onOpenBook: (String) -> Void = { _ in }
     /// The row's ☰. Pushes to the item's screen, or expands in place, by the
     /// rule in RowMenuBehaviour.
     var onRowMenu: (LibraryRow) -> Void
@@ -611,6 +614,10 @@ struct LibraryView: View {
     }
 
     private func open(_ row: LibraryRow) {
+        if segment == .books {
+            onOpenBook(row.id)
+            return
+        }
         if segment == .setlists,
            let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
             onOpenSetlist(setlist)

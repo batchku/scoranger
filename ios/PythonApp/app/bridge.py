@@ -109,6 +109,10 @@ def _dispatch(op, a):
                 if not fn.startswith("."):
                     names.append(rel)
         plan = bulk.plan(sorted(names), manifest=a.get("manifest"))
+        # Pieces the reader deselected on the plan screen. Dropped from what is
+        # WRITTEN, never from what is SHOWN: the plan still lists them, so the
+        # numbers a reader approved are the numbers they saw.
+        plan = bulk.without(plan, a.get("exclude"))
         if a.get("commit"):
             return {"plan": plan,
                     "result": bulk.run(plan, dry_run=False, root=folder)}
