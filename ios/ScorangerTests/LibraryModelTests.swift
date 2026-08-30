@@ -215,13 +215,15 @@ final class LibraryModelTests: XCTestCase {
     // MARK: - There are two halves of one place, not three tabs
 
     /// The tab bar is gone (§4C), and with it the disabled Shared placeholder
-    /// that was the point of the test this replaces. The library's two halves
-    /// are the app's only place-switcher; when sharing lands it becomes a third
-    /// SEGMENT here rather than a resurrected tab.
+    /// that was the point of the test this replaces. The library's halves are
+    /// the app's only place-switcher -- and a new kind of thing arrives as a
+    /// SEGMENT here rather than as a resurrected tab, which is exactly how
+    /// Books arrived.
     func testTheLibraryIsTheOnlyPlaceSwitcher() {
-        XCTAssertEqual(LibrarySegment.allCases, [.pieces, .setlists])
+        XCTAssertEqual(LibrarySegment.allCases, [.pieces, .setlists, .books])
         XCTAssertEqual(LibrarySegment.pieces.title, "Pieces")
         XCTAssertEqual(LibrarySegment.setlists.title, "Setlists")
+        XCTAssertEqual(LibrarySegment.books.title, "Books")
     }
 
     func testEveryModeSaysWhatThePencilDoes() {

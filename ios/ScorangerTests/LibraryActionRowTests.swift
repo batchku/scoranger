@@ -6,9 +6,12 @@ import XCTest
 /// in it, in what order, under which identifiers, and when Ask can be used.
 final class LibraryActionRowTests: XCTestCase {
 
-    func testTheRowCarriesTheFourActionsInThePanelsOldOrder() {
+    /// Three ways in, then the two ways to make something: a file, a whole
+    /// exported folder, and a book to take arrangements out of.
+    func testTheRowCarriesEveryActionInThePanelsOldOrder() {
         XCTAssertEqual(LibraryQuickAction.ordered,
-                       [.importScore, .new, .newSetlist])
+                       [.importScore, .importFolder, .importBook,
+                        .new, .newSetlist])
         XCTAssertEqual(LibraryQuickAction.ordered.count,
                        LibraryQuickAction.allCases.count,
                        "an action exists that the row does not show")
@@ -17,7 +20,8 @@ final class LibraryActionRowTests: XCTestCase {
     /// The ids move with the actions; `home-*` and `library-add` retire.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
-                       ["library-import", "library-new", "library-new-setlist"])
+                       ["library-import", "library-import-folder",
+                        "library-import-book", "library-new", "library-new-setlist"])
         XCTAssertFalse(LibraryQuickAction.allCases
             .contains { $0.identifier.hasPrefix("home-") })
     }

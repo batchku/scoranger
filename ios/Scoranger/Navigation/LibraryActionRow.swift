@@ -43,9 +43,13 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .importScore:  return "Import file"
-        case .importFolder: return "Import folder"
-        case .importBook:   return "Import book"
+        // Short, because the row now holds five. "Import" keeps the label it
+        // has always had -- the two new ones sit beside it under their own
+        // glyphs (a folder, a stack of books), which is what says what they
+        // take. Thirteen characters would not fit the button.
+        case .importScore:  return "Import"
+        case .importFolder: return "Folder"
+        case .importBook:   return "Book"
         case .new:         return "New"
         case .newSetlist:  return "New set list"
         }
