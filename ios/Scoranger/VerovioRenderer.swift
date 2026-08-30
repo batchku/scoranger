@@ -70,10 +70,17 @@ actor VerovioRenderer {
         // system, which is what makes the surface a strip rather than a sheet.
         let breaks = continuous ? #""breaks": "none", "adjustPageHeight": true,"#
                                 : #""adjustPageHeight": false,"#
+        // A page's top and bottom margins are paper: they keep a printed page
+        // readable. The continuous strip is not paper -- it is trimmed to its
+        // one system by `adjustPageHeight`, and those margins then become 20%
+        // of the strip's height, which is 20% of the music's size on screen
+        // for nothing. The left/right margins stay: they are the run-in before
+        // the first clef and the run-out after the last bar.
+        let vertical = continuous ? 10 : 100
         return """
         {"scale": 45, "footer": "none", \(breaks)
          "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
-         "pageMarginTop": 100, "pageMarginBottom": 100,
+         "pageMarginTop": \(vertical), "pageMarginBottom": \(vertical),
          "pageMarginLeft": 120, "pageMarginRight": 120,
          "lyricSize": \(lyricSize)}
         """

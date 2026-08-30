@@ -1,4 +1,6 @@
 import CoreGraphics
+import PDFKit
+import UIKit
 
 /// The geometry of the continuous strip.
 ///
@@ -77,5 +79,39 @@ enum ContinuousTiles {
         let step = viewportWidth * CGFloat(direction)
         let furthest = max(surfaceWidth - viewportWidth, 0)
         return min(max(offset + step, 0), furthest)
+    }
+
+    /// Raster one tile: a WINDOW onto the strip, not a copy of it.
+    ///
+    /// `CGContext.drawPDFPage`, never `PDFPage.draw(with:to:)`. The latter fits
+    /// the page to the context it is given, so with a strip 17000pt wide every
+    /// tile drew the entire score squeezed into its own width and the music
+    /// arrived as a compressed band a few points tall (#61). drawPDFPage draws
+    /// in PDF user space and honours the CTM, which is what makes the window a
+    /// window.
+    ///
+    /// Tiles away from the viewport still draw, coarsely: a blank gap where the
+    /// music should be reads as a broken score, and a cheap raster does not.
+    static func raster(page: PDFPage, tile: CGRect, scale: CGFloat,
+                       atDepth: Bool) -> UIImage {
+        let detail: CGFloat = atDepth ? 2 : 0.35
+        let pixel = CGSize(width: max(tile.width * detail, 1),
+                           height: max(tile.height * detail, 1))
+        let box = page.bounds(for: .mediaBox)
+        return UIGraphicsImageRenderer(size: pixel).image { context in
+            let cg = context.cgContext
+            UIColor.white.setFill()
+            cg.fill(CGRect(origin: .zero, size: pixel))
+            guard let cgPage = page.pageRef else { return }
+            let k = detail * scale                       // pixels per PDF point
+            // PDF space is y-up from the mediaBox origin; the image is y-down
+            cg.translateBy(x: 0, y: pixel.height)
+            cg.scaleBy(x: 1, y: -1)
+            cg.scaleBy(x: k, y: k)
+            // slide this tile's left edge to the origin
+            cg.translateBy(x: -(tile.minX / max(scale, 0.0001)) - box.minX,
+                           y: -box.minY)
+            cg.drawPDFPage(cgPage)
+        }
     }
 }

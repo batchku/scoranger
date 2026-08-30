@@ -628,24 +628,7 @@ private struct ContinuousTileView: View {
     }
 
     private func render() -> UIImage {
-        let raster: CGFloat = atDepth ? 2 : 0.35
-        let pixel = CGSize(width: max(tile.width * raster, 1),
-                           height: max(tile.height * raster, 1))
-        let box = page.bounds(for: .mediaBox)
-        return UIGraphicsImageRenderer(size: pixel).image { context in
-            let cg = context.cgContext
-            UIColor.white.setFill()
-            cg.fill(CGRect(origin: .zero, size: pixel))
-            // pixels per PDF point
-            let k = raster * scale
-            // PDF space is y-up from the mediaBox origin; the image is y-down
-            cg.translateBy(x: 0, y: pixel.height)
-            cg.scaleBy(x: 1, y: -1)
-            cg.scaleBy(x: k, y: k)
-            // slide this tile's left edge to the origin
-            cg.translateBy(x: -(tile.minX / max(scale, 0.0001)) - box.minX, y: -box.minY)
-            page.draw(with: .mediaBox, to: cg)
-        }
+        ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
     }
 }
 

@@ -634,6 +634,40 @@ final class ScorangerUITests: XCTestCase {
             "✕ left the score but landed nowhere")
     }
 
+    /// #62: on a narrow bar the version COUNT yields (ScoreBarLayout), so the
+    /// title block is the only route to the version dropdown. That route has to
+    /// actually work, or version switching is dead on a phone.
+    ///
+    /// Runs at whatever width the destination gives it: pointed at an iPhone it
+    /// guards the compact case, and on an iPad it guards the wide one.
+    func testTheTitleOpensTheVersionsAndJumps() {
+        // opened by launch argument rather than by tapping a library row: the
+        // row-tap path is unreliable on a phone-sized simulator, and what is
+        // under test here is the title block, not navigation
+        app.terminate()
+        app.launchArguments = ["-seedTestLibrary", "-openFirstScoreSpread"]
+        app.launch()
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 240),
+                      "the score never finished engraving")
+
+        let title = app.buttons["score-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "no title block")
+        XCTAssertTrue(title.isHittable,
+                      "the title is the only way to versions at this width and "
+                      + "cannot be tapped: \(title.frame)")
+        title.tap()
+
+        let first = app.buttons["menu-version-v001"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10),
+                      "the title did not open the version dropdown — with the "
+                      + "version count yielded, nothing else reaches it")
+        first.tap()
+        XCTAssertTrue(waitForLabel(app.buttons["score-title"], contains: "v001",
+                                   timeout: 60),
+                      "tapping a version did not jump the canvas to it")
+        shot("title-opens-versions")
+    }
+
     /// A PDF arrangement opens, reads, and is honest about what it cannot do.
     ///
     /// This is the Newzik migration's shape: the library arrives as scans, they
