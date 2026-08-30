@@ -47,6 +47,10 @@ struct ScoreTopBar: View {
                 .layoutPriority(2)
             Spacer(minLength: Theme.Metric.s8)
             titleBlock
+                // On a narrow bar the title takes the slack instead of the
+                // spacers taking it; on a wide one the spacers still centre it.
+                .frame(maxWidth: fit.titleExpands ? .infinity : nil,
+                       alignment: .leading)
             if fit.showsVersions { versionsTrigger }
             Spacer(minLength: Theme.Metric.s8)
             barButton("pencil", label: "Edit", identifier: "score-edit",
@@ -238,13 +242,18 @@ struct ScoreTopBar: View {
             moreOpen = false
         } label: {
             HStack(spacing: Theme.Metric.s8) {
-                if let number { NumeralBadge(number: number, role: .numeralM) }
+                if let number, fit.showsNumeral {
+                    NumeralBadge(number: number, role: .numeralM)
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
                         .lineLimit(1)
                     HStack(spacing: Theme.Metric.s6) {
-                        Text(subtitle).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
-                            .lineLimit(1)
+                        if fit.showsSubtitle {
+                            Text(subtitle).typeRole(.data)
+                                .foregroundStyle(Theme.Ink.ink3)
+                                .lineLimit(1)
+                        }
                         // The mode, stated: §6 only works if it is visible --
                         // but as bare text it ran straight into the version
                         // beside it and read as "… · v003 Pencil: select".

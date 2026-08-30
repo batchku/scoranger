@@ -30,6 +30,25 @@ enum ScoreBarLayout {
         /// Cells in the layout control: 3 (page/spread/continuous) or 2
         /// (page/continuous -- a spread across a phone is two thumbnails).
         var layoutCells: Int
+        /// The "#N" badge: which arrangement of the piece this is.
+        var showsNumeral: Bool = true
+        /// The second line under the title: piece name and version.
+        ///
+        /// Costs no WIDTH -- it is a second line in the same column -- so it is
+        /// not in `fits`. It goes on a narrow bar anyway: two truncated lines
+        /// read worse than one whole one, and its piece name largely repeats
+        /// the title while its version is what the dropdown behind the title
+        /// says.
+        var showsSubtitle: Bool = true
+
+        /// Whether the title should EXPAND into the bar's slack rather than
+        /// sit centred between two spacers.
+        ///
+        /// A SwiftUI Text yields before a Spacer does, so on a narrow bar the
+        /// title collapsed to an ellipsis while the spacers kept their space.
+        /// Expanding is the fix that cannot overflow -- unlike a hard minimum,
+        /// which pushed the ✕ off the bar (#60, reproduced while fixing #62).
+        var titleExpands: Bool { !showsNumeral }
     }
 
     /// Measured widths of the bar's parts, so the arithmetic below is legible
@@ -42,6 +61,7 @@ enum ScoreBarLayout {
     static let twoCells: CGFloat = 40 * 2 + 1
     static let versionsWidth: CGFloat = 110
     static let modeChipWidth: CGFloat = 90
+    static let numeralWidth: CGFloat = 40
     /// Less than this and the title is not a title any more.
     ///
     /// 90, not 100: the narrowest common iPhone is 375pt, and the essentials
@@ -76,7 +96,23 @@ enum ScoreBarLayout {
             return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3)
         }
         // Then the spread cell, which is the one a narrow screen cannot use.
-        return Fit(showsVersions: false, showsModeChip: false, layoutCells: 2)
+        let twoCellFit = Fit(showsVersions: false, showsModeChip: false, layoutCells: 2)
+        if fits(twoCellFit, in: barWidth) { return twoCellFit }
+
+        // Then the title's COMPANIONS, so the title itself can stay readable.
+        // #62: with the version count already yielded, the title block is the
+        // only route to the version dropdown -- and it had collapsed to
+        // "#1 S… ⌄", which nobody reads as a control. The subtitle goes first
+        // (its piece name largely repeats the title, and its version is what
+        // the dropdown behind the title says), then the numeral.
+        //
+        // They yield rather than the title being given a hard minimum: forcing
+        // a width here pushed the ✕ off the bar entirely, which is #60.
+        let withoutSubtitle = Fit(showsVersions: false, showsModeChip: false,
+                                  layoutCells: 2, showsSubtitle: false)
+        if fits(withoutSubtitle, in: barWidth) { return withoutSubtitle }
+        return Fit(showsVersions: false, showsModeChip: false, layoutCells: 2,
+                   showsNumeral: false, showsSubtitle: false)
     }
 
     /// Whether a bar this wide can seat everything it is being asked to.
@@ -86,6 +122,7 @@ enum ScoreBarLayout {
         needed += fit.layoutCells >= 3 ? threeCells : twoCells
         if fit.showsVersions { needed += versionsWidth }
         if fit.showsModeChip { needed += modeChipWidth }
+        if fit.showsNumeral { needed += numeralWidth }
         return needed <= width
     }
 }

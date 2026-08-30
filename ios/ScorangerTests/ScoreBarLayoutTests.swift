@@ -62,6 +62,29 @@ final class ScoreBarLayoutTests: XCTestCase {
                       "the sweep should have exercised every step")
     }
 
+    /// #62: with the version count already yielded, the title block is the
+    /// only route to the version dropdown — so on a phone the title's
+    /// COMPANIONS go rather than the title itself.
+    func testAPhoneKeepsTheTitleAndDropsWhatSitsBesideIt() {
+        for width in [iPhoneSE, iPhonePortrait] {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertFalse(fit.showsNumeral, "the #N badge should yield at \(width)")
+            XCTAssertFalse(fit.showsSubtitle, "the subtitle should yield at \(width)")
+            XCTAssertTrue(fit.titleExpands,
+                          "the title must take the slack, or the spacers do and "
+                          + "it collapses to an ellipsis")
+            XCTAssertTrue(ScoreBarLayout.fits(fit, in: width))
+        }
+    }
+
+    /// And an iPad keeps them: it has the room, and the title stays centred.
+    func testAnIPadKeepsTheNumeralAndSubtitle() {
+        let fit = ScoreBarLayout.fit(barWidth: iPadLandscape)
+        XCTAssertTrue(fit.showsNumeral)
+        XCTAssertTrue(fit.showsSubtitle)
+        XCTAssertFalse(fit.titleExpands, "the spacers still centre it on an iPad")
+    }
+
     /// Narrower and narrower must never start putting things BACK.
     func testNothingReappearsAsTheBarNarrows() {
         var previous = ScoreBarLayout.fit(barWidth: 1400)
@@ -73,6 +96,10 @@ final class ScoreBarLayoutTests: XCTestCase {
                            "the version count came back at \(width)pt")
             XCTAssertLessThanOrEqual(fit.layoutCells, previous.layoutCells,
                                      "a layout cell came back at \(width)pt")
+            XCTAssertFalse(fit.showsNumeral && !previous.showsNumeral,
+                           "the numeral came back at \(width)pt")
+            XCTAssertFalse(fit.showsSubtitle && !previous.showsSubtitle,
+                           "the subtitle came back at \(width)pt")
             previous = fit
         }
     }
