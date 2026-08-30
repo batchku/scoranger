@@ -78,6 +78,17 @@ scor rebuild-part <score> --part X --source-version vNNN --base "Violin II" [--o
 scor simplify-repeats <score> --part "Acc. Bass"   # 1-pitch-class measures -> downbeat quarter + rests
 scor analyze <score> [--parts ...]        # per-bar harmony candidates (read-only) — agent adjudicates
 scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"Fm"},...] -> <harmony> symbols
+scor clean-accidentals <score> [--parts "..."]
+  # hide accidentals the key signature already implies. Display only -- no
+  # pitch, no spelling, no key changes. Each part is judged by the key ON ITS
+  # OWN STAFF, so an E-flat alto is judged by its WRITTEN key, not concert.
+  # Every op that changes pitches runs this already (see below); this is for
+  # material that arrived cluttered.
+scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natural]
+                   [--remove] [--show] [--hide] [--color "#CC4125"|none]
+  # the manual override. --add/--remove change the PITCH; --show/--hide/--color
+  # change only what is drawn. Colour reaches the page: MusicXML
+  # <accidental color=..> -> MEI @color -> the SVG glyph.
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
@@ -99,6 +110,14 @@ scor set-structure <score> --kind KIND --measure N [--to-measure M] [--number N]
   # volta on every staff of a grand staff -- music21's grand-staff merge drops
   # a volta written to the top staff alone. --move-to is remove-then-add.
   # engine/scripts/check_structure.py engraves each mark and checks the MEI.
+scor set-rehearsal <score> [--measure N] [--mark A] [--remove] [--move-to M] [--reletter]
+  # rehearsal marks, written to EVERY part -- the workflow is parts-first and a
+  # mark on the top staff alone is missing from every part but the first. The
+  # cost: Verovio anchors one direction per part to the SAME staff of a
+  # combined score, so the render dedupes them (render.mei_with_deduped_rehearsals
+  # and ios/Scoranger/ScoreModel/RehearsalMarks.swift, which must stay in step).
+  # No --mark takes the next free letter; --reletter re-labels in bar order,
+  # A-Z then AA, BB, CC. Size and position are adjust-element's business.
 scor set-metadata <score> [--title T] [--composer C] [--arranger A]
   # the ONE title: the arrangement's name in the library and the title engraved
   # at the top of the page are the same value. Versioned, like any notation
@@ -108,6 +127,35 @@ scor export <score> --format musicxml|midi|pdf --out <path> [--version vNNN] [--
   # PDF rendering: Verovio + cairosvg + pypdf, all in the venv (engine/scoranger_engine/render.py).
   # Also via API: GET /api/export?score=..&version=..&format=pdf&parts=.. (viewer's checkbox export)
 ```
+
+### Accidentals are normalised by the ops, not patched afterwards
+
+Any op that changes pitches or spelling recomputes which accidentals PRINT,
+against each part's own written key (`ops.normalize_accidentals`, wired into
+transpose, transpose-elements, respell, change-instrument, octave-shift,
+merge/split/absorb/pull/rebuild/limit/flatten/simplify). The report carries
+`redundant_accidentals_hidden`.
+
+This exists because a user was handed an alto sax part full of sharps that were
+already in its key signature. Two music21 behaviours combine to cause it: a
+respelled pitch gets a NEW `Accidental` whose `displayStatus` is None, and None
+prints; and music21 runs `makeAccidentals` at most once per stream
+(`streamStatus`), so a score that has been written and read back -- which is
+every version in the workspace -- is never normalised again. `overrideStatus=True`
+is what makes it recompute. A fixture built in memory cannot show the bug, so
+`check_accidentals.py` round-trips every fixture through a real write first.
+
+### Adding to the toolset
+
+**A tool that CREATES an element ships with the tools that MANIPULATE it** --
+adjust, move, resize, remove -- and with the agent's description of them. A
+create-only op leaves the user asking for something the agent then cannot undo
+or nudge, which is worse than not having offered it. `set-structure` is the
+shape to copy: one op that adds a mark also takes `--remove` and `--move-to`.
+
+The same rule governs replacing an affordance: **keep the current access path
+until its replacement exists.** Do not remove the old way of reaching a feature
+in the build that introduces the new one; never drop the feature.
 
 Part names match case-insensitively, exact first then substring; `#N` targets a
 part by index (essential when OMR leaves several parts with the same name). On a

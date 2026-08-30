@@ -29,6 +29,6 @@ T=( s1 01-resting-score-first  s2 02-library-overlay     s3 03-chat-overlay
     s4 04-working-both-panels  s5 05-pencil-markup       s6 06-highlight-passage
     s7 07-arrangement-details  s8 08-settings            s9 09-alerts
     s10 10-states              s11 11-iphone-compact     s12 12-tokens-and-controls )
-for k in ${ONLY:-${(ok)T}}; do shot "screen=$k" "system-${T[$k]}.png" 1180 886 2; done
+for k in ${=ONLY:-${(ok)T}}; do shot "screen=$k" "system-${T[$k]}.png" 1180 886 2; done
 rm -rf "$TMP"
 echo "done -> $OUT"

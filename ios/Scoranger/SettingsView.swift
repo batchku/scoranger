@@ -51,10 +51,23 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             BandHeader("Reading")
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-                PanelToggle(title: "Two pages side by side",
-                            isOn: $state.twoPageSpread)
-                PanelNote(text: "Two pages at once, the way a score sits on a stand. "
-                          + "Best with the panels closed; one page at a time is larger.")
+                // One property, every surface. A toggle cannot say
+                // "continuous", and the top bar and this screen disagreeing
+                // about how the score is laid out is exactly the confusion the
+                // single `ScoreLayout` was introduced to end.
+                ForEach(ScoreLayout.allCases, id: \.self) { option in
+                    PanelToggle(title: option.label,
+                                isOn: Binding(get: { state.layout == option },
+                                              set: { on in
+                                                  guard on else { return }
+                                                  state.layout = option
+                                                  state.pageIndex = 0
+                                                  Task { await state.renderIfNeeded() }
+                                              }))
+                }
+                PanelNote(text: "One page is largest. Two pages sit the way a score does "
+                          + "on a stand. Continuous runs every system in one line, "
+                          + "left to right, for arranging.")
             }
             .padding(Theme.Metric.panelPadding)
 

@@ -62,9 +62,16 @@ actor VerovioRenderer {
     /// The full option set every time: passing a partial one risks the rest
     /// reverting to Verovio's defaults, which would quietly bring back the
     /// trimmed, uneven pages.
-    private static func options(lyricSize: Double) -> String {
-        """
-        {"scale": 45, "footer": "none", "adjustPageHeight": false,
+    private static func options(lyricSize: Double, continuous: Bool = false) -> String {
+        // `breaks: none` puts every system on one line. Verovio then sizes the
+        // page to the content itself -- an eleven-page score comes back as one
+        // page about 21000px wide -- so `pageWidth` is not a ceiling to raise
+        // here; it is ignored. `adjustPageHeight` trims the height to the one
+        // system, which is what makes the surface a strip rather than a sheet.
+        let breaks = continuous ? #""breaks": "none", "adjustPageHeight": true,"#
+                                : #""adjustPageHeight": false,"#
+        return """
+        {"scale": 45, "footer": "none", \(breaks)
          "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
          "pageMarginTop": 100, "pageMarginBottom": 100,
          "pageMarginLeft": 120, "pageMarginRight": 120,
@@ -93,8 +100,15 @@ actor VerovioRenderer {
         var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     }
 
-    func engrave(musicXMLPath: String) throws -> Engraving {
+    func engrave(musicXMLPath: String, layout: ScoreLayout = .page) throws -> Engraving {
+        let continuous = layout.isContinuous
         let t = try tk()
+        // BEFORE the load: Verovio lays the document out as it reads it, so
+        // options set afterwards do not take until something reloads it -- and
+        // on a score with no fingerings and no adjustments nothing does. Set
+        // here, the very first continuous engrave is already continuous.
+        _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
+                                      continuous: continuous))
         guard t.loadFile(musicXMLPath) else {
             throw RenderError.loadFailed(musicXMLPath)
         }
@@ -105,7 +119,8 @@ actor VerovioRenderer {
         // One text size, whatever the score carries: `lyricSize` also sizes
         // chord symbols, so shrinking it for the diagrams halved every chord
         // name on a fingered score. The diagrams are scaled in our own pass.
-        _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize))
+        _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
+                                      continuous: continuous))
 
         // The user's chord-symbol adjustments live in the MusicXML, and
         // Verovio's importer drops them, so they are carried across here.
@@ -129,6 +144,13 @@ actor VerovioRenderer {
         }
         if let placed = ChordAdjustments.meiWithAdjustments(mei, adjustments: adjustments) {
             mei = placed
+            reload = true
+        }
+        // A mark is written to every part so the parts keep it; the combined
+        // score would otherwise draw the letter once per staff, on top of
+        // itself. render.py does the same on the export side.
+        if let deduped = RehearsalMarks.meiWithDedupedMarks(mei) {
+            mei = deduped
             reload = true
         }
         if reload {

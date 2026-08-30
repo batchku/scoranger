@@ -79,45 +79,6 @@ extension RowShot {
         print("BAND canvas: \(app.scrollViews["score-canvas"].frame)")
         snap(app, "title-band")
     }
-}
-
-extension RowShot {
-    /// L21: the landscape two-page spread clips the top of both pages.
-    func testLandscapeSpread() {
-        let app = XCUIApplication()
-        app.launchArguments = ["-seedTestLibrary"]
-        app.launch()
-        XCUIDevice.shared.orientation = .landscapeLeft
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 60)
-        let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
-        guard row.waitForExistence(timeout: 60) else { return XCTFail("no row") }
-        row.tap()
-        if app.buttons["score-title"].waitForExistence(timeout: 5) == false {
-            let choice = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "identifier BEGINSWITH %@",
-                                      "arrangement-choice-")).firstMatch
-            if choice.waitForExistence(timeout: 20) { choice.tap() }
-        }
-        guard app.scrollViews["score-canvas"].waitForExistence(timeout: 180) else {
-            return XCTFail("never engraved")
-        }
-        sleep(6)
-        print("SPREAD canvas: \(app.scrollViews["score-canvas"].frame)")
-        snap(app, "landscape-single")
-        if app.buttons["score-spread"].exists {
-            app.buttons["score-spread"].tap()
-            sleep(4)
-            let pages = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "identifier ENDSWITH %@", "/p0")).firstMatch
-            print("SPREAD page0: \(pages.exists ? "\(pages.frame)" : "absent")")
-            print("SPREAD canvas after: \(app.scrollViews["score-canvas"].frame)")
-            snap(app, "landscape-spread")
-        } else {
-            print("SPREAD no score-spread button")
-        }
-        XCUIDevice.shared.orientation = .portrait
-    }
 
     override func tearDown() {
         // whatever this test did, the next suite starts upright
@@ -255,7 +216,8 @@ extension RowShot {
         _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 60)
         sleep(2)
         app.buttons["library-settings"].tap()
-        let toggle = app.switches["Two pages side by side"]
+        // the spread toggle became one cell of the three-way layout control
+        let toggle = app.switches["Two pages"]
         guard toggle.waitForExistence(timeout: 10) else { return XCTFail("no toggle") }
         print("SPREADTEST before: \(String(describing: toggle.value))")
         if (toggle.value as? String) != "1" { toggle.tap() }
@@ -280,5 +242,26 @@ extension RowShot {
         sleep(8)
         print("SPREADTEST settled app=\(app.state.rawValue)")
         snap(app, "spread-open")
+    }
+}
+
+extension RowShot {
+    /// What Import does now: straight to the system picker.
+    func testImportOpensThePicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-seedTestLibrary"]
+        app.launch()
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 60)
+        sleep(2)
+        app.buttons["library-import"].tap()
+        sleep(4)
+        for probe in ["Cancel", "Browse", "Recents", "Files", "Open"] {
+            print("PICKER button[\(probe)] = \(app.buttons[probe].exists)")
+        }
+        print("PICKER navbars = \(app.navigationBars.count)")
+        print("PICKER sheets = \(app.sheets.count)")
+        print("PICKER any-name-field = \(app.textFields["inline-rename-field"].exists)")
+        print("PICKER back-button = \(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Back to")).count)")
+        snap(app, "import-tapped")
     }
 }

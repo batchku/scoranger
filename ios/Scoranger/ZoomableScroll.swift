@@ -66,6 +66,11 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var resetPanToken: Int = 0
     /// Markup mode. It changes what the Pencil does, and nothing else.
     var annotationActive: Bool = false
+    /// Where to scroll horizontally, and a token so the same destination asked
+    /// for twice still moves. Continuous mode's tap zones advance by a viewport
+    /// rather than turning a page, and there is no page index for them to
+    /// change -- so the request is made directly of the scroll view.
+    var scrollTarget: (token: Int, x: CGFloat)?
     /// Room to leave at the bottom so floating chrome (the pill) can never
     /// cover the end of the score. The caller owns the number because it owns
     /// the pill's geometry.
@@ -190,6 +195,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.onVisibleRectChange = onVisibleRectChange
         context.coordinator.bottomChrome = bottomChrome
+        if let target = scrollTarget {
+            context.coordinator.scrollHorizontally(to: target.x, token: target.token)
+        }
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
         // Swapping the root view re-renders the pages (a new raster scale, a new
@@ -300,6 +308,23 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
         var onSwipeTurn: ((Int) -> Void)?
         private var lastResetToken: Int = -1
+
+        private var lastScrollToken = -1
+
+        /// Move to an x offset in CONTENT coordinates, once per token.
+        ///
+        /// Content coordinates, not the scroll view's: the caller works in the
+        /// surface the strip was laid out in, and the zoom between the two is
+        /// this object's business, not the caller's.
+        func scrollHorizontally(to x: CGFloat, token: Int) {
+            guard token != lastScrollToken, let scroll else { return }
+            lastScrollToken = token
+            let zoomed = x * scroll.zoomScale
+            let furthest = max(scroll.contentSize.width - scroll.bounds.width, 0)
+            let clamped = min(max(zoomed, -scroll.contentInset.left), furthest)
+            scroll.setContentOffset(CGPoint(x: clamped, y: scroll.contentOffset.y),
+                                    animated: true)
+        }
 
         /// A turn landed: go to the top-left of the new unit, keeping the zoom.
         func resetPan(token: Int) {

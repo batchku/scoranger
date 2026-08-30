@@ -27,7 +27,10 @@ def _ensure_engine():
 
 def _load(slug, version=None):
     from music21 import converter
-    return converter.parse(str(workspace.resolve_path(slug, version)), forceSource=True)
+    # resolve_notation_path: a PDF arrangement is refused here with a sentence
+    # a reader can act on, rather than a music21 parse error
+    return converter.parse(str(workspace.resolve_notation_path(slug, version)),
+                           forceSource=True)
 
 
 def _mutate(slug, op, args, fn):
@@ -63,6 +66,50 @@ def _dispatch(op, a):
         workspace.delete_score(slug)
         return {"versions": [entry["id"], e2["id"]], "transposed": pitches,
                 "details": details}
+    if op == "add-version-from-file":
+        # OMR on demand: the transcription becomes a NEW VERSION of the same
+        # arrangement, not a new arrangement. The scan stays as v001, so the
+        # reader can flip between the page they know and the transcription of
+        # it -- which is exactly what checking OMR output requires.
+        from music21 import converter
+
+        score = converter.parse(a["path"], forceSource=True)
+        entry = workspace.add_version(s_slug := a["score"], score,
+                                      a.get("op") or "omr", a.get("args") or {})
+        out = {"score": s_slug, "version": entry["id"]}
+        if entry.get("rhythm_warnings"):
+            out["rhythm_warnings"] = entry["rhythm_warnings"]
+        return out
+    if op == "bulk-import":
+        # A whole exported library at once: one folder per piece, its files the
+        # arrangements. Plans FIRST and writes only when asked -- this runs
+        # across an entire library and the tree is worth reading before it
+        # exists.
+        from scoranger_engine import bulk
+
+        folder = a["folder"]
+        names = []
+        for base, _dirs, filenames in os.walk(folder):
+            for fn in filenames:
+                rel = os.path.relpath(os.path.join(base, fn), folder)
+                if not fn.startswith("."):
+                    names.append(rel)
+        plan = bulk.plan(sorted(names), manifest=a.get("manifest"))
+        if a.get("commit"):
+            return {"plan": plan,
+                    "result": bulk.run(plan, dry_run=False, root=folder)}
+        return {"plan": plan, "result": bulk.run(plan, dry_run=True)}
+    if op == "import-pdf":
+        # The artifact IS the file: nothing parses it, nothing re-encodes it.
+        # A scan reads and takes markup straight away; OMR is a later, explicit
+        # step that turns it into an editable arrangement.
+        name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
+        slug, entry = workspace.create_pdf_score(name, a["path"], op="import-pdf",
+                                                 args={"source": a["path"]})
+        piece = None
+        if a.get("piece"):
+            piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+        return {"score": slug, "version": entry["id"], "piece": piece, "kind": "pdf"}
     if op == "import":
         from music21 import converter
         score = converter.parse(a["path"], forceSource=True)
@@ -288,6 +335,17 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: ops.respell(
             sc, a.get("prefer", "flats"), a.get("parts"),
             a.get("from_measure"), a.get("to_measure")))
+    if op == "set-rehearsal":
+        return _mutate(s, op, a, lambda sc: ops.set_rehearsal(
+            sc, measure=a.get("measure"), mark=a.get("mark"),
+            remove=bool(a.get("remove")), move_to=a.get("move_to"),
+            reletter=bool(a.get("reletter"))))
+    if op == "clean-accidentals":
+        return _mutate(s, op, a, lambda sc: ops.normalize_accidentals(sc, a.get("parts")))
+    if op == "set-accidental":
+        return _mutate(s, op, a, lambda sc: ops.set_accidental(
+            sc, list(a["elements"]), show=a.get("show"), add=a.get("add"),
+            remove=bool(a.get("remove")), color=a.get("color")))
     if op == "change-clef":
         return _mutate(s, op, a, lambda sc: ops.change_clef(_part(sc, a["part"]), a["clef"], a.get("from_measure", 1)))
     if op == "change-instrument":

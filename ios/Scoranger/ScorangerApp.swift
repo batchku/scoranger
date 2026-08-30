@@ -44,6 +44,9 @@ struct ScorangerApp: App {
                     await state.migrateSeededSetlistName()
                     #if DEBUG
                     await state.seedMultiStepTurnIfRequested()
+                    // after the library seed, and after the refresh that gives
+                    // it a manifest to check itself against
+                    await state.seedScanArrangementIfRequested()
                     #endif
                 }
         }

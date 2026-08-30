@@ -93,8 +93,17 @@ enum LassoGate {
 
     /// Two fingers down, gone again, having barely moved: undo the last stroke.
     /// A tap has no movement, so it can never be read as a pinch.
-    static func isUndoTap(touches: Int, movement: CGFloat, elapsed: TimeInterval) -> Bool {
-        touches == 2 && movement <= moveSlop && elapsed <= tapWindow
+    ///
+    /// `inkCanvasLive` is which OWNER the tap belongs to, and it is here rather
+    /// than at the call site because having two owners is the whole defect. The
+    /// live ink canvas carries its own two-finger recogniser and declares
+    /// `cancelsTouchesInView = false`, so it must not cancel the score's pinch
+    /// -- which means the same tap also arrives at the lasso overlay. Both
+    /// called undo, and one tap took off two strokes.
+    static func isUndoTap(touches: Int, movement: CGFloat, elapsed: TimeInterval,
+                          inkCanvasLive: Bool = false) -> Bool {
+        guard !inkCanvasLive else { return false }
+        return touches == 2 && movement <= moveSlop && elapsed <= tapWindow
     }
 
     // MARK: - What a Pencil touchdown does to the selection already on the page

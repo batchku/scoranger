@@ -380,6 +380,37 @@ def mei_with_chart_styling(mei: str, musicxml_path) -> str | None:
     return re.sub(r"(<harm\b[^>]*>)([^<]+)(</harm>)", embolden, out)
 
 
+def mei_with_deduped_rehearsals(mei: str) -> str:
+    """Keep one rehearsal mark per bar in a COMBINED score.
+
+    A rehearsal mark is written to every part, so an extracted part carries its
+    own (see `ops.set_rehearsal`). Verovio renders the direction from each part
+    and anchors them all to the same staff of a combined score, which draws the
+    same letter over itself once per part. This keeps the first `<reh>` of each
+    (measure, letter) and drops the rest.
+
+    A single part has one of each already, so this is a no-op there -- which is
+    the property that lets the same render path serve both.
+    """
+    kept: set[tuple[str, str]] = set()
+    out: list[str] = []
+    position = 0
+    # <reh> carries its label in a child <rend>, so the whole element is taken
+    for match in re.finditer(r"<reh\b[^>]*(?:/>|>.*?</reh>)", mei, re.S):
+        element = match.group(0)
+        measure = mei.rfind("<measure", 0, match.start())
+        bar = re.search(r'\bn="([^"]*)"', mei[measure:measure + 200])
+        label = re.sub(r"<[^>]+>", "", element).strip()
+        key = (bar.group(1) if bar else str(measure), label)
+        if key in kept:
+            out.append(mei[position:match.start()])
+            position = match.end()
+            continue
+        kept.add(key)
+    out.append(mei[position:])
+    return "".join(out)
+
+
 def mei_with_chord_adjustments(mei: str, musicxml_path) -> str | None:
     """Carry each chord symbol's offset into the MEI, or None if none have one."""
     adjustments = chord_adjustments(musicxml_path)
@@ -826,6 +857,15 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             mei = adjusted
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with chord offsets")
+
+        # A rehearsal mark is written to every part so extracted parts keep it;
+        # in a COMBINED score Verovio anchors them all to one staff and draws
+        # the letter over itself once per part.
+        deduped = mei_with_deduped_rehearsals(mei)
+        if deduped != mei:
+            mei = deduped
+            if not tk.loadData(mei):
+                raise RuntimeError("Verovio could not reload MEI with deduped rehearsals")
         n_pages = tk.getPageCount()
         svgs = [_fingering_diagrams(
                     apply_chord_sizes(

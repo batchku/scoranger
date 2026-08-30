@@ -91,15 +91,24 @@ enum PagedCanvas {
     /// landscape iPad is height-bound, which is exactly the case §6.4 warns
     /// makes the notation small -- the answer to that is zooming, which is now
     /// unbounded upwards rather than a fight with the floor.
+    /// `bottomChrome` is the room the canvas has already promised to the
+    /// floating pill (`ZoomableScroll.bottomChrome`). It is NOT height the fit
+    /// may spend: the scroll view adds it as a bottom inset whatever the fit
+    /// decides, so a unit sized to the whole canvas is a unit taller than the
+    /// scroll view holding it -- scrollable by exactly the chrome, and any
+    /// offset in that range takes the top of the page off the screen (L21).
+    /// Measured on an 11-inch in landscape: a 634pt unit in 718pt of content.
     static func fittedPageWidth(viewport: CGSize, pageAspect: CGFloat,
                                 pages: Int, gutter: CGFloat,
-                                margin: CGFloat) -> CGFloat {
+                                margin: CGFloat,
+                                bottomChrome: CGFloat = 0) -> CGFloat {
         guard viewport.width > 0, viewport.height > 0, pageAspect > 0, pages > 0 else {
             return 0
         }
         let across = max(viewport.width - margin * 2 - gutter * CGFloat(pages - 1), 1)
         let byWidth = across / CGFloat(pages)
-        let byHeight = max(viewport.height - margin * 2, 1) / pageAspect
+        let clear = max(viewport.height - margin * 2 - max(bottomChrome, 0), 1)
+        let byHeight = clear / pageAspect
         return max(min(byWidth, byHeight), 1)
     }
 

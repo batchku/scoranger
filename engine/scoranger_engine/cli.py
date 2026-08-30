@@ -14,7 +14,9 @@ from . import ops, workspace
 
 def _load(slug: str, version: str | None):
     from music21 import converter
-    path = workspace.resolve_path(slug, version)
+    # resolve_notation_path, not resolve_path: a PDF arrangement must be told
+    # apart here, or music21 fails deep in a parser with nothing useful to say
+    path = workspace.resolve_notation_path(slug, version)
     return converter.parse(str(path), forceSource=True)
 
 
@@ -104,6 +106,34 @@ def cmd_transpose_elements(a):
     details = ops.transpose_elements(score, a.interval, addresses)
     _mutate(a.score, score, "transpose-elements",
             {"interval": a.interval, "elements": addresses}, details)
+
+
+def cmd_clean_accidentals(a):
+    score = _load(a.score, None)
+    names = _split_parts(a.parts) if a.parts else None
+    details = ops.normalize_accidentals(score, names)
+    _mutate(a.score, score, "clean-accidentals", {"parts": a.parts}, details)
+
+
+def cmd_set_accidental(a):
+    score = _load(a.score, None)
+    addresses = [t.strip() for t in a.elements.split(",") if t.strip()]
+    show = True if a.show else (False if a.hide else None)
+    details = ops.set_accidental(score, addresses, show=show, add=a.add,
+                                 remove=a.remove, color=a.color)
+    _mutate(a.score, score, "set-accidental",
+            {"elements": addresses, "show": show, "add": a.add,
+             "remove": a.remove, "color": a.color}, details)
+
+
+def cmd_set_rehearsal(a):
+    score = _load(a.score, None)
+    details = ops.set_rehearsal(score, measure=a.measure, mark=a.mark,
+                                remove=a.remove, move_to=a.move_to,
+                                reletter=a.reletter)
+    _mutate(a.score, score, "set-rehearsal",
+            {"measure": a.measure, "mark": a.mark, "remove": a.remove,
+             "move_to": a.move_to, "reletter": a.reletter}, details)
 
 
 def cmd_delete_piece(a):
@@ -274,6 +304,25 @@ def cmd_set_chords(a):
     _mutate(a.score, score, "set-chords", {"part": a.part, "count": len(chords)}, details)
 
 
+def cmd_bulk_import(a):
+    from . import bulk
+
+    folder = Path(a.folder).expanduser()
+    if not folder.is_dir():
+        raise NotADirectoryError(f"No such folder: {folder}")
+    manifest = None
+    if a.manifest:
+        manifest = json.loads(Path(a.manifest).expanduser().read_text())
+    names = sorted(p.name for p in folder.iterdir() if p.is_file())
+    plan = bulk.plan(names, manifest=manifest)
+    if a.commit:
+        _emit({"plan": plan, "result": bulk.run(plan, dry_run=False, root=str(folder))})
+    else:
+        # printed for a person, because the point of the dry run is to be read
+        print(bulk.describe(plan), file=sys.stderr)
+        _emit({"plan": plan, "result": bulk.run(plan, dry_run=True)})
+
+
 def cmd_piece_create(a):
     _emit(workspace.create_piece(a.name))
 
@@ -415,6 +464,39 @@ def main() -> None:
                    help="comma-separated addresses, e.g. 's1/m15/l1/note#0,s1/m15/l1/note#1'")
     s.set_defaults(fn=cmd_transpose_elements)
 
+    s = sub.add_parser("set-rehearsal",
+                       help="Add, remove, move or re-letter rehearsal marks "
+                            "(written to EVERY part)")
+    s.add_argument("score")
+    s.add_argument("--measure", type=int)
+    s.add_argument("--mark", help="the letter; omitted, the next free one is used")
+    s.add_argument("--remove", action="store_true")
+    s.add_argument("--move-to", dest="move_to", type=int)
+    s.add_argument("--reletter", action="store_true",
+                   help="re-label every mark in bar order: A-Z then AA, BB")
+    s.set_defaults(fn=cmd_set_rehearsal)
+
+    s = sub.add_parser("clean-accidentals",
+                       help="Hide accidentals the key signature already implies "
+                            "(display only; no pitch changes)")
+    s.add_argument("score")
+    s.add_argument("--parts", help="default: every part, each judged by its OWN written key")
+    s.set_defaults(fn=cmd_clean_accidentals)
+
+    s = sub.add_parser("set-accidental",
+                       help="Add, remove, show, hide or colour accidentals on named elements")
+    s.add_argument("score")
+    s.add_argument("--elements", required=True,
+                   help="comma-separated addresses, e.g. 's1/m15/l1/note#0'")
+    s.add_argument("--add", choices=sorted(ops.ACCIDENTAL_NAMES),
+                   help="give the note this accidental -- CHANGES ITS PITCH")
+    s.add_argument("--remove", action="store_true",
+                   help="take the accidental off -- CHANGES ITS PITCH")
+    s.add_argument("--show", action="store_true", help="force the glyph to be drawn")
+    s.add_argument("--hide", action="store_true", help="stop the glyph being drawn")
+    s.add_argument("--color", help="e.g. '#CC4125', or 'none' to clear")
+    s.set_defaults(fn=cmd_set_accidental)
+
     s = sub.add_parser("duplicate", help="Copy a score (its latest version becomes the copy's v001)")
     s.add_argument("score")
     s.add_argument("--name")
@@ -555,6 +637,18 @@ def main() -> None:
     s.add_argument("--part", required=True)
     s.add_argument("--json", required=True, help='Path to [{"measure":1,"symbol":"Fm"},...]')
     s.set_defaults(fn=cmd_set_chords)
+
+    s = sub.add_parser("bulk-import",
+                       help="Import a folder of exported scores as pieces and "
+                            "arrangements (DRY RUN unless --commit)")
+    s.add_argument("folder")
+    s.add_argument("--manifest",
+                   help='JSON: [{"file": "a.pdf", "piece": "Nature Boy", '
+                        '"arrangement": "trio"}]. Overrides the filename rule.')
+    s.add_argument("--commit", action="store_true",
+                   help="actually write. Without it nothing is created: this "
+                        "runs across a whole library and the tree is worth reading first")
+    s.set_defaults(fn=cmd_bulk_import)
 
     s = sub.add_parser("piece-create", help="Create a piece (a work that groups arrangements)")
     s.add_argument("name")

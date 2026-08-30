@@ -144,6 +144,119 @@ _M21_COMPOSER_STAMP = re.compile(
     r'[ \t]*<creator type="composer">Music21</creator>\r?\n?')
 
 
+class NotNotationError(Exception):
+    """Notation was asked of an arrangement whose artifact is not notation."""
+
+
+#: Artifact suffixes the engine can actually operate on. Everything else is
+#: something a reader can look at but no op can touch.
+NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
+
+
+def list_versions(slug: str) -> list:
+    return _repo().list_versions(slug)
+
+
+def version_kind(slug: str, version_id: str | None = None) -> str:
+    """"musicxml" or "pdf", from the artifact the version points at.
+
+    DERIVED from the filename rather than stored on the document, so every
+    version written before PDFs existed reports correctly with no migration
+    and no backfill.
+    """
+    return artifact_kind(resolve_path(slug, version_id))
+
+
+def artifact_kind(path) -> str:
+    return "musicxml" if Path(path).suffix.lower() in NOTATION_SUFFIXES else "pdf"
+
+
+def resolve_notation_path(slug: str, version_id: str | None = None) -> Path:
+    """The artifact, when it is notation. Raises clearly when it is not.
+
+    Both `cli._load` and the on-device `bridge._load` hand their path straight
+    to music21, which would fail on a PDF several frames deep in a parser with
+    nothing useful to say. A reader who imported a scan needs to be told that
+    it is a scan and that OMR is what makes it editable.
+    """
+    path = resolve_path(slug, version_id)
+    if artifact_kind(path) != "musicxml":
+        raise NotNotationError(
+            f"'{slug}' {version_id or 'latest'} is a PDF, not notation, so it "
+            f"cannot be edited: run OMR on it to turn it into an editable "
+            f"arrangement first.")
+    return path
+
+
+def _write_pdf_version(slug: str, pdf_path: Path, op: str, args: dict,
+                       parent: str | None) -> dict:
+    """A version whose artifact is the PDF itself, copied in unchanged.
+
+    Nothing re-encodes it: what a reader looks at is the file they gave us.
+    """
+    import shutil
+
+    repo = _repo()
+    seq = len(repo.list_versions(slug)) + 1
+    vid = f"v{seq:03d}"
+    fname = f"{vid}.pdf"
+    score_dir(slug).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(pdf_path, score_dir(slug) / fname)
+    # `parts` is [] and not a guess: a PDF has no parts until OMR reads it, and
+    # inventing one would put a lie in the library.
+    doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
+           "parent": parent, "time": _now(), "parts": []}
+    if _current_turn is not None and _current_turn["slug"] == slug:
+        doc["turn"] = {"id": _current_turn["id"], "prompt": _current_turn["prompt"]}
+    repo.add_version(slug, vid, seq, doc)
+    score_doc = repo.get_score(slug)
+    score_doc["latest"] = vid
+    repo.set_score(slug, score_doc)
+    rebuild_manifest()
+    return doc
+
+
+def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
+                     args: dict | None = None) -> tuple[str, dict]:
+    """Create an arrangement whose artifact is a PDF. Returns (slug, version doc).
+
+    It reads, it takes Pencil markup and it sits in the library like anything
+    else; what it cannot do is be edited, because selection, addresses and
+    every op come from the engraved MEI that only notation has.
+    """
+    source = Path(pdf_path)
+    if not source.exists():
+        raise FileNotFoundError(f"No such file: {source}")
+    if artifact_kind(source) != "pdf":
+        raise ValueError(f"{source.name} is not a PDF")
+
+    repo = _repo()
+    base = slugify(name)
+    slug, n = base, 2
+    while repo.get_score(slug) is not None:
+        slug = f"{base}-{n}"
+        n += 1
+    repo.set_score(slug, {
+        "id": slug, "slug": slug, "name": name,
+        # the file carries no metadata we can read, so the title is the name
+        # the caller gave -- never a slug, never the file name
+        "title": name, "composer": None, "arranger": None,
+        "created": _now(), "latest": None,
+    })
+    # same rule as create_score: an arrangement holding no version must not
+    # exist, so the row goes if the artifact does not land
+    try:
+        entry = _write_pdf_version(slug, source, op, args or {}, parent=None)
+    except BaseException:
+        import shutil
+        repo.delete_score(slug)
+        if score_dir(slug).exists():
+            shutil.rmtree(score_dir(slug), ignore_errors=True)
+        rebuild_manifest()
+        raise
+    return slug, entry
+
+
 def _write_musicxml(m21_score, path: Path) -> list[str]:
     """The one place a score becomes a file.
 
@@ -743,6 +856,10 @@ def rebuild_manifest() -> dict:
     score_docs = repo.list_scores()
     for doc in score_docs:
         versions = repo.list_versions(doc["slug"])
+        for v in versions:
+            # derived from the artifact, so versions written before PDFs
+            # existed report correctly without a backfill
+            v["kind"] = artifact_kind(v.get("file") or "")
         scores.append({
             "slug": doc["slug"], "name": doc["name"],
             "title": doc.get("title"), "composer": doc.get("composer"),

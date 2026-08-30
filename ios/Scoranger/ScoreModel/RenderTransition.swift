@@ -2,7 +2,7 @@ import Foundation
 
 /// What a change of engraving means, and therefore what may be thrown away.
 ///
-/// Every render is keyed `slug/version`. When that key changes the canvas used
+/// Every render is keyed `slug/version/layout`. When that key changes the canvas used
 /// to be blanked and the selection cleared, whatever the change was -- and a
 /// prompt transform changes it, because an op makes a new version. So running
 /// "transpose these bars up a tone" on a selection blanked the whole score,
@@ -26,7 +26,9 @@ enum RenderTransition: Equatable {
     /// A different arrangement entirely.
     case differentScore
 
-    /// Keys are `slug/version`; the slug is what decides.
+    /// Keys are `slug/version/layout`; the slug is what decides. Switching to
+    /// the continuous layout re-engraves the same music, so it reads as the
+    /// same score and the pages on screen stay up until the new ones arrive.
     static func between(previous: String?, next: String) -> RenderTransition {
         guard let previous, !previous.isEmpty else { return .first }
         if previous == next { return .sameScore }

@@ -190,6 +190,20 @@ final class PagedCanvasTests: XCTestCase {
     /// to three round numbers. 1376x832 is the measured landscape canvas of an
     /// iPad Pro 13" with the top bar and the thumbnail strip on screen -- the
     /// exact frame the report was taken from.
+    /// What the canvas reserves for the floating pill, as ScorePagesView passes
+    /// it to ZoomableScroll (52 + 20 + 12).
+    private let chrome: CGFloat = 84
+
+    /// The literal above is only safe while it IS what the view passes. The
+    /// view itself cannot be compiled into this bundle, so its arithmetic is
+    /// asserted here instead.
+    func testTheChromeThisSuiteMeasuresIsTheChromeTheViewReserves() {
+        XCTAssertEqual(Theme.Metric.scoreBottomChrome
+                       + Theme.Metric.s20 + Theme.Metric.s12, chrome,
+                       "ScorePagesView.bottomChrome changed; this suite still "
+                       + "measures against \(chrome)")
+    }
+
     func testTheRealDeviceCanvasesFitASpread() {
         let canvases: [(String, CGSize)] = [
             ("iPad Pro 13 landscape", CGSize(width: 1376, height: 832)),
@@ -201,12 +215,18 @@ final class PagedCanvasTests: XCTestCase {
         for (name, viewport) in canvases {
             for pages in [1, 2] {
                 let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
-                                                    pages: pages, gutter: 12, margin: 12)
+                                                    pages: pages, gutter: 12, margin: 12,
+                                                    bottomChrome: chrome)
                 // the page is padded 12 top and bottom by the unit's own layout
                 let tall = w * portrait + 24
-                XCTAssertLessThanOrEqual(tall, viewport.height + 0.5,
+                // L21: what is left after the pill, not the whole canvas. The
+                // scroll view reserves the chrome as a bottom inset either way,
+                // so a unit that fills the canvas is a unit taller than its own
+                // scroll view -- and that is what scrolled the top away.
+                XCTAssertLessThanOrEqual(tall, viewport.height - chrome + 0.5,
                                          "\(name) x\(pages): a \(tall)pt unit in a "
-                                         + "\(viewport.height)pt canvas is clipped")
+                                         + "\(viewport.height)pt canvas holding \(chrome)pt "
+                                         + "of chrome is clipped")
                 let wide = w * CGFloat(pages) + 12 * CGFloat(pages - 1) + 24
                 XCTAssertLessThanOrEqual(wide, viewport.width + 0.5, "\(name) x\(pages)")
             }
@@ -218,14 +238,48 @@ final class PagedCanvasTests: XCTestCase {
     func testALandscapeSpreadIsBoundByHeightNotWidth() {
         let viewport = CGSize(width: 1376, height: 832)
         let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
-                                            pages: 2, gutter: 12, margin: 12)
+                                            pages: 2, gutter: 12, margin: 12,
+                                            bottomChrome: chrome)
         let byWidthAlone = (viewport.width - 24 - 12) / 2
         XCTAssertLessThan(w, byWidthAlone,
                           "the height did not bind: sizing from width alone gives "
                           + "\(byWidthAlone)pt pages, which are \(byWidthAlone * portrait)pt tall "
                           + "in a \(viewport.height)pt canvas")
-        XCTAssertEqual(w * portrait + 24, viewport.height, accuracy: 0.5,
-                       "a height-bound spread should use the height exactly")
+        XCTAssertEqual(w * portrait + 24, viewport.height - chrome, accuracy: 0.5,
+                       "a height-bound spread should use the clear height exactly")
+    }
+
+    /// L21, measured on an iPad Pro 11-inch in landscape with the spread on:
+    /// the fit spent all 634pt of canvas height, `ZoomableScroll.centreIfNeeded`
+    /// then added the pill's 84pt as a bottom inset, and the 634pt unit sat in
+    /// 718pt of scrollable content. Any offset inside that 84pt scrolled the top
+    /// of BOTH pages off the screen -- about one system, which is what the
+    /// designer saw. It clipped only in landscape with the chat closed because
+    /// that is the one case where the HEIGHT binds: everything narrower is
+    /// width-bound and lands well inside the canvas.
+    func testTheFittedUnitClearsTheFloatingChrome() {
+        let viewport = CGSize(width: 1210, height: 634)
+        let aspect: CGFloat = 1.2942
+        let w = PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: aspect,
+                                            pages: 2, gutter: 12, margin: 12,
+                                            bottomChrome: chrome)
+        let unit = w * aspect + 24
+        XCTAssertLessThanOrEqual(unit, viewport.height - chrome + 0.5,
+                                 "a \(unit)pt unit in \(viewport.height)pt of canvas "
+                                 + "leaves \(viewport.height - unit)pt for \(chrome)pt "
+                                 + "of chrome, so the content scrolls and the top clips")
+        // and the scroll view it feeds is then exactly one viewport tall
+        XCTAssertEqual(unit + chrome, viewport.height, accuracy: 0.5,
+                       "the unit plus its chrome should be the viewport exactly")
+    }
+
+    /// No chrome, no reserve: the geometry itself is unchanged.
+    func testWithoutChromeTheFitIsWhatItWas() {
+        let viewport = CGSize(width: 1210, height: 634)
+        XCTAssertEqual(PagedCanvas.fittedPageWidth(viewport: viewport, pageAspect: portrait,
+                                                   pages: 2, gutter: 12, margin: 12,
+                                                   bottomChrome: 0),
+                       (viewport.height - 24) / portrait, accuracy: 0.01)
     }
 
     // MARK: keeping the reader's page across an op (#44)

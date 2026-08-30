@@ -180,8 +180,10 @@ def merge_parts(score, names: list[str], new_name: str, clef_name: str = "treble
     merged_total = sum(1 for n in merged.recurse().notes for _ in n.pitches)
     if merged_total != note_total:
         raise RuntimeError(f"Note-count mismatch after merge: sources had {note_total}, merged has {merged_total}")
+    cleaned = _normalize_part(merged)
     return {"merged": labels, "into": new_name, "clef": clef_name,
-            "voices": len(sources), "notes_before": note_total, "notes_after": merged_total}
+            "voices": len(sources), "notes_before": note_total, "notes_after": merged_total,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 def split_bass(score, name: str, bass_name: str, chords_name: str,
@@ -260,7 +262,9 @@ def split_bass(score, name: str, bass_name: str, chords_name: str,
     order.insert(idx + 1, bass_part)
     _set_part_order(score, order)
 
+    hidden = sum(_normalize_part(p).get("hidden", 0) for p in (bass_part, chords_part))
     return {"split": old_label, "chords_staff": chords_name, "bass_staff": bass_name,
+            "redundant_accidentals_hidden": hidden,
             "slices": bass_notes, "bass_notes": bass_notes, "chord_notes": chord_notes,
             "note": "sustained notes are sliced at each attack (tied where the source was tied)"}
 
@@ -426,6 +430,7 @@ def limit_part(score, name: str, max_pitch: str | None = None, monophonic: bool 
                         cont.replace(el, m21note.Rest(quarterLength=el.quarterLength))
     if maxp is not None:
         stats["max_pitch"] = maxp.nameWithOctave
+    stats["redundant_accidentals_hidden"] = _normalize_part(part).get("hidden", 0)
     return stats
 
 
@@ -441,6 +446,72 @@ def _measures_in_range(part, from_measure: int | None, to_measure: int | None) -
             continue
         out.append(m)
     return out
+
+
+def _will_print(part) -> int:
+    """How many accidentals this part would ENGRAVE as it stands."""
+    total = 0
+    for n in part.recurse().notes:
+        # .pitches, which both a Note and a Chord have -- a `getattr` default
+        # of (n.pitch,) is evaluated eagerly and a Chord has no `.pitch`
+        for pitch in n.pitches:
+            acc = pitch.accidental
+            if acc is not None and acc.displayStatus is not False:
+                total += 1
+    return total
+
+
+def _normalize_part(part) -> dict:
+    """`normalize_accidentals` for one part, for the ops that hold the part
+    itself rather than its name."""
+    label = part_label(part)
+    if not part.getElementsByClass(stream.Measure):
+        # nothing to scope an accidental to; say so rather than pretend
+        return {"part": label, "skipped": "no measures"}
+    before = _will_print(part)
+    part.makeAccidentals(inPlace=True, overrideStatus=True,
+                         cautionaryNotImmediateRepeat=False)
+    after = _will_print(part)
+    return {"part": label, "printed_before": before, "printed_now": after,
+            "hidden": before - after}
+
+
+def normalize_accidentals(score, names: list[str] | None = None) -> dict:
+    """Recompute which accidentals PRINT, from each part's own written key.
+
+    Display only. No pitch, no spelling, no octave and no key signature is
+    touched -- only `displayStatus`, which decides whether the glyph is drawn.
+
+    Every op that changes pitches or spelling runs this on the parts it
+    touched, because the alternative is what a user actually reported: "you've
+    put a lot of accidental sharps in the alto saxophone part that are in the
+    key signature so it's just making it hard to read". Two music21 behaviours
+    combine to produce that.
+
+    First, an op that assigns a new `Accidental` (respell does, note by note)
+    gets one whose `displayStatus` is None, and the MusicXML writer prints an
+    accidental whose status is None.
+
+    Second, and the reason a fresh fixture cannot show the bug: music21 runs
+    `makeAccidentals` at most ONCE per stream and records it in `streamStatus`.
+    A score built in memory is normalised by the exporter on its way out; a
+    score that has been written and read back -- which is every version in the
+    workspace -- never is. So the redundant accidentals survive every
+    subsequent write. `overrideStatus=True` is what makes this recompute rather
+    than respect the stale answer.
+
+    Each part is judged by the key signature ON ITS OWN STAFF, which for a
+    transposing instrument is the WRITTEN key: an E-flat alto's part in A major
+    must not have its sharps printed just because concert pitch has none.
+
+    `cautionaryNotImmediateRepeat=False` because the ask was to REMOVE
+    redundant accidentals; the default adds cautionary ones and would make the
+    page busier than it started.
+    """
+    targets = find_parts(score, names) if names else list(score.parts)
+    report = [_normalize_part(part) for part in targets]
+    return {"parts": report,
+            "hidden": sum(r.get("hidden", 0) for r in report)}
 
 
 def transpose(score, interval_str: str, names: list[str] | None = None,
@@ -461,10 +532,14 @@ def transpose(score, interval_str: str, names: list[str] | None = None,
                 m.transpose(itv, inPlace=True)
                 touched += 1
         scope = [part_label(p) for p in targets] if names else "all parts"
+        # the pitches moved, so what prints is recomputed against the key they
+        # moved INTO -- see normalize_accidentals
+        cleaned = normalize_accidentals(score, names)
         return {"interval": itv.niceName, "direction": itv.direction.name.lower(),
                 "scope": scope,
                 "measures": f"{from_measure or 1}-{to_measure if to_measure is not None else 'end'}",
-                "measures_transposed": touched}
+                "measures_transposed": touched,
+                "redundant_accidentals_hidden": cleaned["hidden"]}
     if names:
         targets = find_parts(score, names)
         for p in targets:
@@ -473,7 +548,10 @@ def transpose(score, interval_str: str, names: list[str] | None = None,
     else:
         score.transpose(itv, inPlace=True)
         scope = "all parts"
-    return {"interval": itv.niceName, "direction": itv.direction.name.lower(), "scope": scope}
+    cleaned = normalize_accidentals(score, names)
+    return {"interval": itv.niceName, "direction": itv.direction.name.lower(),
+            "scope": scope,
+            "redundant_accidentals_hidden": cleaned["hidden"]}
 
 
 def respell(score, prefer: str = "flats", names: list[str] | None = None,
@@ -509,7 +587,12 @@ def respell(score, prefer: str = "flats", names: list[str] | None = None,
                 p.octave = e.octave
                 p.accidental = e.accidental
                 changed += 1
+    # A respelled pitch carries a BRAND NEW accidental, whose displayStatus is
+    # None, and None prints. Respelling A-flat to G-sharp inside A major put a
+    # sharp on every one of them -- the reported bug.
+    cleaned = normalize_accidentals(score, names)
     out = {"prefer": prefer, "changed_notes": changed,
+           "redundant_accidentals_hidden": cleaned["hidden"],
            "scope": [part_label(p) for p in targets] if names else "all parts"}
     if ranged:
         out["measures"] = (f"{from_measure or 1}-"
@@ -595,6 +678,9 @@ def change_instrument(part, target_name: str) -> dict:
             report["written_transposition"] = new_instr.transposition.niceName
         except Exception:
             report["written_transposition"] = "FAILED — part left at concert pitch"
+    # last, so it reads the key the part ENDS in -- for a transposing
+    # instrument that is the written key, which is the whole point
+    report["redundant_accidentals_hidden"] = _normalize_part(part).get("hidden", 0)
     return report
 
 
@@ -713,7 +799,9 @@ def absorb_part(score, source_name: str, target_name: str, rules: dict | None = 
             tm.insert(0.0, v1)
             tm.insert(0.0, v2)
 
-    return {"source": part_label(src), "target": part_label(tgt), "rules": rules, **stats}
+    cleaned = _normalize_part(tgt)
+    return {"source": part_label(src), "target": part_label(tgt), "rules": rules,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0), **stats}
 
 
 def strip_notes(score, name: str) -> dict:
@@ -745,8 +833,10 @@ def octave_shift(score, name: str, octaves: int, from_measure: int, to_measure: 
             shifted += 1
     if shifted == 0:
         raise ValueError(f"No measures in range {from_measure}-{to_measure}")
+    cleaned = _normalize_part(part)
     return {"part": part_label(part), "octaves": octaves,
-            "measures": f"{from_measure}-{to_measure}", "measures_shifted": shifted}
+            "measures": f"{from_measure}-{to_measure}", "measures_shifted": shifted,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 REBUILD_DEFAULT_RULES = {
@@ -842,8 +932,10 @@ def rebuild_part(score, target_name: str, src_score, base_name: str,
     order = list(score.parts)
     order[order.index(target)] = flat
     _set_part_order(score, order)
+    cleaned = _normalize_part(flat)
     return {"target": part_label(flat), "base": base_name, "overlay": overlay_name,
-            "rules": rules, "overlay_runs_kept": runs_kept, "overlay_notes": overlay_notes}
+            "rules": rules, "overlay_runs_kept": runs_kept, "overlay_notes": overlay_notes,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 def pull_part(score, src_score, part_name: str, as_name: str | None = None,
@@ -886,8 +978,10 @@ def pull_part(score, src_score, part_name: str, as_name: str | None = None,
                     continue
                 tm.insert(el.offset, copy.deepcopy(el))
             replaced += 1
+        cleaned = _normalize_part(target)
         return {"pulled": part_name, "into": part_label(target),
-                "measures": f"{m0}-{m1}", "measures_replaced": replaced}
+                "measures": f"{m0}-{m1}", "measures_replaced": replaced,
+                "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
     new_part = copy.deepcopy(src_part)
     if as_name:
@@ -898,11 +992,15 @@ def pull_part(score, src_score, part_name: str, as_name: str | None = None,
         order = list(score.parts)
         order[order.index(target)] = new_part
         _set_part_order(score, order)
-        return {"pulled": part_name, "replaced": replace, "as": part_label(new_part)}
+        cleaned = _normalize_part(new_part)
+        return {"pulled": part_name, "replaced": replace, "as": part_label(new_part),
+                "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
     order = list(score.parts) + [new_part]
     _set_part_order(score, order)
+    cleaned = _normalize_part(new_part)
     return {"pulled": part_name, "added_as": part_label(new_part),
-            "position": len(order) - 1}
+            "position": len(order) - 1,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:
@@ -938,8 +1036,10 @@ def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:
             m.insert(pos, r)
             pos += r.quarterLength
         simplified.append(m.number)
+    cleaned = _normalize_part(part)
     return {"part": part_label(part), "measures_simplified": len(simplified),
-            "measures": simplified}
+            "measures": simplified,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 def _set_part_order(score, ordered_parts) -> None:
@@ -1001,8 +1101,10 @@ def flatten_voices(score, name: str) -> dict:
     order = list(score.parts)
     order[order.index(part)] = new_part
     _set_part_order(score, order)
+    cleaned = _normalize_part(new_part)
     return {"part": new_part.partName, "voices": "flattened to 1",
-            "pitch_events_before": before, "pitch_events_after": after}
+            "pitch_events_before": before, "pitch_events_after": after,
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
 def chart_style(score, name: str, symbol_y: float = -25.0) -> dict:
@@ -1505,6 +1607,108 @@ def _measure_or_raise(part, number: int):
     return measure
 
 
+def rehearsal_letter(index: int) -> str:
+    """0 -> A, 25 -> Z, 26 -> AA, 27 -> BB.
+
+    Doubling the letter rather than counting in base 26 (which would give AA,
+    AB, AC): a rehearsal letter is called out loud across a room -- "from
+    double-B" -- and AB and BB are the same two syllables in a noisy hall.
+    """
+    if index < 0:
+        raise ValueError("a rehearsal letter has no index below zero")
+    letter = chr(ord("A") + index % 26)
+    return letter * (index // 26 + 1)
+
+
+def _rehearsal_marks(part) -> list:
+    """(measure, mark) for every rehearsal mark in a part, in bar order."""
+    from music21 import expressions
+    out = []
+    for measure in part.getElementsByClass(stream.Measure):
+        for mark in measure.getElementsByClass(expressions.RehearsalMark):
+            out.append((measure, mark))
+    return out
+
+
+def set_rehearsal(score, measure: int | None = None, mark: str | None = None,
+                  remove: bool = False, move_to: int | None = None,
+                  reletter: bool = False) -> dict:
+    """Add, remove, move or re-letter rehearsal marks.
+
+    On EVERY part, which is the decision worth stating. This app's workflow is
+    parts-first: a player reads an extracted part, and a mark written only to
+    the top staff of the full score is absent from every part but the first --
+    missing from precisely the page it is needed on. The cost is that Verovio
+    renders a direction from each part and anchors them all to staff 1 of a
+    COMBINED score, where they would stack on each other; the render dedupes
+    them there (`render.mei_with_deduped_rehearsals`) so the mark is drawn
+    once. Writing to the top staff alone would have been simpler and would
+    have lost the marks from the parts.
+
+    With no `mark`, the next free letter is used: A-Z then AA, BB, CC.
+    `reletter` re-labels every existing mark in bar order, which is what you
+    want after inserting one in the middle.
+
+    How big the mark is and where it sits are `adjust-element`'s business, the
+    same as any other added element.
+    """
+    from music21 import expressions
+
+    parts = list(score.parts) or [score]
+
+    if reletter:
+        # bar order across the score, not per part: every part must agree
+        bars = sorted({m.number for p in parts for m, _ in _rehearsal_marks(p)})
+        for index, number in enumerate(bars):
+            letter = rehearsal_letter(index)
+            for part in parts:
+                for m, existing in _rehearsal_marks(part):
+                    if m.number == number:
+                        existing.content = letter
+        return {"relettered": [rehearsal_letter(i) for i in range(len(bars))],
+                "measures": bars, "marks": len(bars)}
+
+    if move_to is not None:
+        # remove-then-add, so it cannot half-happen (set_structure's shape)
+        moving = None
+        for m, existing in _rehearsal_marks(parts[0]):
+            if m.number == measure:
+                moving = str(existing.content)
+        set_rehearsal(score, measure=measure, remove=True)
+        return set_rehearsal(score, measure=move_to, mark=mark or moving)
+
+    if measure is None:
+        raise ValueError("say which measure the rehearsal mark is in")
+
+    if remove:
+        taken = 0
+        for part in parts:
+            for m, existing in _rehearsal_marks(part):
+                if m.number == measure:
+                    m.remove(existing)
+                    taken += 1
+        if taken == 0:
+            raise ValueError(f"no rehearsal mark in measure {measure}")
+        return {"removed": measure, "parts": taken}
+
+    if mark is None:
+        used = {str(existing.content) for p in parts for _, existing in _rehearsal_marks(p)}
+        index = 0
+        while rehearsal_letter(index) in used:
+            index += 1
+        mark = rehearsal_letter(index)
+
+    placed = 0
+    for part in parts:
+        target = _measure_or_raise(part, measure)
+        for m, existing in _rehearsal_marks(part):
+            if m.number == measure:
+                m.remove(existing)          # one mark per bar, not a stack
+        target.insert(0.0, expressions.RehearsalMark(mark))
+        placed += 1
+    return {"mark": mark, "measure": measure, "parts": placed}
+
+
 def set_structure(score, kind: str, measure: int | None = None,
                   to_measure: int | None = None, number: int | None = None,
                   times: int | None = None, remove: bool = False,
@@ -1826,6 +2030,100 @@ def resolve_elements(score, addresses: list) -> dict:
     return {"resolved": resolved, "missing": missing}
 
 
+ACCIDENTAL_NAMES = {
+    "sharp": 1, "flat": -1, "natural": 0,
+    "double-sharp": 2, "double-flat": -2,
+}
+
+
+def set_accidental(score, addresses: list, show: bool | None = None,
+                   add: str | None = None, remove: bool = False,
+                   color: str | None = None) -> dict:
+    """Add, remove, show, hide or colour the accidentals on named elements.
+
+    The manual counterpart to `normalize_accidentals`. Normalisation is what
+    keeps a transformation from engraving accidentals the key already implies;
+    this is for when the reader wants something other than the standard rule --
+    a courtesy sharp kept in, a cancellation taken out, a note marked in
+    colour while it is being worked on.
+
+    Two of these change the MUSIC and three change only its DISPLAY, and the
+    report says which happened to every element:
+
+      add / remove    the note's actual accidental, so its PITCH changes
+      show / hide     whether the glyph is drawn; the pitch is untouched
+      color           what colour the glyph is drawn in; display only
+
+    After a pitch change the affected parts are normalised, so an added
+    accidental prints by the same key-signature-aware rule as everything else;
+    an explicit --show or --hide is then applied on top and wins.
+
+    Colour reaches the page: MusicXML `<accidental color=…>` becomes MEI
+    `@color` and Verovio draws the glyph in it. `--color none` clears it.
+    """
+    if add is not None and add not in ACCIDENTAL_NAMES:
+        raise ValueError(f"accidental must be one of {sorted(ACCIDENTAL_NAMES)}, not {add!r}")
+    if add is not None and remove:
+        raise ValueError("--add and --remove ask for opposite things")
+
+    found = resolve_elements(score, addresses)
+    if not found["resolved"]:
+        raise AddressError(
+            "none of those elements are in this score: "
+            + "; ".join(m["why"] for m in found["missing"][:3]))
+
+    changed, touched_parts = [], []
+    for text, owner, pitch_index, _kind in found["resolved"]:
+        if isinstance(owner, m21note.Rest):
+            changed.append({"address": text, "skipped": "a rest has no accidental"})
+            continue
+        pitches = list(owner.pitches)
+        index = 0 if pitch_index is None else pitch_index
+        pitch = pitches[index]
+        was = pitch.nameWithOctave
+
+        if add is not None or remove:
+            pitch.accidental = None if remove else m21pitch.Accidental(add)
+            # a chord holds its pitches as a tuple; reassign or the edit is lost
+            if pitch_index is not None:
+                pitches[index] = pitch
+                owner.pitches = tuple(pitches)
+            holder = owner.getContextByClass(stream.Part)
+            if holder is not None and not any(holder is p for p in touched_parts):
+                touched_parts.append(holder)
+
+        changed.append({"address": text, "pitch_before": was,
+                        "pitch_now": pitch.nameWithOctave,
+                        "pitch_changed": was != pitch.nameWithOctave})
+
+    # the standard rule first, so an added accidental is engraved the way the
+    # key says it should be...
+    for part in touched_parts:
+        _normalize_part(part)
+
+    # ...and the explicit override second, so it wins
+    for text, owner, pitch_index, _kind in found["resolved"]:
+        if isinstance(owner, m21note.Rest):
+            continue
+        pitch = list(owner.pitches)[0 if pitch_index is None else pitch_index]
+        if pitch.accidental is None:
+            continue
+        if show is not None:
+            pitch.accidental.displayStatus = show
+            # displayType would otherwise veto the status on export
+            pitch.accidental.displayType = "always" if show else "never"
+        if color is not None:
+            pitch.accidental.style.color = None if color == "none" else color
+
+    return {"elements": changed,
+            "requested": len(addresses),
+            "resolved": len(found["resolved"]),
+            "pitch_changes": sum(1 for c in changed if c.get("pitch_changed")),
+            "display": ({"shown": show} if show is not None else {}),
+            "color": color,
+            "missing": found["missing"]}
+
+
 def transpose_elements(score, interval_str: str, addresses: list) -> dict:
     """Transpose ONLY the named elements.
 
@@ -1845,9 +2143,15 @@ def transpose_elements(score, interval_str: str, addresses: list) -> dict:
     # Group by owner so a chord with two selected notes is transposed once per
     # pitch and never twice over the same pitch.
     moved = 0
+    # the parts a selection actually landed in: only those get their
+    # accidentals recomputed, so a lasso in one staff cannot restyle another
+    touched_parts = []
     for _text, owner, pitch_index, kind in found["resolved"]:
         if isinstance(owner, m21note.Rest):
             continue
+        holder = owner.getContextByClass(stream.Part)
+        if holder is not None and not any(holder is p for p in touched_parts):
+            touched_parts.append(holder)
         if pitch_index is None:
             owner.transpose(itv, inPlace=True)
         else:
@@ -1855,8 +2159,10 @@ def transpose_elements(score, interval_str: str, addresses: list) -> dict:
             pitches[pitch_index] = pitches[pitch_index].transpose(itv)
             owner.pitches = tuple(pitches)
         moved += 1
+    hidden = sum(_normalize_part(p).get("hidden", 0) for p in touched_parts)
     return {"interval": itv.niceName,
             "direction": itv.direction.name.lower(),
             "elements_transposed": moved,
             "elements_requested": len(addresses),
+            "redundant_accidentals_hidden": hidden,
             "missing": found["missing"]}

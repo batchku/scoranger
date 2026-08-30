@@ -229,7 +229,8 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
            let sample = touches.first,
            LassoGate.isUndoTap(touches: fingerCount,
                                movement: down.keys.map(travel).max() ?? 0,
-                               elapsed: elapsed(sample)) {
+                               elapsed: elapsed(sample),
+                               inkCanvasLive: annotationActive) {
             onUndoTap?()
         }
         for touch in touches { report(touch, phase: "ended") }

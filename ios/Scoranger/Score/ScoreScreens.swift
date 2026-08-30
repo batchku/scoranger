@@ -77,7 +77,24 @@ struct ScoreOptionsScreen: View {
                     Rectangle().fill(Theme.Line.line).frame(height: 1)
                 }
 
-            ScreenRow(title: "Score display", value: state.twoPageSpread ? "two pages" : "one page",
+            // Only for a scan, and only while it IS one: once OMR has run, the
+            // arrangement has a notation version and the row has nothing left
+            // to offer. A row that stays and does nothing is worse than a row
+            // that goes.
+            if state.displayedArtifact == .scan {
+                ScreenRow(title: "Make editable",
+                          value: state.omrBusy ? "reading…" : "run OMR",
+                          leads: false,
+                          identifier: "more-make-editable") {
+                    guard !state.omrBusy else { return }
+                    state.makeEditable()
+                    onBack()
+                }
+                note("This arrangement is a PDF. Reading it produces a notation "
+                     + "version you can transpose, select and ask about — the "
+                     + "PDF stays as it is, so you can compare them.")
+            }
+            ScreenRow(title: "Score display", value: state.layout.summary,
                       identifier: "more-display") { push("Score display") }
             // Every row states its current answer where it has one. A screen of
             // bare labels is a menu; the answers are what make it a summary of
@@ -214,7 +231,19 @@ struct ScoreOptionsScreen: View {
             case "Score display":
                 ScreenRow(title: "Chord symbols", value: "size and position",
                           identifier: "display-chords") { push("Chord symbols") }
-                PanelToggle(title: "Two pages side by side", isOn: $state.twoPageSpread)
+                // The same three-way value the top bar carries. A toggle here
+                // could not say "continuous" at all, and two surfaces
+                // disagreeing about one property is how the impossible state
+                // got in last time.
+                ForEach(ScoreLayout.allCases, id: \.self) { option in
+                    ScreenRow(title: option.label, leads: false,
+                              isSelected: state.layout == option,
+                              identifier: "display-\(option.rawValue)") {
+                        state.layout = option
+                        state.pageIndex = 0
+                        Task { await state.renderIfNeeded() }
+                    }
+                }
                     .padding(Theme.Metric.s20)
                     .accessibilityIdentifier("display-spread")
                 PanelToggle(title: "Show transport (preview)", isOn: $showTransport)
@@ -293,7 +322,14 @@ struct TitleSwitcherBand: View {
         state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
     }
 
-    private var shownVersions: [VersionDoc] { Array(score.versions.suffix(4).reversed()) }
+    /// EVERY version, newest first. It was the last four, with the rest behind
+    /// an "All N versions" row that pushed a screen -- which is the loop a
+    /// reader hit when the version they wanted was the fifth one back. The band
+    /// scrolls (TitleBandLayout), so a long history costs height it already
+    /// knows how to cap.
+    private var shownVersions: [VersionDoc] { Array(score.versions.reversed()) }
+    /// The grouped history is still one row away: it shows what PROMPT made a
+    /// run of versions, which this flat list cannot.
     private var hasAllVersionsRow: Bool { score.versions.count > 4 }
 
     private var contentHeight: CGFloat {

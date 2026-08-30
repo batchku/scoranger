@@ -29,6 +29,10 @@ struct ContentView: View {
     /// The height the score view has, so the title band can be capped against
     /// it rather than taking whatever it is offered (L16).
     @State private var scoreHeight: CGFloat = 0
+    /// The keyboard, watched rather than obeyed: the score screen opts out of
+    /// SwiftUI's automatic avoidance so the page keeps its size, and the chat
+    /// panel lifts its own input instead (#59).
+    @StateObject private var keyboard = KeyboardObserver()
 
     @State private var showSettings = false
     @State private var showImporter = false
@@ -168,7 +172,8 @@ struct ContentView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {
-                    PositionCounters(pages: pageCounter, bar: barCounter)
+                    PositionCounters(pages: state.layout.showsPageCounter ? pageCounter : nil,
+                                     bar: barCounter)
                         .padding(.top, Theme.Metric.s8)
                         // clear of the chat panel: these belong to the music,
                         // and they were being drawn over the chat's own header
@@ -182,7 +187,12 @@ struct ContentView: View {
             }
             // Performance mode gives the score the whole screen: the strip and
             // the transport go, and the page-turn zones become the point (§4.5).
-            if state.scoreMode != .performance, let document = state.pdfDocument {
+            // The strip is a list of PAGES. Continuous mode has one, so the
+            // strip showed a single thumbnail of the whole score -- true, and
+            // useless. The designer's position markers are the right answer and
+            // are not built yet; showing nothing is better than showing that.
+            if state.scoreMode != .performance, !state.layout.isContinuous,
+               let document = state.pdfDocument {
                 ThumbnailStrip(document: document,
                                current: state.visiblePageIndices,
                                spread: state.twoPageSpread,
@@ -213,6 +223,14 @@ struct ContentView: View {
             AnnotationBarLayer(controller: state.annotation)
         }
         .background(Theme.Surface.ground)
+        // #59: the music is not resized by a text field taking focus. The
+        // avoidance inset is a safe-area inset on the WHOLE screen -- the
+        // canvas lost the keyboard's height and the page re-fitted to what was
+        // left, collapsing a full page to a thumbnail. The pushed screens over
+        // this one are ZStack siblings and keep their avoidance, so their
+        // fields still lift; the chat panel, which lives inside here, lifts
+        // itself in `overlayLayer`.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onChange(of: state.annotation.isOn) { _, on in
             // the ink bar can be dismissed from its own control, and the mode
             // must follow it or the top bar would lie about the Pencil
@@ -222,11 +240,12 @@ struct ContentView: View {
             Theme.verifyFontsRegistered()
         }
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: Self.scoreTypes) { result in
+                      allowedContentTypes: Self.scoreTypes,
+                      allowsMultipleSelection: true) { result in
             let piece = importTargetPiece
             importTargetPiece = nil
-            if case .success(let url) = result {
-                state.receiveFile(at: url, intoPiece: piece)
+            if case .success(let urls) = result {
+                for url in urls { state.receiveFile(at: url, intoPiece: piece) }
             }
         }
         // Panel dialogs, not system ones: a sheet is 620 wide over a 34% dim and
@@ -409,17 +428,25 @@ struct ContentView: View {
 
     @ViewBuilder
     private var overlayLayer: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            if chatOpen {
-                OverlayPanel(edge: .trailing,
-                             width: isCompact ? .infinity : Theme.Metric.chatWidth) {
-                    chatPanel
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                if chatOpen {
+                    OverlayPanel(edge: .trailing,
+                                 width: isCompact ? .infinity : Theme.Metric.chatWidth) {
+                        chatPanel
+                    }
+                    .transition(panelTransition(.trailing))
                 }
-                .transition(panelTransition(.trailing))
             }
+            // the screen ignores the keyboard so the page keeps its size; the
+            // panel with the field in it takes the inset back (#59)
+            .padding(.bottom,
+                     KeyboardInset.panelBottom(keyboard: keyboard.height,
+                                               safeAreaBottom: geo.safeAreaInsets.bottom))
+            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: keyboard.height)
         }
-        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
     }
 
     /// Reduce Motion swaps the slide for a cross-fade (§5, §9).

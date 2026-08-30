@@ -76,4 +76,24 @@ final class RenderTransitionTests: XCTestCase {
                                                 next: "study-no-2/v002"),
                        .sameScore)
     }
+
+    // MARK: - The layout is part of the key now
+
+    /// Switching to continuous re-engraves the same music. Blanking for that
+    /// would throw away the page the reader is on and their selection, for a
+    /// change that is not a change of subject at all.
+    func testChangingLayoutIsTheSameScore() {
+        XCTAssertEqual(RenderTransition.between(previous: "jig/v003/page",
+                                                next: "jig/v003/continuous"),
+                       .sameScore)
+        XCTAssertFalse(RenderTransition.between(previous: "jig/v003/page",
+                                                next: "jig/v003/continuous")
+                        .blanksTheCanvas)
+    }
+
+    func testADifferentScoreStillBlanksWithALayoutInTheKey() {
+        XCTAssertEqual(RenderTransition.between(previous: "jig/v003/page",
+                                                next: "reel/v001/page"),
+                       .differentScore)
+    }
 }

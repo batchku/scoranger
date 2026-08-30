@@ -114,8 +114,8 @@ targets:
         # Several builds share a version while its bugs get fixed.
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
-        CURRENT_PROJECT_VERSION: 152
-        MARKETING_VERSION: 0.4.9
+        CURRENT_PROJECT_VERSION: 154
+        MARKETING_VERSION: 0.5.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -220,10 +220,12 @@ targets:
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
       - path: Scoranger/Navigation/Route.swift
+      - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
       - path: Scoranger/Score/PageTurn.swift
       - path: Scoranger/Score/ScorePosition.swift
       - path: Scoranger/Score/PagedCanvas.swift
+      - path: Scoranger/Score/KeyboardInset.swift
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources

@@ -22,6 +22,14 @@ struct ScorePagesView: View {
     /// The viewport in content coordinates, and the rows worth drawing at
     /// depth. Everything else renders at a cheap scale.
     @State private var visibleRect: CGRect = .zero
+    /// Continuous mode's tap zones ask the scroll view to move directly, since
+    /// there is no page index for them to change. The token makes the same
+    /// destination asked for twice still move.
+    @State private var scrollToken = 0
+    @State private var scrollTargetX: CGFloat = 0
+    /// The laid-out width of the continuous strip, so a tap knows where the
+    /// end of the music is.
+    @State private var surfaceWidth: CGFloat = 0
     /// Pencil markup: the shared controller, driven from the top bar.
     private var annotation: AnnotationController { state.annotation }
     /// What the Pencil means right now (§6). Selection is OFF in performance
@@ -40,17 +48,42 @@ struct ScorePagesView: View {
     private static let zoomRange: ClosedRange<CGFloat> =
         PagedCanvas.minimumZoom...PagedCanvas.maximumZoom
 
+    /// Room the canvas keeps clear at the bottom: 50pt of pill, its 20pt bottom
+    /// padding and 12 of breathing room. The pill floats over the canvas and
+    /// the score must never be under it.
+    ///
+    /// Read by BOTH the fit and the scroll view, from here, because when the
+    /// two disagreed the page was fitted to height the scroll view had already
+    /// given away: the unit filled the canvas, the scroll view added this as a
+    /// bottom inset anyway, and the top of the page scrolled off (L21).
+    static let bottomChrome: CGFloat = Theme.Metric.scoreBottomChrome
+        + Theme.Metric.s20 + Theme.Metric.s12
+
     var body: some View {
         GeometryReader { geo in
+            let continuous = state.layout.isContinuous
+            // The strip is ONE Verovio page with no system breaks; page 0 is
+            // the whole score.
+            let stripPage = continuous ? document.page(at: 0) : nil
+            let stripBox = stripPage?.bounds(for: .mediaBox).size ?? .zero
+            let stripScale = ContinuousTiles.fittedScale(
+                pageSize: stripBox, viewport: geo.size, bottomChrome: Self.bottomChrome)
+            let surface = CGSize(width: stripBox.width * stripScale,
+                                 height: stripBox.height * stripScale)
             let spread = state.twoPageSpread
             let unit = PagedCanvas.unit(at: state.pageIndex,
                                         pageCount: document.pageCount, spread: spread)
             let width = PagedCanvas.fittedPageWidth(
                 viewport: geo.size, pageAspect: aspect(of: unit.first),
                 pages: max(unit.count, 1), gutter: SpreadLayout.gutter,
-                margin: SpreadLayout.margin)
-            ZoomableScroll(contentWidth: width * CGFloat(max(unit.count, 1))
-                               + SpreadLayout.gutter * CGFloat(max(unit.count - 1, 0)),
+                margin: SpreadLayout.margin,
+                // the same reserve the scroll view below is given, from one
+                // constant: the two disagreeing is the whole of L21
+                bottomChrome: Self.bottomChrome)
+            ZoomableScroll(contentWidth: continuous
+                               ? surface.width
+                               : width * CGFloat(max(unit.count, 1))
+                                   + SpreadLayout.gutter * CGFloat(max(unit.count - 1, 0)),
                            onLasso: { page, path, adding in
                                select(path: path, onPage: page, adding: adding)
                            },
@@ -64,16 +97,15 @@ struct ScorePagesView: View {
                                turn(at: point, width: width, isPencil: isPencil)
                            },
                            onSwipeTurn: { direction in step(by: direction) },
-                           selectionEnabled: mode != .performance,
+                           // a scan has no geometry to hit-test, so a lasso
+                           // would draw and catch nothing -- worse than not
+                           // offering it
+                           selectionEnabled: mode != .performance
+                               && state.displayedArtifact == .notation,
                            resetPanToken: state.pageIndex,
                            annotationActive: annotation.isOn,
-                           // the pill floats over the canvas: 50pt of pill, its
-                           // 20pt bottom padding, and 12 of breathing room
-                           // the ink bar's height, not the pill's -- the pill
-                           // lost its score-view role and this inset outlived
-                           // the thing it was measuring (batch-2 #9)
-                           bottomChrome: Theme.Metric.scoreBottomChrome
-                               + Theme.Metric.s20 + Theme.Metric.s12,
+                           scrollTarget: (scrollToken, scrollTargetX),
+                           bottomChrome: Self.bottomChrome,
                            onVisibleRectChange: { rect, content in
                                visibleRect = rect
                                publishVisibleBars(contentRect: rect,
@@ -93,12 +125,19 @@ struct ScorePagesView: View {
                 let stepped = (settled * 4).rounded() / 4
                 if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
-                pageUnit(unit, width: width)
+                if continuous, let stripPage {
+                    continuousStrip(stripPage, surface: surface, scale: stripScale)
+                } else {
+                    pageUnit(unit, width: width)
+                }
             }
             // A turn slides the new unit in, out to the left and in from the
             // right, reversed going back. It is a transition on the unit, not
             // a scroll to an offset, which is why there is no offset to keep.
-            .id(state.pageIndex)
+            .onChange(of: surface.width, initial: true) { _, new in
+                surfaceWidth = new
+            }
+            .id(continuous ? -1 : state.pageIndex)
             .transition(.asymmetric(insertion: .move(edge: .trailing),
                                     removal: .move(edge: .leading)))
             .animation(Theme.Motion.overlay(reduced: reduceMotion), value: state.pageIndex)
@@ -260,7 +299,19 @@ struct ScorePagesView: View {
         guard let zone = PageTurn.turn(isPencil: isPencil, mode: mode, x: point.x,
                                        width: width, movement: 0, elapsed: 0)
         else { return }
-        step(by: zone == .next ? 1 : -1)
+        let direction = zone == .next ? 1 : -1
+        // No pages to turn in continuous mode: a tap moves the reader on by
+        // what is on screen (designer's spec). Performance mode keeps the same
+        // horizontal advance, which is what it already meant.
+        guard !state.layout.isContinuous else {
+            scrollTargetX = ContinuousTiles.advanced(from: visibleRect.minX,
+                                                     by: visibleRect.width,
+                                                     direction: direction,
+                                                     surfaceWidth: surfaceWidth)
+            scrollToken += 1
+            return
+        }
+        step(by: direction)
     }
 
     /// Step the unit. Rapid turns coalesce to the latest rather than queueing
@@ -294,6 +345,29 @@ struct ScorePagesView: View {
             }
         }
         .padding(.vertical, SpreadLayout.gutter)
+    }
+
+    /// The continuous strip: the whole score in one line, cut into tiles.
+    ///
+    /// Only the tiles near the viewport are drawn at full resolution. The
+    /// alternative -- one image of the whole strip, the way a page is drawn --
+    /// is a 21000pt-wide raster, and `PDFPageImage.maxRasterWidth` records what
+    /// happens when this app asks for that much bitmap.
+    @ViewBuilder
+    private func continuousStrip(_ page: PDFPage, surface: CGSize,
+                                 scale: CGFloat) -> some View {
+        let tiles = ContinuousTiles.tiles(surface: surface)
+        let deep = ContinuousTiles.atDepth(tiles: tiles, visible: visibleRect)
+        HStack(spacing: 0) {
+            ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
+                ContinuousTileView(page: page, tile: tile, scale: scale,
+                                   atDepth: deep.contains(index))
+            }
+        }
+        .padding(.vertical, ContinuousTiles.margin)
+        // NO page shadow. A page is a sheet lying on a surface and its shadow
+        // says so; the strip is one ribbon, and the shadow was being drawn at
+        // every tile join, banding the music at each one.
     }
 
     /// One page, with its own lasso anchor. The anchor is what makes a lasso
@@ -529,6 +603,49 @@ private struct PDFPageImage: View {
         let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
         return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
                               for: .mediaBox)
+    }
+}
+
+/// One tile of the continuous strip.
+///
+/// `PDFPageImage` rasters a whole page; this rasters a WINDOW onto one, by
+/// putting the tile's left edge at the origin before asking the page to draw.
+/// Tiles away from the viewport still draw, coarsely -- a blank gap where the
+/// music should be reads as a broken score, and a cheap raster does not.
+private struct ContinuousTileView: View {
+    let page: PDFPage
+    /// The tile in SURFACE points (the strip as laid out on screen).
+    let tile: CGRect
+    /// Surface points per PDF point.
+    let scale: CGFloat
+    let atDepth: Bool
+
+    var body: some View {
+        Image(uiImage: render())
+            .resizable()
+            .interpolation(.high)
+            .frame(width: tile.width, height: tile.height)
+    }
+
+    private func render() -> UIImage {
+        let raster: CGFloat = atDepth ? 2 : 0.35
+        let pixel = CGSize(width: max(tile.width * raster, 1),
+                           height: max(tile.height * raster, 1))
+        let box = page.bounds(for: .mediaBox)
+        return UIGraphicsImageRenderer(size: pixel).image { context in
+            let cg = context.cgContext
+            UIColor.white.setFill()
+            cg.fill(CGRect(origin: .zero, size: pixel))
+            // pixels per PDF point
+            let k = raster * scale
+            // PDF space is y-up from the mediaBox origin; the image is y-down
+            cg.translateBy(x: 0, y: pixel.height)
+            cg.scaleBy(x: 1, y: -1)
+            cg.scaleBy(x: k, y: k)
+            // slide this tile's left edge to the origin
+            cg.translateBy(x: -(tile.minX / max(scale, 0.0001)) - box.minX, y: -box.minY)
+            page.draw(with: .mediaBox, to: cg)
+        }
     }
 }
 

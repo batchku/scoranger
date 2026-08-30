@@ -68,4 +68,21 @@ final class ScoreTitleTests: XCTestCase {
                                           slug: "blue-bossa", pieceName: nil, parts: []),
                        "Blue Bossa")
     }
+
+    // MARK: - The versions trigger at the top of the canvas
+
+    func testTheVersionsLabelCountsThem() {
+        XCTAssertEqual(ScoreTitle.versionsLabel(count: 3), "3 versions")
+    }
+
+    /// One version is still worth showing: it is the trigger for the dropdown,
+    /// and a control that appears only once there are two of something is a
+    /// control nobody finds.
+    func testOneVersionIsSingular() {
+        XCTAssertEqual(ScoreTitle.versionsLabel(count: 1), "1 version")
+    }
+
+    func testNoVersionsSaysNothing() {
+        XCTAssertNil(ScoreTitle.versionsLabel(count: 0))
+    }
 }

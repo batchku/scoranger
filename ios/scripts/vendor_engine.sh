@@ -16,7 +16,7 @@ mkdir -p "$APP" "$PKGS"
 
 # engine sources (server/render/chat/cli are host-only; the bridge replaces them)
 mkdir -p "$APP/scoranger_engine"
-for f in __init__.py ops.py workspace.py db.py; do
+for f in __init__.py ops.py workspace.py db.py bulk.py; do
   cp "../engine/scoranger_engine/$f" "$APP/scoranger_engine/"
 done
 

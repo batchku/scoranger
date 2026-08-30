@@ -94,6 +94,22 @@ final class VisualSweep: XCTestCase {
 
     private func back() { tap("screen-back", wait: 2) }
 
+    /// Put the keyboard away.
+    ///
+    /// Tapping the search field raises it, and on iPad it then covers the
+    /// control the next step wants — so every screenshot after that was the
+    /// same score sitting behind a keyboard (#59).
+    private func dismissKeyboard() {
+        guard app.keyboards.count > 0 else { return }
+        for label in ["Hide keyboard", "dismiss", "Dismiss"] {
+            let key = app.keyboards.buttons[label]
+            if key.exists && key.isHittable { key.tap(); settle(0.5); return }
+        }
+        // last resort: the canvas centre, which is the one zone that turns no page
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+        settle(0.5)
+    }
+
     /// Get back to the library from wherever the last step left us.
     ///
     /// Written because the sweep drifted: a `back()` that missed left it on a
@@ -101,6 +117,7 @@ final class VisualSweep: XCTestCase {
     /// every screenshot after that was of the wrong place. This asserts the
     /// destination instead of assuming it.
     private func toLibrary(_ context: String = "") {
+        dismissKeyboard()
         for _ in 0..<4 {
             if app.textFields["library-search"].exists { return }
             if app.buttons["score-close"].exists { app.buttons["score-close"].tap() }
@@ -152,6 +169,7 @@ final class VisualSweep: XCTestCase {
         waitForSeed()
         snap("01-library-pieces")
         tap("library-search"); settle(); snap("02-library-search-focused")
+        dismissKeyboard()
 
         tap("library-sort"); settle(); snap("04-library-sort-open")
         tap("library-sort"); settle()

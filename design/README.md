@@ -72,3 +72,68 @@ overlay layout, `#N` as the identity element, light only.
   https://claude.ai/code/artifact/6a3c32b5-104e-477f-9dee-86d8e90e75ad
 - `png/system-01…12-*.png` — the 12 screens at 2360x1772.
 - `shoot-system.sh` — regenerates them (`ONLY="s4 s9" ./shoot-system.sh` for a subset).
+
+
+---
+
+# Phase 3 — navigation & IA redesign (awaiting approval)
+
+Design-first. Patterned on a professional sheet-music reader's navigation
+(bottom tabs, Home, My Library, a modal score view with a title dropdown, page
+thumbnail strip and transport) in our own Paper & Clay system. No app code
+changed.
+
+- `NAVIGATION_SYSTEM.md` — the spec: pattern-by-pattern mapping with sources,
+  the object model's consequences for navigation, screen specs, 15 new
+  components, the gesture arbitration table, the data we do not have yet,
+  ranked risks, and a TDD build order.
+- `scoranger-navigation.html` — 13 screens, tap to enlarge. `?screen=n5`
+  renders one screen full-bleed for screenshots.
+- `artifact-navigation.html` — published at
+  https://claude.ai/code/artifact/f9cf0169-3f8a-41f0-a4f0-6408f4cac33f
+- `png/nav-01…13-*.png` — the screens at 2360x1772.
+- `shoot-nav.sh` — regenerates them (`ONLY="n5 n10" ./shoot-nav.sh`).
+
+
+---
+
+# Phase 4 — 0.4.1 revision: no context menus, paged canvas (awaiting approval)
+
+- `NAV_REVISION_0.4.1.md` — the focused spec: all six `contextMenu` sites and
+  where each action goes, the Edit-mode selection model and action bar, the
+  Move-to-piece sheet, the arrangement sheet as the management home, the `+`
+  menu, rail removal, count-once, and the paged canvas with its gesture delta.
+- `scoranger-nav-revision.html` — 7 screens. `?screen=r6` for one full-bleed.
+- `png/rev-1…7-*.png` — the screens at 2360x1772.
+- `shoot-rev.sh` — regenerates them.
+
+
+---
+
+# Phase 5 — 0.4.2: modal-free, per-row hamburger (awaiting approval)
+
+Supersedes the sheet-based parts of phase 4.
+
+- `NAV_MODAL_FREE_0.4.2.md` — the pattern rule (tab / push / inline reveal /
+  anchored bar / tap-to-edit), a sweep of every floating surface in the 0.4.0
+  tree with its replacement, the screens, the inline patterns including the
+  no-dialog delete, risks, and a build order ending in a grep-based acceptance
+  test.
+  - **§4C removes Home**: My Library becomes the app's only place — no tab bar,
+    no FAB, no recents; the four actions become a 44pt compact row in the
+    control bar, with exact metrics for the engineer. Mockup: `mf-00-library-merged.png`.
+  - **§4B is the standing no-drag principle**: nothing is filed, ordered or moved
+    by dragging. Filing is chosen at import (`ImportDestinationScreen`) or via
+    Move to piece; membership via the set list's Add arrangements; order via
+    ▲▼ on the row, which renumbers #N. Includes the list of drag code to delete
+    and what the rule deliberately does *not* touch (pan, pinch, lasso, ink).
+  - **§4A is the standing simplification principle**: where an action's only job
+    is to edit a value, the action is deleted and the value becomes tap-to-edit.
+    Rename no longer exists anywhere in the app. The section lists every editable
+    value, which screen it is editable on, which listing rows deliberately keep
+    tap-to-open instead, and the discoverability/accessibility mitigations.
+- `scoranger-modal-free.html` — 10 screens. `?screen=v3` for one full-bleed.
+- `artifact-modal-free.html` — published at
+  https://claude.ai/code/artifact/4753361a-3a2d-4163-86b7-63edccd5b68f
+- `png/mf-01…10-*.png` — the screens at 2360x1772.
+- `shoot-modalfree.sh` — regenerates them.

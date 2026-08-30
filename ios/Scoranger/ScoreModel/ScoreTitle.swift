@@ -55,4 +55,11 @@ enum ScoreTitle {
         if named.count <= 3 { return named.joined(separator: ", ") }
         return "\(named.count) parts"
     }
+
+    /// The version count, as the label on the control that opens the version
+    /// dropdown. Nil when there is nothing to list.
+    static func versionsLabel(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        return "\(count) version" + (count == 1 ? "" : "s")
+    }
 }

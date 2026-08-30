@@ -536,10 +536,36 @@ final class AppState: ObservableObject {
     @AppStorage("useLocalEngine") var useLocalEngine = true
     /// Guards the one-time rename of the old seeded "Samples" setlist.
     @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
-    /// Two pages side by side, the way a score sits on a stand. Off by
-    /// default: on one page the music is twice the size, which is what you
-    /// want while arranging and not what you want while playing.
-    @AppStorage("twoPageSpread") var twoPageSpread = false
+    /// How the score is laid out: one page, a spread, or continuous.
+    ///
+    /// One page by default: on one page the music is twice the size, which is
+    /// what you want while playing. Stored as a string so a fourth layout
+    /// costs nothing, and read through `layout` below.
+    @AppStorage("scoreLayout") private var storedLayout = ScoreLayout.page.rawValue
+    /// The spread preference this replaced. Read ONCE, to carry a reader who
+    /// already had the spread on into the new setting; never written again.
+    @AppStorage("twoPageSpread") private var legacySpread = false
+    @AppStorage("didMigrateScoreLayout") private var didMigrateScoreLayout = false
+
+    var layout: ScoreLayout {
+        get { ScoreLayout(rawValue: storedLayout) ?? .page }
+        set { storedLayout = newValue.rawValue }
+    }
+
+    /// Kept so the twelve places that ask "is this a spread?" still can. It is
+    /// DERIVED: setting it chooses between the two page layouts and can no
+    /// longer disagree with `layout`.
+    var twoPageSpread: Bool {
+        get { layout == .spread }
+        set { layout = newValue ? .spread : .page }
+    }
+
+    /// Carries the old boolean over the first time the new build runs.
+    func migrateScoreLayout() {
+        guard !didMigrateScoreLayout else { return }
+        didMigrateScoreLayout = true
+        if legacySpread, layout == .page { layout = .spread }
+    }
     /// Cloud OMR service base URL (Audiveris on Cloud Run); empty = disabled.
     @AppStorage("omrURL") var omrURLString =
         (Bundle.main.object(forInfoDictionaryKey: "OMRDefaultURL") as? String) ?? ""
@@ -654,6 +680,63 @@ final class AppState: ObservableObject {
         selectedScore?.versions.first { $0.id == displayedVersionID }
     }
 
+    /// The folder import a reader is looking at before deciding to run it.
+    @Published var folderImportPlan: FolderImportPlan?
+    @Published var folderImportBusy = false
+    /// What the last run actually did, so the screen can report rather than
+    /// just closing and leaving the reader to count rows.
+    @Published var folderImportResult: String?
+
+    /// Read a folder and work out the pieces and arrangements in it. Writes
+    /// nothing.
+    @discardableResult
+    func previewFolderImport(at url: URL) async -> Bool {
+        folderImportBusy = true
+        defer { folderImportBusy = false }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let payload = try await local.bulkImport(folder: url, commit: false)
+            guard let plan = FolderImportPlan.decode(payload, folder: url) else {
+                lastError = "That folder could not be read as a library."
+                return false
+            }
+            folderImportPlan = plan
+            folderImportResult = nil
+            return !plan.isEmpty
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Run the plan the reader just approved.
+    func commitFolderImport() async {
+        guard let plan = folderImportPlan else { return }
+        folderImportBusy = true
+        defer { folderImportBusy = false }
+        let scoped = plan.folder.startAccessingSecurityScopedResource()
+        defer { if scoped { plan.folder.stopAccessingSecurityScopedResource() } }
+        do {
+            let payload = try await local.bulkImport(folder: plan.folder, commit: true)
+            let result = payload["result"] as? [String: Any]
+            let imported = (result?["imported"] as? [Any])?.count ?? 0
+            let failed = (result?["failed"] as? [Any])?.count ?? 0
+            folderImportResult = failed == 0
+                ? "Imported \(imported) arrangements."
+                : "Imported \(imported); \(failed) could not be read."
+            await refresh()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Notation or a scan. Read from the artifact's own filename, so it is
+    /// right even for a library written before scans existed.
+    var displayedArtifact: ScoreArtifact.Kind {
+        ScoreArtifact.kind(ofFile: displayedVersion?.file ?? "")
+    }
+
     /// One sidebar/menu row of version history: either a single version, or
     /// the run of versions one chat prompt produced (face = its final state).
     struct VersionGroup: Identifiable {
@@ -688,7 +771,7 @@ final class AppState: ObservableObject {
     /// leaves it on for every test that launches after it.
     func resetViewPreferencesForTesting() {
         guard ProcessInfo.processInfo.arguments.contains("-resetLibrary") else { return }
-        twoPageSpread = false
+        layout = .page
         // Pencil marks live in Documents, keyed by score and version, and so
         // outlive the workspace that -resetLibrary throws away. A stroke left
         // by one run turned up on a later run's canvas and read as a drawing
@@ -740,6 +823,38 @@ final class AppState: ObservableObject {
                                                  withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: docs.appending(path: "outbox-chat"),
                                                  withIntermediateDirectories: true)
+    }
+
+    /// Test fixture: one PDF arrangement, on request.
+    ///
+    /// Deliberately NOT part of `seedLibraryIfEmpty`: dozens of tests assert
+    /// against that library's shape, and adding an arrangement to it would
+    /// change counts and row order under all of them. It is also outside that
+    /// function's empty-library guard, because the suite relaunches into an
+    /// already-seeded library and the guard would skip this every time.
+    func seedScanArrangementIfRequested() async {
+        guard useLocalEngine,
+              ProcessInfo.processInfo.arguments.contains("-seedScanArrangement")
+        else { return }
+        do {
+            let existing = try await local.manifest().scores
+            guard !existing.contains(where: { $0.slug.hasPrefix("scanned-score") }) else {
+                return          // already there; importing again would stack copies
+            }
+            guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed"),
+                  let scan = ((try? FileManager.default.contentsOfDirectory(
+                    at: seed, includingPropertiesForKeys: nil)) ?? [])
+                    .filter({ $0.pathExtension.lowercased() == "pdf" })
+                    .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+                    .first else { return }
+            _ = try await local.call(op: "import-pdf",
+                                     args: ["path": scan.path,
+                                            "name": "Scanned score",
+                                            "piece": "Scanned score"])
+            await refresh()
+        } catch {
+            print("SCORANGER-SEED scan failed: \(error.localizedDescription)")
+        }
     }
 
     /// Test fixture only. The app ships with no sample library: a fresh install
@@ -906,7 +1021,12 @@ final class AppState: ObservableObject {
     /// Re-fetch the PDF when the displayed (score, version) changes.
     func renderIfNeeded(force: Bool = false) async {
         guard let score = selectedScore, let vid = displayedVersionID else { return }
-        let key = "\(score.slug)/\(vid)"
+        // The LAYOUT is part of the key: continuous is a different engraving of
+        // the same music, so switching to it has to re-engrave. The slug is
+        // still the first component, so RenderTransition reads this as the
+        // same score and keeps the current pages up until the new ones arrive
+        // rather than blanking the canvas (#44).
+        let key = "\(score.slug)/\(vid)/\(layout.rawValue)"
         guard force || key != renderedKey else { return }
         // Nothing, rather than the wrong thing -- but only when the thing has
         // actually changed.
@@ -948,12 +1068,24 @@ final class AppState: ObservableObject {
             var engravedAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
-                // one engrave: the pages drawn and the model hit-tested are the
-                // same Verovio load, or a lasso would select from a stale page
-                let engraving = try await VerovioRenderer.shared.engrave(musicXMLPath: path)
-                data = engraving.pdf
-                model = engraving.geometry
-                engravedAdjustments = engraving.chordAdjustments
+                if ScoreArtifact.kind(ofFile: path) == .scan {
+                    // A PDF the reader brought in. There is nothing to engrave:
+                    // the artifact IS the pages, so it is shown exactly as it
+                    // arrived. No geometry, which is what makes selection and
+                    // chat editing unavailable until OMR turns it into
+                    // notation -- see ScoreArtifact.
+                    data = try Data(contentsOf: URL(fileURLWithPath: path))
+                    model = nil
+                } else {
+                    // one engrave: the pages drawn and the model hit-tested are
+                    // the same Verovio load, or a lasso would select from a
+                    // stale page
+                    let engraving = try await VerovioRenderer.shared.engrave(
+                        musicXMLPath: path, layout: layout)
+                    data = engraving.pdf
+                    model = engraving.geometry
+                    engravedAdjustments = engraving.chordAdjustments
+                }
             } else {
                 data = try await client.exportPDF(score: score.slug, version: vid)
             }
@@ -982,21 +1114,76 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Run OMR on the scan being read, and add the transcription as the next
+    /// version of the SAME arrangement.
+    ///
+    /// Only meaningful for a scan: notation is already editable.
+    func makeEditable() {
+        guard let slug = selectedSlug,
+              let version = displayedVersion,
+              ScoreArtifact.kind(ofFile: version.file) == .scan else { return }
+        Task {
+            do {
+                let path = try await local.versionFilePath(score: slug, version: version.id)
+                convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     /// A file handed to us by the system (share sheet / "Open in").
     /// `piece` files the resulting arrangement under that piece (the sidebar's
     /// per-piece import); nil leaves it unfiled.
     func receiveFile(at url: URL, intoPiece piece: String? = nil) {
         if url.pathExtension.lowercased() == "pdf" {
-            convertPDF(at: url, intoPiece: piece)
+            // A PDF comes in AS A PDF: it opens and takes markup immediately,
+            // offline, with no service involved. It used to go straight to
+            // cloud OMR, which meant a reader could not open their own scan
+            // without a network and a wait, and got an imperfect transcription
+            // instead of the page they know. `convertPDF` is kept: it is what
+            // the explicit "make this editable" action will call.
+            importPDF(at: url, intoPiece: piece)
         } else {
             importScore(from: url, intoPiece: piece)
+        }
+    }
+
+    /// Import a PDF as a scan arrangement.
+    func importPDF(at url: URL, intoPiece piece: String? = nil) {
+        Task {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let tmp = FileManager.default.temporaryDirectory
+                    .appending(path: url.lastPathComponent)
+                try? FileManager.default.removeItem(at: tmp)
+                try FileManager.default.copyItem(at: url, to: tmp)
+                let name = url.deletingPathExtension().lastPathComponent
+                let slug = try await local.importPDF(fileURL: tmp, name: name, piece: piece)
+                try? FileManager.default.removeItem(at: tmp)
+                selectedSlug = slug
+                previewedSlug = slug
+                pinnedVersion = nil
+                await refresh()
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
     }
 
     /// PDF -> MusicXML via the cloud OMR service (Audiveris on Cloud Run),
     /// then import. Falls back to saving into Documents/intake when no
     /// service is configured.
-    private func convertPDF(at url: URL, intoPiece piece: String? = nil) {
+    /// PDF -> MusicXML through the cloud OMR service.
+    ///
+    /// `intoScore` is OMR ON DEMAND: the transcription becomes the next
+    /// version of that arrangement rather than a new one, so the scan the
+    /// reader knows stays as v001 and the two can be compared with the version
+    /// control. Without it, this is the old share-sheet path: a new
+    /// arrangement from a PDF handed to the app from outside.
+    private func convertPDF(at url: URL, intoPiece piece: String? = nil,
+                            intoScore: String? = nil) {
         let scoped = url.startAccessingSecurityScopedResource()
         let pdfData = try? Data(contentsOf: url)
         let name = url.deletingPathExtension().lastPathComponent
@@ -1144,10 +1331,19 @@ final class AppState: ObservableObject {
                 let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
                 try data.write(to: tmp)
-                let slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
+                let slug: String
+                if let intoScore {
+                    // the transcription joins the scan's own history
+                    _ = try await local.addVersion(from: tmp, score: intoScore,
+                                                   recordedAs: "omr")
+                    slug = intoScore
+                } else {
+                    slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
+                }
                 try? FileManager.default.removeItem(at: tmp)
                 selectedSlug = slug
                 previewedSlug = slug
+                // follow the newest version, which is the transcription
                 pinnedVersion = nil
                 await refresh()
             } catch {

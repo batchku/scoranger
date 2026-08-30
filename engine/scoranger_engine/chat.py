@@ -57,6 +57,13 @@ Working rules:
    part from #3" means pull_part from that ref. '#N' never means a version or a
    measure. If no numbered list is in context, say the arrangement isn't filed
    under a piece yet rather than guessing.
+7. Accidentals ARE yours to control, and the tools are clean_accidentals (a
+   whole part or score) and set_accidental (named notes: add, remove, show,
+   hide, colour). If a reader says a part has accidentals that are already in
+   the key signature, or is cluttered or hard to read, run clean_accidentals on
+   that part -- do not answer that display accidentals cannot be overridden.
+   Every op that changes pitches already normalises them against each part's
+   own WRITTEN key, so a transposing part is judged by what is on its staff.
 Answer concisely; the user sees the score update live.
 """
 
@@ -145,6 +152,68 @@ def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None
                   {"prefer": prefer, "parts": parts,
                    "from_measure": from_measure, "to_measure": to_measure},
                   lambda s: ops.respell(s, prefer, parts, from_measure, to_measure))
+
+
+def set_rehearsal(ctx: RunContext[str], measure: int | None = None,
+                  mark: str | None = None, remove: bool = False,
+                  move_to: int | None = None, reletter: bool = False) -> dict:
+    """Add, remove, move or re-letter rehearsal marks.
+
+    measure=9 adds one at bar 9, lettered with the next free letter unless you pass
+    mark='C'. remove=True takes the mark at that bar off; move_to=13 moves it there;
+    reletter=True re-labels every mark in bar order (A-Z, then AA, BB, CC), which is what
+    you want after inserting one in the middle.
+
+    Marks are written to EVERY part, so extracted parts keep them; the combined score
+    draws each one once. To change how big a mark is or where it sits, use adjust_element."""
+    return _apply(ctx.deps, "set-rehearsal",
+                  {"measure": measure, "mark": mark, "remove": remove,
+                   "move_to": move_to, "reletter": reletter},
+                  lambda s: ops.set_rehearsal(s, measure=measure, mark=mark,
+                                              remove=remove, move_to=move_to,
+                                              reletter=reletter))
+
+
+def clean_accidentals(ctx: RunContext[str], parts: list[str] | None = None) -> dict:
+    """Hide accidentals that the key signature already implies, so the part reads cleanly.
+
+    Use this when a reader says there are too many accidentals, that accidentals are
+    "already in the key signature", or that a part is cluttered or hard to read. Each part
+    is judged by the key signature ON ITS OWN STAFF, so a transposing instrument (an E-flat
+    alto saxophone, a B-flat clarinet) is judged by its WRITTEN key, not concert pitch.
+
+    Display only: no pitch, no spelling and no key signature changes. Accidentals that are
+    genuinely needed -- outside the key, or cancelling an earlier one in the bar -- are kept.
+    Every op that changes pitches already runs this, so you rarely need it after your own
+    edits; it is for cleaning up material that arrived cluttered."""
+    return _apply(ctx.deps, "clean-accidentals", {"parts": parts},
+                  lambda s: ops.normalize_accidentals(s, parts))
+
+
+def set_accidental(ctx: RunContext[str], elements: list[str],
+                   show: bool | None = None, add: str | None = None,
+                   remove: bool = False, color: str | None = None) -> dict:
+    """Add, remove, show, hide or colour the accidentals on particular notes.
+
+    `elements` are addresses like 's1/m15/l1/note#3' (staff/measure/layer/kind#ordinal) --
+    pass exactly the ones the context gives you for a selection, unchanged.
+
+    Two of these change the MUSIC:
+      add='sharp'|'flat'|'natural'|'double-sharp'|'double-flat' gives the note that
+        accidental, which CHANGES ITS PITCH
+      remove=True takes the accidental off, which also CHANGES ITS PITCH
+
+    Three change only the DISPLAY, never the pitch:
+      show=True  forces the glyph to be drawn (a courtesy accidental)
+      show=False stops it being drawn
+      color='#CC4125' draws it in that colour; color='none' clears it
+
+    To clean up a whole part rather than named notes, use clean_accidentals."""
+    return _apply(ctx.deps, "set-accidental",
+                  {"elements": elements, "show": show, "add": add,
+                   "remove": remove, "color": color},
+                  lambda s: ops.set_accidental(s, elements, show=show, add=add,
+                                               remove=remove, color=color))
 
 
 def change_clef(ctx: RunContext[str], part: str, clef: str, from_measure: int = 1) -> dict:
@@ -346,7 +415,8 @@ def assign_to_piece(ctx: RunContext[str], piece_name: str) -> dict:
 
 TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          transpose_elements,
-         respell, change_clef, change_instrument, rename_part, check_range, octave_shift,
+         respell, clean_accidentals, set_accidental, set_rehearsal,
+         change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, set_structure,

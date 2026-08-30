@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The app's places (NAVIGATION_SYSTEM.md §3, §4C).
 ///
@@ -102,16 +103,56 @@ struct RootView: View {
             // to remove it never ran.
             await state.tidyPieces()
             Theme.verifyFontsRegistered()
+            state.migrateScoreLayout()
             state.resetViewPreferencesForTesting()
             state.startPolling()
+            #if DEBUG
+            // Measurement fixture (L21): reach the spread with no tapping, so
+            // the layout can be read on a rotated simulator without XCUITest,
+            // whose rotation kills the runner on the 11-inch.
+            if ProcessInfo.processInfo.arguments.contains("-forceLandscape"),
+               let scene = UIApplication.shared.connectedScenes
+                   .compactMap({ $0 as? UIWindowScene }).first {
+                scene.requestGeometryUpdate(
+                    .iOS(interfaceOrientations: .landscapeRight))
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+            if ProcessInfo.processInfo.arguments.contains("-openFirstScoreSpread") {
+                for _ in 0..<120 where state.manifest?.scores.isEmpty != false {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    await state.refresh()
+                }
+                if let first = state.manifest?.scores.first?.slug {
+                    let args = ProcessInfo.processInfo.arguments
+                    state.layout = args.contains("-continuous") ? .continuous
+                        : (args.contains("-spread") ? .spread : .page)
+                    open(first)
+                }
+            }
+            #endif
         }
+        // Files OR a folder. A library arriving from another app is dozens of
+        // files organised in folders -- one per piece -- and importing them a
+        // tap at a time is not a migration path. A folder is PLANNED first and
+        // shown before anything is written; loose files import directly.
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: ContentView.scoreTypes) { result in
+                      allowedContentTypes: ContentView.scoreTypes + [.folder],
+                      allowsMultipleSelection: true) { result in
             let piece = importIntoPiece
             importIntoPiece = nil
-            if case .success(let url) = result {
-                state.receiveFile(at: url, intoPiece: piece)
-                segment = .pieces
+            guard case .success(let urls) = result else { return }
+            let folders = urls.filter { $0.hasDirectoryPath }
+            let files = urls.filter { !$0.hasDirectoryPath }
+            for url in files { state.receiveFile(at: url, intoPiece: piece) }
+            if !files.isEmpty { segment = .pieces }
+            // one folder at a time: two libraries at once is a plan nobody can
+            // read, and the screen shows one
+            if let folder = folders.first {
+                Task {
+                    if await state.previewFolderImport(at: folder) {
+                        libraryPath.append(.folderImport)
+                    }
+                }
             }
         }
     }
@@ -155,6 +196,10 @@ struct RootView: View {
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
+        case .folderImport:
+            FolderImportScreen(onBack: pop)
+                .navigationBarHidden(true)
+                .accessibilityIdentifier("screen-folder-import")
         case .moveToPiece(let slugs):
             MoveToPieceScreen(moving: slugs, onBack: pop)
                 .navigationBarHidden(true)

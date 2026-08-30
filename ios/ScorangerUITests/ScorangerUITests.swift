@@ -349,8 +349,15 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["score-ask"].exists, "chat has no button")
         XCTAssertTrue(app.buttons["score-more"].exists, "no … menu")
         XCTAssertTrue(app.buttons["score-edit"].exists, "no Edit")
-        XCTAssertTrue(app.buttons["score-spread"].exists,
-                      "the spread toggle should be in the top bar, not buried in Settings")
+        // The spread toggle became the three-way layout control (page / spread
+        // / continuous). The property is unchanged: how the score is laid out
+        // is chosen in the BAR, not buried in Settings.
+        XCTAssertTrue(app.buttons["layout-spread"].exists,
+                      "the layout control should be in the top bar")
+        XCTAssertTrue(app.buttons["layout-page"].exists && app.buttons["layout-continuous"].exists,
+                      "all three layouts should be offered")
+        XCTAssertFalse(app.buttons["score-spread"].exists,
+                       "the old two-state spread button should be gone")
         XCTAssertTrue(app.buttons["score-title"].exists, "no title block to switch from")
         XCTAssertFalse(app.buttons["pill-library"].exists,
                        "the pill's library toggle should be gone: browsing is a tab now")
@@ -560,7 +567,12 @@ final class ScorangerUITests: XCTestCase {
                           "page overflows the canvas with \(what): "
                           + "\(page.frame) in \(score.frame)")
             let fillsWidth = abs(page.frame.width - (score.frame.width - 24)) < 12
-            let fillsHeight = abs(page.frame.height - (score.frame.height - 24)) < 24
+            // minus the pill's reserve: a height-bound page fills the height
+            // that is CLEAR, not the whole canvas. Filling the canvas is what
+            // pushed the unit past its own scroll view and scrolled the top of
+            // the page away (L21).
+            let clear = score.frame.height - 24 - 84
+            let fillsHeight = abs(page.frame.height - clear) < 24
             XCTAssertTrue(fillsWidth || fillsHeight,
                           "page fills neither dimension with \(what): "
                           + "\(page.frame) in \(score.frame)")
@@ -592,6 +604,278 @@ final class ScorangerUITests: XCTestCase {
         sleep(1)
         assertWidth(screen, "chat closed again")
         assertPageFillsCanvas("chat closed again")
+    }
+
+    /// #60: there is always a way out of the score.
+    ///
+    /// On a phone the bar had no ✕ at all -- the version count added beside the
+    /// title pushed it off, and a phone has no other route back. Present in
+    /// 149, gone in 152. This runs at whatever width the destination gives it,
+    /// so it guards the phone when pointed at one and the iPad otherwise.
+    func testTheWayOutOfTheScoreIsAlwaysOnTheBar() {
+        openArrangement(firstArrangement)
+        let close = app.buttons["score-close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 180),
+                      "no ✕ on the score bar: the score is a dead end")
+        XCTAssertTrue(close.isHittable,
+                      "the ✕ exists but cannot be tapped: \(close.frame) in "
+                      + "\(app.windows.firstMatch.frame)")
+        // and it actually leaves
+        close.tap()
+        sleep(4)
+        // by what is GONE, not by what appears: the library's compact layout
+        // has no search field, so asserting one made this fail on the very
+        // device the bug was about
+        XCTAssertFalse(app.buttons["score-title"].exists, "✕ did not leave the score")
+        XCTAssertFalse(app.scrollViews["score-canvas"].exists)
+        XCTAssertGreaterThan(
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-")).count, 0,
+            "✕ left the score but landed nowhere")
+    }
+
+    /// A PDF arrangement opens, reads, and is honest about what it cannot do.
+    ///
+    /// This is the Newzik migration's shape: the library arrives as scans, they
+    /// open straight away with no service and no wait, and OMR is a later
+    /// choice. What a scan must NOT do is offer editing it cannot perform.
+    func testAScanArrangementOpensAndSaysWhatItCannotDo() {
+        app.terminate()
+        app.launchArguments = ["-seedTestLibrary", "-seedScanArrangement"]
+        app.launch()
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-scanned"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 120),
+                      "the scan never reached the library")
+        row.tap()
+        if app.buttons["score-title"].waitForExistence(timeout: 5) == false {
+            let choice = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                      "arrangement-choice-")).firstMatch
+            if choice.waitForExistence(timeout: 20) { choice.tap() }
+        }
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 120),
+                      "the scan did not open — a PDF needs no engraving, so this "
+                      + "should be fast")
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 30), "no page drawn for the scan")
+        shot("scan-arrangement")
+
+        // continuous re-engraves with Verovio, and a scan is never engraved
+        XCTAssertFalse(app.buttons["layout-continuous"].isEnabled,
+                       "continuous should be unavailable for a scan")
+        // the ones that do work still do
+        XCTAssertTrue(app.buttons["layout-page"].isEnabled)
+        XCTAssertTrue(app.buttons["score-edit"].exists,
+                      "Pencil markup is the whole point of bringing scans in early")
+
+        // and the way OUT of being a scan is offered
+        app.buttons["score-more"].tap()
+        XCTAssertTrue(menuRow("more-make-editable").waitForExistence(timeout: 10),
+                      "a scan should offer to be read into notation")
+        goBack()
+    }
+
+    /// Continuous mode: one strip, no pages.
+    func testContinuousLayoutShowsOneStripAndNoPageCounter() {
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+
+        // the three-way control replaced the spread button
+        XCTAssertFalse(app.buttons["score-spread"].exists,
+                       "the old spread toggle should be gone")
+        for option in ["page", "spread", "continuous"] {
+            XCTAssertTrue(app.buttons["layout-\(option)"].exists,
+                          "no \(option) cell in the layout control")
+        }
+        XCTAssertTrue(app.staticTexts["counter-pages"].exists
+                        || app.descendants(matching: .any)["counter-pages"].exists,
+                      "paged mode should count pages")
+
+        app.buttons["layout-continuous"].tap()
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the continuous engraving never arrived")
+        sleep(10)
+        // proof for the release notes: the APP's window, not the device
+        // display -- simctl's capture composites a stale band when the
+        // simulator has been rotated by another harness
+        if let png = XCUIScreen.main.screenshot().pngRepresentation as NSData?,
+           let dir = ProcessInfo.processInfo.environment["SCORANGER_SHOT_DIR"] {
+            png.write(toFile: dir + "/continuous-proof.png", atomically: true)
+        }
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(app.buttons["score-title"].frame.minY, 34.5, accuracy: 20,
+                       "the one top bar should be at the top of a \(window) window")
+        shot("continuous")
+
+        XCTAssertTrue(app.buttons["layout-continuous"].isSelected,
+                      "the continuous cell should read as selected")
+        XCTAssertFalse(app.descendants(matching: .any)["counter-pages"].exists,
+                       "continuous mode has no pages to count")
+        // exactly one of everything: a second top bar would mean the score
+        // screen is on screen twice
+        XCTAssertEqual(app.buttons.matching(identifier: "score-title").count, 1,
+                       "the score top bar is drawn more than once")
+    }
+
+    /// Performance mode, from the "…" screen's switch.
+    private func enterPerformanceMode() {
+        app.buttons["score-more"].tap()
+        // a PanelToggle, exposed as a SWITCH (L33): the row around it is a
+        // container and tapping that does not flip it
+        let toggle = app.switches["Performance mode"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no Performance mode switch")
+        toggle.tap()
+        if app.buttons["score-more"].exists, app.buttons["score-more"].isSelected {
+            app.buttons["score-more"].tap()
+        }
+        XCTAssertTrue(app.otherElements["performance-bar"].waitForExistence(timeout: 10),
+                      "performance mode did not start")
+    }
+
+    /// Jumping to another version is two taps from the canvas: the version
+    /// count, then the version. It was reachable only through the title block
+    /// or a pushed screen, and the band showed the last FOUR with the rest
+    /// behind an "All N versions" push -- a menu that gave information about
+    /// versions without switching to one.
+    func testTheVersionCountOpensTheVersionsAndJumpsToOne() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        ensureASecondVersion()
+
+        let trigger = app.buttons["score-versions"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 20),
+                      "no version count at the top of the canvas")
+        XCTAssertTrue(trigger.label.contains("version"),
+                      "the trigger should say how many: got \(trigger.label)")
+        trigger.tap()
+
+        let first = app.buttons["menu-version-v001"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10),
+                      "the versions did not drop down")
+        first.tap()
+        // the canvas re-engraves at that version, and the bar says so
+        XCTAssertTrue(waitForLabel(app.buttons["score-title"], contains: "v001",
+                                   timeout: 60),
+                      "tapping a version did not jump the canvas to it: "
+                      + "\(app.buttons["score-title"].label)")
+        shot("version-jumped")
+    }
+
+    /// The same two taps in performance mode, which had no route to versions at
+    /// all -- its bar is the way out and the mode, and nothing else.
+    func testVersionsAreReachableInPerformanceMode() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
+        ensureASecondVersion()
+        enterPerformanceMode()
+
+        let trigger = app.buttons["score-versions"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 20),
+                      "performance mode has no way to reach the versions")
+        trigger.tap()
+        let first = app.buttons["menu-version-v001"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10),
+                      "the versions did not drop down in performance mode")
+        first.tap()
+        sleep(3)
+        XCTAssertTrue(app.otherElements["performance-bar"].exists,
+                      "switching version dropped out of performance mode")
+        shot("version-jumped-performance")
+    }
+
+    /// One press, one undo. The ink canvas and the lasso overlay each owned a
+    /// two-finger tap -- the canvas recogniser declares
+    /// `cancelsTouchesInView = false` so it cannot eat the score's pinch, which
+    /// means the same tap reached the overlay too. Both called undo: draw two
+    /// circles, tap once, BOTH disappear.
+    func testOneUndoTapRemovesExactlyOneStroke() {
+        app.terminate()
+        app.launchArguments = ["-seedTestLibrary", "-annotateWithFinger"]
+        app.launch()
+        openArrangement(firstArrangement)
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 30), "no page found")
+
+        app.buttons["score-edit"].tap()
+        sleep(1)
+        // two separate strokes, well apart, neither crossing the other
+        for (from, to) in [(CGVector(dx: 0.25, dy: 0.30), CGVector(dx: 0.45, dy: 0.34)),
+                           (CGVector(dx: 0.55, dy: 0.55), CGVector(dx: 0.75, dy: 0.60))] {
+            score.coordinate(withNormalizedOffset: from)
+                .press(forDuration: 0.1,
+                       thenDragTo: score.coordinate(withNormalizedOffset: to))
+            sleep(1)
+        }
+        // the canvas publishes its own stroke count, so this is the drawing
+        // itself and not a screenshot read
+        func strokes() -> Int {
+            Int((page.value as? String ?? "").split(separator: " ").first ?? "") ?? -1
+        }
+        XCTAssertEqual(strokes(), 2, "the two strokes did not land; value was "
+                       + "\(page.value as? String ?? "nil")")
+        shot("undo-two-strokes")
+
+        page.twoFingerTap()
+        sleep(2)
+        XCTAssertEqual(strokes(), 1,
+                       "one tap should undo one stroke, not two")
+        shot("undo-one-left")
+    }
+
+    /// #59: typing must not resize the music. SwiftUI's automatic keyboard
+    /// avoidance inset the whole score screen, the canvas lost the keyboard's
+    /// height and the page re-fitted to what was left, so a full page became a
+    /// thumbnail while someone asked a question about it.
+    func testTheKeyboardDoesNotShrinkThePage() {
+        openArrangement(firstArrangement)
+        let score = app.scrollViews["score-canvas"]
+        XCTAssertTrue(score.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 30), "no page found in the canvas")
+
+        app.buttons["score-ask"].tap()
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
+        sleep(1)
+        // the canvas has already given the chat its width; only the keyboard
+        // is still to come
+        let canvasBefore = score.frame
+        let pageBefore = page.frame
+
+        let input = app.descendants(matching: .any)["chat-input"].firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "no chat input")
+        input.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 15),
+                      "no keyboard came up, so this proves nothing")
+        sleep(2)
+        shot("keyboard-up")
+
+        XCTAssertEqual(score.frame.height, canvasBefore.height, accuracy: 2,
+                       "the keyboard took "
+                       + "\(canvasBefore.height - score.frame.height)pt off the canvas")
+        XCTAssertEqual(page.frame.height, pageBefore.height, accuracy: 2,
+                       "the page shrank when the keyboard came up: "
+                       + "\(pageBefore) -> \(page.frame)")
+        // and the field being typed into is still above the keyboard
+        let keyboard = app.keyboards.element.frame
+        XCTAssertLessThanOrEqual(input.frame.maxY, keyboard.minY + 1,
+                                 "the chat input \(input.frame) is under the "
+                                 + "keyboard \(keyboard)")
     }
 
     /// Zoomed in, the page has to be bigger than the region and pannable to
@@ -1313,6 +1597,10 @@ final class ScorangerUITests: XCTestCase {
         // by identifier rather than by type: a menu row is a stack inside a
         // Button, which XCUITest reports as a container rather than a button --
         // the same reason the canvas is looked up this way
+        // "Make editable" is for scans. Notation already is, so a row offering
+        // to make it so would be a row that does nothing.
+        XCTAssertFalse(app.descendants(matching: .any)["more-make-editable"].exists,
+                       "notation should not be offered OMR")
         let annotations = menuRow("more-annotations")
         XCTAssertTrue(annotations.waitForExistence(timeout: 5),
                       "the … menu opened but Annotations is unreachable")
@@ -1941,23 +2229,29 @@ final class ScorangerUITests: XCTestCase {
         shot("spread-right-page-selected")
     }
 
-    func testTheSpreadToggleIsInSettingsAndOffByDefault() {
+    /// Settings offers the same three-way layout the bar does -- one property,
+    /// every surface -- and one page is still the default.
+    func testTheLayoutIsInSettingsAndOnePageIsTheDefault() {
         app.buttons["Settings"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["READING"].waitForExistence(timeout: 10),
                       "settings has no Reading band")
-        let toggle = app.switches["Two pages side by side"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "no two-page toggle")
-        XCTAssertEqual(toggle.value as? String, "0",
+        let onePage = app.switches["One page"]
+        XCTAssertTrue(onePage.waitForExistence(timeout: 5), "no layout choice in settings")
+        XCTAssertEqual(onePage.value as? String, "1",
                        "one page at a time is the default")
+        XCTAssertEqual(app.switches["Two pages"].value as? String, "0")
+        XCTAssertTrue(app.switches["Continuous"].exists,
+                      "settings cannot say 'continuous' at all if it is a spread toggle")
         closeSettings()
     }
 
     private func setTwoPageSpread(on: Bool) {
         app.buttons["Settings"].firstMatch.tap()
-        let toggle = app.switches["Two pages side by side"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no two-page toggle in settings")
-        if (toggle.value as? String == "1") != on { toggle.tap() }
-        XCTAssertEqual(toggle.value as? String, on ? "1" : "0")
+        let wanted = app.switches[on ? "Two pages" : "One page"]
+        XCTAssertTrue(wanted.waitForExistence(timeout: 10),
+                      "no layout choice in settings")
+        if wanted.value as? String != "1" { wanted.tap() }
+        XCTAssertEqual(wanted.value as? String, "1")
         closeSettings()
     }
 

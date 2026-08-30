@@ -47,6 +47,42 @@ struct LocalEngine {
         return (r["score"] as? String) ?? ""
     }
 
+    /// Import a PDF as a scan arrangement: stored as it arrived, readable and
+    /// annotatable at once. OMR is a separate, explicit step afterwards.
+    func importPDF(fileURL: URL, name: String?, piece: String? = nil) async throws -> String {
+        var args: [String: Any] = ["path": fileURL.path]
+        if let name { args["name"] = name }
+        if let piece { args["piece"] = piece }
+        let r = try await result(op: "import-pdf", args: args)
+        return (r["score"] as? String) ?? ""
+    }
+
+    /// Plan (or run) the import of a whole exported folder.
+    ///
+    /// `commit: false` writes nothing and returns the tree it WOULD build --
+    /// this runs across an entire library, and the shape of someone's library
+    /// is worth reading before it exists.
+    func bulkImport(folder: URL, commit: Bool,
+                    manifest: [[String: Any]]? = nil) async throws -> [String: Any] {
+        var args: [String: Any] = ["folder": folder.path, "commit": commit]
+        if let manifest { args["manifest"] = manifest }
+        return try await result(op: "bulk-import", args: args)
+    }
+
+    /// Add a notation file as the next VERSION of an existing arrangement.
+    /// What OMR on demand produces: the scan stays as it was, and the
+    /// transcription sits after it in the same history.
+    /// `recordedAs` is the label the VERSION carries in its history ("omr"),
+    /// not a bridge op -- named apart from `op:` so it cannot be mistaken for
+    /// one, by a reader or by check_bridge_ops.
+    @discardableResult
+    func addVersion(from fileURL: URL, score: String,
+                    recordedAs label: String) async throws -> String {
+        let r = try await result(op: "add-version-from-file",
+                                 args: ["score": score, "path": fileURL.path, "op": label])
+        return (r["version"] as? String) ?? ""
+    }
+
     func deleteScore(_ slug: String) async throws {
         _ = try await result(op: "delete-score", args: ["score": slug])
     }

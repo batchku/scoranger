@@ -132,6 +132,27 @@ final class LassoGateTests: XCTestCase {
                                           elapsed: 0.1))
     }
 
+    /// The ink canvas carries its OWN two-finger tap recogniser, declared with
+    /// `cancelsTouchesInView = false` so it never eats the score's pinch. The
+    /// price of that is the same tap arriving here too -- and both owners
+    /// calling undo, which took two strokes off for one tap: draw two circles,
+    /// tap once, both gone.
+    ///
+    /// So when the canvas is live, the tap is ITS gesture and this is not an
+    /// undo. When ink is off the canvas takes no touches at all and this is
+    /// the only path left, which is why the answer is conditional rather than
+    /// the rule simply being deleted from one side.
+    func testTheInkCanvasOwnsTheTapWhileItIsLive() {
+        XCTAssertFalse(LassoGate.isUndoTap(touches: 2, movement: 3, elapsed: 0.1,
+                                           inkCanvasLive: true),
+                       "both owners fired and one tap undid two strokes")
+    }
+
+    func testWithInkOffTheOverlayStillOwnsTheUndoTap() {
+        XCTAssertTrue(LassoGate.isUndoTap(touches: 2, movement: 3, elapsed: 0.1,
+                                          inkCanvasLive: false))
+    }
+
     // MARK: - What the Pencil landing does to the selection already there (#1, #3)
 
     /// #1: the previous selection goes the INSTANT the Pencil touches down.
