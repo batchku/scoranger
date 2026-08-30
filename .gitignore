@@ -31,3 +31,6 @@ ios/.deploy.env
 
 # design mockup renders are regenerable via design/shoot*.sh
 design/png/
+
+# QA sweep screenshots: copyrighted scores, and large. Kept local only.
+design/qa/
