@@ -1,6 +1,11 @@
 # user score library and source material — never committed
 # (may contain copyrighted scores; the app regenerates workspace/ on first use)
 workspace/
+# ...and without the slash: a trailing slash matches DIRECTORIES ONLY, so a
+# SYMLINK by the same name is not ignored and is one `git add -A` away from
+# being committed as an absolute path out of someone's home directory. These
+# three paths get linked during development often enough for that to matter.
+workspace
 intake/
 
 # python
@@ -21,7 +26,9 @@ viewer/dist/
 .env
 ios/Vendor/
 ios/PythonApp/app_packages/
+ios/PythonApp/app_packages
 ios/PythonApp/app/scoranger_engine/
+ios/PythonApp/app/scoranger_engine
 __pycache__/
 .omr-api-key
 testdata/
