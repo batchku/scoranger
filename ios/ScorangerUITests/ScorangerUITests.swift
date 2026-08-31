@@ -106,7 +106,19 @@ final class ScorangerUITests: XCTestCase {
                       "the library never listed the piece holding \(slug)")
         pieceRow.tap()
 
+        // The tap can land while the library is still settling -- after the
+        // pencil stand-in relaunch it reliably does -- and then it opens
+        // nothing at all. Whichever lasso test ran FIRST after that relaunch
+        // failed here, and the other passed, which is what made it look like a
+        // flake rather than a race.
+        //
+        // One retry, and only while the row is still there to tap: the
+        // assertion below is unchanged, so the piece screen must still list
+        // its arrangements.
         let choice = app.buttons["arrangement-choice-\(slug)"]
+        if !choice.waitForExistence(timeout: 10), pieceRow.exists, pieceRow.isHittable {
+            pieceRow.tap()
+        }
         XCTAssertTrue(choice.waitForExistence(timeout: 30),
                       "the piece screen did not list its arrangements")
         choice.tap()
