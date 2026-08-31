@@ -700,18 +700,34 @@ final class AppState: ObservableObject {
         defer { folderImportBusy = false }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        // Listed HERE, inside the scope the picker granted: Python cannot
+        // enumerate a file-provider folder (FolderScan).
+        let files = FolderScan.relativePaths(in: url)
+        guard !files.isEmpty else {
+            notice = "Nothing to import from \u{201C}\(url.lastPathComponent)\u{201D} \u{2014} "
+                   + "the folder looks empty. If it lives in iCloud Drive, open it "
+                   + "in Files and download it first."
+            return false
+        }
         do {
-            let payload = try await local.bulkImport(folder: url, commit: false)
+            let payload = try await local.bulkImport(folder: url, files: files,
+                                                     commit: false)
             guard let plan = FolderImportPlan.decode(payload, folder: url) else {
-                lastError = "That folder could not be read as a library."
+                notice = "That folder could not be read as a library."
+                return false
+            }
+            guard !plan.isEmpty else {
+                notice = "No scores in \u{201C}\(url.lastPathComponent)\u{201D}: "
+                       + "\(files.count) file\(files.count == 1 ? "" : "s") found, "
+                       + "none of them notation or PDF."
                 return false
             }
             folderImportPlan = plan
             folderImportExcluded = []
             folderImportResult = nil
-            return !plan.isEmpty
+            return true
         } catch {
-            lastError = error.localizedDescription
+            notice = "That folder could not be imported: \(error.localizedDescription)"
             return false
         }
     }
@@ -725,7 +741,8 @@ final class AppState: ObservableObject {
         defer { if scoped { plan.folder.stopAccessingSecurityScopedResource() } }
         do {
             let payload = try await local.bulkImport(
-                folder: plan.folder, commit: true,
+                folder: plan.folder,
+                files: FolderScan.relativePaths(in: plan.folder), commit: true,
                 exclude: Array(folderImportExcluded))
             let result = payload["result"] as? [String: Any]
             let imported = (result?["imported"] as? [Any])?.count ?? 0

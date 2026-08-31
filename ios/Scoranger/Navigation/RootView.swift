@@ -103,6 +103,18 @@ struct RootView: View {
                 .ignoresSafeArea(edges: .bottom)
             }
 
+            // Above the score too: a PDF that will not transcribe has its say
+            // while the reader is looking at that very score.
+            if let message = state.notice {
+                VStack {
+                    Spacer()
+                    NoticeBar(message: message) { state.notice = nil }
+                        .padding(.bottom, Theme.Metric.s20)
+                        .padding(.horizontal, Theme.Metric.s16)
+                }
+                .zIndex(2)
+            }
+
             if let undo = state.undoableDelete, !scoreOpen {
                 VStack {
                     Spacer()
@@ -168,6 +180,18 @@ struct RootView: View {
             let piece = importIntoPiece
             importIntoPiece = nil
             importKind = nil
+            switch result {
+            case .failure(let error):
+                // Swallowed until now: the picker failing and the picker
+                // finding nothing looked identical from the outside.
+                state.notice = "The file picker could not open that: "
+                             + error.localizedDescription
+                return
+            case .success(let urls) where urls.isEmpty:
+                state.notice = "Nothing was selected."
+                return
+            default: break
+            }
             guard case .success(let urls) = result, let first = urls.first else { return }
             switch kind {
             case .file:

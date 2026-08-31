@@ -216,6 +216,47 @@ struct InlineRenameRow: View {
 /// A bar is not a modal: anchored, blocking nothing, and the list scrolls
 /// behind it. It is offered because the engine marks rather than unlinks --
 /// without the two-phase delete behind it this would be a button that lies.
+/// What the app has to say when something did not happen.
+///
+/// It exists because `notice` was written in five places and read in none:
+/// an import that found nothing, a PDF that would not transcribe, a missing OMR
+/// service -- each set a message that no view ever showed, so the app answered
+/// every one of them by returning to the library without a word. A message
+/// stays until it is dismissed; it is shown BECAUSE something went wrong, and a
+/// reader who looked away should still find it.
+struct NoticeBar: View {
+    let message: String
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Metric.s8) {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Ink.ink2)
+                .padding(.top, 2)
+            Text(message).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("notice-text")
+            Spacer(minLength: Theme.Metric.s8)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+            .accessibilityIdentifier("notice-dismiss")
+        }
+        .padding(.horizontal, Theme.Metric.s16)
+        .padding(.vertical, Theme.Metric.s12)
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
+        .accessibilityIdentifier("notice-bar")
+    }
+}
+
 struct UndoBar: View {
     let what: String
     var seconds: Int = 10
