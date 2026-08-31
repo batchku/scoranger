@@ -114,7 +114,7 @@ targets:
         # Several builds share a version while its bugs get fixed.
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
-        CURRENT_PROJECT_VERSION: 154
+        CURRENT_PROJECT_VERSION: 155
         MARKETING_VERSION: 0.5.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
@@ -229,6 +229,11 @@ targets:
       - path: ScorangerTests/Fixtures
         type: folder
         buildPhase: resources
+    dependencies:
+      # so a test can prove Verovio's SVG actually PARSES, not merely that our
+      # rewrite of it produced a non-empty string
+      - package: SwiftDraw
+        product: SwiftDraw
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger.tests
@@ -265,5 +270,9 @@ schemes:
     test:
       config: Debug
       targets: [ScorangerTests, ScorangerUITests]
+      # The scheme keeps EVERY test. Which ones a gate runs is decided by
+      # scripts/gate.sh, because XcodeGen's skippedTests produced an empty
+      # SkippedTests block here and a skip that silently does not skip is worse
+      # than none.
     archive:
       config: Release

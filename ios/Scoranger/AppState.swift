@@ -1379,6 +1379,22 @@ final class AppState: ObservableObject {
                 try data.write(to: tmp)
                 let slug: String
                 if let intoScore {
+                    // Prove it can be DRAWN before it becomes a version.
+                    //
+                    // OMR output is a draft and some of it cannot be engraved
+                    // at all. Adding such a version made the arrangement open
+                    // on "Render failed" with no way back -- and on a scan
+                    // that is a strict loss, because the PDF the reader
+                    // imported was perfectly readable a moment earlier. A
+                    // transcription that cannot be drawn is not offered.
+                    do {
+                        _ = try await VerovioRenderer.shared.engrave(musicXMLPath: tmp.path)
+                    } catch {
+                        try? FileManager.default.removeItem(at: tmp)
+                        notice = "That page could not be read into notation. "
+                            + "The PDF is unchanged."
+                        return
+                    }
                     // the transcription joins the scan's own history
                     _ = try await local.addVersion(from: tmp, score: intoScore,
                                                    recordedAs: "omr")

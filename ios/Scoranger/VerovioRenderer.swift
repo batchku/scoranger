@@ -13,12 +13,30 @@ actor VerovioRenderer {
     enum RenderError: Error, LocalizedError {
         case resourcesMissing
         case loadFailed(String)
-        case emptyPage(Int)
+        /// Verovio itself produced nothing for this page.
+        case pageEmpty(Int)
+        /// Verovio drew the page and OUR rewrite of it would not parse. A
+        /// different failure with a different fix, and it used to report
+        /// itself as `emptyPage` -- which sent three people hunting degenerate
+        /// notation for a score that was fine (see SVGForSwiftDraw).
+        case pageUnconvertible(Int)
+        /// Not one page of the score could be drawn.
+        case nothingDrawn
         var errorDescription: String? {
             switch self {
             case .resourcesMissing: return "Verovio resources bundle missing"
             case .loadFailed(let p): return "Verovio could not load \(p)"
-            case .emptyPage(let n): return "Verovio rendered an empty page \(n)"
+            case .pageEmpty(let n): return "Verovio drew nothing for page \(n)"
+            case .pageUnconvertible(let n):
+                return "Page \(n) was engraved but could not be converted for display"
+            case .nothingDrawn: return "No page of this version could be drawn"
+            }
+        }
+
+        var pageNumber: Int? {
+            switch self {
+            case .pageEmpty(let n), .pageUnconvertible(let n): return n
+            case .resourcesMissing, .loadFailed, .nothingDrawn: return nil
             }
         }
     }
@@ -95,6 +113,9 @@ actor VerovioRenderer {
     /// the parser needs.
     struct Engraving {
         let pdf: Data
+        /// Pages that could not be drawn. The score still opens; these are what
+        /// is missing from it.
+        var failedPages: [Int] = []
         /// nil when the model could not be built. The page still draws: a
         /// selection that cannot be made is better than a score that cannot be
         /// read.
@@ -165,27 +186,41 @@ actor VerovioRenderer {
         }
         let document = PDFDocument()
         var rawPages: [String] = []
+        /// Pages that could not be drawn, kept so the caller can say which.
+        var failures: [RenderError] = []
         for page in 1...max(t.getPageCount(), 1) {
             // size is applied to the drawn glyph, because Verovio has no
             // per-element text size to ask for
             let svg = ChordAdjustments.applySizes(t.renderToSVG(page, true),
                                                   adjustments: adjustments)
             rawPages.append(svg)
-            let prepared = Self.prepareForSwiftDraw(svg)
-            guard !prepared.isEmpty, let parsed = SVG(data: Data(prepared.utf8)) else {
-                throw RenderError.emptyPage(page)
+            // A page that cannot be drawn is SKIPPED, not fatal. Throwing here
+            // meant one unconvertible page threw away every good page with it:
+            // a reader whose page 1 failed got no score at all rather than
+            // pages 2 to 9. The pages that work are the point.
+            let prepared = SVGForSwiftDraw.prepare(svg)
+            guard !prepared.isEmpty else {
+                failures.append(.pageEmpty(page)); continue
             }
-            let pageData = try parsed.pdfData()
-            if let pageDoc = PDFDocument(data: pageData), let p = pageDoc.page(at: 0) {
-                document.insert(p, at: document.pageCount)
+            guard let parsed = SVG(data: Data(prepared.utf8)) else {
+                failures.append(.pageUnconvertible(page)); continue
             }
+            guard let pageData = try? parsed.pdfData(),
+                  let pageDoc = PDFDocument(data: pageData),
+                  let p = pageDoc.page(at: 0) else {
+                failures.append(.pageUnconvertible(page)); continue
+            }
+            document.insert(p, at: document.pageCount)
         }
-        guard let data = document.dataRepresentation() else {
-            throw RenderError.emptyPage(0)
+        // Only a score with NO drawable page at all is a failure.
+        guard document.pageCount > 0, let data = document.dataRepresentation() else {
+            throw failures.first ?? RenderError.nothingDrawn
         }
         // the same MEI the pages were drawn from, so addresses line up
         let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: mei)
-        return Engraving(pdf: data, geometry: geometry,
+        return Engraving(pdf: data,
+                         failedPages: failures.compactMap(\.pageNumber),
+                         geometry: geometry,
                          chordAdjustments: Self.byAddress(adjustments, in: geometry))
     }
 
@@ -219,150 +254,4 @@ actor VerovioRenderer {
     // rewrite the SVG into the plain subset it does handle. Validated against
     // the desktop toolchain (same output as the browser render).
 
-    private static let accidentalSubs: [(String, String)] = [
-        ("\u{E260}", "b"), ("\u{E262}", "#"), ("\u{E261}", ""),
-        ("\u{EA64}", "b"), ("\u{EA66}", "#"), ("\u{EA65}", ""),
-        ("\u{266D}", "b"), ("\u{266F}", "#"), ("\u{266E}", ""),
-    ]
-
-    static func prepareForSwiftDraw(_ svg: String) -> String {
-        // fingerings become drawn circles before anything else looks at the
-        // text: they are shapes from here on, not glyphs
-        var s = FingeringDiagrams.draw(in: svg)
-        for (glyph, ascii) in accidentalSubs {
-            s = s.replacingOccurrences(of: glyph, with: ascii)
-        }
-        s = s.replacingOccurrences(of: "currentColor", with: "black")
-
-        // flatten <svg class="definition-scale" viewBox="..."> into a <g>,
-        // hoisting its viewBox onto the root svg (which has only px width/height)
-        if let inner = s.range(of: #"<svg class="definition-scale"[^>]*>"#,
-                               options: .regularExpression) {
-            let tag = String(s[inner])
-            var viewBox = ""
-            if let vb = tag.range(of: #"viewBox="[^"]*""#, options: .regularExpression) {
-                viewBox = String(tag[vb])
-            }
-            s.replaceSubrange(inner, with: #"<g stroke="black" color="black">"#)
-            if let close = s.range(of: "</svg>") {
-                s.replaceSubrange(close, with: "</g>")
-            }
-            if !viewBox.isEmpty, let root = s.range(of: "<svg ") {
-                s.replaceSubrange(root, with: "<svg \(viewBox) ")
-            }
-        }
-
-        return flattenTextElements(s)
-    }
-
-    /// Rewrite every <text> block (arbitrarily nested tspans) into flat
-    /// <text> elements: one per positioned tspan, style attrs inherited from
-    /// the tspan stack, unpositioned runs (chord accidentals) appended to the
-    /// preceding positioned run.
-    ///
-    /// Verovio positions text two ways. Chord symbols repeat x/y on the inner
-    /// tspan; staff labels, tuplet numbers and page numbers carry x/y on the
-    /// enclosing <text> and leave every tspan unpositioned. Grouping only on a
-    /// positioned tspan therefore discarded the whole second category -- which
-    /// is why instrument names never reached the page. So a block opens with a
-    /// group seeded from the <text> element itself, and a positioned tspan
-    /// still starts a fresh one.
-    ///
-    /// Only x/y/text-anchor come from <text>: it also carries font-size="0px"
-    /// (the real size lives on the inner tspan), and seeding that would emit
-    /// correctly placed but invisible zero-height text.
-    private static func flattenTextElements(_ svg: String) -> String {
-        guard let blockRe = try? NSRegularExpression(
-            pattern: "<text[^>]*>.*?</text>", options: [.dotMatchesLineSeparators]),
-            let tokenRe = try? NSRegularExpression(pattern: "<[^>]+>|[^<]+"),
-            let attrRe = try? NSRegularExpression(pattern: #"([a-zA-Z-]+)="([^"]*)""#),
-            let titleRe = try? NSRegularExpression(
-                pattern: "<title[^>]*>.*?</title>", options: [.dotMatchesLineSeparators])
-        else { return svg }
-
-        let ns = svg as NSString
-        var result = ""
-        var cursor = 0
-        for match in blockRe.matches(in: svg, range: NSRange(location: 0, length: ns.length)) {
-            result += ns.substring(with: NSRange(location: cursor,
-                                                 length: match.range.location - cursor))
-            var block = ns.substring(with: match.range)
-            block = titleRe.stringByReplacingMatches(
-                in: block, range: NSRange(location: 0, length: (block as NSString).length),
-                withTemplate: "")
-
-            var stack: [[String: String]] = []
-            var out = ""
-            var groupAttrs: [String: String]? = nil
-            var groupText = ""
-            func closeGroup() {
-                if let attrs = groupAttrs,
-                   !groupText.trimmingCharacters(in: .whitespaces).isEmpty {
-                    let rendered = attrs.map { " \($0.key)=\"\($0.value)\"" }.sorted().joined()
-                    out += "<text\(rendered)>\(groupText)</text>"
-                }
-                groupAttrs = nil
-                groupText = ""
-            }
-            func attrs(of tag: String) -> [String: String] {
-                var d: [String: String] = [:]
-                let t = tag as NSString
-                for m in attrRe.matches(in: tag, range: NSRange(location: 0, length: t.length)) {
-                    d[t.substring(with: m.range(at: 1))] = t.substring(with: m.range(at: 2))
-                }
-                return d
-            }
-
-            let blockNS = block as NSString
-
-            // seed from the <text> open tag, so text that never meets a
-            // positioned tspan still has somewhere to land
-            if let openTag = block.range(of: "<text[^>]*>", options: .regularExpression) {
-                let a = attrs(of: String(block[openTag]))
-                if a["x"] != nil {
-                    var g: [String: String] = [:]
-                    for key in ["x", "y", "text-anchor"] { g[key] = a[key] }
-                    groupAttrs = g.compactMapValues { $0 }
-                }
-            }
-
-            for tok in tokenRe.matches(in: block,
-                                       range: NSRange(location: 0, length: blockNS.length)) {
-                let token = blockNS.substring(with: tok.range)
-                if token.hasPrefix("<tspan") {
-                    let a = attrs(of: token)
-                    stack.append(a)
-                    if a["x"] != nil {
-                        closeGroup()
-                        var g: [String: String] = [:]
-                        for key in ["x", "y", "text-anchor"] { g[key] = a[key] }
-                        groupAttrs = g.compactMapValues { $0 }
-                    }
-                } else if token.hasPrefix("</tspan") {
-                    if !stack.isEmpty { stack.removeLast() }
-                } else if !token.hasPrefix("<") {
-                    let text = token.replacingOccurrences(of: "\n", with: " ")
-                        .trimmingCharacters(in: .whitespaces)
-                    if !text.isEmpty, groupAttrs != nil {
-                        for key in ["font-size", "font-family", "font-weight", "font-style"] {
-                            guard groupAttrs?[key] == nil else { continue }
-                            for level in stack.reversed() {
-                                if let v = level[key],
-                                   !(key == "font-size" && (v == "0px" || v == "0")) {
-                                    groupAttrs?[key] = v
-                                    break
-                                }
-                            }
-                        }
-                        groupText += text
-                    }
-                }
-            }
-            closeGroup()
-            result += out
-            cursor = match.range.location + match.range.length
-        }
-        result += ns.substring(from: cursor)
-        return result
-    }
 }
