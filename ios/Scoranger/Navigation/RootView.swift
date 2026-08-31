@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// The app's places (NAVIGATION_SYSTEM.md §3, §4C).
 ///
@@ -33,12 +34,34 @@ struct RootView: View {
     /// unfiled.
     @State private var importIntoPiece: String?
     @State private var showSettings = false
-    @State private var showImporter = false
-    /// Separate pickers, deliberately. One picker that takes files OR a folder
-    /// makes the reader guess what they are choosing; three named actions say
-    /// it. (Import file / Import folder / Import book.)
-    @State private var showFolderImporter = false
-    @State private var showBookImporter = false
+    /// What the one file picker is currently being asked for.
+    ///
+    /// ONE `.fileImporter`, not three. Three of them on the same view is a
+    /// SwiftUI trap: stacked importers swallow each other and tapping Import
+    /// opened nothing at all -- the same "import is broken" failure the app
+    /// already shipped once. The three ACTIONS remain; they set this and share
+    /// a single presenter.
+    @State private var importKind: ImportKind?
+
+    enum ImportKind {
+        /// One or more score files.
+        case file
+        /// A whole exported library: one folder per piece.
+        case folder
+        /// A collection to take arrangements out of.
+        case book
+
+        var contentTypes: [UTType] {
+            switch self {
+            case .file:   return ContentView.scoreTypes
+            case .folder: return [.folder]
+            case .book:   return [.pdf]
+            }
+        }
+
+        /// A library arrives as many files; a folder and a book are one thing.
+        var allowsMultiple: Bool { self == .file }
+    }
     /// Settings is a panel docked at the trailing edge, not a screen that
     /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
     /// but its own ✕ -- the same shape as the chat panel over the score.
@@ -136,47 +159,31 @@ struct RootView: View {
             }
             #endif
         }
-        // Files OR a folder. A library arriving from another app is dozens of
-        // files organised in folders -- one per piece -- and importing them a
-        // tap at a time is not a migration path. A folder is PLANNED first and
-        // shown before anything is written; loose files import directly.
-        .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: ContentView.scoreTypes + [.folder],
-                      allowsMultipleSelection: true) { result in
+        // ONE presenter for all three actions -- see ImportKind.
+        .fileImporter(isPresented: Binding(get: { importKind != nil },
+                                           set: { if !$0 { importKind = nil } }),
+                      allowedContentTypes: (importKind ?? .file).contentTypes,
+                      allowsMultipleSelection: (importKind ?? .file).allowsMultiple) { result in
+            let kind = importKind ?? .file
             let piece = importIntoPiece
             importIntoPiece = nil
-            guard case .success(let urls) = result else { return }
-            let folders = urls.filter { $0.hasDirectoryPath }
-            let files = urls.filter { !$0.hasDirectoryPath }
-            for url in files { state.receiveFile(at: url, intoPiece: piece) }
-            if !files.isEmpty { segment = .pieces }
-            // one folder at a time: two libraries at once is a plan nobody can
-            // read, and the screen shows one
-            if let folder = folders.first {
+            importKind = nil
+            guard case .success(let urls) = result, let first = urls.first else { return }
+            switch kind {
+            case .file:
+                for url in urls { state.receiveFile(at: url, intoPiece: piece) }
+                segment = .pieces
+            case .folder:
+                // planned and shown before anything is written
                 Task {
-                    if await state.previewFolderImport(at: folder) {
+                    if await state.previewFolderImport(at: first) {
                         libraryPath.append(.folderImport)
                     }
                 }
+            case .book:
+                state.importBook(at: first)
+                segment = .books
             }
-        }
-        // A FOLDER: one directory per piece, its files the arrangements.
-        // Planned and shown before anything is written.
-        .fileImporter(isPresented: $showFolderImporter,
-                      allowedContentTypes: [.folder]) { result in
-            guard case .success(let folder) = result else { return }
-            Task {
-                if await state.previewFolderImport(at: folder) {
-                    libraryPath.append(.folderImport)
-                }
-            }
-        }
-        // A BOOK: a collection to take arrangements out of, not a piece.
-        .fileImporter(isPresented: $showBookImporter,
-                      allowedContentTypes: [.pdf]) { result in
-            guard case .success(let url) = result else { return }
-            state.importBook(at: url)
-            segment = .books
         }
     }
 
@@ -207,7 +214,7 @@ struct RootView: View {
                             onOpen: { open($0) }, push: push,
                             onImport: { pieceSlug in
                                 importIntoPiece = pieceSlug
-                                showImporter = true
+                                importKind = .file
                             })
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-piece-\(slug)")
@@ -327,9 +334,9 @@ struct RootView: View {
                     // its own row, and filing it is Move to piece whenever you
                     // like. Asking first put a modal-shaped question in front
                     // of the one thing the button exists to do.
-                    onImport: { showImporter = true },
-                    onImportFolder: { showFolderImporter = true },
-                    onImportBook: { showBookImporter = true },
+                    onImport: { importKind = .file },
+                    onImportFolder: { importKind = .folder },
+                    onImportBook: { importKind = .book },
                     onSettings: {
                         withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
                     },
