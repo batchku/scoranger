@@ -390,9 +390,13 @@ struct ContentView: View {
             StateView(systemImage: "music.note.list", title: "Engraving…",
                       message: "Verovio is setting the page.")
         } else if let err = state.lastError {
+            // The build is ON the failure, not only in Settings. A screenshot of
+            // this screen is how a reader reports it, and without the build
+            // stamp nobody can tell which version they are looking at -- an
+            // afternoon went into establishing that from timestamps alone.
             StateView(systemImage: "exclamationmark.triangle",
                       title: "Render failed", message: "The engine could not draw this version.",
-                      mono: err)
+                      mono: "\(err)\n\(Self.buildStamp)")
         } else {
             StateView(systemImage: "music.note", title: "Opening…")
         }
