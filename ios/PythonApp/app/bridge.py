@@ -102,12 +102,21 @@ def _dispatch(op, a):
         from scoranger_engine import bulk
 
         folder = a["folder"]
-        names = []
-        for base, _dirs, filenames in os.walk(folder):
-            for fn in filenames:
-                rel = os.path.relpath(os.path.join(base, fn), folder)
-                if not fn.startswith("."):
-                    names.append(rel)
+        # The caller may hand us the listing itself. It must, for a folder that
+        # came from the iCloud file provider: os.walk sees such a directory as
+        # EMPTY -- reading a file inside it works, enumerating it does not --
+        # and an empty walk used to end the import in silence. Swift enumerates
+        # under the security scope it already holds and passes what it found.
+        given = a.get("files")
+        if given is not None:
+            names = [str(n) for n in given if not os.path.basename(str(n)).startswith(".")]
+        else:
+            names = []
+            for base, _dirs, filenames in os.walk(folder):
+                for fn in filenames:
+                    rel = os.path.relpath(os.path.join(base, fn), folder)
+                    if not fn.startswith("."):
+                        names.append(rel)
         plan = bulk.plan(sorted(names), manifest=a.get("manifest"))
         # Pieces the reader deselected on the plan screen. Dropped from what is
         # WRITTEN, never from what is SHOWN: the plan still lists them, so the

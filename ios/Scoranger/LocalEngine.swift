@@ -62,10 +62,15 @@ struct LocalEngine {
     /// `commit: false` writes nothing and returns the tree it WOULD build --
     /// this runs across an entire library, and the shape of someone's library
     /// is worth reading before it exists.
-    func bulkImport(folder: URL, commit: Bool,
+    /// `files` are paths relative to `folder`, listed by the caller. Passing
+    /// them is not an optimisation: a folder from the iCloud file provider
+    /// enumerates as empty inside Python, so the engine cannot find its own
+    /// contents there. See `FolderScan`.
+    func bulkImport(folder: URL, files: [String]? = nil, commit: Bool,
                     manifest: [[String: Any]]? = nil,
                     exclude: [String] = []) async throws -> [String: Any] {
         var args: [String: Any] = ["folder": folder.path, "commit": commit]
+        if let files { args["files"] = files }
         if let manifest { args["manifest"] = manifest }
         if !exclude.isEmpty { args["exclude"] = exclude }
         return try await result(op: "bulk-import", args: args)
