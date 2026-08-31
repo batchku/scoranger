@@ -1012,28 +1012,56 @@ Five stages. Each is independently shippable, each leaves the app in a state
 worth having, and each has something that proves it in the style the repo
 already uses: a `check_*` script that fails without the fix.
 
-### Stage 0: stable identity
+### Stage 0: stable identity — BUILT
 
-**Nothing user-visible ships.** Every document gets a ULID `uid`; version IDs
-become opaque with `vNNN` as a derived label; the annotation key moves to
-`(scoreUid, versionUid, page)`; `db.py` gains a `Repository` protocol and
-`workspace._repo()` gains a factory; a `changes` journal table and `rev` /
-`synced_rev` fields land unused. The `FirestoreRepository` promise in `db.py`'s
-module docstring and in `CLAUDE.md` is replaced with a pointer to this document,
-because a stale plan in the file every contributor reads first is worse than no
-plan (section 1.1).
+**Nothing user-visible ships.** Every score, piece, setlist, book and source
+gets a ULID `uid` (`engine/scoranger_engine/ids.py`); version keys became opaque
+with `vNNN` demoted to a `label` on the document; `db.py` gained a `Repository`
+protocol and `workspace._repo()` a `repository_factory`. The
+`FirestoreRepository` promise in `db.py`'s module docstring and in `CLAUDE.md`
+is replaced with a pointer to this document, because a stale plan in the file
+every contributor reads first is worse than no plan (section 1.1).
 
-*Proves it:* `check_identity.py` (a rename does not change any `uid`; two
-versions created from the same parent get distinct IDs; every existing workspace
-migrates with no loss), plus the existing suite green, especially
-`check_workflows.py`, `check_undo.py` and `check_bridge_ops.py`.
+*Proves it:* `check_identity.py`, plus the existing suite green.
 
-*Deliberately not in this stage:* any network code, any Firebase dependency in
-the Xcode project.
+**What was built differently from this section's original plan, and why:**
 
-Do this one first even if the rest slips. It is a strict improvement on its own
-(it deletes `DrawingStore.rename` and its orphaning bug), and every later stage
-is unbuildable without it.
+- **The slug stays the local primary key.** `uid` is additive. `rename_slug`
+  keeps doing exactly what it does locally and is simply invisible to sync,
+  which is what section 3's table always said.
+- **The annotation key stays `<slug>/<versionId>`**, not
+  `<scoreUid>/<versionUid>`. `DrawingStore.rename` already handles slug moves,
+  so switching to the uid buys nothing until sync exists and risks a reader's
+  markup now. Stage-1 work. `DrawingStore.migrateVersionKeys` re-files markup
+  from the old `vNNN` onto the opaque id, driven by the manifest.
+- **The `changes` journal and `rev`/`synced_rev` were NOT built.** They have no
+  consumer until the sync layer exists, and unused schema goes stale before it
+  is used. The injection point is the part that mattered; adding them later is
+  a one-file change.
+- **Existing artifacts never move.** A version document already carried its
+  filename in `file` independently of its id, so the whole migration is
+  database-only. A migration that renames nothing cannot half-rename anything.
+
+**Known latent issue, accepted:** accessibility identifiers key on the *label*
+(`menu-version-v001`, `version-<slug>-v001`) rather than the opaque id, which is
+what keeps the UI tests readable and passing. Two forked versions share a label,
+so they would share an identifier. Harmless until stage 4 makes forks reachable;
+fix it there by keying identifiers on the id and updating the UI tests together.
+
+**Ordering, settled by test:** stage 0 can ship *after* a large import. A
+library built by the pre-stage-0 engine (43 arrangements, 104 versions, 111
+artifacts, including PDF arrangements, a book with extractions, sources, a
+setlist and a soft-deleted score) migrates in ~120 ms with every artifact
+byte-identical; subsequent launches cost nothing. There is no release-sequence
+constraint in that direction.
+
+The direction that *does* bite is a **downgrade**: an engine rolled back to
+before stage 0 appends a version keyed `vNNN` into an already-migrated
+arrangement. The migration's fast skip is therefore conditioned on the score's
+`uid` *and* on `latest` looking like an id, since any version an old engine
+writes becomes `latest`. Without that second condition the stray version is
+skipped for ever, and a second one would collide with it and overwrite. Covered
+by `check_identity.py`.
 
 ### Stage 1: sign in, and your library is on your other iPad
 

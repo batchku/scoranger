@@ -53,6 +53,13 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
             && lhs.versions == rhs.versions && lhs.sources == rhs.sources
     }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
+
+    /// The readable name of the version `latest` points at. `latest` is an
+    /// opaque id, so anywhere it was shown directly has to come through here.
+    var latestLabel: String? {
+        guard let latest else { return versions.last?.name }
+        return versions.first { $0.id == latest }?.name ?? versions.last?.name
+    }
 }
 
 struct PieceDoc: Codable, Identifiable, Hashable {
@@ -99,13 +106,26 @@ struct SetlistDoc: Codable, Identifiable, Hashable {
 }
 
 struct VersionDoc: Codable, Identifiable, Hashable {
+    /// The identity: opaque, assigned once, never rewritten. Key annotations,
+    /// caches and selections on this; never show it to anyone.
     var id: String
+    /// The name a person reads -- `v012`. Optional, and defaulted, so that a
+    /// manifest written by an older engine still decodes and so that every
+    /// existing `VersionDoc(...)` in the tests still compiles. `name` is what
+    /// callers use.
+    var label: String? = nil
     var file: String
     var op: String
     var time: String?
     var parts: [PartDoc]?
     /// The chat turn (prompt) this version was created during, if any.
     var turn: TurnRef?
+
+    /// What to put on screen. The id became opaque when versions had to be
+    /// allocatable on two devices at once (design/FIREBASE.md §3); every place
+    /// that used to render `id` renders this instead, or the library fills up
+    /// with 26-character strings nobody can read.
+    var name: String { label ?? id }
 
     static func == (lhs: VersionDoc, rhs: VersionDoc) -> Bool {
         lhs.id == rhs.id && lhs.op == rhs.op && lhs.parts == rhs.parts

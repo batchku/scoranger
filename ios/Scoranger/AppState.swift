@@ -536,6 +536,11 @@ final class AppState: ObservableObject {
     @AppStorage("useLocalEngine") var useLocalEngine = true
     /// Guards the one-time rename of the old seeded "Samples" setlist.
     @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
+    /// Session-scoped, deliberately not `@AppStorage`: re-running the
+    /// annotation re-file costs one directory listing and is idempotent, and a
+    /// persisted flag would skip it for ever on a device whose first run
+    /// happened before the library finished importing.
+    private var didMigrateAnnotationKeys = false
     /// How the score is laid out: one page, a spread, or continuous.
     ///
     /// One page by default: on one page the music is twice the size, which is
@@ -679,6 +684,10 @@ final class AppState: ObservableObject {
     var displayedVersion: VersionDoc? {
         selectedScore?.versions.first { $0.id == displayedVersionID }
     }
+
+    /// `v012`, for anywhere a person reads it. `displayedVersionID` is opaque
+    /// and belongs in keys and comparisons only.
+    var displayedVersionLabel: String? { displayedVersion?.name }
 
     /// The folder import a reader is looking at before deciding to run it.
     @Published var folderImportPlan: FolderImportPlan?
@@ -1020,6 +1029,14 @@ final class AppState: ObservableObject {
             // a long-press could keep the app from ever going idle.
             if manifest != m { manifest = m }
             engineOK = true
+            // Once per launch, and only after a manifest has arrived: the
+            // manifest is what carries each version's old `vNNN` beside its new
+            // id, so it is the only thing that can re-file a reader's pencil
+            // marks onto the new key. Cheap when there is nothing to do.
+            if !didMigrateAnnotationKeys {
+                DrawingStore.shared.migrateVersionKeys(manifest: m)
+                didMigrateAnnotationKeys = true
+            }
             // a selection pointing at a deleted score would otherwise leave the
             // canvas showing nothing with no row highlighted
             if let slug = selectedSlug, !m.scores.contains(where: { $0.slug == slug }) {
@@ -1742,8 +1759,13 @@ final class AppState: ObservableObject {
             lastError = "No arrangement '\(slug)' to export"
             return nil
         }
-        let name = ScoreExport.filename(title: score.title ?? score.name,
-                                        version: version, format: format)
+        // the LABEL, not the id: this becomes the filename the reader sees in
+        // Files and mails to someone, and "Quartet 01M1AK5E1YN2NQS5W2VEC214T8.pdf"
+        // is not a name anybody can use
+        let name = ScoreExport.filename(
+            title: score.title ?? score.name,
+            version: version.flatMap { v in score.versions.first { $0.id == v }?.name } ?? version,
+            format: format)
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("export", isDirectory: true)
             .appendingPathComponent(name)

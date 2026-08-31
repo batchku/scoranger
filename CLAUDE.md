@@ -40,8 +40,11 @@ So:
   the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
   marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
-  `check_structure.py` and `check_whistle.py` (notation), and
-  `check_addresses.py` (a selection-scoped op touches only what was selected).
+  `check_structure.py` and `check_whistle.py` (notation),
+  `check_addresses.py` (a selection-scoped op touches only what was selected),
+  and `check_identity.py` (an existing library survives the id migration with
+  every reference intact, a rename changes nothing but the slug, and two
+  offline devices allocate versions that do not collide).
 
 ## The engine CLI
 
@@ -214,21 +217,40 @@ reports any notes still out of range. **Always relay its report to the user**
 5. The viewer auto-refreshes to the **latest version** of the selected score
    within ~2s of any engine command. Tell the user what they should now see.
 
-## Data model (Firestore-shaped, local SQLite for now)
+## Data model (local SQLite, document-shaped)
 
 Source of truth: `workspace/scoranger.db` via `scoranger_engine/db.py`.
 - `scores/{slug}` — score document (name, title, composer, latest version id)
-- `scores/{slug}/versions/{vNNN}` — immutable version documents: the op + args
+- `scores/{slug}/versions/{id}` — immutable version documents: the op + args
   that produced it, parent version, timestamp, and a **parts snapshot**
   (name/instrument/clef/range/notes per part)
-- Artifacts (`workspace/<slug>/vNNN.musicxml`) stay outside the DB, referenced
-  by filename — the Cloud Storage analog
-- `workspace/manifest.json` is a projection of the DB for the viewer (the
-  Firestore-listener stand-in); it's rebuilt after every mutation
+- Artifacts (`workspace/<slug>/<version-id>.musicxml`) stay outside the DB,
+  referenced by filename
+- `workspace/manifest.json` is a projection of the DB for the app and the
+  viewer; it's rebuilt after every mutation
 
-Moving to Firebase = implement `FirestoreRepository` with the same interface as
-`SqliteRepository`, put artifacts in Storage, replace manifest polling with
-listeners. Never write meta files by hand; the DB is authoritative.
+Never write meta files by hand; the DB is authoritative.
+
+### Two names per thing: `slug` and `uid`
+
+- **slug** is the local handle: the directory on disk, what the CLI takes, what
+  chat means by `arr:<slug>`. Derived from the title, so `rename_slug` MOVES it
+  and rewrites every local reference. Local to one device.
+- **uid** is the identity: an opaque `ids.new_id()`, assigned once, never
+  rewritten, unique with no coordination. Every score, piece, setlist, book and
+  source has one. Sharing and sync address this, never the slug.
+
+A **version** has no slug. Its key is an opaque id, and `vNNN` is a *display
+label* on the document (`workspace.version_label`). Both resolve:
+`--version v012` and `--version <id>` reach the same version, so everything in
+this file that says `vNNN` is still true. Show the label, key on the id.
+
+This replaced two identifiers that were computed from things that move: a
+score's key was `slugify(title)`, and a version's was `v{row count + 1}`, which
+two devices working offline both resolve to the same value. Rationale and the
+plan this belongs to: `design/FIREBASE.md` §3. **The engine does not get a
+`FirestoreRepository`** — it runs on-device and a shipped client cannot hold
+service-account credentials, so sync belongs beside it in Swift (§2).
 
 **Titles and credits**: a score has exactly one title. It lives in the notation
 (MusicXML `<work-title>` *and* `<movement-title>` — Verovio engraves the
@@ -260,7 +282,7 @@ uploads MusicXML/MIDI through the engine API (`/api/import`, proxied by Vite).
 ```
 engine/            Python: music21 ops + CLI + local API (venv at engine/.venv)
 viewer/            Vite + React + OSMD
-workspace/         scoranger.db + <slug>/vNNN.musicxml + manifest.json
+workspace/         scoranger.db + <slug>/<version-id>.musicxml + manifest.json
 ```
 
 Setup from scratch: `python3 -m venv engine/.venv && engine/.venv/bin/pip install -e engine`

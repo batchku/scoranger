@@ -289,7 +289,7 @@ struct ContentView: View {
     private var scoreSubtitle: String {
         guard let score = state.selectedScore else { return "" }
         let piece = state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
-        return [piece?.name, state.displayedVersionID]
+        return [piece?.name, state.displayedVersionLabel]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -530,10 +530,10 @@ struct ContentView: View {
                     Task { await state.renderIfNeeded() }
                 } label: {
                     if group.face.id == state.displayedVersionID {
-                        Label("\(group.face.id) · \(shortTitle(group.title))",
+                        Label("\(group.face.name) · \(shortTitle(group.title))",
                               systemImage: "checkmark")
                     } else {
-                        Text("\(group.face.id) · \(shortTitle(group.title))")
+                        Text("\(group.face.name) · \(shortTitle(group.title))")
                     }
                 }
             }
