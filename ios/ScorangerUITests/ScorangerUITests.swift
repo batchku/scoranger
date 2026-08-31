@@ -26,6 +26,14 @@ final class ScorangerUITests: XCTestCase {
         // not true. A screenshot harness that rotates the device left the whole
         // suite reading the wrong geometry.
         XCUIDevice.shared.orientation = .portrait
+        // and WAIT for it. Assigning orientation is asynchronous: the sweeps
+        // leave the device in landscape, and under load this request had not
+        // taken effect before the test measured the canvas.
+        let upright = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                XCUIDevice.shared.orientation == .portrait
+            }, object: nil)
+        _ = XCTWaiter().wait(for: [upright], timeout: 10)
         app.launch()
         // A system sheet left standing by a previous test swallows every tap
         // that follows it. Launch clears the app's own state; this clears the

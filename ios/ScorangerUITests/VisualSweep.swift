@@ -14,6 +14,16 @@ import XCTest
 /// Untracked scaffolding for the QA loop; delete it or keep it, but it is not
 /// part of the shipped test suite's contract.
 final class VisualSweep: XCTestCase {
+    /// Put the device back. These sweeps rotate to photograph landscape, and a
+    /// device left rotated silently changes the FIT for every geometry test
+    /// that runs after them -- in landscape the page is height-bound, so a
+    /// zoom test measures a page a third the width it expects and fails for a
+    /// reason that has nothing to do with the code under test.
+    override func tearDown() {
+        XCUIDevice.shared.orientation = .portrait
+        super.tearDown()
+    }
+
     var app: XCUIApplication!
 
     /// Which way up this test sweeps. Set at the top of each test: passing
