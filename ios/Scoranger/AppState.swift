@@ -1157,6 +1157,16 @@ final class AppState: ObservableObject {
         return "\(slug)/\(vid)"
     }
 
+    /// Is the mixer on screen, and where is it parked.
+    ///
+    /// Here rather than in the view because the transport opens it and the
+    /// canvas draws it, the same reason the ink controller lives here.
+    @Published var mixerOpen = false
+    @Published var mixerCorner = MixerLayout.Corner.bottomTrailing
+
+    /// Who is deciding which page is shown while the music plays.
+    @Published var pageFollow = PageFollow()
+
     /// True while the engine is writing the MIDI. A long score takes a moment
     /// and a dead play button reads as a dead app.
     @Published var playbackPreparing = false
@@ -1228,6 +1238,13 @@ final class AppState: ObservableObject {
     /// Every op makes a version, so this fires on "transpose these bars up a
     /// tone" as well as on switching arrangement -- and it should. The sound
     /// belonged to music that is no longer on screen.
+    /// The reader turned a page themselves. Following yields until they ask
+    /// for it back; the music is untouched.
+    func readerTurnedPage() {
+        guard playback.isPlaying, pageFollow.isFollowing else { return }
+        pageFollow.readerTurnedPage()
+    }
+
     func invalidatePlaybackIfStale() {
         guard let loaded = playback.loadedKey else { return }
         guard loaded != playbackKey else { return }

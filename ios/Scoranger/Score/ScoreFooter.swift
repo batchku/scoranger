@@ -123,6 +123,11 @@ struct Transport: View {
     var unavailable: String?
     var preparing: Bool
     var onPlay: () -> Void
+    /// Whether the mixer is on screen. The voice list BELOW stays exactly
+    /// where it was: the mixer is a richer way to reach the same mutes, and
+    /// the rule is that an access path survives the build that replaces it.
+    var mixerOpen: Bool = false
+    var onMixer: () -> Void = {}
 
     /// The voice list, revealed in place. Local because nothing outside this
     /// row needs to know whether it is open.
@@ -218,6 +223,9 @@ struct Transport: View {
                      on: playback.metronome, id: "transport-metronome") {
             playback.metronome.toggle()
         }
+
+        toggleButton("mixer", glyph: "slider.vertical.3",
+                     on: mixerOpen, id: "transport-mixer", action: onMixer)
 
         // The one control that opens something. Its label is the ANSWER, not
         // the question: "3 of 4 voices" says what the state is without opening

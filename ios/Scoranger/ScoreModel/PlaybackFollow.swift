@@ -80,3 +80,63 @@ enum PlaybackFollow {
         return PagedCanvas.index(forPage: page, spread: spread)
     }
 }
+
+/// Who decides which page is shown while the music plays.
+///
+/// Following is on during playback and turns the page at 85% of its width, so
+/// the next page arrives before the music does. A MANUAL page turn hands
+/// control to the reader and does not take it back: the music keeps playing,
+/// the page stays where they put it, and following does NOT resume on its own.
+///
+/// The rule it replaces resumed automatically once the playhead came back into
+/// view, and that makes one gesture mean two different things depending on
+/// where the music happens to be. A reader paging ahead to see what is coming
+/// would be snatched back the moment the music arrived -- not because they
+/// asked, but because the playhead wandered in. An explicit tap is a reader
+/// saying "take me back", and that is the only moment it is right to move the
+/// page under someone.
+struct PageFollow: Equatable {
+
+    private(set) var isFollowing = true
+
+    /// The reader turned a page themselves. Nothing here stops the music --
+    /// this type cannot -- and following does not come back by itself.
+    mutating func readerTurnedPage() { isFollowing = false }
+
+    /// "Take me back." The only thing that restores following.
+    mutating func syncTapped() { isFollowing = true }
+
+    /// A different performance: another score, another version. Not a
+    /// resumption -- there is no page the reader chose to be on any more.
+    mutating func loadedSomethingElse() { isFollowing = true }
+
+    /// Whether the Sync control is on screen.
+    ///
+    /// Gated on `isFollowing`, and that gate is not decoration. The literal
+    /// rule -- "show it whenever the visible page is not the playhead's" --
+    /// INVERTS under auto-follow: the 85% turn is pre-emptive, so for a moment
+    /// the next page is showing while the playhead is still on the last one,
+    /// and a chip would blink on every single page turn. While following is on
+    /// the app is doing the paging and there is nothing to sync.
+    ///
+    /// - `visiblePages` carries BOTH pages of a spread, so a playhead on the
+    ///   left leaf of the visible spread shows nothing.
+    /// - Absent when nothing is playing, so stopping while paged away does not
+    ///   leave it stranded.
+    /// - Absent in performance mode, which exists to remove exactly this.
+    /// - `playheadPage` nil means no geometry -- every remote-engine render --
+    ///   and nothing is offered rather than a jump to a guess.
+    static func showsSync(isPlaying: Bool, isFollowing: Bool,
+                          playheadPage: Int?, visiblePages: [Int],
+                          isPerformanceMode: Bool) -> Bool {
+        guard isPlaying, !isFollowing, !isPerformanceMode,
+              let playheadPage else { return false }
+        return !visiblePages.contains(playheadPage)
+    }
+
+    /// What the chip says. The bar, because a reader navigates by bar and
+    /// "Back to playback" tells them nothing about where they are going.
+    static func syncLabel(bar: Int?) -> String {
+        bar.map { "Back to bar \($0)" } ?? "Back to playback"
+    }
+}

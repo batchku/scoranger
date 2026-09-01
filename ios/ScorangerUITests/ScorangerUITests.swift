@@ -2915,4 +2915,71 @@ extension ScorangerUITests {
         XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
                        "zooming stopped playback")
     }
+
+    /// The mixer: reachable, one strip per staff, and its controls live.
+    func testTheMixerOpensWithAStripPerStaff() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        revealTransport()
+        startPlaying()
+
+        // The voice list is STILL THERE. The mixer is a richer way to reach
+        // the same mutes and the old path survives the build that adds it.
+        XCTAssertTrue(app.buttons["transport-voices"].exists,
+                      "the voice list was removed in the build that replaced it")
+
+        let mixerButton = app.buttons["transport-mixer"]
+        XCTAssertTrue(mixerButton.waitForExistence(timeout: 20), "no way to the mixer")
+        mixerButton.tap()
+
+        let mixer = app.descendants(matching: .any)["mixer"].firstMatch
+        if !mixer.waitForExistence(timeout: 20) {
+            shot("mixer-did-not-open")
+            XCTFail("the mixer did not open."
+                    + " button=\(mixerButton.value as? String ?? "-")"
+                    + " grip=\(app.descendants(matching: .any)["mixer-grip"].firstMatch.exists)"
+                    + " strip0=\(app.descendants(matching: .any)["strip-mute-0"].firstMatch.exists)")
+        }
+
+        // A strip per staff -- the seeded quartet has four.
+        let strips = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "strip-mute-"))
+        if strips.count != 4 {
+            let ids = app.descendants(matching: .any).allElementsBoundByIndex
+                .map { "\($0.elementType.rawValue):\($0.identifier)" }
+                .filter { $0.contains("strip") || $0.contains("mixer") }
+            print("MIXER TREE: \(ids)")
+            print("MIXER FRAME: \(mixer.frame)")
+            XCTFail("expected one strip per staff, got \(strips.count)")
+        }
+        shot("mixer")
+
+        // The mute is live, and it is the SAME mute the transport reports.
+        let firstMute = app.descendants(matching: .any)["strip-mute-0"].firstMatch
+        XCTAssertEqual(firstMute.value as? String, "off")
+        firstMute.tap()
+        XCTAssertEqual(firstMute.value as? String, "on", "the strip mute did nothing")
+        XCTAssertTrue(app.buttons["transport-voices"].label.contains("3 of 4"),
+                      "the mixer and the transport disagree about the mutes: "
+                      + app.buttons["transport-voices"].label)
+
+        // The fader is adjustable, which is also the VoiceOver path.
+        let fader = app.descendants(matching: .any)["strip-fader-1"].firstMatch
+        XCTAssertTrue(fader.exists, "no fader on the second strip")
+        XCTAssertEqual(fader.value as? String, "7 of 10", "the default is 7")
+
+        // The grip moves it without a drag -- the path for readers who cannot.
+        let grip = app.descendants(matching: .any)["mixer-grip"].firstMatch
+        let where0 = grip.frame.origin
+        grip.tap()
+        XCTAssertNotEqual(grip.frame.origin, where0,
+                          "tapping the grip did not move the panel")
+        shot("mixer-moved")
+
+        app.descendants(matching: .any)["mixer-close"].firstMatch.tap()
+        XCTAssertTrue(waitForDisappearance(of: mixer, timeout: 10),
+                      "the mixer would not close")
+    }
 }

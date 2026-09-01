@@ -21,6 +21,14 @@ struct ContentView: View {
     /// teaches people the app is broken. Previous and next step the setlist and
     /// work whether or not this is on.
     @AppStorage("showTransport") private var showTransport = false
+
+    /// Lane 1 is the ink bar's, and it is only occupied when the bar is out.
+    private var inkLaneHeight: CGFloat { state.annotation.isOn ? 56 : 0 }
+    private var syncLaneInset: CGFloat { inkLaneHeight + 12 }
+    /// The mixer sits above whichever lanes are occupied. Recomputed when a
+    /// lane appears or disappears -- never per frame, or the panel drifts
+    /// under the reader's hand.
+    private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
@@ -215,7 +223,9 @@ struct ContentView: View {
                           playback: state.playback,
                           unavailable: state.playbackAvailability,
                           preparing: state.playbackPreparing,
-                          onPlay: { state.togglePlayback() })
+                          onPlay: { state.togglePlayback() },
+                          mixerOpen: state.mixerOpen,
+                          onMixer: { state.mixerOpen.toggle() })
                     // Built when the transport appears, never when the score
                     // opens: writing the MIDI takes music21 a moment and
                     // opening an arrangement must not wait on it.

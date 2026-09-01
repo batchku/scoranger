@@ -330,6 +330,10 @@ struct ScorePagesView: View {
         guard let next = PagedCanvas.step(from: state.pageIndex, by: direction,
                                           pageCount: document.pageCount,
                                           spread: state.twoPageSpread) else { return }
+        // A page turned BY THE READER hands following over to them. The music
+        // is not stopped and the page is not taken back: a Sync chip appears
+        // and waits to be asked.
+        state.readerTurnedPage()
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
     }
 
