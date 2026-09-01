@@ -2231,6 +2231,41 @@ def _timeline_spine(played):
     return max(parts, key=lambda p: len(p.getElementsByClass(stream.Measure))) if parts else None
 
 
+def _sounding_intervals(part, epsilon: float = 1e-6) -> list:
+    """When this staff is making a noise, as MERGED intervals in quarter notes.
+
+    For the mixer's activity LED, which asks one question twenty times a second:
+    is this staff sounding right now. Per-NOTE data would answer it too, and a
+    136-bar quartet is thousands of entries -- so contiguous notes are merged
+    and a part playing continuously through eight bars costs ONE pair rather
+    than thirty. A rest breaks the interval, which is exactly the moment the
+    LED should go dark.
+
+    Offsets are taken in the PERFORMED score's hierarchy, so a repeat that
+    sounds twice produces intervals covering both passes -- the same timebase
+    the bar map and the MIDI use.
+    """
+    spans = []
+    for element in part.recurse().notes:
+        start = float(element.getOffsetInHierarchy(part))
+        length = float(element.duration.quarterLength)
+        if length <= 0:
+            continue
+        spans.append((start, start + length))
+    if not spans:
+        return []
+    spans.sort()
+    merged = [list(spans[0])]
+    for start, end in spans[1:]:
+        # Touching counts as continuous: a crotchet followed straight by
+        # another is one sound to a reader watching a lamp, not two.
+        if start <= merged[-1][1] + epsilon:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [[round(a, 6), round(b, 6)] for a, b in merged]
+
+
 def playback_timeline(score) -> tuple:
     """The performed score, and the map from its beats back to the page.
 
@@ -2290,6 +2325,7 @@ def playback_timeline(score) -> tuple:
             # optical recognition labels "Voice". Honest beats a wrong guess:
             # the player falls back to its own documented default.
             "program": getattr(found, "midiProgram", None),
+            "sounding": _sounding_intervals(part),
         })
 
     return played, {

@@ -142,6 +142,85 @@ def main() -> int:
           == ["Violin I", "Violin II", "Viola", "Violoncello"],
           str([p["name"] for p in timeline["parts"]]))
 
+    print("\nwhat each staff is SOUNDING, merged into intervals")
+    # The activity LED asks "is this staff making a noise right now". Per-NOTE
+    # data would answer it and would also be enormous -- a 136-bar quartet is
+    # thousands of entries crossing a JSON boundary twenty times a second is
+    # not the cost, but holding it is. Contiguous notes are one interval, so a
+    # part playing continuously through eight bars costs ONE pair, not thirty.
+    held = stream.Score()
+    part = stream.Part()
+    part.partName = "Held"
+    for number in (1, 2, 3):
+        measure = stream.Measure(number=number)
+        if number == 1:
+            measure.insert(0, meter.TimeSignature("4/4"))
+        measure.append(note.Note("C4", quarterLength=4.0))
+        part.append(measure)
+    held.insert(0, part)
+    _played, timeline = ops.playback_timeline(held)
+    sounding = timeline["parts"][0]["sounding"]
+    check("three whole notes back to back are ONE interval",
+          sounding == [[0.0, 12.0]], str(sounding))
+
+    print("\na rest breaks the interval, which is the whole point of the LED")
+    gapped = stream.Score()
+    part = stream.Part()
+    part.partName = "Gapped"
+    measure = stream.Measure(number=1)
+    measure.insert(0, meter.TimeSignature("4/4"))
+    measure.append(note.Note("C4", quarterLength=1.0))
+    measure.append(note.Rest(quarterLength=2.0))
+    measure.append(note.Note("D4", quarterLength=1.0))
+    part.append(measure)
+    gapped.insert(0, part)
+    _played, timeline = ops.playback_timeline(gapped)
+    sounding = timeline["parts"][0]["sounding"]
+    check("a note, a rest, a note is two intervals",
+          sounding == [[0.0, 1.0], [3.0, 4.0]], str(sounding))
+
+    print("\nevery staff gets its own, and a silent staff gets none")
+    mixed = stream.Score()
+    for name, pitches in (("Plays", ["C4"]), ("Tacet", [])):
+        part = stream.Part()
+        part.partName = name
+        measure = stream.Measure(number=1)
+        measure.insert(0, meter.TimeSignature("4/4"))
+        if pitches:
+            measure.append(note.Note(pitches[0], quarterLength=4.0))
+        else:
+            measure.append(note.Rest(quarterLength=4.0))
+        part.append(measure)
+        mixed.insert(0, part)
+    _played, timeline = ops.playback_timeline(mixed)
+    check("the playing staff has an interval",
+          timeline["parts"][0]["sounding"] == [[0.0, 4.0]],
+          str(timeline["parts"][0]["sounding"]))
+    check("the resting staff has none, not a fake one",
+          timeline["parts"][1]["sounding"] == [],
+          str(timeline["parts"][1]["sounding"]))
+
+    print("\nand they follow the PERFORMANCE, so a repeat sounds twice")
+    repeated_led = stream.Score()
+    part = stream.Part()
+    part.partName = "P"
+    for number in (1, 2):
+        measure = stream.Measure(number=number)
+        if number == 1:
+            measure.insert(0, meter.TimeSignature("4/4"))
+        measure.append(note.Note("C4", quarterLength=4.0))
+        part.append(measure)
+    measures = part.getElementsByClass(stream.Measure)
+    measures[0].leftBarline = bar.Repeat(direction="start")
+    measures[1].rightBarline = bar.Repeat(direction="end", times=2)
+    repeated_led.insert(0, part)
+    _played, timeline = ops.playback_timeline(repeated_led)
+    # Expanded, the two bars are played twice and the notes are contiguous
+    # throughout, so it is one unbroken interval covering the performance.
+    check("the intervals cover the played length, not the written one",
+          timeline["parts"][0]["sounding"] == [[0.0, 16.0]],
+          str(timeline["parts"][0]["sounding"]))
+
     # -------------------------------------------------------------- repeats
     print("\na repeat: bar 1 is played TWICE, so it owns two stretches of time")
     repeated = stream.Score()

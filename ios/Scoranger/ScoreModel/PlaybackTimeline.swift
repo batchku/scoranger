@@ -26,6 +26,25 @@ struct PlaybackTimeline: Decodable, Equatable {
         /// A short bar at the head of the music, whose beats are the tail of a
         /// full bar's grid.
         var pickup: Bool = false
+
+        init(measure: Int, start: Double, end: Double, pickup: Bool = false) {
+            self.measure = measure
+            self.start = start
+            self.end = end
+            self.pickup = pickup
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case measure, start, end, pickup
+        }
+
+        init(from decoder: Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            measure = try box.decode(Int.self, forKey: .measure)
+            start = try box.decode(Double.self, forKey: .start)
+            end = try box.decode(Double.self, forKey: .end)
+            pickup = try box.decodeIfPresent(Bool.self, forKey: .pickup) ?? false
+        }
     }
 
     /// One tick of the metronome.
@@ -49,6 +68,48 @@ struct PlaybackTimeline: Decodable, Equatable {
         /// -- every staff optical recognition labels "Voice". Nil is honest:
         /// the player picks its own default rather than the engine guessing.
         let program: Int?
+
+        /// When this staff is making a noise, as MERGED [start, end] pairs in
+        /// quarter notes. The mixer's activity LED reads it.
+        ///
+        /// Merged, not per-note: contiguous notes are one interval, so a part
+        /// playing continuously through eight bars costs ONE pair rather than
+        /// thirty. Measured on the scanned quartet -- 136 bars, four staves --
+        /// the whole set is 2.3 kB and the busiest staff has 61 intervals.
+        ///
+        /// Defaulted, so a timeline written by an older engine still decodes:
+        /// the engine and the app ship separately on iPad, and a missing key
+        /// must not take the performance down with it. Empty means tacet, and
+        /// a tacet staff never lights.
+        var sounding: [[Double]] = []
+
+        init(index: Int, name: String, instrument: String?, program: Int?,
+             sounding: [[Double]] = []) {
+            self.index = index
+            self.name = name
+            self.instrument = instrument
+            self.program = program
+            self.sounding = sounding
+        }
+
+        // Written out because a `var` with a default is STILL REQUIRED by the
+        // synthesised decoder -- the default applies to the memberwise
+        // initialiser and to nothing else. Every "defaulted" field on this
+        // type was therefore mandatory, and a timeline missing any one of them
+        // failed the whole decode. That is the wrong failure for a field the
+        // engine only recently began emitting.
+        private enum CodingKeys: String, CodingKey {
+            case index, name, instrument, program, sounding
+        }
+
+        init(from decoder: Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            index = try box.decode(Int.self, forKey: .index)
+            name = try box.decode(String.self, forKey: .name)
+            instrument = try box.decodeIfPresent(String.self, forKey: .instrument)
+            program = try box.decodeIfPresent(Int.self, forKey: .program)
+            sounding = try box.decodeIfPresent([[Double]].self, forKey: .sounding) ?? []
+        }
     }
 
     struct Tempo: Decodable, Equatable {
@@ -73,6 +134,72 @@ struct PlaybackTimeline: Decodable, Equatable {
     var performedBars: Int = 0
 
     static let empty = PlaybackTimeline(parts: [], bars: [], clicks: [], tempos: [])
+
+    init(parts: [Part], bars: [Bar], clicks: [Click], tempos: [Tempo],
+         tempoFromScore: Bool = false, beats: Double = 0,
+         repeatsExpanded: Bool = false, soundingPitch: Bool = false,
+         writtenBars: Int = 0, performedBars: Int = 0) {
+        self.parts = parts
+        self.bars = bars
+        self.clicks = clicks
+        self.tempos = tempos
+        self.tempoFromScore = tempoFromScore
+        self.beats = beats
+        self.repeatsExpanded = repeatsExpanded
+        self.soundingPitch = soundingPitch
+        self.writtenBars = writtenBars
+        self.performedBars = performedBars
+    }
+
+    // Declared, because writing `init(from:)` by hand suppresses the
+    // synthesis that would otherwise generate these.
+    private enum CodingKeys: String, CodingKey {
+        case parts, bars, clicks, tempos, tempoFromScore, beats
+        case repeatsExpanded, soundingPitch, writtenBars, performedBars
+    }
+
+    /// Same reason as `Part`: the fields below carry defaults that the
+    /// synthesised decoder ignored, so a timeline without them failed
+    /// entirely. The four REQUIRED ones stay required -- a performance with no
+    /// bar map is not a performance, and quietly defaulting it to empty would
+    /// hide the failure behind a play head that never moves.
+    init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        parts = try box.decode([Part].self, forKey: .parts)
+        bars = try box.decode([Bar].self, forKey: .bars)
+        clicks = try box.decode([Click].self, forKey: .clicks)
+        tempos = try box.decode([Tempo].self, forKey: .tempos)
+        tempoFromScore = try box.decodeIfPresent(Bool.self, forKey: .tempoFromScore) ?? false
+        beats = try box.decodeIfPresent(Double.self, forKey: .beats) ?? 0
+        repeatsExpanded = try box.decodeIfPresent(Bool.self, forKey: .repeatsExpanded) ?? false
+        soundingPitch = try box.decodeIfPresent(Bool.self, forKey: .soundingPitch) ?? false
+        writtenBars = try box.decodeIfPresent(Int.self, forKey: .writtenBars) ?? 0
+        performedBars = try box.decodeIfPresent(Int.self, forKey: .performedBars) ?? 0
+    }
+}
+
+extension PlaybackTimeline.Part {
+
+    /// Is this staff sounding at this beat?
+    ///
+    /// Binary search, because it is asked once per strip per tick: a part with
+    /// hundreds of intervals must not cost more than one with two. Half-open,
+    /// the same rule the bar map follows -- an interval's end belongs to the
+    /// silence after it, so a note ending exactly where the next begins reads
+    /// as continuous rather than as a flicker.
+    func isSounding(at beat: Double) -> Bool {
+        var low = 0
+        var high = sounding.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let span = sounding[mid]
+            guard span.count == 2 else { return false }
+            if beat < span[0] { high = mid - 1 }
+            else if beat >= span[1] { low = mid + 1 }
+            else { return true }
+        }
+        return false
+    }
 }
 
 extension PlaybackTimeline {
