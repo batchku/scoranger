@@ -2673,3 +2673,108 @@ final class ScorangerUITests: XCTestCase {
                        "a long press should reach nothing at all now")
     }
 }
+
+extension ScorangerUITests {
+
+    /// The transport, end to end in the running app.
+    ///
+    /// Everything else about playback is tested without a device -- the bar
+    /// map, the mutes, the follow geometry, the sequencer's track order. What
+    /// none of that can show is that the feature is REACHABLE: the transport
+    /// lives behind a switch on the Score display screen, and a switch that
+    /// does not reveal it leaves the whole thing shipped and invisible.
+    ///
+    /// The assertion at the end is the product rule: every voice off is a
+    /// destination, not an error, and the transport says the metronome is
+    /// what is left.
+    func testTheTransportIsReachableAndEveryVoiceCanBeSwitchedOff() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+
+        let more = app.buttons["score-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
+        more.tap()
+        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
+
+        // A PanelToggle is a Toggle to a screen reader, named by its title.
+        let switchElement = app.switches["Show transport"]
+        XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
+                      "Score display no longer offers the transport")
+        if (switchElement.value as? String) != "1" { switchElement.tap() }
+        XCTAssertEqual(switchElement.value as? String, "1",
+                       "the transport switch did not take")
+        goBack()
+        goBack()
+
+        let transport = app.otherElements["transport"]
+        XCTAssertTrue(transport.waitForExistence(timeout: 30),
+                      "the switch is on and the transport is still not on screen")
+        XCTAssertTrue(app.buttons["transport-play"].waitForExistence(timeout: 60),
+                      "the transport has no play button")
+
+        // Preparing writes the MIDI with music21 on-device, which takes a
+        // moment on a first press. The voice list is empty until it lands, so
+        // this waits for the control to stop saying so rather than for a fixed
+        // number of seconds.
+        let voices = app.buttons["transport-voices"]
+        XCTAssertTrue(voices.waitForExistence(timeout: 60), "no voices control")
+        let loaded = NSPredicate(format: "NOT (label CONTAINS %@)", "no parts")
+        expectation(for: loaded, evaluatedWith: voices, handler: nil)
+        waitForExpectations(timeout: 180)
+
+        voices.tap()
+        // The rows carry their identifiers on an element that is NOT reported
+        // as a button (the reveal wraps each in `children: .ignore`), so they
+        // are found the way every other row in this suite is found.
+        let firstVoice = app.descendants(matching: .any)["voice-0"].firstMatch
+        if !firstVoice.waitForExistence(timeout: 30) {
+            shot("transport-no-voices")
+            XCTFail("the voice list never listed a part."
+                    + " voices=\(voices.label)"
+                    + " notice=\(app.staticTexts["notice-text"].exists ? app.staticTexts["notice-text"].label : "-")")
+        }
+        // Start from a known state: an earlier tap in this session may have
+        // left a voice off.
+        app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
+
+        XCTAssertEqual(firstVoice.value as? String, "on",
+                       "a part starts sounding")
+        firstVoice.tap()
+        XCTAssertEqual(firstVoice.value as? String, "off",
+                       "tapping a voice did not silence it")
+
+        // The practice case. With the metronome ON, every voice off is
+        // "metronome only" -- and with it off it says "silent", because
+        // claiming a click that is not playing sends a reader hunting for a
+        // broken speaker.
+        app.buttons["transport-metronome"].tap()
+        app.descendants(matching: .any)["voices-all-off"].firstMatch.tap()
+        XCTAssertTrue(voices.label.contains("metronome only"),
+                      "every voice off with the click on is metronome only, "
+                      + "and the transport said: \(voices.label)")
+        app.buttons["transport-metronome"].tap()
+        XCTAssertTrue(voices.label.contains("silent"),
+                      "every voice off with the click off is silence, "
+                      + "and the transport said: \(voices.label)")
+        shot("transport-all-voices-off")
+
+        app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
+        XCTAssertTrue(voices.label.contains("all voices"),
+                      "All on did not bring them back: \(voices.label)")
+
+        // And it PLAYS. The strongest evidence there is without a listener in
+        // the room: the bar readout stops being a dash, which happens only
+        // when the sequencer's play head is actually moving through the
+        // timeline. A play button that starts nothing would leave it a dash.
+        let play = app.buttons["transport-play"]
+        play.tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "bar "),
+                    evaluatedWith: app.staticTexts["transport-bar"], handler: nil)
+        waitForExpectations(timeout: 30)
+        XCTAssertEqual(play.label, "Stop", "playing, but the button still says Play")
+        shot("transport-playing")
+        play.tap()
+        XCTAssertEqual(play.label, "Play", "Stop did not stop it")
+    }
+}

@@ -2272,11 +2272,25 @@ def playback_timeline(score) -> tuple:
         tempos = [{"beat": 0.0, "bpm": 120.0}]
 
     parts = []
+    used: set = set()
     for index, part in enumerate(played.parts):
         found = part.getInstrument(returnDefault=False)
+        # A name of its OWN, because the app keys a mute on it. Optical
+        # recognition labels every unlabeled staff "Voice", so a scanned
+        # quartet arrives as four parts with one name between them -- and one
+        # name is one switch, which silences the whole score instead of the
+        # viola. Numbered from the second, so a score whose parts are already
+        # distinct is untouched, and bumped past any number the score itself
+        # already uses.
+        label = base = part_label(part)
+        suffix = 1
+        while label in used:
+            suffix += 1
+            label = f"{base} {suffix}"
+        used.add(label)
         parts.append({
             "index": index,
-            "name": part_label(part),
+            "name": label,
             "instrument": getattr(found, "instrumentName", None),
             # None where the part names no instrument, which is every staff
             # optical recognition labels "Voice". Honest beats a wrong guess:

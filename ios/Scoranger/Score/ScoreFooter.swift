@@ -156,7 +156,12 @@ struct Transport: View {
 
             Divider().frame(height: 20)
 
-            if let unavailable {
+            // AppState's reason first -- a scan, or the remote engine -- and
+            // then the audio engine's own, which is READ OFF THE OBSERVED
+            // OBJECT so the row redraws when it lands. Reading it through
+            // AppState would leave the reason on screen only by luck of some
+            // other publish.
+            if let unavailable = unavailable ?? playback.unavailable {
                 Text(unavailable).typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
                     .accessibilityIdentifier("transport-unavailable")

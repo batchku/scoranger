@@ -1196,10 +1196,16 @@ final class AppState: ObservableObject {
             guard playbackKey == key else { return }
             try playback.load(midi: performance.midi, timeline: performance.timeline,
                               key: key)
+            playback.report(unavailable: nil)
         } catch let e as EngineError {
             lastError = e.error
+            playback.report(unavailable: e.error)
         } catch {
             lastError = error.localizedDescription
+            // Said in the transport as well as in the notice. A failure to
+            // build the audio graph used to leave a play button that did
+            // nothing and a voice list with nothing in it.
+            playback.report(unavailable: error.localizedDescription)
         }
     }
 

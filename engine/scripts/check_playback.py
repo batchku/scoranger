@@ -108,6 +108,33 @@ def main() -> int:
           timeline["parts"][0]["program"] is None,
           str(timeline["parts"][0]["program"]))
 
+    print("\nfour staves all called 'Voice', which is what OMR delivers")
+    omr = stream.Score()
+    for _ in range(4):
+        part = stream.Part()
+        part.partName = "Voice"
+        measure = stream.Measure(number=1)
+        measure.insert(0, meter.TimeSignature("4/4"))
+        measure.append(note.Note("C4", quarterLength=4.0))
+        part.append(measure)
+        omr.insert(0, part)
+    _played, timeline = ops.playback_timeline(omr)
+    names = [p["name"] for p in timeline["parts"]]
+    # The app keys a mute on this name. Four parts sharing one would be a
+    # single switch that silences the whole score -- and CLAUDE.md says every
+    # unlabeled staff arrives called "Voice", so this is the ordinary case and
+    # not the exotic one.
+    check("each staff is a name of its own", len(set(names)) == 4, str(names))
+    check("and the first one keeps the name it was given",
+          names[0] == "Voice", str(names))
+
+    print("\nnames that are already distinct are left alone")
+    _played, timeline = ops.playback_timeline(fixtures.quartet(bars=2))
+    check("no numbering is invented",
+          [p["name"] for p in timeline["parts"]]
+          == ["Violin I", "Violin II", "Viola", "Violoncello"],
+          str([p["name"] for p in timeline["parts"]]))
+
     # -------------------------------------------------------------- repeats
     print("\na repeat: bar 1 is played TWICE, so it owns two stretches of time")
     repeated = stream.Score()

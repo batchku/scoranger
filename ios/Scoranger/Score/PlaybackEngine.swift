@@ -86,6 +86,12 @@ final class PlaybackEngine: ObservableObject {
                        bankMSB: PlaybackSound.percussionBankMSB)
         click = clickSampler
 
+        // BEFORE the engine starts, not at the first press of play.
+        // `load` starts the graph so the sequencer has somewhere to send its
+        // tracks, and starting it under a session that is neither playback nor
+        // active is what left the voice list empty with nothing said: the
+        // throw happened here, three screens away from the button.
+        try activateSession()
         try engine.start()
         let loaded = AVAudioSequencer(audioEngine: engine)
         try loaded.load(from: midi, options: [])
@@ -124,6 +130,21 @@ final class PlaybackEngine: ObservableObject {
                                              bankLSB: PlaybackSound.bankLSB)
     }
 
+    /// .playback, so a practice aid still sounds with the ring switch
+    /// silenced. An iPad on a music stand is muted more often than not.
+    private func activateSession() throws {
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    /// Why there is no sound, put where the reader will see it.
+    ///
+    /// The transport shows this in place of its controls. It exists because
+    /// `load` throws to a caller that only knew how to log: a failure to build
+    /// the audio graph became an empty voice list and a play button that did
+    /// nothing, which is the one outcome the transport was designed to avoid.
+    func report(unavailable reason: String?) { unavailable = reason }
+
     func forget() {
         stop()
         teardown()
@@ -148,10 +169,7 @@ final class PlaybackEngine: ObservableObject {
     func play() {
         guard let sequencer else { return }
         do {
-            // .playback, so a practice aid still sounds with the ring switch
-            // silenced. An iPad on a music stand is muted more often than not.
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
+            try activateSession()
             if !engine.isRunning { try engine.start() }
             sequencer.prepareToPlay()
             try sequencer.start()
