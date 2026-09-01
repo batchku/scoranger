@@ -42,8 +42,11 @@ So:
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
   `check_structure.py` and `check_whistle.py` (notation),
   `check_addresses.py` (a selection-scoped op touches only what was selected),
-  and `check_playback.py` (the MIDI and the bar map describe the same
-  performance).
+  `check_playback.py` (the MIDI and the bar map describe the same performance),
+  and `check_bar_frames.py` (the rectangle the geometry reports for measure N
+  IS the Nth bar -- Verovio nests a slur inside the measure it starts in, and a
+  group's frame is the union of what it contains, so an unclipped bar can be
+  four bars wide and a playhead lands two bars late).
 
 ## The engine CLI
 

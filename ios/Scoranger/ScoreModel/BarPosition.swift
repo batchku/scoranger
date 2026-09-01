@@ -85,9 +85,52 @@ extension BarPosition {
     /// rect wanted here — see `ScoreModelBuilder`'s note that it never uses the
     /// measure element for hit-testing a NOTE for the opposite reason.
     static func bars(onPage page: ScorePage) -> [Bar] {
-        page.elements.compactMap { element in
+        clippedToNeighbours(page.elements.compactMap { element in
             guard element.kind == .measure, let address = element.address else { return nil }
             return Bar(number: address.measure, frame: element.frame)
+        })
+    }
+
+    /// Cut each bar's right edge back to where the next bar begins.
+    ///
+    /// Verovio nests a spanner -- a slur, a tie, a hairpin -- inside the
+    /// measure where it STARTS, and `SVGGeometryParser` gives every group the
+    /// union of everything drawn inside it. That is the right rule for a note,
+    /// which should bound its notehead, stem, dots and accidental together, and
+    /// the wrong one for a bar: a cello slur running from measure 1 into
+    /// measure 4 makes measure 1's rectangle four bars wide.
+    ///
+    /// It went unnoticed for as long as the frame was only used to answer
+    /// "which bars can the reader see", where being too wide changes almost
+    /// nothing. The playhead interpolates ACROSS the rectangle, so a bar four
+    /// bars wide put the cursor two bars late -- caught in a screenshot, with
+    /// the transport correctly reading bar 1 and the line standing in bar 3.
+    ///
+    /// The left edge is sound: nothing is drawn left of the barline a spanner
+    /// starts at. So the right edge comes from the next bar instead, and only
+    /// from a bar on the SAME system -- the first bar of the system below sits
+    /// far to the left, and clipping against it would leave a negative width.
+    ///
+    /// Proven against the real engraver in `engine/scripts/check_bar_frames.py`,
+    /// which engraves the scanned quartet with Verovio and asserts that the
+    /// span for measure N holds measure N's notes and none of its neighbour's.
+    /// On that page nine bars overlap unclipped, the worst by 2.1 bars.
+    static func clippedToNeighbours(_ bars: [Bar]) -> [Bar] {
+        bars.map { bar in
+            let nextEdge = bars.lazy
+                .filter { other in
+                    other.frame.minX > bar.frame.minX + 0.5
+                        // same system: their vertical extents overlap
+                        && other.frame.minY < bar.frame.maxY
+                        && other.frame.maxY > bar.frame.minY
+                }
+                .map(\.frame.minX)
+                .min()
+            guard let nextEdge, nextEdge < bar.frame.maxX else { return bar }
+            return Bar(number: bar.number,
+                       frame: CGRect(x: bar.frame.minX, y: bar.frame.minY,
+                                     width: nextEdge - bar.frame.minX,
+                                     height: bar.frame.height))
         }
     }
 }

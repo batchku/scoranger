@@ -2840,4 +2840,79 @@ extension ScorangerUITests {
         XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
                        "selecting stopped playback")
     }
+
+    /// Pencil still MARKS while the transport runs.
+    ///
+    /// The lasso test proves SELECTION survives the cursor layer. Ink is the
+    /// other thing living under it and it is a different code path -- a
+    /// PencilKit canvas, not a gesture recogniser -- so proving one says
+    /// nothing about the other. Both would fail the same way and only while
+    /// playing, which is the hardest kind of report to act on.
+    func testThePencilStillMarksWhileTheTransportRuns() {
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+
+        let markup = app.buttons["score-edit"]
+        XCTAssertTrue(markup.waitForExistence(timeout: 30), "no markup control")
+        markup.tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10),
+                      "markup mode did not open while playing")
+
+        let ink = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(ink.waitForExistence(timeout: 30), "no annotation canvas")
+        let before = strokeCount(ink)
+
+        // A stroke straight through where the cursor is standing.
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.28))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.34))
+        from.press(forDuration: 0.05, thenDragTo: to)
+
+        let drew = NSPredicate(format: "value != %@", "\(before) strokes")
+        expectation(for: drew, evaluatedWith: ink, handler: nil)
+        waitForExpectations(timeout: 20)
+        XCTAssertGreaterThan(strokeCount(ink), before,
+                             "the Pencil could not mark while the transport ran")
+        shot("pencil-while-playing")
+    }
+
+    private func strokeCount(_ canvas: XCUIElement) -> Int {
+        Int((canvas.value as? String)?
+            .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+    }
+
+    /// The playhead's 2pt weight is a size ON SCREEN, at any zoom.
+    ///
+    /// Every constant in the layer is divided by the scroll view's zoom for
+    /// exactly this reason: undivided, the line is a hairline zoomed out and a
+    /// slab lying over the noteheads at 3x. Right-by-inspection is not
+    /// verification, so this photographs it at two zooms and leaves the pair
+    /// in the repo to be looked at.
+    func testThePlayheadKeepsItsWeightAtAnyZoom() {
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+        shot("playhead-zoom-1x")
+
+        canvas.pinch(withScale: 3.0, velocity: 1.5)
+        // Let the raster settle: the layer divides by the SETTLED zoom, so a
+        // shot taken mid-gesture would photograph a weight neither value.
+        sleep(4)
+        shot("playhead-zoom-3x")
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "zooming stopped playback")
+    }
 }
