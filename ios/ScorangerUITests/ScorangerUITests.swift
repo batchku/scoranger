@@ -2978,8 +2978,19 @@ extension ScorangerUITests {
                           "tapping the grip did not move the panel")
         shot("mixer-moved")
 
-        app.descendants(matching: .any)["mixer-close"].firstMatch.tap()
-        XCTAssertTrue(waitForDisappearance(of: mixer, timeout: 10),
+        // Re-found after the move: the panel is in another corner now, and the
+        // element captured before it moved is at the old frame.
+        let close = app.descendants(matching: .any)["mixer-close"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "no close control")
+        if close.isHittable {
+            close.tap()
+        } else {
+            close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(waitForDisappearance(
+            of: app.descendants(matching: .any)["mixer-grip"].firstMatch, timeout: 10),
                       "the mixer would not close")
+        XCTAssertEqual(app.buttons["transport-mixer"].value as? String, "off",
+                       "the transport still says the mixer is open")
     }
 }
