@@ -26,8 +26,16 @@ final class PlaybackEngine: ObservableObject {
 
     /// Playing or not: the transport's state and nothing else's.
     @Published private(set) var isPlaying = false
-    /// The bar sounding right now, or nil when nothing is.
-    @Published private(set) var soundingBar: Int?
+    /// The bar sounding right now, or nil when the play head is off the map.
+    ///
+    /// COMPUTED from `beat` rather than maintained beside it. It used to be a
+    /// second stored property updated in the same tick, and the two drifted on
+    /// screen: a screenshot caught the playhead correctly inside bar 3 while
+    /// the transport still read "bar 1". One fact with two sources is the
+    /// drift the design doc warns about, and the cure is that there is now
+    /// only one -- the readout and the cursor cannot disagree because they are
+    /// the same query.
+    var soundingBar: Int? { timeline.bar(atBeat: beat) }
     /// Where the play head is, in quarter notes.
     @Published private(set) var beat: Double = 0
     /// The map being played against. Empty until something is loaded.
@@ -131,7 +139,8 @@ final class PlaybackEngine: ObservableObject {
         follower = nil
         sequencer?.stop()
         isPlaying = false
-        soundingBar = nil
+        // The beat is LEFT where it stopped, so the readout keeps saying which
+        // bar the reader stopped in rather than blanking to a dash.
     }
 
     func toggle() { isPlaying ? stop() : play() }
@@ -147,7 +156,6 @@ final class PlaybackEngine: ObservableObject {
         guard let sequencer else { return }
         sequencer.currentPositionInBeats = target
         beat = target
-        soundingBar = timeline.bar(atBeat: target)
     }
 
     func rewind() { seek(toBeat: 0) }
@@ -182,12 +190,9 @@ final class PlaybackEngine: ObservableObject {
                 try? await Task.sleep(for: Self.pollInterval)
                 guard let self, let sequencer = self.sequencer else { return }
                 let now = sequencer.currentPositionInBeats
+                // The ONE published fact. `soundingBar` is derived from it, so
+                // nothing has to be kept in step with anything.
                 self.beat = now
-                // Only on a CHANGE. This publishes into a view that redraws the
-                // score, and republishing the same bar twenty times a second is
-                // how a scrolling strip starts dropping frames.
-                let bar = self.timeline.bar(atBeat: now)
-                if bar != self.soundingBar { self.soundingBar = bar }
                 if PlaybackSound.hasFinished(beat: now, end: self.timeline.beats) {
                     self.stop()
                     self.seek(toBeat: 0)
