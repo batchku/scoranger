@@ -3022,4 +3022,53 @@ extension ScorangerUITests {
         XCTAssertEqual(app.buttons["transport-mixer"].value as? String, "off",
                        "the transport still says the mixer is open")
     }
+
+    /// Paging away from the music during playback, and the way back.
+    ///
+    /// The chip is invisible whenever the playhead is on the page being
+    /// looked at, which is most of the time -- so it can only be proven by
+    /// deliberately drifting away from it. That is also the behaviour worth
+    /// proving: the music KEEPS PLAYING, the page stays where the reader put
+    /// it, and nothing moves under them until they ask.
+    func testPagingAwayDuringPlaybackOffersTheWayBack() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        revealTransport()
+        startPlaying()
+
+        let chip = app.buttons["sync-to-playback"]
+        XCTAssertFalse(chip.exists,
+                       "nothing to sync to: the playhead is on the visible page")
+
+        // Page a long way from the music, the way a reader looking ahead does.
+        let far = app.descendants(matching: .any)["thumb-6"].firstMatch
+        XCTAssertTrue(far.waitForExistence(timeout: 20), "no page rail")
+        far.tap()
+
+        XCTAssertTrue(chip.waitForExistence(timeout: 20),
+                      "paged away from the playhead and was offered no way back")
+        // The music did not stop, and the page did not snap back.
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "turning a page stopped playback")
+        XCTAssertTrue(chip.label.hasPrefix("Back to"),
+                      "the chip should name where it will take you: \(chip.label)")
+        // Let the page settle before photographing it. The rail and the badge
+        // update the moment the tap lands while the canvas is still scrolling,
+        // so a shot taken immediately shows the OLD page under a new page
+        // number -- a picture that would be read as a bug in the canvas.
+        sleep(3)
+        shot("sync-chip")
+
+        // And it stays away. Following does NOT resume on its own -- being
+        // yanked back the moment the music wandered into view is the thing
+        // this rule exists to stop.
+        XCTAssertTrue(chip.exists, "the page moved back without being asked")
+
+        chip.tap()
+        XCTAssertTrue(waitForDisappearance(of: chip, timeout: 20),
+                      "tapping Sync did not take the reader back to the music")
+        shot("sync-chip-after")
+    }
 }

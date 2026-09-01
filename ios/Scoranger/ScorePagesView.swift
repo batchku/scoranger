@@ -373,6 +373,14 @@ struct ScorePagesView: View {
         }
         // Paged: there is nothing to scroll, so the unit turns -- and only
         // when the bar is on a page that is not already showing.
+        //
+        // AND only while following is still the app's job. Without this guard
+        // the reader pages ahead, the very next play-head tick turns the page
+        // straight back, and the score fights them -- which is the exact
+        // behaviour the revised rule in design/PLAYBACK.md exists to remove.
+        // Caught in a screenshot: the rail and the badge said page 7 while the
+        // canvas had been dragged back to page 1.
+        guard state.pageFollow.isFollowing else { return }
         guard let sounding = bar, let geometry = state.geometry,
               let page = geometry.pages.first(where: { candidate in
                   BarPosition.frame(ofBar: sounding,

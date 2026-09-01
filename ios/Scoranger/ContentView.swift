@@ -209,6 +209,14 @@ struct ContentView: View {
                                // straight to the unit holding that page: no
                                // offset arithmetic left to get wrong
                                onJump: { index in
+                                   // A thumbnail tap is a page turned BY THE
+                                   // READER just as much as a swipe is, so it
+                                   // yields following the same way. It does not
+                                   // go through `step(by:)`, which is where the
+                                   // swipe path hooks this -- so it needs its
+                                   // own call or paging from the rail would
+                                   // leave the score snapping back.
+                                   state.readerTurnedPage()
                                    state.pageIndex = PagedCanvas.index(
                                        forPage: index, spread: state.twoPageSpread)
                                })
