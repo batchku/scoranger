@@ -67,6 +67,18 @@ extension BarPosition {
                height: width * aspect)
     }
 
+    /// Where one numbered bar sits on a page, in page (SVG user) coordinates.
+    ///
+    /// The FIRST match, because in continuous mode the whole score is one page
+    /// and a bar number is unique on it. (A repeated bar is played twice but
+    /// engraved once; the repetition lives in the playback timeline, not on
+    /// the page.) Nil where the geometry has no such bar, which is every
+    /// remote-engine render: that path builds no geometry at all, and the
+    /// caller must then follow nothing rather than follow a guess.
+    static func frame(ofBar number: Int, among bars: [Bar]) -> CGRect? {
+        bars.first { $0.number == number }?.frame
+    }
+
     /// The bars of one page, read out of the geometry the engraver built.
     ///
     /// A `<measure>` element's frame spans the whole bar, which is exactly the

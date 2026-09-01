@@ -40,8 +40,10 @@ So:
   the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
   marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
-  `check_structure.py` and `check_whistle.py` (notation), and
-  `check_addresses.py` (a selection-scoped op touches only what was selected).
+  `check_structure.py` and `check_whistle.py` (notation),
+  `check_addresses.py` (a selection-scoped op touches only what was selected),
+  and `check_playback.py` (the MIDI and the bar map describe the same
+  performance).
 
 ## The engine CLI
 
@@ -126,6 +128,20 @@ scor check-range <score> --part "Violin I" [--instrument Viola]
 scor export <score> --format musicxml|midi|pdf --out <path> [--version vNNN] [--parts "..."]
   # PDF rendering: Verovio + cairosvg + pypdf, all in the venv (engine/scoranger_engine/render.py).
   # Also via API: GET /api/export?score=..&version=..&format=pdf&parts=.. (viewer's checkbox export)
+scor playback <score> --out <path.mid> [--version vNNN]
+  # the score AS PERFORMED, plus the map from its beats back to the page. NOT
+  # a version: playback is a reading of the arrangement, like `info`.
+  # The performed score differs from the engraved one three ways, and both the
+  # MIDI and the map come from ONE object so they cannot drift apart:
+  #   - repeats and voltas are PLAYED OUT, so the beat->bar map is one-to-MANY
+  #     (bar 1 sounds at beat 0 and again at beat 8) -- which is why the map is
+  #     a list of spans and never a dict keyed by bar;
+  #   - written pitch becomes SOUNDING pitch, or a B-flat clarinet plays a tone
+  #     sharp against every other part;
+  #   - the click grid is emitted, not the rule for it: 6/8 gets two clicks a
+  #     bar, and a pickup's click is not a downbeat.
+  # Beats are quarter notes, the unit iOS's AVAudioSequencer reports its play
+  # head in. Proof: engine/scripts/check_playback.py.
 ```
 
 ### Accidentals are normalised by the ops, not patched afterwards

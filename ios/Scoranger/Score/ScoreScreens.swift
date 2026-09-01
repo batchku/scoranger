@@ -246,11 +246,14 @@ struct ScoreOptionsScreen: View {
                 }
                     .padding(Theme.Metric.s20)
                     .accessibilityIdentifier("display-spread")
-                PanelToggle(title: "Show transport (preview)", isOn: $showTransport)
+                PanelToggle(title: "Show transport", isOn: $showTransport)
                     .padding(.horizontal, Theme.Metric.s20)
                     .accessibilityIdentifier("display-transport")
-                note("Playback is not wired up. Previous and next step the current "
-                     + "set list, and those work.")
+                note("Play, the metronome, and a switch for each voice. Turn "
+                     + "every voice off and the metronome plays alone, which is "
+                     + "what the continuous view is for: the music scrolls "
+                     + "while you play along. Previous and next step the "
+                     + "current set list.")
             case "Annotations":
                 ScreenRow(title: "Clear markup on this version", leads: false,
                           isDestructive: true, identifier: "annotations-clear") {

@@ -588,6 +588,9 @@ final class AppState: ObservableObject {
     /// Pencil markup state. Lives here because the pill drives it and the score
     /// pane only reacts, the same reason highlightMode moved up in build 116.
     let annotation = AnnotationController()
+    /// Sound. Lives here for the same reason: the transport drives it and the
+    /// canvas only follows the play head.
+    let playback = PlaybackEngine()
 
     /// Sidebar grouping: each piece with its arrangements resolved to ScoreDocs
     /// (pieces with no resolvable arrangements are dropped here — the full list,
@@ -1130,6 +1133,11 @@ final class AppState: ObservableObject {
                 // the addresses survived the re-render, so the session follows
                 // them: nudge, commit, nudge again on the same symbol
                 retargetAdjustment()
+                // The sound is NOT carried over. A selection survives an op
+                // because it still points at the same music; a performance
+                // does not -- the op changed the notes. Rebuilding it is the
+                // reader's next press of play, not this render's business.
+                invalidatePlaybackIfStale()
                 lastError = nil
             }
         } catch let e as EngineError {
@@ -1137,6 +1145,87 @@ final class AppState: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - Playback
+
+    /// The version being listened to, which must be the version being LOOKED
+    /// at. Audio from a version the reader has moved off is a lie the ear has
+    /// no way to catch.
+    private var playbackKey: String? {
+        guard let slug = selectedScore?.slug, let vid = displayedVersionID else { return nil }
+        return "\(slug)/\(vid)"
+    }
+
+    /// True while the engine is writing the MIDI. A long score takes a moment
+    /// and a dead play button reads as a dead app.
+    @Published var playbackPreparing = false
+
+    /// Whether the arrangement on screen can be played at all.
+    ///
+    /// A scan cannot: there is no notation behind it until OMR has run, which
+    /// is the same reason selection and chat editing are unavailable on one.
+    /// The remote engine cannot either -- `playback` is a bridge op, and
+    /// `scor serve` has no route for it -- and the transport says so rather
+    /// than offering a button that does nothing.
+    var playbackAvailability: String? {
+        if displayedArtifact == .scan { return "Run OMR to play this arrangement" }
+        if !useLocalEngine { return "Playback needs the on-device engine" }
+        return nil
+    }
+
+    /// Build the performance for the version on screen, unless it is already
+    /// built.
+    ///
+    /// Never awaited by `renderIfNeeded`, and never started by it: opening a
+    /// score must not wait on music21 writing a MIDI file. This runs when the
+    /// reader shows the transport or presses play, which is the first moment
+    /// anyone wants the sound.
+    func preparePlayback() async {
+        guard playbackAvailability == nil, let key = playbackKey,
+              let score = selectedScore else { return }
+        guard playback.loadedKey != key, !playbackPreparing else { return }
+        playbackPreparing = true
+        defer { playbackPreparing = false }
+        do {
+            let performance = try await local.playback(score: score.slug,
+                                                       version: displayedVersionID)
+            // The reader may have moved to another version while music21 was
+            // writing. Loading it now would put the previous arrangement under
+            // the play head, which is exactly the lie this key exists to stop.
+            guard playbackKey == key else { return }
+            try playback.load(midi: performance.midi, timeline: performance.timeline,
+                              key: key)
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Press play. Prepares first when nothing is loaded, so the reader's
+    /// first press is the only thing they have to do.
+    func togglePlayback() {
+        if playback.isPlaying { playback.stop(); return }
+        if playback.canPlay, playback.loadedKey == playbackKey {
+            playback.play()
+            return
+        }
+        Task {
+            await preparePlayback()
+            if playback.canPlay { playback.play() }
+        }
+    }
+
+    /// Drop a performance that no longer matches the page.
+    ///
+    /// Every op makes a version, so this fires on "transpose these bars up a
+    /// tone" as well as on switching arrangement -- and it should. The sound
+    /// belonged to music that is no longer on screen.
+    func invalidatePlaybackIfStale() {
+        guard let loaded = playback.loadedKey else { return }
+        guard loaded != playbackKey else { return }
+        playback.forget()
     }
 
     /// Run OMR on the scan being read, and add the transcription as the next

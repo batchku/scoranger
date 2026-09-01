@@ -155,3 +155,26 @@ extension BarPositionTests {
         XCTAssertEqual(tall.height, 600, accuracy: 0.001)
     }
 }
+
+extension BarPositionTests {
+
+    /// Looking a numbered bar up on a page: what follow-scrolling needs to
+    /// turn "bar 21 is sounding" into a place on the strip.
+    func testABarIsFoundByItsNumber() {
+        let bars = [BarPosition.Bar(number: 1, frame: CGRect(x: 0, y: 0, width: 100, height: 50)),
+                    BarPosition.Bar(number: 2, frame: CGRect(x: 100, y: 0, width: 120, height: 50)),
+                    BarPosition.Bar(number: 3, frame: CGRect(x: 220, y: 0, width: 90, height: 50))]
+        XCTAssertEqual(BarPosition.frame(ofBar: 2, among: bars)?.minX, 100)
+        XCTAssertEqual(BarPosition.frame(ofBar: 3, among: bars)?.width, 90)
+    }
+
+    /// Nil, not a fallback. The remote-engine path builds no geometry at all,
+    /// and a guessed position is worse than none: the reader trusts it and
+    /// looks away from the music.
+    func testABarThatIsNotOnThePageHasNoFrame() {
+        XCTAssertNil(BarPosition.frame(ofBar: 9, among: []))
+        XCTAssertNil(BarPosition.frame(
+            ofBar: 9,
+            among: [BarPosition.Bar(number: 1, frame: .zero)]))
+    }
+}

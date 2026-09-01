@@ -2166,3 +2166,133 @@ def transpose_elements(score, interval_str: str, addresses: list) -> dict:
             "elements_requested": len(addresses),
             "redundant_accidentals_hidden": hidden,
             "missing": found["missing"]}
+
+
+# ------------------------------------------------------------------ playback
+#
+# Playback reads the score twice and the two readings must not disagree: the
+# MIDI a synthesiser plays, and the map saying which engraved bar each beat of
+# it belongs to. So both come out of ONE object -- the performed score built
+# here -- rather than being derived apart and hoped into agreement.
+#
+# Three things make the performed score differ from the engraved one. Each was
+# measured against music21 10.5 before this was written:
+#
+#   - **Repeats are played out.** The MIDI writer expands them, so a four-bar
+#     score whose first two bars repeat writes six bars of audio. The beat->bar
+#     map is therefore one-to-MANY: bar 1 owns beats 0-3 AND beats 8-11.
+#     Expanding here, explicitly, is what makes the map describe the audio.
+#     Expanding an already-expanded stream is a no-op, so the writer's own pass
+#     cannot double it.
+#   - **Written pitch is not sounding pitch.** The writer emits what is on the
+#     page, so a B-flat clarinet plays a whole tone sharp against everything
+#     else. The fix belongs here and not in the app: the app cannot know a
+#     part's transposition without re-reading the notation.
+#   - **A bar is not four beats.** A pickup is a short bar whose clicks land at
+#     the END of the grid, and 6/8 has two of them, not six. The click
+#     positions are emitted rather than the rule for finding them, so nothing
+#     downstream has to know any of that.
+
+def _performed(score):
+    """The score as it is PLAYED: repeats played out, written pitch made real.
+
+    The two passes are attempted separately, because either can fail on
+    material that arrived from optical recognition -- and neither failure is a
+    reason to refuse playback. A score with a repeat music21 cannot resolve
+    still plays; it plays straight through.
+    """
+    played = score
+    expanded = False
+    try:
+        candidate = played.expandRepeats()
+        if candidate is not None and candidate.parts:
+            played, expanded = candidate, True
+    except Exception:
+        pass
+    sounding = False
+    try:
+        candidate = played.toSoundingPitch()
+        if candidate is not None and candidate.parts:
+            played, sounding = candidate, True
+    except Exception:
+        pass
+    return played, {"repeats_expanded": expanded, "sounding_pitch": sounding}
+
+
+def _timeline_spine(played):
+    """The part the bar map is read from: the one with the most bars.
+
+    Not simply the first. A part can be shorter than the score -- an instrument
+    that enters late, a staff optical recognition cut short -- and a map read
+    from it ends the score early, which on screen is a play head that stops
+    following partway through.
+    """
+    parts = list(played.parts)
+    return max(parts, key=lambda p: len(p.getElementsByClass(stream.Measure))) if parts else None
+
+
+def playback_timeline(score) -> tuple:
+    """The performed score, and the map from its beats back to the page.
+
+    Beats are QUARTER NOTES, which is the unit an iOS `AVAudioSequencer`
+    reports its play head in, so nothing has to convert between the two.
+    """
+    from music21 import meter as m21meter
+    from music21 import tempo as m21tempo
+
+    played, flags = _performed(score)
+    spine = _timeline_spine(played)
+
+    bars, clicks = [], []
+    signature = None
+    if spine is not None:
+        for measure in spine.getElementsByClass(stream.Measure):
+            signature = measure.timeSignature or signature or m21meter.TimeSignature("4/4")
+            start = float(measure.offset)
+            span = float(measure.duration.quarterLength)
+            unit = float(signature.beatDuration.quarterLength) or 1.0
+            pad = float(measure.paddingLeft or 0)
+            bars.append({"measure": int(measure.number), "start": start,
+                         "end": start + span, "meter": signature.ratioString,
+                         "pickup": pad > 0})
+            # The grid belongs to the WHOLE bar and a short bar takes the tail
+            # of it, which is why a pickup's click is not a downbeat.
+            grid = pad
+            while grid < pad + span - 1e-6:
+                clicks.append({"beat": start + (grid - pad), "down": grid < 1e-6})
+                grid += unit
+
+    marks = list(played.recurse().getElementsByClass(m21tempo.MetronomeMark))
+    tempos = [{"beat": float(m.getOffsetInHierarchy(played)),
+               "bpm": float(m.getQuarterBPM() or 120.0)} for m in marks]
+    # music21 writes 120 when a score names no tempo. Said out loud rather than
+    # left implicit: "120 (default)" is a different thing for a reader to see
+    # than a tempo the arranger chose.
+    if not tempos:
+        tempos = [{"beat": 0.0, "bpm": 120.0}]
+
+    parts = []
+    for index, part in enumerate(played.parts):
+        found = part.getInstrument(returnDefault=False)
+        parts.append({
+            "index": index,
+            "name": part_label(part),
+            "instrument": getattr(found, "instrumentName", None),
+            # None where the part names no instrument, which is every staff
+            # optical recognition labels "Voice". Honest beats a wrong guess:
+            # the player falls back to its own documented default.
+            "program": getattr(found, "midiProgram", None),
+        })
+
+    return played, {
+        "parts": parts,
+        "bars": bars,
+        "clicks": clicks,
+        "tempos": tempos,
+        "tempo_from_score": bool(marks),
+        "beats": bars[-1]["end"] if bars else 0.0,
+        "written_bars": (len(score.parts[0].getElementsByClass(stream.Measure))
+                         if score.parts else 0),
+        "performed_bars": len(bars),
+        **flags,
+    }

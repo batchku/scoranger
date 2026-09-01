@@ -181,9 +181,15 @@ struct ContentView: View {
                         .allowsHitTesting(false)
                 }
             }
-            // Performance mode gives the score the whole screen: the strip and
-            // the transport go, and the page-turn zones become the point (§4.5).
-            // The strip is a list of PAGES. Continuous mode has one, so the
+            // TWO gates, not one. They were a single condition, and that put
+            // the transport behind `!isContinuous` -- so the scrolling view,
+            // which is the ONE mode playing along to the score is for, was the
+            // only mode with no transport at all.
+            //
+            // Performance mode still gives the score the whole screen: both go,
+            // and the page-turn zones become the point (§4.5).
+            //
+            // The STRIP is a list of PAGES. Continuous mode has one, so the
             // strip showed a single thumbnail of the whole score -- true, and
             // useless. The designer's position markers are the right answer and
             // are not built yet; showing nothing is better than showing that.
@@ -198,12 +204,24 @@ struct ContentView: View {
                                    state.pageIndex = PagedCanvas.index(
                                        forPage: index, spread: state.twoPageSpread)
                                })
-                if showTransport {
-                    Transport(setlistLabel: setlistLabel,
-                              canStep: setlistPosition != nil,
-                              onPrevious: { stepSetlist(-1) },
-                              onNext: { stepSetlist(1) })
-                }
+            }
+            // The TRANSPORT is about the music, not about pages, so it belongs
+            // in every mode that has chrome at all.
+            if state.scoreMode != .performance, showTransport {
+                Transport(setlistLabel: setlistLabel,
+                          canStep: setlistPosition != nil,
+                          onPrevious: { stepSetlist(-1) },
+                          onNext: { stepSetlist(1) },
+                          playback: state.playback,
+                          unavailable: state.playbackAvailability,
+                          preparing: state.playbackPreparing,
+                          onPlay: { state.togglePlayback() })
+                    // Built when the transport appears, never when the score
+                    // opens: writing the MIDI takes music21 a moment and
+                    // opening an arrangement must not wait on it.
+                    .task(id: state.displayedVersionID) {
+                        await state.preparePlayback()
+                    }
             }
         }
         .background {
@@ -364,7 +382,12 @@ struct ContentView: View {
             if isCompact {
                 ScoreZoomView(document: doc)
             } else {
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)", mode: state.scoreMode)
+                // The engine is handed in rather than reached through
+                // AppState: AppState publishes nothing when the play head
+                // moves, so a canvas that read it that way would never follow.
+                // Same reason the ink bar observes its controller directly.
+                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+                               mode: state.scoreMode, playback: state.playback)
             }
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so

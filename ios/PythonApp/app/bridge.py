@@ -158,6 +158,22 @@ def _dispatch(op, a):
         return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))
+    if op == "playback":
+        # ONE call, because the two halves must describe the same performance:
+        # the MIDI a synthesiser plays, and the map from its beats back to the
+        # engraved bars. Deriving them from separate reads of the score is how
+        # a play head ends up following music that is not sounding.
+        #
+        # NOT a version: nothing about the arrangement changes. Playback is a
+        # reading of it, like `info` and unlike every op above.
+        slug = a["score"]
+        version = a.get("version")
+        played, timeline = ops.playback_timeline(_load(slug, version))
+        out_dir = workspace.score_dir(slug).parent / "playback"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir / f"{slug}-{version or 'latest'}.mid"
+        played.write("midi", fp=str(dest))
+        return {"path": str(dest), "timeline": timeline}
     if op == "export":
         # Three formats, three sources -- and only two of them are ours.
         #
