@@ -246,6 +246,24 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             AnnotationBarLayer(controller: state.annotation)
         }
+        // Lane 2 (§4): the sync chip, centred, 12pt above the ink bar's lane.
+        // It is transient, so it gets a lane rather than a slot in a row that
+        // would reflow around it as it comes and goes.
+        .overlay(alignment: .bottom) {
+            if state.scoreMode != .performance {
+                SyncChipLayer(state: state, playback: state.playback)
+                    .padding(.bottom, syncLaneInset)
+            }
+        }
+        // Lane 3 (§4): the mixer, movable, parked bottom-right above the
+        // highest occupied lane. LAST in the stack, which is the z-order the
+        // spec settles: fixed chrome < ink bar < sync chip < mixer.
+        .overlay {
+            if state.scoreMode != .performance, state.mixerOpen {
+                MixerLayer(state: state, playback: state.playback,
+                           lanesInset: mixerLaneInset)
+            }
+        }
         .background(Theme.Surface.ground)
         // #59: the music is not resized by a text field taking focus. The
         // avoidance inset is a safe-area inset on the WHOLE screen -- the
