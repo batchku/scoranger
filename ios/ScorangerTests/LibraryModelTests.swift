@@ -67,10 +67,30 @@ final class LibraryModelTests: XCTestCase {
                        "Piazzolla · 1 arrangement")
     }
 
-    func testAPieceWithNoComposerSaysUnknownRatherThanNothing() {
+    /// Reversed in 0.5.4. The row used to read "unknown · 1 arrangement", and
+    /// after a folder of PDFs is imported -- which carries no metadata at all
+    /// -- EVERY row in the library said it. A word where a fact should be, on
+    /// forty rows at once, is worse than saying nothing.
+    func testAPieceWithNoComposerSaysNothingWhereTheComposerWouldGo() {
         let rows = LibraryModel.pieceRows(manifest: manifest)
-        XCTAssertEqual(rows.first { $0.title == "Blue Bossa" }?.subtitle,
-                       "unknown · 1 arrangement")
+        let subtitle = rows.first { $0.title == "Blue Bossa" }?.subtitle
+
+        XCTAssertEqual(subtitle, "1 arrangement")
+        XCTAssertFalse(subtitle?.contains("unknown") ?? true)
+        XCTAssertFalse(subtitle?.hasPrefix(" · ") ?? true, "a stranded separator")
+    }
+
+    /// Sorting by composer is for finding a composer's pieces. Empty strings
+    /// sort first by default, which would bury every named one under the
+    /// un-credited ones.
+    func testSortingByComposerPutsTheUncreditedLast() {
+        let rows = LibraryModel.sorted(LibraryModel.pieceRows(manifest: manifest),
+                                       by: .composer)
+        let named = rows.prefix { !$0.composer.isEmpty }
+
+        XCTAssertFalse(named.isEmpty, "no credited pieces in the fixture")
+        XCTAssertTrue(rows.dropFirst(named.count).allSatisfy { $0.composer.isEmpty },
+                      "a credited piece sorted below an un-credited one")
     }
 
     /// A scan that has never been edited. One version, and that version is the

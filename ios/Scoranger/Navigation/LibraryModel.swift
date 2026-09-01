@@ -38,8 +38,11 @@ enum LibraryModel {
         let scores = Dictionary(uniqueKeysWithValues: manifest.scores.map { ($0.slug, $0) })
         return (manifest.pieces ?? []).map { piece in
             let arrangements = piece.arrangements.compactMap { scores[$0] }
+            // No composer is no composer. It used to read "unknown", which is
+            // a word where a fact should be -- and after a PDF import, which
+            // carries no metadata, EVERY row said it.
             let composer = arrangements.compactMap { $0.composer }
-                .first { !$0.isEmpty } ?? "unknown"
+                .first { !$0.isEmpty } ?? ""
             let sources = arrangements.reduce(0) { $0 + ($1.sources?.count ?? 0) }
             // No count chip: the subtitle already says "3 arrangements" in
             // words, and saying it twice on one row is noise (0.4.1 §5). The
@@ -57,8 +60,9 @@ enum LibraryModel {
             return LibraryRow(
                 id: piece.slug,
                 title: piece.name,
-                subtitle: "\(composer) · \(arrangements.count) "
-                    + (arrangements.count == 1 ? "arrangement" : "arrangements"),
+                subtitle: [composer, "\(arrangements.count) "
+                    + (arrangements.count == 1 ? "arrangement" : "arrangements")]
+                    .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [version, shortTime(latest)].filter { !$0.isEmpty }
                     .joined(separator: " · "),
@@ -79,9 +83,9 @@ enum LibraryModel {
             return LibraryRow(
                 id: score.slug,
                 title: score.title ?? score.name,
-                subtitle: (score.composer?.isEmpty == false ? score.composer! : "unknown")
-                    + " · \(score.versions.count) "
-                    + (score.versions.count == 1 ? "version" : "versions"),
+                subtitle: [score.composer ?? "", "\(score.versions.count) "
+                    + (score.versions.count == 1 ? "version" : "versions")]
+                    .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [score.latest ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
@@ -149,10 +153,14 @@ enum LibraryModel {
         case .name:
             return rows.sorted { $0.sortName.localizedCaseInsensitiveCompare($1.sortName) == .orderedAscending }
         case .composer:
-            return rows.sorted {
-                ($0.composer, $0.sortName).0.localizedCaseInsensitiveCompare($1.composer) == .orderedAscending
-                    || ($0.composer.caseInsensitiveCompare($1.composer) == .orderedSame
-                        && $0.sortName.localizedCaseInsensitiveCompare($1.sortName) == .orderedAscending)
+            // A row with no composer sorts LAST. Empty string sorts first
+            // otherwise, which would put every un-credited piece above the
+            // named ones -- the opposite of what sorting by composer is for.
+            return rows.sorted { a, b in
+                if a.composer.isEmpty != b.composer.isEmpty { return !a.composer.isEmpty }
+                let c = a.composer.localizedCaseInsensitiveCompare(b.composer)
+                if c != .orderedSame { return c == .orderedAscending }
+                return a.sortName.localizedCaseInsensitiveCompare(b.sortName) == .orderedAscending
             }
         case .recent:
             // newest first; a row that has never changed sorts last
