@@ -33,6 +33,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ios" / "PythonApp" / "app"))
+# the repo source is what is graded; app/ stays for `import bridge`,
+# but its vendored scoranger_engine must not shadow the real one
+sys.path.insert(0, str(ROOT / "engine"))
 
 FAILURES: list[str] = []
 
