@@ -2946,15 +2946,44 @@ extension ScorangerUITests {
         // A strip per staff -- the seeded quartet has four.
         let strips = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "strip-mute-"))
-        if strips.count != 4 {
-            let ids = app.descendants(matching: .any).allElementsBoundByIndex
-                .map { "\($0.elementType.rawValue):\($0.identifier)" }
-                .filter { $0.contains("strip") || $0.contains("mixer") }
-            print("MIXER TREE: \(ids)")
-            print("MIXER FRAME: \(mixer.frame)")
-            XCTFail("expected one strip per staff, got \(strips.count)")
+        XCTAssertEqual(strips.count, 4, "expected one strip per staff")
+
+        // The activity LEDs, which are the reason the engine emits merged
+        // sounding intervals at all. This waits for a moment where SOME staves
+        // sound and others do not: an all-lit shot proves the lamps can come
+        // on and says nothing about them being PER CHANNEL, which is the whole
+        // point of driving them from per-part data. The score opens with the
+        // top staff resting while the lower three play, so the moment exists.
+        func ledStates() -> [String] {
+            (0..<4).map {
+                app.descendants(matching: .any)["strip-led-\($0)"]
+                    .firstMatch.value as? String ?? "?"
+            }
         }
+        var mixed: [String] = []
+        for _ in 0..<40 {
+            let states = ledStates()
+            if states.contains("yes") && states.contains("no") { mixed = states; break }
+            usleep(250_000)
+        }
+        XCTAssertFalse(mixed.isEmpty,
+                       "never a moment where some staves sounded and others did "
+                       + "not; LEDs read \(ledStates())")
         shot("mixer")
+
+        // Muted does not go dark. The staff IS playing and the reader simply
+        // cannot hear it, which is how they confirm the mute is working -- so
+        // the lamp follows the music and the strip dims around it.
+        if let lit = ledStates().firstIndex(of: "yes") {
+            let mute = app.descendants(matching: .any)["strip-mute-\(lit)"].firstMatch
+            mute.tap()
+            XCTAssertEqual(mute.value as? String, "on", "the strip did not mute")
+            XCTAssertEqual(app.descendants(matching: .any)["strip-led-\(lit)"]
+                            .firstMatch.value as? String, "yes",
+                           "muting a channel put its activity lamp out")
+            shot("mixer-muted-still-lit")
+            mute.tap()
+        }
 
         // The mute is live, and it is the SAME mute the transport reports.
         let firstMute = app.descendants(matching: .any)["strip-mute-0"].firstMatch
