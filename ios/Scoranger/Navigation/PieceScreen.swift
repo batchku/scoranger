@@ -39,6 +39,28 @@ struct PieceScreen: View {
                     }
                 }
 
+                // Whatever the migration wrote, a person can change. Tags
+                // arrived from Newzik; nothing about them should be harder to
+                // correct than it was to import.
+                BandHeader("Details")
+                PieceField(label: "Composer", value: piece.composer ?? "",
+                           identifier: "piece-composer") { v in
+                    Task { _ = await state.setPieceMetadata(piece.slug, composer: v) }
+                }
+                Divider().overlay(Theme.Line.line)
+                PieceField(label: "Arranger", value: piece.arranger ?? "",
+                           identifier: "piece-arranger") { v in
+                    Task { _ = await state.setPieceMetadata(piece.slug, arranger: v) }
+                }
+                Divider().overlay(Theme.Line.line)
+                PieceField(label: "Tags", value: (piece.tags ?? []).joined(separator: ", "),
+                           hint: "Serbia, Bulgaria", identifier: "piece-tags") { v in
+                    let tags = v.split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }
+                    Task { _ = await state.setPieceMetadata(piece.slug, tags: tags) }
+                }
+
                 BandHeader("This piece")
                 ScreenRow(title: "New arrangement", leads: false,
                           identifier: "piece-new-arrangement-\(piece.slug)") {
@@ -314,5 +336,62 @@ struct RowMenuButton: View {
         .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
         .accessibilityAddTraits(isOpen ? [.isSelected] : [])
+    }
+}
+
+
+/// One editable line of a piece's metadata.
+///
+/// Separate from `EditableTitle` for one reason: a name cannot be empty, and
+/// these can. Clearing a composer is a thing a person does -- the credit was
+/// wrong, or it was never a composer in the first place -- so an empty commit
+/// has to reach the engine rather than be swallowed as "no change".
+struct PieceField: View {
+    let label: String
+    let value: String
+    var hint: String = ""
+    var identifier: String
+    var onCommit: (String) -> Void
+
+    @State private var editing = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: Theme.Metric.s12) {
+            Text(label).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                .frame(width: 82, alignment: .leading)
+            if editing {
+                TextField(hint.isEmpty ? label : hint, text: $draft)
+                    .typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                    .tint(Theme.Accent.clay).textFieldStyle(.plain)
+                    .focused($focused).submitLabel(.done)
+                    .onSubmit { commit() }
+                    .accessibilityIdentifier("\(identifier)-field")
+            } else {
+                Text(value.isEmpty ? "—" : value)
+                    .typeRole(.row)
+                    .foregroundStyle(value.isEmpty ? Theme.Ink.ink3 : Theme.Ink.ink)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, Theme.Metric.s20)
+        .frame(minHeight: Theme.Metric.hitTarget)
+        .contentShape(Rectangle())
+        .accessibilityIdentifier(identifier)
+        .onTapGesture {
+            guard !editing else { return }
+            draft = value
+            editing = true
+            focused = true
+        }
+        .onChange(of: focused) { _, now in if !now && editing { commit() } }
+    }
+
+    private func commit() {
+        editing = false
+        focused = false
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != value { onCommit(trimmed) }
     }
 }

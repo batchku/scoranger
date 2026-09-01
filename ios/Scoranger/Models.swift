@@ -59,12 +59,25 @@ struct PieceDoc: Codable, Identifiable, Hashable {
     var slug: String
     var name: String
     var arrangements: [String]
+    /// The piece's own credit. Notation carries one too, but an arrangement
+    /// imported as a PDF has no notation to carry it -- so for a scanned
+    /// library this is the only place a composer can live.
+    var composer: String?
+    /// A credit that is not a composer: a performer, a transcriber, whoever
+    /// made this reading of the tune.
+    var arranger: String?
+    /// Origin and tradition, in practice ("Serbia", "Bulgaria"). Flat, ordered
+    /// as the reader typed them. Absent in a manifest written before tags
+    /// existed, hence the default.
+    var tags: [String]?
 
     var id: String { slug }
 
     static func == (lhs: PieceDoc, rhs: PieceDoc) -> Bool {
         lhs.slug == rhs.slug && lhs.name == rhs.name
             && lhs.arrangements == rhs.arrangements
+            && lhs.composer == rhs.composer && lhs.tags == rhs.tags
+            && lhs.arranger == rhs.arranger
     }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }

@@ -1,0 +1,281 @@
+{
+ "note": "Newzik metadata, corrected. Matched to a piece by 'match' (its imported name); 'title' renames it when present.",
+ "pieces": [
+  {
+   "match": "Balkan Ornaments",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Black Orpheus (Real Book)",
+   "composer": "Luiz Bonfá",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Brale, brale, se sobrale (Brother, brother, everyone has gathered)",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Bucimis",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Bulgaria"
+   ]
+  },
+  {
+   "match": "Do a deer",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Do you want to build a snowman",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Fun der Khupe Tatar version",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Geamparalele din București (The geamparale from Bucharest)",
+   "composer": "",
+   "arranger": "interpretare: Marcel Budală; transcript: Liviu Gîgiu",
+   "tags": []
+  },
+  {
+   "match": "Geamperale",
+   "composer": "G Mustaar",
+   "arranger": "",
+   "tags": [
+    "Romania"
+   ]
+  },
+  {
+   "match": "Helplessly Hoping",
+   "composer": "Stephen Stills",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Imate li vino? (Do you have Wine?)",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Macedonia"
+   ]
+  },
+  {
+   "match": "Jovano Jovanke",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Macedonia"
+   ]
+  },
+  {
+   "match": "Kad sam bio mlađan lovac ja (When I was a young hunter)",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Kaitarma",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Crimea",
+    "Dobrogea"
+   ]
+  },
+  {
+   "match": "Kopanitsa",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Bulgaria"
+   ]
+  },
+  {
+   "match": "La Foule - Violin and Accordion (Gmin)",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "La Symphonie des Eclairs",
+   "composer": "Zaho de Sagazan",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Lule Të Bukura Ka Tirana",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Makesonsko Devojce (Macedonian girl)",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Macedonia"
+   ],
+   "title": "Makedonsko Devojce (Macedonian girl)"
+  },
+  {
+   "match": "Makhloogh (“Creature”)",
+   "composer": "Googoosh",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Mala Loka",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Medeno Kolo",
+   "composer": "Ljubisa Pavkovic",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Milosevsko kolo",
+   "composer": "Vlada Veselinović",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Misty (Real Book)",
+   "composer": "Erroll Garner",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Nature Boy",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Nature Boy (Real Book)",
+   "composer": "eden ahbez",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Ovo Je Serbia (This is Serbia)",
+   "composer": "Nikola Grbić",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Petits flocons blancs",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Por una Cabeza",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Por una Cabeza (violin accordion piano)",
+   "composer": "Carlos Gardel",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Pravo Horo",
+   "composer": "Boris Karlov",
+   "arranger": "",
+   "tags": [
+    "Bulgaria"
+   ]
+  },
+  {
+   "match": "Prelaz Kolo",
+   "composer": "Miodrag Todorović Krnjevac",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Prelaz Kolo (Crossing Kolo)",
+   "composer": "Miodrag Todorović Krnjevac",
+   "arranger": "",
+   "tags": [
+    "Serbia"
+   ]
+  },
+  {
+   "match": "Reine de Musette",
+   "composer": "Jean Peyronnin",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Rocky Road to Dublin",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Sous le Ciel de Paris",
+   "composer": "",
+   "arranger": "",
+   "tags": []
+  },
+  {
+   "match": "Sous le ciel de paris Edith Piaf Versoin",
+   "composer": "H. Giraud",
+   "arranger": "",
+   "tags": [],
+   "title": "Sous le ciel de Paris (Edith Piaf version)"
+  },
+  {
+   "match": "Tatar Kaitarma",
+   "composer": "Alexander Spendiarov, Arr. Horowitz",
+   "arranger": "",
+   "tags": [
+    "Crimea"
+   ]
+  },
+  {
+   "match": "The Star of Country Down",
+   "composer": "",
+   "arranger": "",
+   "tags": [
+    "Ireland"
+   ],
+   "title": "The Star of the County Down"
+  },
+  {
+   "match": "Up 18 North",
+   "composer": "Jens Kruger",
+   "arranger": "",
+   "tags": []
+  }
+ ]
+}

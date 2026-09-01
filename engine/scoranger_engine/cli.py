@@ -400,6 +400,18 @@ def cmd_set_metadata(a):
                                        arranger=a.arranger))
 
 
+def cmd_set_piece_metadata(a):
+    tags = None
+    if a.tags is not None:
+        tags = [t.strip() for t in a.tags.split(",")] if a.tags.strip() else []
+    _emit(workspace.set_piece_metadata(a.piece, composer=a.composer, tags=tags,
+                                       arranger=a.arranger))
+
+
+def cmd_tags(a):
+    _emit({"tags": workspace.all_tags()})
+
+
 def cmd_delete_score(a):
     workspace.delete_score(a.score)
     _emit({"deleted": a.score})
@@ -750,6 +762,18 @@ def main() -> None:
     s.add_argument("--composer", help="composer credit ('' clears it)")
     s.add_argument("--arranger", help="arranger credit ('' clears it)")
     s.set_defaults(fn=cmd_set_metadata)
+
+    s = sub.add_parser("set-piece-metadata",
+                       help="Edit a PIECE's composer and tags (a scan has no "
+                            "notation to credit, so this is where it lives)")
+    s.add_argument("piece")
+    s.add_argument("--composer", help="composer credit ('' clears it)")
+    s.add_argument("--tags", help="comma-separated ('' clears them)")
+    s.add_argument("--arranger", help="arranger credit ('' clears it)")
+    s.set_defaults(fn=cmd_set_piece_metadata)
+
+    s = sub.add_parser("tags", help="Every tag in use, most-used first")
+    s.set_defaults(fn=cmd_tags)
 
     s = sub.add_parser("rename-score",
                        help="Rename an arrangement (label only; slug and versions unchanged)")

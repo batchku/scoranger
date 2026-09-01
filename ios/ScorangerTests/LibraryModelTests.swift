@@ -252,3 +252,38 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(ScoreMode.performance.pencilMeaning, "Pencil: turn")
     }
 }
+
+/// Tags on a piece: shown as chips, and findable by typing.
+final class LibraryTagTests: XCTestCase {
+
+    private func manifest(tags: [String]) -> Manifest {
+        Manifest(generated: "", scores: [
+            ScoreDoc(slug: "a1", name: "Pravo Horo", title: "Pravo Horo",
+                     composer: nil, latest: "v001",
+                     versions: [], sources: nil, piece: "pravo")],
+                 pieces: [PieceDoc(slug: "pravo", name: "Pravo Horo",
+                                   arrangements: ["a1"], composer: "Boris Karlov",
+                                   arranger: nil, tags: tags)],
+                 setlists: [], books: nil)
+    }
+
+    /// The origin is the most useful thing on the row after the name.
+    func testATagBecomesAChipOnTheRow() {
+        let rows = LibraryModel.pieceRows(manifest: manifest(tags: ["Bulgaria"]))
+        XCTAssertEqual(rows.first?.chips.first?.text, "Bulgaria")
+    }
+
+    /// Searching by origin needs no filter control to discover.
+    func testSearchingATagFindsThePiece() {
+        let rows = LibraryModel.pieceRows(manifest: manifest(tags: ["Bulgaria"]))
+        XCTAssertEqual(LibraryModel.searched(rows, query: "bulgar").count, 1)
+        XCTAssertEqual(LibraryModel.searched(rows, query: "serbia").count, 0)
+    }
+
+    /// The piece's own credit is what shows, because a scanned arrangement has
+    /// no notation to carry one.
+    func testThePieceCredicIsUsedWhenTheArrangementHasNone() {
+        let rows = LibraryModel.pieceRows(manifest: manifest(tags: []))
+        XCTAssertEqual(rows.first?.subtitle, "Boris Karlov · 1 arrangement")
+    }
+}

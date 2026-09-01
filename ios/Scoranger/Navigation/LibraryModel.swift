@@ -41,14 +41,23 @@ enum LibraryModel {
             // No composer is no composer. It used to read "unknown", which is
             // a word where a fact should be -- and after a PDF import, which
             // carries no metadata, EVERY row said it.
-            let composer = arrangements.compactMap { $0.composer }
-                .first { !$0.isEmpty } ?? ""
+            //
+            // The PIECE's own credit wins: a scan has no notation to carry one,
+            // so for an imported library it is the only credit there is.
+            let composer = (piece.composer?.isEmpty == false ? piece.composer! : nil)
+                ?? arrangements.compactMap { $0.composer }.first { !$0.isEmpty }
+                ?? ""
             let sources = arrangements.reduce(0) { $0 + ($1.sources?.count ?? 0) }
             // No count chip: the subtitle already says "3 arrangements" in
             // words, and saying it twice on one row is noise (0.4.1 §5). The
             // warning and plain chips stay -- they are facts you cannot read
             // anywhere else on the row.
             var chips: [LibraryRow.Chip] = []
+            // Tags read as what they are -- where the tune is from -- so they
+            // lead the row's chips, ahead of the housekeeping ones.
+            for tag in piece.tags ?? [] {
+                chips.append(.init(text: tag, kind: .plain))
+            }
             if sources > 0 {
                 chips.append(.init(text: "\(sources) SOURCE", kind: .plain))
             }
@@ -174,14 +183,18 @@ enum LibraryModel {
         }
     }
 
-    /// Client-side search over what the manifest holds: names and composers
-    /// (§7). Case- and diacritic-insensitive, matching anywhere in the field,
-    /// because a person searching "tango" should find "Libertango".
+    /// Client-side search over what the manifest holds: names, composers and
+    /// tags (§7). Case- and diacritic-insensitive, matching anywhere in the
+    /// field, because a person searching "tango" should find "Libertango".
+    ///
+    /// Tags are in here rather than behind a filter control: they are already
+    /// on the row as chips, and typing "Serbia" to see the Serbian tunes needs
+    /// no new affordance to learn.
     static func searched(_ rows: [LibraryRow], query: String) -> [LibraryRow] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return rows }
         return rows.filter { row in
-            [row.title, row.subtitle, row.composer].contains {
+            ([row.title, row.subtitle, row.composer] + row.chips.map(\.text)).contains {
                 $0.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
             }
         }

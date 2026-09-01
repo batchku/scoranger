@@ -942,6 +942,62 @@ def _setlist_with_scores(doc: dict, pieces: list[dict]) -> dict:
     return doc
 
 
+def set_piece_metadata(slug: str, composer: str | None = None,
+                       tags: list[str] | None = None,
+                       arranger: str | None = None) -> dict:
+    """Write a piece's own metadata. Only the fields passed are touched.
+
+    Composer lives HERE as well as in the notation, and for most of this
+    library it can only live here: an arrangement imported as a PDF has no
+    notation to write a composer into, so a score brought in as a scan could
+    never be credited at all. The piece is the thing a person credits anyway --
+    the tune has a composer; a particular chart of it does not have a different
+    one.
+
+    Tags are a flat set on the piece: origin and tradition, in practice
+    ("Serbia", "Bulgaria", "Macedonia"). They are deduplicated and their order
+    is kept, because the first one a person types is the one they think of
+    first. An empty list clears them; None leaves them alone.
+    """
+    repo = _repo()
+    doc = repo.get_piece(slug)
+    if doc is None:
+        raise KeyError(f"no piece {slug!r}")
+    if composer is not None:
+        doc["composer"] = composer.strip() or None
+    if arranger is not None:
+        # Where a credit that is not a composer belongs: "interpretare: X
+        # transcript: Y" is a performer and a transcriber, and putting that in
+        # the composer field says the tune was written by them.
+        doc["arranger"] = arranger.strip() or None
+    if tags is not None:
+        seen, kept = set(), []
+        for t in tags:
+            t = str(t).strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                kept.append(t)
+        doc["tags"] = kept
+    repo.set_piece(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def all_tags() -> list[str]:
+    """Every tag in use, by falling frequency then alphabetically.
+
+    What the library's filter is built from: a tag exists because a piece
+    carries it, so there is no separate vocabulary to keep in step.
+    """
+    counts: dict[str, tuple[int, str]] = {}
+    for p in _repo().list_pieces():
+        for t in p.get("tags") or []:
+            n, spelling = counts.get(t.lower(), (0, t))
+            counts[t.lower()] = (n + 1, spelling)
+    return [spelling for _, (n, spelling) in
+            sorted(counts.items(), key=lambda kv: (-kv[1][0], kv[1][1].lower()))]
+
+
 def rebuild_manifest() -> dict:
     """Project the DB into workspace/manifest.json for the viewer."""
     repo = _repo()
@@ -971,6 +1027,9 @@ def rebuild_manifest() -> dict:
                             key=lambda s: next(d.get("created") or ""
                                                for d in score_docs if d["slug"] == s))
         pieces.append({"slug": p["slug"], "name": p["name"],
+                       "composer": p.get("composer"),
+                       "arranger": p.get("arranger"),
+                       "tags": p.get("tags") or [],
                        "arrangements": ordered + stragglers})
     known = {d["slug"] for d in score_docs}
     setlists = []

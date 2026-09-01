@@ -1638,6 +1638,71 @@ final class AppState: ObservableObject {
         return false
     }
 
+    /// Bring the Newzik metadata across, once.
+    ///
+    /// The library arrived as a folder of PDFs, which carry none: the composer,
+    /// the tags and the corrected spellings lived in Newzik and reached the
+    /// export only as folder names. This matches them back onto the pieces by
+    /// name (`MetadataMigration`) and writes what is missing.
+    ///
+    /// It fills in; it does not overwrite. A piece that already carries a
+    /// composer or tags keeps them, so running it again after importing more
+    /// pieces does the new ones and leaves the rest alone. The flag is only
+    /// there to keep it off the startup path forever.
+    @discardableResult
+    func applyBundledMetadataIfNeeded(force: Bool = false) async -> Int {
+        let key = "newzik-metadata-applied"
+        if !force && UserDefaults.standard.bool(forKey: key) { return 0 }
+        let entries = MetadataMigration.bundled()
+        guard !entries.isEmpty else { return 0 }
+        guard let pieces = manifest?.pieces, !pieces.isEmpty else { return 0 }
+
+        let plan = MetadataMigration.plan(entries: entries, pieces: pieces)
+        var written = 0
+        for action in plan.actions {
+            do {
+                if let rename = action.rename {
+                    _ = try await local.call(op: "rename-piece",
+                                             args: ["piece": action.slug, "name": rename])
+                }
+                var args: [String: Any] = ["piece": action.slug]
+                if !action.composer.isEmpty { args["composer"] = action.composer }
+                if !action.arranger.isEmpty { args["arranger"] = action.arranger }
+                if !action.tags.isEmpty { args["tags"] = action.tags }
+                if args.count > 1 {
+                    _ = try await local.call(op: "set-piece-metadata", args: args)
+                }
+                written += 1
+            } catch {
+                // One piece failing is not a reason to abandon the other 39.
+                lastError = error.localizedDescription
+            }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+        if written > 0 { await refresh() }
+        return written
+    }
+
+    /// Set a piece's own composer, arranger and tags.
+    @discardableResult
+    func setPieceMetadata(_ slug: String, composer: String? = nil,
+                          arranger: String? = nil, tags: [String]? = nil) async -> Bool {
+        var args: [String: Any] = ["piece": slug]
+        if let composer { args["composer"] = composer }
+        if let arranger { args["arranger"] = arranger }
+        if let tags { args["tags"] = tags }
+        do {
+            _ = try await local.call(op: "set-piece-metadata", args: args)
+            await refresh()
+            return true
+        } catch let e as EngineError {
+            lastError = e.error
+        } catch {
+            lastError = error.localizedDescription
+        }
+        return false
+    }
+
     /// Rename a piece (the grouping). Its slug is immutable, like a score's.
     @discardableResult
     func renamePiece(piece: String, name: String) async -> Bool {

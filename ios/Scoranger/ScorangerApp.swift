@@ -39,6 +39,8 @@ struct ScorangerApp: App {
                     }
                     #endif
                     await state.seedLibraryIfEmpty()
+                    // the imported library carries no metadata of its own
+                    await state.applyBundledMetadataIfNeeded()
                     await state.refresh()
                     // needs a manifest in hand, so it follows the first refresh
                     await state.migrateSeededSetlistName()
