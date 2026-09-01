@@ -2692,20 +2692,7 @@ extension ScorangerUITests {
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never finished engraving")
 
-        let more = app.buttons["score-more"]
-        XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
-        more.tap()
-        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
-
-        // A PanelToggle is a Toggle to a screen reader, named by its title.
-        let switchElement = app.switches["Show transport"]
-        XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
-                      "Score display no longer offers the transport")
-        if (switchElement.value as? String) != "1" { switchElement.tap() }
-        XCTAssertEqual(switchElement.value as? String, "1",
-                       "the transport switch did not take")
-        goBack()
-        goBack()
+        revealTransport()
 
         let transport = app.otherElements["transport"]
         XCTAssertTrue(transport.waitForExistence(timeout: 30),
@@ -2776,5 +2763,81 @@ extension ScorangerUITests {
         shot("transport-playing")
         play.tap()
         XCTAssertEqual(play.label, "Play", "Stop did not stop it")
+    }
+}
+
+extension ScorangerUITests {
+
+    /// Turn the transport on: Score display, then the switch.
+    func revealTransport() {
+        let more = app.buttons["score-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
+        more.tap()
+        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
+        // A PanelToggle is a Toggle to a screen reader, named by its title.
+        let switchElement = app.switches["Show transport"]
+        XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
+                      "Score display no longer offers the transport")
+        if (switchElement.value as? String) != "1" { switchElement.tap() }
+        XCTAssertEqual(switchElement.value as? String, "1",
+                       "the transport switch did not take")
+        goBack()
+        goBack()
+    }
+
+    /// Press play and wait for the play head to actually move.
+    func startPlaying() {
+        let voices = app.buttons["transport-voices"]
+        XCTAssertTrue(voices.waitForExistence(timeout: 60), "no transport")
+        let loaded = NSPredicate(format: "NOT (label CONTAINS %@)", "no parts")
+        expectation(for: loaded, evaluatedWith: voices, handler: nil)
+        waitForExpectations(timeout: 180)
+
+        app.buttons["transport-play"].tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "bar "),
+                    evaluatedWith: app.staticTexts["transport-bar"], handler: nil)
+        waitForExpectations(timeout: 30)
+    }
+
+    /// The playhead, photographed, and the lasso proved to still work under it.
+    ///
+    /// Two regressions in one journey, because they share a setup that costs
+    /// three minutes. The cursor layer sits directly over the music, where the
+    /// lasso and the Pencil live -- if it ever took a touch, selection would
+    /// fail wherever the music happened to be playing, and it would fail only
+    /// while playing, which is the hardest kind of bug to be told about.
+    func testThePlayheadDrawsAndTheLassoStillSelectsUnderIt() {
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+
+        // The picture the owner asked for.
+        shot("playhead")
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "the screenshot must be of a score that is PLAYING")
+
+        // And now a lasso, with the cursor on screen and the transport running.
+        let chip = app.staticTexts["selection-chip"]
+        var caught = false
+        for y in [0.30, 0.20, 0.42, 0.55] where !caught {
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+            let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y))
+            start.press(forDuration: 0.6, thenDragTo: end)
+            caught = chip.waitForExistence(timeout: 8)
+        }
+        XCTAssertTrue(caught,
+                      "nothing was selected while the transport was running: "
+                      + "the cursor layer is eating touches")
+        shot("playhead-with-selection")
+
+        // A lasso must not have stopped the music either.
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "selecting stopped playback")
     }
 }

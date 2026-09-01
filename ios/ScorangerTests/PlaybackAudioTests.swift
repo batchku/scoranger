@@ -206,6 +206,27 @@ final class PlaybackAudioTests: XCTestCase {
                              "pulling one fader down took more than one channel")
     }
 
+    /// The play head does not depend on hearing anything.
+    ///
+    /// Every channel muted and the metronome off is TRUE silence, and the
+    /// transport must still run through it -- that silent state is only
+    /// allowed because the reader can see where the music is. A cursor driven
+    /// off audio, or stopped when nothing sounds, would make the one state the
+    /// feature exists for the one state it does not work in.
+    func testAMutedChannelDoesNotStopTheClock() throws {
+        let parts = quartet()
+        var silenced = PlaybackVoices()
+        silenced.setAll(on: false, parts: parts)
+        let graph = try loaded("quartet-playback", parts: parts,
+                               voices: silenced, metronome: false)
+        let sound = try render(graph, seconds: 2.0)
+        XCTAssertLessThan(sound.peak, silence, "this must be the silent case")
+        // Two seconds at 120bpm is four quarter notes.
+        XCTAssertEqual(graph.sequencer?.currentPositionInBeats ?? 0, 4.0,
+                       accuracy: 0.25,
+                       "the play head stopped when the sound did")
+    }
+
     /// A fader moved WHILE the music runs. One that only took effect before
     /// `start` would make every strip in the mixer feel broken.
     ///

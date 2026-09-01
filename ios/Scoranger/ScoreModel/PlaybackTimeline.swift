@@ -111,6 +111,20 @@ extension PlaybackTimeline {
         span(atBeat: beat).map { bars[$0].measure }
     }
 
+    /// Which measure is sounding, and how far through it the play head is.
+    ///
+    /// The pair the cursor is drawn from. Fraction rather than beats, because
+    /// the geometry knows a bar's WIDTH and nothing about its meter -- and a
+    /// bar of 6/8 following a bar of 4/4 is a different number of beats across
+    /// the same kind of space.
+    func progress(atBeat beat: Double) -> (measure: Int, fraction: Double)? {
+        guard let index = span(atBeat: beat) else { return nil }
+        let bar = bars[index]
+        let width = bar.end - bar.start
+        guard width > 0 else { return (bar.measure, 0) }
+        return (bar.measure, (beat - bar.start) / width)
+    }
+
     /// Where a bar is played the FIRST time, for seeking to it from a tap on
     /// the page. The first time and not the last: a reader who taps bar 9
     /// means "start there", and starting inside the second pass of a repeat

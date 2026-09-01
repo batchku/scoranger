@@ -458,6 +458,17 @@ struct ScorePagesView: View {
                             committed: state.selectionPaths[index] ?? [])
                     .allowsHitTesting(false)
             }
+            .overlay {
+                // The cursor goes ABOVE the selection and the lasso, so it is
+                // never hidden behind a highlight -- and takes no input, so it
+                // costs them nothing.
+                PlayheadLayer(playback: playback,
+                              bars: state.geometry?.page(index)
+                                  .map(BarPosition.bars(onPage:)) ?? [],
+                              pageSize: state.geometry?.page(index)?.size ?? .zero,
+                              zoom: rasterZoom,
+                              showsHandle: mode != .performance)
+            }
             .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
     }
 
@@ -595,6 +606,68 @@ private struct PlayHead: View {
 
 /// Boxes over the selected elements, scaled from page coordinates to the size
 /// the page is drawn at.
+/// The playhead: where the sound has got to, on the engraved page.
+///
+/// OBSERVES the engine rather than being handed a value. The play head moves
+/// twenty times a second, and a position passed down from `ScorePagesView`
+/// would invalidate the whole page -- the rasterised PDF, the ink layer, the
+/// selection boxes -- on every tick. Observing here means only this view
+/// redraws, which is the same fix the ink bar needed.
+///
+/// Driven by (MEASURE, FRACTION), never by elapsed time: see `Playhead`.
+private struct PlayheadLayer: View {
+    @ObservedObject var playback: PlaybackEngine
+    let bars: [BarPosition.Bar]
+    let pageSize: CGSize
+    /// The scroll view's zoom, so the constants below stay sizes on SCREEN.
+    let zoom: CGFloat
+    let showsHandle: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            if let position = position, pageSize.width > 0, pageSize.height > 0 {
+                let sx = geo.size.width / pageSize.width
+                let sy = geo.size.height / pageSize.height
+                let scale = max(zoom, 0.01)
+                let over = Playhead.overshoot / scale
+                let top = position.top * sy - over
+                let height = position.height * sy + over * 2
+                let x = position.x * sx
+                ZStack(alignment: .topLeading) {
+                    // Clay, and flat. No glow and no gradient (§4 of the design
+                    // system): a moving hairline and a tinted outlined box are
+                    // not confusable, so the cursor does not need a colour of
+                    // its own to stay distinct from a selection.
+                    Rectangle()
+                        .fill(Theme.Accent.clay)
+                        .frame(width: Playhead.weight / scale, height: height)
+                        .position(x: x, y: top + height / 2)
+                    if showsHandle {
+                        RoundedRectangle(cornerRadius: Playhead.handleRadius / scale)
+                            .fill(Theme.Accent.clay)
+                            .frame(width: Playhead.handle / scale,
+                                   height: Playhead.handle / scale)
+                            .position(x: x, y: top)
+                    }
+                }
+            }
+        }
+        // The layer sits over the music, where the lasso and the Pencil live.
+        // It must never take a touch: a cursor that swallowed a stroke would
+        // make selection fail wherever the music happened to be playing.
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var position: Playhead.Position? {
+        guard playback.isPlaying || playback.soundingBar != nil,
+              let progress = playback.timeline.progress(atBeat: playback.beat)
+        else { return nil }
+        return Playhead.position(measure: progress.measure,
+                                 fraction: CGFloat(progress.fraction), bars: bars)
+    }
+}
+
 private struct SelectionHighlight: View {
     let frames: [CGRect]
     let pageSize: CGSize
