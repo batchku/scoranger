@@ -124,9 +124,16 @@ def main() -> int:
     # single switch that silences the whole score -- and CLAUDE.md says every
     # unlabeled staff arrives called "Voice", so this is the ordinary case and
     # not the exotic one.
-    check("each staff is a name of its own", len(set(names)) == 4, str(names))
-    check("and the first one keeps the name it was given",
-          names[0] == "Voice", str(names))
+    # The rule CHANGED here, and deliberately: an earlier version numbered
+    # these "Voice 2/3/4" so a name-keyed mute could tell them apart. Channels
+    # key on INDEX now, so the label is free to be what the page says -- and it
+    # must be, because a strip named something the staff is not is a strip the
+    # reader cannot match to a staff. Disambiguation is display-only, in the
+    # mixer, and renaming is done with the part-rename tools.
+    check("every staff is called what the page calls it",
+          names == ["Voice", "Voice", "Voice", "Voice"], str(names))
+    check("and they are told apart by index, which is unique",
+          [p["index"] for p in timeline["parts"]] == [0, 1, 2, 3])
 
     print("\nnames that are already distinct are left alone")
     _played, timeline = ops.playback_timeline(fixtures.quartet(bars=2))

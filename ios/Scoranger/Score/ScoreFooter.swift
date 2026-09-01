@@ -277,23 +277,28 @@ struct Transport: View {
     /// reader gets the metronome alone, so the list says so rather than
     /// looking like a mistake.
     private var voiceList: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // The staff labels, with a display-only ordinal where one repeats: a
+        // scanned quartet is four staves called "Voice" and the page says so,
+        // but four identical rows cannot be told apart.
+        let labels = PlaybackChannels.labels(for: playback.timeline.parts)
+        return VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Theme.Line.line).frame(height: 1)
-            ForEach(playback.timeline.parts, id: \.index) { part in
+            ForEach(Array(playback.timeline.parts.enumerated()), id: \.element.index) { position, part in
+                let caption = labels.indices.contains(position) ? labels[position] : part.name
                 Button {
-                    playback.voices.toggle(part.name)
+                    playback.voices.toggle(part.index)
                 } label: {
                     HStack(spacing: Theme.Metric.s8) {
-                        Image(systemName: playback.voices.isOn(part.name)
+                        Image(systemName: playback.voices.isOn(part.index)
                                 ? "speaker.wave.2.fill" : "speaker.slash.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(playback.voices.isOn(part.name)
+                            .foregroundStyle(playback.voices.isOn(part.index)
                                              ? Theme.Accent.clayStrong : Theme.Ink.ink3)
                             .frame(width: 20)
-                        Text(part.name).typeRole(.row)
-                            .foregroundStyle(playback.voices.isOn(part.name)
+                        Text(caption).typeRole(.row)
+                            .foregroundStyle(playback.voices.isOn(part.index)
                                              ? Theme.Ink.ink : Theme.Ink.ink3)
-                        if let instrument = part.instrument, instrument != part.name {
+                        if let instrument = part.instrument, instrument != caption {
                             Text(instrument).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                         }
                         Spacer(minLength: 0)
@@ -305,8 +310,8 @@ struct Transport: View {
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("voice-\(part.index)")
-                .accessibilityLabel(part.name)
-                .accessibilityValue(playback.voices.isOn(part.name) ? "on" : "off")
+                .accessibilityLabel(caption)
+                .accessibilityValue(playback.voices.isOn(part.index) ? "on" : "off")
             }
             HStack(spacing: Theme.Metric.s12) {
                 Button("All on") {

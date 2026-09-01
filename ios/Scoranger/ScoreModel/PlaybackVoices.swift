@@ -1,52 +1,87 @@
 import Foundation
 
-/// Which parts are sounding.
+/// Which channels sound, and how loudly.
 ///
-/// Held by part NAME and never by index, for the same reason a selection is
-/// held by address and not by session id: an op that removes a part renumbers
-/// every part after it, and a mute keyed on a number then silences the wrong
-/// instrument -- silently, which is the worst way for it to be wrong. A name
-/// that no longer exists simply stops matching anything.
+/// Keyed on the part's INDEX, not on its name. Names are what the page calls
+/// the staves and they are allowed to repeat -- optical recognition labels
+/// every unlabeled staff "Voice", so a scanned quartet is four parts with one
+/// name between them. A name-keyed mute made that a single switch that
+/// silenced the whole score. The index is unique by construction and is also
+/// the sequencer track number, so it is the one identifier that is true of
+/// exactly one channel.
+///
+/// The cost, stated plainly: an op that REMOVES a part renumbers everything
+/// after it, so a mute can end up on a different instrument than the one it was
+/// put on. That is why `PlaybackEngine` clears the mutes when the score being
+/// listened to changes rather than carrying them across.
 ///
 /// Switching everything off is a real state and not an error: it is how the
-/// reader gets the metronome on its own, which is the practice case the whole
-/// feature exists for.
+/// reader gets the metronome on its own, and with the metronome off too it is
+/// silence -- allowed, because the playhead still shows where the music is.
 struct PlaybackVoices: Equatable, Codable {
 
-    /// The parts the reader has switched OFF. Off rather than on, so a part
-    /// that appears later -- a staff pulled in from another edition -- starts
-    /// sounding rather than starting silently for no stated reason.
-    private(set) var silenced: Set<String> = []
+    /// The channels the reader has switched OFF. Off rather than on, so a part
+    /// that appears later starts sounding rather than starting silently for no
+    /// stated reason.
+    private(set) var silenced: Set<Int> = []
 
-    init(silenced: Set<String> = []) { self.silenced = silenced }
+    /// Fader positions, 0-10. Absent means the default; storing only what has
+    /// been moved keeps "untouched" and "set back to 7" the same state.
+    private(set) var faders: [Int: Int] = [:]
 
-    func isOn(_ part: String) -> Bool { !silenced.contains(part) }
+    init(silenced: Set<Int> = [], faders: [Int: Int] = [:]) {
+        self.silenced = silenced
+        self.faders = faders
+    }
 
-    mutating func toggle(_ part: String) {
-        if silenced.contains(part) { silenced.remove(part) } else { silenced.insert(part) }
+    func isOn(_ channel: Int) -> Bool { !silenced.contains(channel) }
+
+    mutating func toggle(_ channel: Int) {
+        if silenced.contains(channel) { silenced.remove(channel) }
+        else { silenced.insert(channel) }
     }
 
     mutating func setAll(on: Bool, parts: [PlaybackTimeline.Part]) {
-        silenced = on ? [] : Set(parts.map(\.name))
+        silenced = on ? [] : Set(parts.map(\.index))
     }
 
-    /// The sequencer tracks to mute, given the parts of the timeline now
-    /// loaded. The index IS the track index -- music21 writes one track per
-    /// part in score order and `AVAudioSequencer.tracks` omits the tempo
-    /// track, so nothing is offset between them.
+    /// Where a channel's fader is sitting.
+    func fader(_ channel: Int) -> Int {
+        faders[channel] ?? PlaybackGain.defaultFader
+    }
+
+    mutating func setFader(_ value: Int, channel: Int) {
+        faders[channel] = min(max(value, PlaybackGain.minimumFader),
+                              PlaybackGain.maximumFader)
+    }
+
+    /// What the audio graph is actually given for this channel.
+    ///
+    /// Mute and fader are ONE number here on purpose. They are two controls to
+    /// a reader, but the graph has a single volume per node, and deciding
+    /// between them at the call site is how one of them ends up quietly
+    /// winning. A muted channel is zero whatever its fader says, and the fader
+    /// keeps its position so unmuting returns it to where it was.
+    func amplitude(_ channel: Int) -> Double {
+        isOn(channel) ? PlaybackGain.amplitude(for: fader(channel)) : 0
+    }
+
+    /// The sequencer tracks to mute. The index IS the track index: music21
+    /// writes one track per part in score order and `AVAudioSequencer.tracks`
+    /// omits the conductor track, so nothing is offset between them.
     func mutedTracks(in parts: [PlaybackTimeline.Part]) -> Set<Int> {
-        Set(parts.filter { silenced.contains($0.name) }.map(\.index))
+        Set(parts.map(\.index).filter { silenced.contains($0) })
     }
 
-    /// Every part off, so only the metronome is left. Asked of the PARTS the
-    /// timeline actually has, because `silenced` can hold names from an
-    /// earlier version of the arrangement that no longer sound anything.
+    /// Every channel off, so only the metronome is left -- or silence, if that
+    /// is off too. Asked of the PARTS the timeline has, because `silenced` can
+    /// hold indices from a longer arrangement.
     func everythingOff(in parts: [PlaybackTimeline.Part]) -> Bool {
-        !parts.isEmpty && parts.allSatisfy { silenced.contains($0.name) }
+        !parts.isEmpty && parts.allSatisfy { silenced.contains($0.index) }
     }
 
     func countOn(in parts: [PlaybackTimeline.Part]) -> Int {
-        parts.count { !silenced.contains($0.name) }
+        parts.count { !silenced.contains($0.index) }
     }
 
     /// What the transport says about the state, in the reader's terms.
@@ -65,16 +100,58 @@ struct PlaybackVoices: Equatable, Codable {
 
     /// The line under the voice list: how to reach the practice case, or what
     /// is wrong with the state the reader has just built.
-    ///
-    /// Everything off with no click is not an error -- nothing is broken and
-    /// nothing is refused -- but it is the one combination that produces no
-    /// sound at all, so it says which switch is missing rather than leaving
-    /// the reader to press play into silence.
     func advice(in parts: [PlaybackTimeline.Part], metronome: Bool) -> String {
         guard everythingOff(in: parts) else {
             return "turn every voice off to play along to the click"
         }
         return metronome ? "the metronome plays alone"
                          : "nothing will sound: switch the metronome on"
+    }
+}
+
+/// What a channel strip is CALLED.
+///
+/// Exactly what the staff is called on the page -- decision of record: a strip
+/// named something the staff is not cannot be matched to a staff. But four
+/// strips reading "Voice" cannot be told apart either, so where a label
+/// repeats, and only there, a display-only ordinal is appended.
+///
+/// Display-only is the whole point: nothing is keyed on this string. The
+/// channel is its index, the mute is its index, the track is its index. This
+/// is a caption.
+enum PlaybackChannels {
+
+    static func labels(for parts: [PlaybackTimeline.Part]) -> [String] {
+        var total: [String: Int] = [:]
+        for part in parts { total[part.name, default: 0] += 1 }
+        var seen: [String: Int] = [:]
+        return parts.map { part in
+            guard (total[part.name] ?? 0) > 1 else { return part.name }
+            seen[part.name, default: 0] += 1
+            return "\(part.name) \(seen[part.name]!)"
+        }
+    }
+
+    /// Whether a reader's mutes and faders may be carried from one
+    /// performance to the next.
+    ///
+    /// This is the price of keying on index, paid explicitly. An op that
+    /// REMOVES a part renumbers every part after it, so a mute put on the
+    /// viola would come back on the cello -- and it would do it silently,
+    /// which is the worst way for it to be wrong. Carried only when the part
+    /// list is structurally identical, which is true of every op that does not
+    /// touch the staves (transpose, accidentals, structure marks) and false of
+    /// exactly the ones that do (keep-parts, remove-parts, merge, split).
+    static func canCarry(from previous: [PlaybackTimeline.Part],
+                         to next: [PlaybackTimeline.Part]) -> Bool {
+        previous.count == next.count
+            && zip(previous, next).allSatisfy { $0.index == $1.index && $0.name == $1.name }
+    }
+
+    static func label(at index: Int, in parts: [PlaybackTimeline.Part]) -> String {
+        let all = labels(for: parts)
+        guard let position = parts.firstIndex(where: { $0.index == index }),
+              position < all.count else { return "" }
+        return all[position]
     }
 }

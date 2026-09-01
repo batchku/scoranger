@@ -92,8 +92,7 @@ final class PlaybackTracksTests: XCTestCase {
         let (_, sequencer) = try self.sequencer("quartet-playback")
         let click = sequencer.createAndAppendTrack()
 
-        let voices = PlaybackVoices(silenced: ["Violin I", "Violin II",
-                                               "Viola", "Violoncello"])
+        let voices = PlaybackVoices(silenced: [0, 1, 2, 3])
         let parts = [PlaybackTimeline.Part(index: 0, name: "Violin I",
                                            instrument: "Violin", program: 40),
                      PlaybackTimeline.Part(index: 1, name: "Violin II",

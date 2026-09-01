@@ -42,11 +42,11 @@ final class PlaybackEngine: ObservableObject {
     @Published var voices = PlaybackVoices() { didSet { applyMutes() } }
     @Published var metronome = false { didSet { applyMutes() } }
 
-    private let engine = AVAudioEngine()
-    private var sequencer: AVAudioSequencer?
-    private var samplers: [AVAudioUnitSampler] = []
-    private var click: AVAudioUnitSampler?
-    private var clickTrack: AVMusicTrack?
+    /// The audio itself. Extracted so the RMS assertions can render it
+    /// offline: what a listener would hear is measured in `PlaybackAudioTests`
+    /// against THIS object, not against a copy of its wiring.
+    private let graph = PlaybackGraph()
+    private var sequencer: AVAudioSequencer? { graph.sequencer }
     /// Polls the play head. A task and not a display link: the bar changes a
     /// few times a second at most, and 60Hz of main-actor work to notice it
     /// would be paid on every frame of a scroll the reader is also driving.
@@ -65,102 +65,46 @@ final class PlaybackEngine: ObservableObject {
     /// the reader pressing play (say so) or a prefetch (stay quiet).
     func load(midi: URL, timeline: PlaybackTimeline, key: String) throws {
         stop()
-        teardown()
-
+        // Channels are keyed on INDEX, so a reader's mutes only survive into a
+        // performance whose staves did not move. An op that removes a part
+        // renumbers the rest, and carrying a mute across that silences an
+        // instrument nobody chose. `canCarry` is the whole rule.
+        if !PlaybackChannels.canCarry(from: self.timeline.parts, to: timeline.parts) {
+            voices = PlaybackVoices()
+        }
         self.timeline = timeline
-        // One sampler per part, attached and connected BEFORE the sequencer
-        // loads: a track's destination has to be part of a running graph
-        // already for the sequencer to accept it.
-        for part in timeline.parts {
-            let sampler = AVAudioUnitSampler()
-            engine.attach(sampler)
-            engine.connect(sampler, to: engine.mainMixerNode, format: nil)
-            loadInstrument(sampler, program: PlaybackSound.program(for: part),
-                           bankMSB: PlaybackSound.melodicBankMSB)
-            samplers.append(sampler)
-        }
-        let clickSampler = AVAudioUnitSampler()
-        engine.attach(clickSampler)
-        engine.connect(clickSampler, to: engine.mainMixerNode, format: nil)
-        loadInstrument(clickSampler, program: PlaybackSound.clickProgram,
-                       bankMSB: PlaybackSound.percussionBankMSB)
-        click = clickSampler
-
-        // BEFORE the engine starts, not at the first press of play.
-        // `load` starts the graph so the sequencer has somewhere to send its
-        // tracks, and starting it under a session that is neither playback nor
-        // active is what left the voice list empty with nothing said: the
-        // throw happened here, three screens away from the button.
         try activateSession()
-        try engine.start()
-        let loaded = AVAudioSequencer(audioEngine: engine)
-        try loaded.load(from: midi, options: [])
-        for (index, track) in loaded.tracks.enumerated() where index < samplers.count {
-            track.destinationAudioUnit = samplers[index]
-        }
-        // The click is a TRACK in the same sequence, not a timer beside it.
-        // That is what makes it follow the tempo map -- a mid-score change
-        // included -- without a line of code here, and what makes it unable to
-        // drift away from the music over the length of a movement.
-        let metronomeTrack = loaded.createAndAppendTrack()
-        metronomeTrack.destinationAudioUnit = clickSampler
-        for tick in timeline.clicks {
-            let sound = PlaybackSound.click(down: tick.down)
-            metronomeTrack.addEvent(
-                AVMIDINoteEvent(channel: 0, key: UInt32(sound.key),
-                                velocity: UInt32(sound.velocity), duration: 0.05),
-                at: AVMusicTimeStamp(tick.beat))
-        }
-        clickTrack = metronomeTrack
-
-        sequencer = loaded
+        try graph.load(midi: midi, timeline: timeline)
         loadedKey = key
         unavailable = nil
         applyMutes()
     }
 
-    /// A part whose program will not load still plays, on the sampler's own
-    /// default sound. Refusing a whole arrangement because one staff is
-    /// unusual is the wrong trade for a practice aid.
-    private func loadInstrument(_ sampler: AVAudioUnitSampler,
-                                program: UInt8, bankMSB: UInt8) {
-        try? sampler.loadSoundBankInstrument(at: PlaybackSound.bank,
-                                             program: program,
-                                             bankMSB: bankMSB,
-                                             bankLSB: PlaybackSound.bankLSB)
-    }
-
     /// .playback, so a practice aid still sounds with the ring switch
     /// silenced. An iPad on a music stand is muted more often than not.
+    ///
+    /// Called from `load` as well as `play`: the graph starts its engine while
+    /// loading, so a session that is neither playback nor active throws there
+    /// -- three screens from the button, which is how the voice list once came
+    /// up empty with nothing said.
     private func activateSession() throws {
         try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try AVAudioSession.sharedInstance().setActive(true)
     }
 
-    /// Why there is no sound, put where the reader will see it.
-    ///
-    /// The transport shows this in place of its controls. It exists because
-    /// `load` throws to a caller that only knew how to log: a failure to build
-    /// the audio graph became an empty voice list and a play button that did
-    /// nothing, which is the one outcome the transport was designed to avoid.
+    /// Why there is no sound, put where the reader will see it. The transport
+    /// shows this in place of its controls.
     func report(unavailable reason: String?) { unavailable = reason }
 
     func forget() {
         stop()
         teardown()
+        voices = PlaybackVoices()
         timeline = .empty
         loadedKey = nil
     }
 
-    private func teardown() {
-        sequencer = nil
-        clickTrack = nil
-        for sampler in samplers { engine.detach(sampler) }
-        samplers = []
-        if let click { engine.detach(click) }
-        click = nil
-        if engine.isRunning { engine.stop() }
-    }
+    private func teardown() { graph.teardown() }
 
     // MARK: - Transport
 
@@ -170,7 +114,7 @@ final class PlaybackEngine: ObservableObject {
         guard let sequencer else { return }
         do {
             try activateSession()
-            if !engine.isRunning { try engine.start() }
+            if !graph.engine.isRunning { try graph.engine.start() }
             sequencer.prepareToPlay()
             try sequencer.start()
             isPlaying = true
@@ -217,14 +161,17 @@ final class PlaybackEngine: ObservableObject {
     /// a track like any other -- silencing it is the same operation as
     /// silencing a viola.
     private func applyMutes() {
-        guard let sequencer else { return }
-        let muted = voices.mutedTracks(in: timeline.parts)
-        for (index, track) in sequencer.tracks.enumerated()
-        where index < timeline.parts.count {
-            track.isMuted = muted.contains(index)
-        }
-        clickTrack?.isMuted = !metronome
+        graph.apply(voices, parts: timeline.parts, metronome: metronome)
     }
+
+    /// Move one channel's fader, 0-10.
+    func setFader(_ value: Int, channel: Int) {
+        voices.setFader(value, channel: channel)   // didSet re-applies the mixer
+    }
+
+    /// The channel captions, which are the staff labels with a display-only
+    /// ordinal where a label repeats.
+    var channelLabels: [String] { PlaybackChannels.labels(for: timeline.parts) }
 
     // MARK: - The play head
 

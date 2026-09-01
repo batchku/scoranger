@@ -2272,25 +2272,19 @@ def playback_timeline(score) -> tuple:
         tempos = [{"beat": 0.0, "bpm": 120.0}]
 
     parts = []
-    used: set = set()
     for index, part in enumerate(played.parts):
         found = part.getInstrument(returnDefault=False)
-        # A name of its OWN, because the app keys a mute on it. Optical
-        # recognition labels every unlabeled staff "Voice", so a scanned
-        # quartet arrives as four parts with one name between them -- and one
-        # name is one switch, which silences the whole score instead of the
-        # viola. Numbered from the second, so a score whose parts are already
-        # distinct is untouched, and bumped past any number the score itself
-        # already uses.
-        label = base = part_label(part)
-        suffix = 1
-        while label in used:
-            suffix += 1
-            label = f"{base} {suffix}"
-        used.add(label)
+        # EXACTLY what the staff is called on the page, duplicates and all.
+        # Optical recognition labels every unlabeled staff "Voice", so a
+        # scanned quartet really is four parts called "Voice" -- and the mixer
+        # says so, because a strip that called itself something the page does
+        # not is a strip the reader cannot match to a staff. The fix for
+        # duplicate names is renaming the parts with the tools that already
+        # exist. A channel is keyed on its INDEX, which is why duplicate
+        # labels are harmless here.
         parts.append({
             "index": index,
-            "name": label,
+            "name": part_label(part),
             "instrument": getattr(found, "instrumentName", None),
             # None where the part names no instrument, which is every staff
             # optical recognition labels "Voice". Honest beats a wrong guess:

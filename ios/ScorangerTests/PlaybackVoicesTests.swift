@@ -13,14 +13,14 @@ final class PlaybackVoicesTests: XCTestCase {
 
     func testEverythingSoundsUntilSomethingIsSwitchedOff() {
         let voices = PlaybackVoices()
-        XCTAssertTrue(voices.isOn("Viola"))
+        XCTAssertTrue(voices.isOn(2))
         XCTAssertTrue(voices.mutedTracks(in: quartet).isEmpty)
         XCTAssertEqual(voices.summary(in: quartet, metronome: false), "all voices")
     }
 
     func testATrackIndexIsAPartIndex() {
         var voices = PlaybackVoices()
-        voices.toggle("Viola")
+        voices.toggle(2)
         XCTAssertEqual(voices.mutedTracks(in: quartet), [2])
         XCTAssertEqual(voices.summary(in: quartet, metronome: false), "3 of 4 voices")
     }
@@ -29,9 +29,9 @@ final class PlaybackVoicesTests: XCTestCase {
     /// instrument would collapse them into one switch and silence both.
     func testTwoPartsSharingAnInstrumentAreStillTwoVoices() {
         var voices = PlaybackVoices()
-        voices.toggle("Violin I")
+        voices.toggle(0)
         XCTAssertEqual(voices.mutedTracks(in: quartet), [0])
-        XCTAssertTrue(voices.isOn("Violin II"))
+        XCTAssertTrue(voices.isOn(1))
     }
 
     /// The practice case: all voices off leaves the metronome, and that is a
@@ -52,12 +52,17 @@ final class PlaybackVoicesTests: XCTestCase {
         XCTAssertTrue(voices.mutedTracks(in: quartet).isEmpty)
     }
 
-    /// Held by NAME for the same reason a selection is held by address: an op
-    /// that removes a part renumbers every part after it. Muting the viola and
-    /// then removing Violin II must not leave the cello silent instead.
-    func testAMuteSurvivesAPartBeingRemovedFromTheArrangement() {
+    /// The price of keying on INDEX, asserted rather than hoped away.
+    ///
+    /// This test used to prove the opposite: mutes were keyed on name so they
+    /// survived a part being removed. Names had to go -- optical recognition
+    /// gives four staves one name between them, and one name was one switch
+    /// that silenced the whole score. So the guarantee is now structural, and
+    /// `canCarry` is where it is enforced: a mute crosses into the next
+    /// performance only when the staves did not move.
+    func testAMuteIsDroppedWhenAnOpRenumbersTheParts() {
         var voices = PlaybackVoices()
-        voices.toggle("Viola")
+        voices.toggle(2)                                  // the viola
         XCTAssertEqual(voices.mutedTracks(in: quartet), [2])
 
         let trio: [PlaybackTimeline.Part] = [
@@ -65,15 +70,44 @@ final class PlaybackVoicesTests: XCTestCase {
             .init(index: 1, name: "Viola", instrument: "Viola", program: 41),
             .init(index: 2, name: "Violoncello", instrument: "Violoncello", program: 42),
         ]
-        XCTAssertEqual(voices.mutedTracks(in: trio), [1],
-                       "the viola is still the muted one, at its new index")
-        XCTAssertEqual(voices.summary(in: trio, metronome: false), "2 of 3 voices")
+        // Index 2 is the CELLO now. Carrying the mute would silence it, so the
+        // mute does not travel.
+        XCTAssertFalse(PlaybackChannels.canCarry(from: quartet, to: trio),
+                       "a part was removed; the indices moved under the mutes")
+    }
+
+    /// And it DOES travel through the ops that leave the staves alone, which
+    /// is most of them -- transposing a passage must not cost the reader the
+    /// mix they set up to practise against.
+    func testAMuteSurvivesAnOpThatLeavesTheStavesAlone() {
+        XCTAssertTrue(PlaybackChannels.canCarry(from: quartet, to: quartet))
+        let renamed: [PlaybackTimeline.Part] = [
+            .init(index: 0, name: "Violin I", instrument: "Violin", program: 40),
+            .init(index: 1, name: "Violin II", instrument: "Violin", program: 40),
+            .init(index: 2, name: "Bratsche", instrument: "Viola", program: 41),
+            .init(index: 3, name: "Violoncello", instrument: "Violoncello", program: 42),
+        ]
+        XCTAssertFalse(PlaybackChannels.canCarry(from: quartet, to: renamed),
+                       "a renamed staff is a staff the reader must look at again")
+    }
+
+    /// The captions: exactly what the page says, and told apart only where the
+    /// page repeats itself.
+    func testDuplicateStaffLabelsAreDisambiguatedForDisplayOnly() {
+        let scanned: [PlaybackTimeline.Part] = (0..<4).map {
+            .init(index: $0, name: "Voice", instrument: nil, program: nil)
+        }
+        XCTAssertEqual(PlaybackChannels.labels(for: scanned),
+                       ["Voice 1", "Voice 2", "Voice 3", "Voice 4"])
+        // and a score whose staves are already distinct is left alone
+        XCTAssertEqual(PlaybackChannels.labels(for: quartet),
+                       ["Violin I", "Violin II", "Viola", "Violoncello"])
     }
 
     /// A name left over from an earlier version silences nothing and must not
     /// make the app think everything is off.
     func testAStaleNameIsSimplyIgnored() {
-        let voices = PlaybackVoices(silenced: ["Accordion L.H."])
+        let voices = PlaybackVoices(silenced: [7])
         XCTAssertTrue(voices.mutedTracks(in: quartet).isEmpty)
         XCTAssertFalse(voices.everythingOff(in: quartet))
         XCTAssertEqual(voices.summary(in: quartet, metronome: false), "all voices")
