@@ -618,3 +618,14 @@ user-visible failure has either already happened or would go unnoticed.
   radii; nothing asserts the page *looks* right, so a layout could break with
   every test green.
 - **Export from the app UI** (the engine-side export is covered).
+
+## Continuous view: follow does not consult pageFollow
+
+Paged view answers a manual page turn with the Sync chip -- the music keeps
+playing, the page stays where the reader put it, and following resumes only when
+they ask. Continuous view has no such gate: scrolling away during playback is
+still snapped back, which is the behaviour 0.6 removed everywhere else.
+
+Not a regression -- the playhead in continuous view is follow-up scope and the
+paged path cannot reach this code. It becomes wrong the moment the cursor lands
+there, so it belongs in the same change.
