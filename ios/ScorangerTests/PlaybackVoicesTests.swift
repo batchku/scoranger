@@ -15,14 +15,14 @@ final class PlaybackVoicesTests: XCTestCase {
         let voices = PlaybackVoices()
         XCTAssertTrue(voices.isOn("Viola"))
         XCTAssertTrue(voices.mutedTracks(in: quartet).isEmpty)
-        XCTAssertEqual(voices.summary(in: quartet), "all voices")
+        XCTAssertEqual(voices.summary(in: quartet, metronome: false), "all voices")
     }
 
     func testATrackIndexIsAPartIndex() {
         var voices = PlaybackVoices()
         voices.toggle("Viola")
         XCTAssertEqual(voices.mutedTracks(in: quartet), [2])
-        XCTAssertEqual(voices.summary(in: quartet), "3 of 4 voices")
+        XCTAssertEqual(voices.summary(in: quartet, metronome: false), "3 of 4 voices")
     }
 
     /// The two violins carry the SAME instrument name. Keying on the
@@ -41,7 +41,7 @@ final class PlaybackVoicesTests: XCTestCase {
         voices.setAll(on: false, parts: quartet)
         XCTAssertTrue(voices.everythingOff(in: quartet))
         XCTAssertEqual(voices.mutedTracks(in: quartet), [0, 1, 2, 3])
-        XCTAssertEqual(voices.summary(in: quartet), "metronome only")
+        XCTAssertEqual(voices.summary(in: quartet, metronome: true), "metronome only")
     }
 
     func testAndBackAgain() {
@@ -67,7 +67,7 @@ final class PlaybackVoicesTests: XCTestCase {
         ]
         XCTAssertEqual(voices.mutedTracks(in: trio), [1],
                        "the viola is still the muted one, at its new index")
-        XCTAssertEqual(voices.summary(in: trio), "2 of 3 voices")
+        XCTAssertEqual(voices.summary(in: trio, metronome: false), "2 of 3 voices")
     }
 
     /// A name left over from an earlier version silences nothing and must not
@@ -76,7 +76,7 @@ final class PlaybackVoicesTests: XCTestCase {
         let voices = PlaybackVoices(silenced: ["Accordion L.H."])
         XCTAssertTrue(voices.mutedTracks(in: quartet).isEmpty)
         XCTAssertFalse(voices.everythingOff(in: quartet))
-        XCTAssertEqual(voices.summary(in: quartet), "all voices")
+        XCTAssertEqual(voices.summary(in: quartet, metronome: false), "all voices")
     }
 
     /// An arrangement with no parts is not "everything off" -- there is
@@ -85,6 +85,30 @@ final class PlaybackVoicesTests: XCTestCase {
     func testNoPartsIsNotEverythingOff() {
         let voices = PlaybackVoices()
         XCTAssertFalse(voices.everythingOff(in: []))
-        XCTAssertEqual(voices.summary(in: []), "no parts")
+        XCTAssertEqual(voices.summary(in: [], metronome: false), "no parts")
+    }
+
+    /// The one the transport was getting wrong: every voice off AND the
+    /// metronome off is not "metronome only", it is silence. A reader who
+    /// presses play on that and is told the metronome is playing goes looking
+    /// for a broken speaker.
+    func testEveryVoiceOffWithNoMetronomeIsSilenceAndSaysSo() {
+        var voices = PlaybackVoices()
+        voices.setAll(on: false, parts: quartet)
+        XCTAssertEqual(voices.summary(in: quartet, metronome: false), "silent")
+        XCTAssertEqual(voices.summary(in: quartet, metronome: true), "metronome only")
+    }
+
+    /// The line under the voice list, which is the only place the reader is
+    /// told how to reach the practice case at all.
+    func testTheVoiceListSaysWhatWillActuallyBeHeard() {
+        var voices = PlaybackVoices()
+        XCTAssertEqual(voices.advice(in: quartet, metronome: false),
+                       "turn every voice off to play along to the click")
+        voices.setAll(on: false, parts: quartet)
+        XCTAssertEqual(voices.advice(in: quartet, metronome: true),
+                       "the metronome plays alone")
+        XCTAssertEqual(voices.advice(in: quartet, metronome: false),
+                       "nothing will sound: switch the metronome on")
     }
 }

@@ -50,11 +50,31 @@ struct PlaybackVoices: Equatable, Codable {
     }
 
     /// What the transport says about the state, in the reader's terms.
-    func summary(in parts: [PlaybackTimeline.Part]) -> String {
+    ///
+    /// The metronome is part of the answer because the question the label
+    /// answers is "what will I hear". Every voice off with the click off is
+    /// not "metronome only"; it is silence, and a reader told otherwise goes
+    /// looking for a broken speaker.
+    func summary(in parts: [PlaybackTimeline.Part], metronome: Bool) -> String {
         guard !parts.isEmpty else { return "no parts" }
         let on = countOn(in: parts)
         if on == parts.count { return "all voices" }
-        if on == 0 { return "metronome only" }
+        if on == 0 { return metronome ? "metronome only" : "silent" }
         return "\(on) of \(parts.count) voices"
+    }
+
+    /// The line under the voice list: how to reach the practice case, or what
+    /// is wrong with the state the reader has just built.
+    ///
+    /// Everything off with no click is not an error -- nothing is broken and
+    /// nothing is refused -- but it is the one combination that produces no
+    /// sound at all, so it says which switch is missing rather than leaving
+    /// the reader to press play into silence.
+    func advice(in parts: [PlaybackTimeline.Part], metronome: Bool) -> String {
+        guard everythingOff(in: parts) else {
+            return "turn every voice off to play along to the click"
+        }
+        return metronome ? "the metronome plays alone"
+                         : "nothing will sound: switch the metronome on"
     }
 }

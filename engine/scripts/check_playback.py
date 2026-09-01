@@ -38,9 +38,21 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "engine"))
-sys.path.insert(0, str(ROOT / "engine" / "scripts"))
+# ORDER MATTERS, and it is the reason this check was briefly worthless.
+#
+# `ios/PythonApp/app` holds `bridge.py`, which the last section needs -- but it
+# also holds a VENDORED COPY of `scoranger_engine`, written by
+# scripts/vendor_engine.sh so the iPad app can carry the engine in its bundle.
+# Put that directory first and `from scoranger_engine import ops` resolves to
+# the copy: the check then grades a snapshot, and a fix reverted in the real
+# source still passes. It was verified by reverting `toSoundingPitch` and
+# watching every assertion go green.
+#
+# So `engine` goes ahead of it, and the bridge -- which imports the engine the
+# same way -- is graded against the source too.
 sys.path.insert(0, str(ROOT / "ios" / "PythonApp" / "app"))
+sys.path.insert(0, str(ROOT / "engine" / "scripts"))
+sys.path.insert(0, str(ROOT / "engine"))
 
 FAILURES: list[str] = []
 

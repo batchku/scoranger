@@ -223,7 +223,8 @@ struct Transport: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(playback.voices.summary(in: playback.timeline.parts))
+                Text(playback.voices.summary(in: playback.timeline.parts,
+                                             metronome: playback.metronome))
                     .typeRole(.data)
                 Image(systemName: voicesOpen ? "chevron.up" : "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
@@ -240,7 +241,7 @@ struct Transport: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("transport-voices")
-        .accessibilityLabel("Voices, \(playback.voices.summary(in: playback.timeline.parts))")
+        .accessibilityLabel("Voices, \(playback.voices.summary(in: playback.timeline.parts, metronome: playback.metronome))")
     }
 
     /// Where the sound has got to, and how fast. The tempo says whose it is:
@@ -317,9 +318,8 @@ struct Transport: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("voices-all-off")
 
-                Text(playback.voices.everythingOff(in: playback.timeline.parts)
-                     ? "the metronome plays alone"
-                     : "turn every voice off to play along to the click")
+                Text(playback.voices.advice(in: playback.timeline.parts,
+                                            metronome: playback.metronome))
                     .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                 Spacer(minLength: 0)
             }
