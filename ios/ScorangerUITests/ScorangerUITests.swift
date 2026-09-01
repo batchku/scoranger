@@ -2999,12 +2999,46 @@ extension ScorangerUITests {
         XCTAssertTrue(fader.exists, "no fader on the second strip")
         XCTAssertEqual(fader.value as? String, "7 of 10", "the default is 7")
 
-        // The grip moves it without a drag -- the path for readers who cannot.
+        // The scrubber seeks. The bar CHIP that rides above the handle can
+        // only exist while a finger is down, and XCUITest runs every gesture
+        // on the main thread with no hook inside it -- so what the chip SAYS
+        // is proven in MixerLayoutTests (it names a bar, never a time) and
+        // what the scrubber DOES is proven here.
+        let scrubber = app.descendants(matching: .any)["mixer-scrubber"].firstMatch
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 10), "no scrubber")
+        let before = app.staticTexts["transport-bar"].label
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            .press(forDuration: 0.2,
+                   thenDragTo: scrubber.coordinate(
+                       withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let moved = NSPredicate(format: "label != %@", before)
+        expectation(for: moved, evaluatedWith: app.staticTexts["transport-bar"],
+                    handler: nil)
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(app.staticTexts["transport-bar"].label.hasPrefix("bar "),
+                      "scrubbing did not move the play head")
+        shot("mixer-scrubbed")
+
+        // The grip moves it without a drag -- the path for readers who cannot
+        // drag at all, which is the whole reason it is a tap and not only a
+        // handle. Four corners, and back to where it started.
         let grip = app.descendants(matching: .any)["mixer-grip"].firstMatch
-        let where0 = grip.frame.origin
+        var corners: [CGPoint] = [grip.frame.origin]
+        var labels: [String] = [grip.value as? String ?? "?"]
+        for _ in 0..<4 {
+            grip.tap()
+            // Read AFTER the move has settled: the value is queried faster
+            // than SwiftUI redraws, and reading straight after the tap
+            // returned the previous corner twice.
+            usleep(500_000)
+            corners.append(grip.frame.origin)
+            labels.append(grip.value as? String ?? "?")
+        }
+        XCTAssertEqual(Set(labels.dropLast()).count, 4,
+                       "the grip should cycle four distinct corners: \(labels)")
+        XCTAssertEqual(corners.first, corners.last,
+                       "four taps should come back round to the start")
         grip.tap()
-        XCTAssertNotEqual(grip.frame.origin, where0,
-                          "tapping the grip did not move the panel")
         shot("mixer-moved")
 
         // Re-found after the move: the panel is in another corner now, and the

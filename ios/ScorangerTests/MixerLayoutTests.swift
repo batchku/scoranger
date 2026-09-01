@@ -115,3 +115,50 @@ final class MixerLayoutTests: XCTestCase {
                              "a muted strip is dimmed, never hidden")
     }
 }
+
+/// What the scrubber's chip says while a finger is on it.
+///
+/// Its VISIBILITY is a one-line `if let scrubbing` in the view and XCUITest
+/// cannot assert inside a gesture -- every gesture runs on the main thread with
+/// no hook part-way through. What matters and what is testable is the CONTENT:
+/// musicians navigate by bar, so a chip reading `2:14` would be useless at a
+/// music stand even though it is the same instant.
+final class MixerScrubChipTests: XCTestCase {
+
+    private let timeline = PlaybackTimeline(
+        parts: [],
+        bars: (0..<40).map { .init(measure: $0 + 1, start: Double($0) * 4,
+                                   end: Double($0) * 4 + 4) },
+        clicks: [], tempos: [.init(beat: 0, bpm: 120)], beats: 160)
+
+    func testTheChipNamesTheBarUnderTheHandle() {
+        XCTAssertEqual(timeline.bar(atBeat: 0), 1)
+        XCTAssertEqual(timeline.bar(atBeat: 80), 21, "bar 21, as the spec's example")
+        XCTAssertEqual(timeline.bar(atBeat: 83.9), 21)
+        XCTAssertEqual(timeline.bar(atBeat: 84), 22)
+    }
+
+    /// Off the end of the performance there is no bar, and the chip shows
+    /// nothing rather than inventing one.
+    func testPastTheEndThereIsNoBarToName() {
+        XCTAssertNil(timeline.bar(atBeat: 160))
+        XCTAssertNil(timeline.bar(atBeat: -1))
+    }
+
+    /// And the handle's position is the fraction of the performance, so
+    /// dragging to the middle lands in the middle of the MUSIC -- which for a
+    /// score with repeats is the middle of what is PLAYED, not of what is
+    /// engraved.
+    func testTheHandleTracksThePerformanceNotTheEngraving() {
+        let repeated = PlaybackTimeline(
+            parts: [],
+            bars: [.init(measure: 1, start: 0, end: 4),
+                   .init(measure: 2, start: 4, end: 8),
+                   .init(measure: 1, start: 8, end: 12),
+                   .init(measure: 2, start: 12, end: 16)],
+            clicks: [], tempos: [], beats: 16)
+        // Halfway through the PERFORMANCE is the second pass of bar 1.
+        XCTAssertEqual(repeated.bar(atBeat: 16 * 0.5), 1)
+        XCTAssertEqual(repeated.bar(atBeat: 16 * 0.25), 2)
+    }
+}
