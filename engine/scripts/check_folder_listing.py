@@ -129,6 +129,18 @@ def main() -> int:
     check("some view renders state.notice", "state.notice" in views)
     check("a NoticeBar exists to render it", "struct NoticeBar" in views)
 
+    # 8. Import Folder and Import Book must not collapse back into Import File.
+    #    One picker serves all three, and the kind it acts on has to be read
+    #    from the REQUEST: SwiftUI clears the presentation state before the
+    #    completion handler runs. Both features did nothing at all until this
+    #    was found, and neither had a test that crossed the picker.
+    root_view = (ROOT / "ios" / "Scoranger" / "Navigation" / "RootView.swift").read_text()
+    check("the picker's completion reads the request",
+          "importIntent.requested" in root_view)
+    check("no optional kind drives presentation AND intent",
+          "importKind" not in root_view,
+          "importKind is cleared on dismissal, before the completion runs")
+
     if FAILURES:
         print(f"\n{len(FAILURES)} failed")
         return 1

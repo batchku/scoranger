@@ -55,13 +55,9 @@ struct ContentView: View {
     /// The arrangement being put into a set list from its own row.
     @State private var setlistChooserScore: ScoreDoc?
 
-    static let scoreTypes: [UTType] = ([
-        UTType(filenameExtension: "musicxml"),
-        UTType(filenameExtension: "mxl"),
-        UTType(filenameExtension: "xml"),
-        UTType(filenameExtension: "mid"),
-        UTType(filenameExtension: "midi"),
-    ].compactMap { $0 }) + [.pdf]
+    /// The list moved to `ImportKind`, where the tests can reach it. Kept
+    /// here under its own name: this is where the rest of the app asks.
+    static let scoreTypes: [UTType] = ImportKind.scoreTypes
 
     /// Build identity, read from the bundle so what is displayed is exactly the
     /// CFBundleVersion App Store Connect records.

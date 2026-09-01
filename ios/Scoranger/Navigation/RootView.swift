@@ -41,27 +41,8 @@ struct RootView: View {
     /// opened nothing at all -- the same "import is broken" failure the app
     /// already shipped once. The three ACTIONS remain; they set this and share
     /// a single presenter.
-    @State private var importKind: ImportKind?
+    @State private var importIntent = ImportIntent()
 
-    enum ImportKind {
-        /// One or more score files.
-        case file
-        /// A whole exported library: one folder per piece.
-        case folder
-        /// A collection to take arrangements out of.
-        case book
-
-        var contentTypes: [UTType] {
-            switch self {
-            case .file:   return ContentView.scoreTypes
-            case .folder: return [.folder]
-            case .book:   return [.pdf]
-            }
-        }
-
-        /// A library arrives as many files; a folder and a book are one thing.
-        var allowsMultiple: Bool { self == .file }
-    }
     /// Settings is a panel docked at the trailing edge, not a screen that
     /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
     /// but its own ✕ -- the same shape as the chat panel over the score.
@@ -172,14 +153,15 @@ struct RootView: View {
             #endif
         }
         // ONE presenter for all three actions -- see ImportKind.
-        .fileImporter(isPresented: Binding(get: { importKind != nil },
-                                           set: { if !$0 { importKind = nil } }),
-                      allowedContentTypes: (importKind ?? .file).contentTypes,
-                      allowsMultipleSelection: (importKind ?? .file).allowsMultiple) { result in
-            let kind = importKind ?? .file
+        .fileImporter(isPresented: Binding(get: { importIntent.isPresented },
+                                           set: { if !$0 { importIntent.dismissed() } }),
+                      allowedContentTypes: importIntent.requested.contentTypes,
+                      allowsMultipleSelection: importIntent.requested.allowsMultiple) { result in
+            // Read from the REQUEST, never from the presentation: SwiftUI has
+            // already cleared the latter by the time this runs (ImportIntent).
+            let kind = importIntent.requested
             let piece = importIntoPiece
             importIntoPiece = nil
-            importKind = nil
             switch result {
             case .failure(let error):
                 // Swallowed until now: the picker failing and the picker
@@ -238,7 +220,7 @@ struct RootView: View {
                             onOpen: { open($0) }, push: push,
                             onImport: { pieceSlug in
                                 importIntoPiece = pieceSlug
-                                importKind = .file
+                                importIntent.ask(for: .file)
                             })
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-piece-\(slug)")
@@ -358,9 +340,9 @@ struct RootView: View {
                     // its own row, and filing it is Move to piece whenever you
                     // like. Asking first put a modal-shaped question in front
                     // of the one thing the button exists to do.
-                    onImport: { importKind = .file },
-                    onImportFolder: { importKind = .folder },
-                    onImportBook: { importKind = .book },
+                    onImport: { importIntent.ask(for: .file) },
+                    onImportFolder: { importIntent.ask(for: .folder) },
+                    onImportBook: { importIntent.ask(for: .book) },
                     onSettings: {
                         withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
                     },
