@@ -272,6 +272,15 @@ def _dispatch(op, a):
         return workspace.set_score_metadata(a["score"], title=a.get("title"),
                                             composer=a.get("composer"),
                                             arranger=a.get("arranger"))
+    if op == "set-piece-metadata":
+        # Composer lives on the PIECE as well as in notation: an arrangement
+        # imported as a PDF has none to write into, so a scan could otherwise
+        # never be credited at all.
+        return workspace.set_piece_metadata(a["piece"], composer=a.get("composer"),
+                                            tags=a.get("tags"),
+                                            arranger=a.get("arranger"))
+    if op == "tags":
+        return {"tags": workspace.all_tags()}
     if op == "rename-piece":
         return workspace.rename_piece(a["piece"], a["name"])
     if op == "reorder-piece":
