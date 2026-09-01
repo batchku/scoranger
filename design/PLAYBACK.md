@@ -75,12 +75,33 @@ A tap on the canvas already means lasso, and the canvas already carries Pencil.
 did not overload a gesture. It goes in the mixer panel, where the transport
 already lives.
 
-## Page-follow suspends when a reader turns a page
+## Turning a page during playback hands control over, and a button hands it back
 
-Following is on during playback. A MANUAL page turn suspends it -- being yanked
-back to the playhead a moment after deciding to look ahead is the kind of thing
-that makes people stop trusting a feature. Following resumes when the playhead
-re-enters the visible page, or on the next play.
+Revised 2026-08-31, replacing an earlier rule that resumed following
+automatically once the playhead came back into view.
+
+Following is on during playback and turns the page at 85% of its width. A
+MANUAL page turn yields it: the music KEEPS PLAYING, the page stays where the
+reader put it, and following does NOT come back on its own.
+
+Instead a **Sync** button appears, and tapping it jumps the view to whatever
+page the playhead is on now and resumes following. When the visible page
+already holds the playhead, the button is not there.
+
+Automatic resumption is what this replaces, and the reason is that it makes the
+same gesture mean two different things depending on where the music happens to
+be. A reader who pages ahead to read what is coming would be snatched back the
+moment the playhead wandered into view -- not because they asked, but because
+the music arrived. An explicit tap is a reader saying "take me back", which is
+the only moment it is right to move the page under them.
+
+Consequences to get right:
+- The button belongs to PLAYBACK, so it is absent when nothing is playing.
+- On a two-page spread, "the visible page holds the playhead" means EITHER page
+  of the spread.
+- Performance mode hides chrome, and this is chrome.
+- Continuous view has no pages; when the playhead lands there, the same shape
+  applies to a manual SCROLL. Not 0.6.
 
 ## Five ways this breaks other things
 
