@@ -155,3 +155,113 @@ extension BarPositionTests {
         XCTAssertEqual(tall.height, 600, accuracy: 0.001)
     }
 }
+
+extension BarPositionTests {
+
+    /// Looking a numbered bar up on a page: what follow-scrolling needs to
+    /// turn "bar 21 is sounding" into a place on the strip.
+    func testABarIsFoundByItsNumber() {
+        let bars = [BarPosition.Bar(number: 1, frame: CGRect(x: 0, y: 0, width: 100, height: 50)),
+                    BarPosition.Bar(number: 2, frame: CGRect(x: 100, y: 0, width: 120, height: 50)),
+                    BarPosition.Bar(number: 3, frame: CGRect(x: 220, y: 0, width: 90, height: 50))]
+        XCTAssertEqual(BarPosition.frame(ofBar: 2, among: bars)?.minX, 100)
+        XCTAssertEqual(BarPosition.frame(ofBar: 3, among: bars)?.width, 90)
+    }
+
+    /// Nil, not a fallback. The remote-engine path builds no geometry at all,
+    /// and a guessed position is worse than none: the reader trusts it and
+    /// looks away from the music.
+    func testABarThatIsNotOnThePageHasNoFrame() {
+        XCTAssertNil(BarPosition.frame(ofBar: 9, among: []))
+        XCTAssertNil(BarPosition.frame(
+            ofBar: 9,
+            among: [BarPosition.Bar(number: 1, frame: .zero)]))
+    }
+}
+
+extension BarPositionTests {
+
+    /// Verovio nests a spanner inside the measure where it STARTS, and a
+    /// group's frame is the union of everything drawn inside it. So a bar
+    /// carrying a slur that runs into the next system is reported several bars
+    /// wide -- and a playhead asked to stand a third of the way through bar 1
+    /// lands in bar 3, which is exactly what a screenshot caught it doing.
+    ///
+    /// Measured on the scanned quartet: measure 1 carries a slur ending in
+    /// measure 4, and nine bars of that page overlap their neighbour, the
+    /// worst by 2.1 bars. `engine/scripts/check_bar_frames.py` engraves it with
+    /// the real Verovio and asserts the property this restores.
+    ///
+    /// The LEFT edge is sound -- a spanner cannot be drawn left of the barline
+    /// it starts at -- so the right edge is taken from where the next bar
+    /// begins.
+    func testABarWideEnoughToSwallowItsNeighbourIsClippedBackToIt() {
+        let bars = [
+            BarPosition.Bar(number: 1, frame: CGRect(x: 0, y: 0, width: 380, height: 200)),
+            BarPosition.Bar(number: 2, frame: CGRect(x: 130, y: 0, width: 120, height: 200)),
+            BarPosition.Bar(number: 3, frame: CGRect(x: 260, y: 0, width: 120, height: 200)),
+        ]
+        let clipped = BarPosition.clippedToNeighbours(bars)
+        XCTAssertEqual(clipped[0].frame.maxX, 130, "bar 1 ends where bar 2 begins")
+        // Bar 2 already ends at 250, before bar 3 starts: the clip is a
+        // CEILING, not a stretch, so it is left exactly as it was.
+        XCTAssertEqual(clipped[1].frame.maxX, 250, "a bar that fits is not moved")
+        XCTAssertEqual(clipped[2].frame.maxX, 380, "the last bar keeps its own edge")
+        // The vertical span is untouched: it is what the cursor draws across,
+        // and it is correct already.
+        XCTAssertEqual(clipped[0].frame.minY, 0)
+        XCTAssertEqual(clipped[0].frame.height, 200)
+        XCTAssertEqual(clipped[0].frame.minX, 0, "the left edge is trustworthy")
+    }
+
+    /// A bar that already ends before its neighbour is left exactly alone: the
+    /// clip is a ceiling, not a rewrite.
+    func testABarThatDoesNotOverlapIsUntouched() {
+        let bars = [
+            BarPosition.Bar(number: 1, frame: CGRect(x: 0, y: 0, width: 100, height: 50)),
+            BarPosition.Bar(number: 2, frame: CGRect(x: 120, y: 0, width: 100, height: 50)),
+        ]
+        XCTAssertEqual(BarPosition.clippedToNeighbours(bars), bars)
+    }
+
+    /// Bars on the NEXT system are not neighbours. The last bar of a system
+    /// sits to the right of the first bar of the one below it, and clipping
+    /// against that would give it a negative width.
+    func testTheBarBelowIsNotTheBarAfter() {
+        let bars = [
+            // system 1: two bars, the second running to the page edge
+            BarPosition.Bar(number: 1, frame: CGRect(x: 0, y: 0, width: 200, height: 100)),
+            BarPosition.Bar(number: 2, frame: CGRect(x: 200, y: 0, width: 200, height: 100)),
+            // system 2, below: starts at the left margin again
+            BarPosition.Bar(number: 3, frame: CGRect(x: 0, y: 200, width: 200, height: 100)),
+            BarPosition.Bar(number: 4, frame: CGRect(x: 200, y: 200, width: 200, height: 100)),
+        ]
+        let clipped = BarPosition.clippedToNeighbours(bars)
+        XCTAssertEqual(clipped[1].frame.maxX, 400,
+                       "the last bar of a system keeps its edge")
+        XCTAssertEqual(clipped[1].frame.width, 200)
+        XCTAssertTrue(clipped.allSatisfy { $0.frame.width > 0 },
+                      "no bar may be clipped out of existence")
+    }
+
+    /// The join the playhead rests on, end to end: a bar that Verovio reported
+    /// three bars wide puts the cursor in the right bar once it is clipped.
+    func testTheCursorLandsInTheBarItNames() {
+        let raw = [
+            BarPosition.Bar(number: 1, frame: CGRect(x: 100, y: 0, width: 400, height: 200)),
+            BarPosition.Bar(number: 2, frame: CGRect(x: 240, y: 0, width: 130, height: 200)),
+            BarPosition.Bar(number: 3, frame: CGRect(x: 370, y: 0, width: 130, height: 200)),
+        ]
+        // Unclipped, halfway through bar 1 lands at 300 -- inside bar 2.
+        let wrong = Playhead.position(measure: 1, fraction: 0.5, bars: raw)
+        XCTAssertEqual(wrong?.x, 300)
+        XCTAssertGreaterThan(wrong!.x, raw[1].frame.minX,
+                             "this is the defect, stated so it cannot come back")
+
+        let right = Playhead.position(measure: 1, fraction: 0.5,
+                                      bars: BarPosition.clippedToNeighbours(raw))
+        XCTAssertEqual(right?.x, 170)
+        XCTAssertLessThan(right!.x, raw[1].frame.minX,
+                          "halfway through bar 1 is inside bar 1")
+    }
+}

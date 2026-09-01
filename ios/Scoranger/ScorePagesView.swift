@@ -35,6 +35,10 @@ struct ScorePagesView: View {
     /// What the Pencil means right now (§6). Selection is OFF in performance
     /// mode, which is what frees the Pencil to turn pages.
     var mode: ScoreMode = .read
+    /// Where the sound has got to. OBSERVED, because AppState publishes nothing
+    /// when the play head moves and a canvas reading it through AppState would
+    /// never follow -- the same fix the ink bar needed.
+    @ObservedObject var playback: PlaybackEngine
     /// Where a page turn is scrolling to, if one is in flight.
     @State private var scrollTarget: CGFloat?
 
@@ -145,6 +149,12 @@ struct ScorePagesView: View {
                 if visibleRect == .zero {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
                 }
+            }
+            // Follow the sound. Only on a CHANGE of bar: the engine publishes
+            // a beat twenty times a second and re-deciding the scroll that
+            // often would fight every pan the reader makes.
+            .onChange(of: playback.soundingBar) { _, bar in
+                follow(bar: bar, stripScale: stripScale, surface: surface)
             }
         }
         .overlay(alignment: .top) { selectionChip }
@@ -320,7 +330,67 @@ struct ScorePagesView: View {
         guard let next = PagedCanvas.step(from: state.pageIndex, by: direction,
                                           pageCount: document.pageCount,
                                           spread: state.twoPageSpread) else { return }
+        // A page turned BY THE READER hands following over to them. The music
+        // is not stopped and the page is not taken back: a Sync chip appears
+        // and waits to be asked.
+        state.readerTurnedPage()
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
+    }
+
+    /// Where the sounding bar sits on the strip, in surface points.
+    ///
+    /// Nil where there is no geometry, which is EVERY remote-engine render:
+    /// that path fetches a finished PDF and builds no index, so there is
+    /// nothing to look a bar up in. Playback still works there; it simply does
+    /// not follow. A guessed position would be worse than none -- the reader
+    /// would trust it and look away from the music.
+    private func soundingBarFrame(scale: CGFloat) -> CGRect? {
+        guard state.layout.isContinuous, let bar = playback.soundingBar,
+              let page = state.geometry?.page(0) else { return nil }
+        guard let frame = BarPosition.frame(ofBar: bar,
+                                            among: BarPosition.bars(onPage: page))
+        else { return nil }
+        return PlaybackFollow.surfaceFrame(pageFrame: frame, scale: scale)
+    }
+
+    /// Keep the sounding bar readable, without taking the score away from a
+    /// reader who has just panned somewhere to look at it.
+    ///
+    /// `PlaybackFollow` returns nil while the bar is comfortably on screen,
+    /// and that nil is the feature: the strip holds still through most of a
+    /// phrase and moves in one decisive step when the music has run to the
+    /// edge.
+    private func follow(bar: Int?, stripScale: CGFloat, surface: CGSize) {
+        guard bar != nil else { return }
+        if state.layout.isContinuous {
+            guard let frame = soundingBarFrame(scale: stripScale),
+                  let x = PlaybackFollow.target(bar: frame, visible: visibleRect,
+                                                surfaceWidth: surface.width)
+            else { return }
+            scrollTargetX = x
+            scrollToken += 1
+            return
+        }
+        // Paged: there is nothing to scroll, so the unit turns -- and only
+        // when the bar is on a page that is not already showing.
+        //
+        // AND only while following is still the app's job. Without this guard
+        // the reader pages ahead, the very next play-head tick turns the page
+        // straight back, and the score fights them -- which is the exact
+        // behaviour the revised rule in design/PLAYBACK.md exists to remove.
+        // Caught in a screenshot: the rail and the badge said page 7 while the
+        // canvas had been dragged back to page 1.
+        guard state.pageFollow.isFollowing else { return }
+        guard let sounding = bar, let geometry = state.geometry,
+              let page = geometry.pages.first(where: { candidate in
+                  BarPosition.frame(ofBar: sounding,
+                                    among: BarPosition.bars(onPage: candidate)) != nil
+              }),
+              let unit = PlaybackFollow.turn(toPage: page.index,
+                                             showing: state.visiblePageIndices,
+                                             spread: state.twoPageSpread)
+        else { return }
+        state.pageIndex = unit
     }
 
     private func aspect(of page: Int?) -> CGFloat {
@@ -364,6 +434,11 @@ struct ScorePagesView: View {
                                    atDepth: deep.contains(index))
             }
         }
+        .overlay(alignment: .topLeading) {
+            if let sounding = soundingBarFrame(scale: scale) {
+                PlayHead(frame: sounding).allowsHitTesting(false)
+            }
+        }
         .padding(.vertical, ContinuousTiles.margin)
         // NO page shadow. A page is a sheet lying on a surface and its shadow
         // says so; the strip is one ribbon, and the shadow was being drawn at
@@ -394,6 +469,17 @@ struct ScorePagesView: View {
                 LassoAnchor(pageIndex: index,
                             committed: state.selectionPaths[index] ?? [])
                     .allowsHitTesting(false)
+            }
+            .overlay {
+                // The cursor goes ABOVE the selection and the lasso, so it is
+                // never hidden behind a highlight -- and takes no input, so it
+                // costs them nothing.
+                PlayheadLayer(playback: playback,
+                              bars: state.geometry?.page(index)
+                                  .map(BarPosition.bars(onPage:)) ?? [],
+                              pageSize: state.geometry?.page(index)?.size ?? .zero,
+                              zoom: rasterZoom,
+                              showsHandle: mode != .performance)
             }
             .shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 5, y: 2)
     }
@@ -509,8 +595,91 @@ struct ScorePagesView: View {
 /// Its whole reason for existing is `@ObservedObject`: the bar has to appear and
 /// disappear with the mode, and only a view that observes the controller is
 /// redrawn when the mode changes.
+/// Where the sound is, on the strip.
+///
+/// A band behind the bar rather than a line at its left edge: a line says
+/// "here is an instant", and what a player glancing up needs is "here is the
+/// bar you are in". Behind the music and unfilled at the edges, so it never
+/// competes with a notehead for the eye.
+private struct PlayHead: View {
+    let frame: CGRect
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(Theme.Accent.clay.opacity(0.16))
+            .overlay(alignment: .leading) {
+                Rectangle().fill(Theme.Accent.clayStrong.opacity(0.75)).frame(width: 2)
+            }
+            .frame(width: max(frame.width, 4), height: frame.height)
+            .offset(x: frame.minX, y: frame.minY)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Boxes over the selected elements, scaled from page coordinates to the size
 /// the page is drawn at.
+/// The playhead: where the sound has got to, on the engraved page.
+///
+/// OBSERVES the engine rather than being handed a value. The play head moves
+/// twenty times a second, and a position passed down from `ScorePagesView`
+/// would invalidate the whole page -- the rasterised PDF, the ink layer, the
+/// selection boxes -- on every tick. Observing here means only this view
+/// redraws, which is the same fix the ink bar needed.
+///
+/// Driven by (MEASURE, FRACTION), never by elapsed time: see `Playhead`.
+private struct PlayheadLayer: View {
+    @ObservedObject var playback: PlaybackEngine
+    let bars: [BarPosition.Bar]
+    let pageSize: CGSize
+    /// The scroll view's zoom, so the constants below stay sizes on SCREEN.
+    let zoom: CGFloat
+    let showsHandle: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            if let position = position, pageSize.width > 0, pageSize.height > 0 {
+                let sx = geo.size.width / pageSize.width
+                let sy = geo.size.height / pageSize.height
+                let scale = max(zoom, 0.01)
+                let over = Playhead.overshoot / scale
+                let top = position.top * sy - over
+                let height = position.height * sy + over * 2
+                let x = position.x * sx
+                ZStack(alignment: .topLeading) {
+                    // Clay, and flat. No glow and no gradient (§4 of the design
+                    // system): a moving hairline and a tinted outlined box are
+                    // not confusable, so the cursor does not need a colour of
+                    // its own to stay distinct from a selection.
+                    Rectangle()
+                        .fill(Theme.Accent.clay)
+                        .frame(width: Playhead.weight / scale, height: height)
+                        .position(x: x, y: top + height / 2)
+                    if showsHandle {
+                        RoundedRectangle(cornerRadius: Playhead.handleRadius / scale)
+                            .fill(Theme.Accent.clay)
+                            .frame(width: Playhead.handle / scale,
+                                   height: Playhead.handle / scale)
+                            .position(x: x, y: top)
+                    }
+                }
+            }
+        }
+        // The layer sits over the music, where the lasso and the Pencil live.
+        // It must never take a touch: a cursor that swallowed a stroke would
+        // make selection fail wherever the music happened to be playing.
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var position: Playhead.Position? {
+        guard playback.isPlaying || playback.soundingBar != nil,
+              let progress = playback.timeline.progress(atBeat: playback.beat)
+        else { return nil }
+        return Playhead.position(measure: progress.measure,
+                                 fraction: CGFloat(progress.fraction), bars: bars)
+    }
+}
+
 private struct SelectionHighlight: View {
     let frames: [CGRect]
     let pageSize: CGSize

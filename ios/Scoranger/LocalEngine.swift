@@ -134,6 +134,29 @@ struct LocalEngine {
         return path
     }
 
+    /// The score AS PERFORMED: a MIDI file, and the map from its beats back to
+    /// the engraved bars.
+    ///
+    /// ONE call, because the two halves must describe the same performance.
+    /// The engine builds both out of a single performed score -- repeats
+    /// played out, written pitch made sounding -- and asking for them
+    /// separately is how a play head ends up following music that is not the
+    /// music sounding. It creates no version: playback is a reading of the
+    /// arrangement, like `info`.
+    func playback(score: String, version: String?) async throws
+        -> (midi: URL, timeline: PlaybackTimeline) {
+        var args: [String: Any] = ["score": score]
+        if let version { args["version"] = version }
+        let r = try await result(op: "playback", args: args)
+        guard let path = r["path"] as? String else {
+            throw LocalEngineError.engine("no path in playback result")
+        }
+        guard let raw = r["timeline"] as? [String: Any] else {
+            throw LocalEngineError.engine("no timeline in playback result")
+        }
+        return (URL(fileURLWithPath: path), try decode(raw, as: PlaybackTimeline.self))
+    }
+
     func versionFilePath(score: String, version: String?) async throws -> String {
         var args: [String: Any] = ["score": score]
         if let version { args["version"] = version }

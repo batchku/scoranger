@@ -441,6 +441,14 @@ def cmd_export(a):
     _emit({"score": a.score, "format": a.format, "parts": parts or "all", "out": str(out)})
 
 
+def cmd_playback(a):
+    out = Path(a.out).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    played, timeline = ops.playback_timeline(_load(a.score, a.version))
+    played.write("midi", fp=str(out))
+    _emit({"score": a.score, "out": str(out), "timeline": timeline})
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="scor", description="Scoranger score engine")
     sub = p.add_subparsers(dest="command", required=True)
@@ -798,6 +806,14 @@ def main() -> None:
     s.add_argument("--version")
     s.add_argument("--parts", help="Only include these parts (comma-separated)")
     s.set_defaults(fn=cmd_export)
+
+    s = sub.add_parser("playback",
+                       help="Write the score AS PERFORMED to MIDI, with the map "
+                            "from its beats back to the engraved bars")
+    s.add_argument("score")
+    s.add_argument("--out", required=True)
+    s.add_argument("--version")
+    s.set_defaults(fn=cmd_playback)
 
     a = p.parse_args()
     try:

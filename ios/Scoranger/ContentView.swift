@@ -21,6 +21,14 @@ struct ContentView: View {
     /// teaches people the app is broken. Previous and next step the setlist and
     /// work whether or not this is on.
     @AppStorage("showTransport") private var showTransport = false
+
+    /// Lane 1 is the ink bar's, and it is only occupied when the bar is out.
+    private var inkLaneHeight: CGFloat { state.annotation.isOn ? 56 : 0 }
+    private var syncLaneInset: CGFloat { inkLaneHeight + 12 }
+    /// The mixer sits above whichever lanes are occupied. Recomputed when a
+    /// lane appears or disappears -- never per frame, or the panel drifts
+    /// under the reader's hand.
+    private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
@@ -181,9 +189,15 @@ struct ContentView: View {
                         .allowsHitTesting(false)
                 }
             }
-            // Performance mode gives the score the whole screen: the strip and
-            // the transport go, and the page-turn zones become the point (§4.5).
-            // The strip is a list of PAGES. Continuous mode has one, so the
+            // TWO gates, not one. They were a single condition, and that put
+            // the transport behind `!isContinuous` -- so the scrolling view,
+            // which is the ONE mode playing along to the score is for, was the
+            // only mode with no transport at all.
+            //
+            // Performance mode still gives the score the whole screen: both go,
+            // and the page-turn zones become the point (§4.5).
+            //
+            // The STRIP is a list of PAGES. Continuous mode has one, so the
             // strip showed a single thumbnail of the whole score -- true, and
             // useless. The designer's position markers are the right answer and
             // are not built yet; showing nothing is better than showing that.
@@ -195,15 +209,37 @@ struct ContentView: View {
                                // straight to the unit holding that page: no
                                // offset arithmetic left to get wrong
                                onJump: { index in
+                                   // A thumbnail tap is a page turned BY THE
+                                   // READER just as much as a swipe is, so it
+                                   // yields following the same way. It does not
+                                   // go through `step(by:)`, which is where the
+                                   // swipe path hooks this -- so it needs its
+                                   // own call or paging from the rail would
+                                   // leave the score snapping back.
+                                   state.readerTurnedPage()
                                    state.pageIndex = PagedCanvas.index(
                                        forPage: index, spread: state.twoPageSpread)
                                })
-                if showTransport {
-                    Transport(setlistLabel: setlistLabel,
-                              canStep: setlistPosition != nil,
-                              onPrevious: { stepSetlist(-1) },
-                              onNext: { stepSetlist(1) })
-                }
+            }
+            // The TRANSPORT is about the music, not about pages, so it belongs
+            // in every mode that has chrome at all.
+            if state.scoreMode != .performance, showTransport {
+                Transport(setlistLabel: setlistLabel,
+                          canStep: setlistPosition != nil,
+                          onPrevious: { stepSetlist(-1) },
+                          onNext: { stepSetlist(1) },
+                          playback: state.playback,
+                          unavailable: state.playbackAvailability,
+                          preparing: state.playbackPreparing,
+                          onPlay: { state.togglePlayback() },
+                          mixerOpen: state.mixerOpen,
+                          onMixer: { state.mixerOpen.toggle() })
+                    // Built when the transport appears, never when the score
+                    // opens: writing the MIDI takes music21 a moment and
+                    // opening an arrangement must not wait on it.
+                    .task(id: state.displayedVersionID) {
+                        await state.preparePlayback()
+                    }
             }
         }
         .background {
@@ -217,6 +253,24 @@ struct ContentView: View {
         // included, so it can be moved anywhere on it (#46).
         .overlay(alignment: .bottom) {
             AnnotationBarLayer(controller: state.annotation)
+        }
+        // Lane 2 (§4): the sync chip, centred, 12pt above the ink bar's lane.
+        // It is transient, so it gets a lane rather than a slot in a row that
+        // would reflow around it as it comes and goes.
+        .overlay(alignment: .bottom) {
+            if state.scoreMode != .performance {
+                SyncChipLayer(state: state, playback: state.playback)
+                    .padding(.bottom, syncLaneInset)
+            }
+        }
+        // Lane 3 (§4): the mixer, movable, parked bottom-right above the
+        // highest occupied lane. LAST in the stack, which is the z-order the
+        // spec settles: fixed chrome < ink bar < sync chip < mixer.
+        .overlay {
+            if state.scoreMode != .performance, state.mixerOpen {
+                MixerLayer(state: state, playback: state.playback,
+                           lanesInset: mixerLaneInset)
+            }
         }
         .background(Theme.Surface.ground)
         // #59: the music is not resized by a text field taking focus. The
@@ -364,7 +418,12 @@ struct ContentView: View {
             if isCompact {
                 ScoreZoomView(document: doc)
             } else {
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)", mode: state.scoreMode)
+                // The engine is handed in rather than reached through
+                // AppState: AppState publishes nothing when the play head
+                // moves, so a canvas that read it that way would never follow.
+                // Same reason the ink bar observes its controller directly.
+                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+                               mode: state.scoreMode, playback: state.playback)
             }
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so

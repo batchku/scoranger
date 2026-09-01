@@ -2673,3 +2673,436 @@ final class ScorangerUITests: XCTestCase {
                        "a long press should reach nothing at all now")
     }
 }
+
+extension ScorangerUITests {
+
+    /// The transport, end to end in the running app.
+    ///
+    /// Everything else about playback is tested without a device -- the bar
+    /// map, the mutes, the follow geometry, the sequencer's track order. What
+    /// none of that can show is that the feature is REACHABLE: the transport
+    /// lives behind a switch on the Score display screen, and a switch that
+    /// does not reveal it leaves the whole thing shipped and invisible.
+    ///
+    /// The assertion at the end is the product rule: every voice off is a
+    /// destination, not an error, and the transport says the metronome is
+    /// what is left.
+    func testTheTransportIsReachableAndEveryVoiceCanBeSwitchedOff() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+
+        revealTransport()
+
+        let transport = app.otherElements["transport"]
+        XCTAssertTrue(transport.waitForExistence(timeout: 30),
+                      "the switch is on and the transport is still not on screen")
+        XCTAssertTrue(app.buttons["transport-play"].waitForExistence(timeout: 60),
+                      "the transport has no play button")
+
+        // Preparing writes the MIDI with music21 on-device, which takes a
+        // moment on a first press. The voice list is empty until it lands, so
+        // this waits for the control to stop saying so rather than for a fixed
+        // number of seconds.
+        let voices = app.buttons["transport-voices"]
+        XCTAssertTrue(voices.waitForExistence(timeout: 60), "no voices control")
+        let loaded = NSPredicate(format: "NOT (label CONTAINS %@)", "no parts")
+        expectation(for: loaded, evaluatedWith: voices, handler: nil)
+        waitForExpectations(timeout: 180)
+
+        voices.tap()
+        // The rows carry their identifiers on an element that is NOT reported
+        // as a button (the reveal wraps each in `children: .ignore`), so they
+        // are found the way every other row in this suite is found.
+        let firstVoice = app.descendants(matching: .any)["voice-0"].firstMatch
+        if !firstVoice.waitForExistence(timeout: 30) {
+            shot("transport-no-voices")
+            XCTFail("the voice list never listed a part."
+                    + " voices=\(voices.label)"
+                    + " notice=\(app.staticTexts["notice-text"].exists ? app.staticTexts["notice-text"].label : "-")")
+        }
+        // Start from a known state: an earlier tap in this session may have
+        // left a voice off.
+        app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
+
+        XCTAssertEqual(firstVoice.value as? String, "on",
+                       "a part starts sounding")
+        firstVoice.tap()
+        XCTAssertEqual(firstVoice.value as? String, "off",
+                       "tapping a voice did not silence it")
+
+        // The practice case. With the metronome ON, every voice off is
+        // "metronome only" -- and with it off it says "silent", because
+        // claiming a click that is not playing sends a reader hunting for a
+        // broken speaker.
+        app.buttons["transport-metronome"].tap()
+        app.descendants(matching: .any)["voices-all-off"].firstMatch.tap()
+        XCTAssertTrue(voices.label.contains("metronome only"),
+                      "every voice off with the click on is metronome only, "
+                      + "and the transport said: \(voices.label)")
+        app.buttons["transport-metronome"].tap()
+        XCTAssertTrue(voices.label.contains("silent"),
+                      "every voice off with the click off is silence, "
+                      + "and the transport said: \(voices.label)")
+        shot("transport-all-voices-off")
+
+        app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
+        XCTAssertTrue(voices.label.contains("all voices"),
+                      "All on did not bring them back: \(voices.label)")
+
+        // And it PLAYS. The strongest evidence there is without a listener in
+        // the room: the bar readout stops being a dash, which happens only
+        // when the sequencer's play head is actually moving through the
+        // timeline. A play button that starts nothing would leave it a dash.
+        let play = app.buttons["transport-play"]
+        play.tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "bar "),
+                    evaluatedWith: app.staticTexts["transport-bar"], handler: nil)
+        waitForExpectations(timeout: 30)
+        XCTAssertEqual(play.label, "Stop", "playing, but the button still says Play")
+        shot("transport-playing")
+        play.tap()
+        XCTAssertEqual(play.label, "Play", "Stop did not stop it")
+    }
+}
+
+extension ScorangerUITests {
+
+    /// Turn the transport on: Score display, then the switch.
+    func revealTransport() {
+        let more = app.buttons["score-more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
+        more.tap()
+        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
+        // A PanelToggle is a Toggle to a screen reader, named by its title.
+        let switchElement = app.switches["Show transport"]
+        XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
+                      "Score display no longer offers the transport")
+        if (switchElement.value as? String) != "1" { switchElement.tap() }
+        XCTAssertEqual(switchElement.value as? String, "1",
+                       "the transport switch did not take")
+        goBack()
+        goBack()
+    }
+
+    /// Press play and wait for the play head to actually move.
+    func startPlaying() {
+        let voices = app.buttons["transport-voices"]
+        XCTAssertTrue(voices.waitForExistence(timeout: 60), "no transport")
+        let loaded = NSPredicate(format: "NOT (label CONTAINS %@)", "no parts")
+        expectation(for: loaded, evaluatedWith: voices, handler: nil)
+        waitForExpectations(timeout: 180)
+
+        app.buttons["transport-play"].tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH %@", "bar "),
+                    evaluatedWith: app.staticTexts["transport-bar"], handler: nil)
+        waitForExpectations(timeout: 30)
+    }
+
+    /// The playhead, photographed, and the lasso proved to still work under it.
+    ///
+    /// Two regressions in one journey, because they share a setup that costs
+    /// three minutes. The cursor layer sits directly over the music, where the
+    /// lasso and the Pencil live -- if it ever took a touch, selection would
+    /// fail wherever the music happened to be playing, and it would fail only
+    /// while playing, which is the hardest kind of bug to be told about.
+    func testThePlayheadDrawsAndTheLassoStillSelectsUnderIt() {
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+
+        // The picture the owner asked for.
+        shot("playhead")
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "the screenshot must be of a score that is PLAYING")
+
+        // And now a lasso, with the cursor on screen and the transport running.
+        let chip = app.staticTexts["selection-chip"]
+        var caught = false
+        for y in [0.30, 0.20, 0.42, 0.55] where !caught {
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: y))
+            let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.62, dy: y))
+            start.press(forDuration: 0.6, thenDragTo: end)
+            caught = chip.waitForExistence(timeout: 8)
+        }
+        XCTAssertTrue(caught,
+                      "nothing was selected while the transport was running: "
+                      + "the cursor layer is eating touches")
+        shot("playhead-with-selection")
+
+        // A lasso must not have stopped the music either.
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "selecting stopped playback")
+    }
+
+    /// Pencil still MARKS while the transport runs.
+    ///
+    /// The lasso test proves SELECTION survives the cursor layer. Ink is the
+    /// other thing living under it and it is a different code path -- a
+    /// PencilKit canvas, not a gesture recogniser -- so proving one says
+    /// nothing about the other. Both would fail the same way and only while
+    /// playing, which is the hardest kind of report to act on.
+    func testThePencilStillMarksWhileTheTransportRuns() {
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+
+        let markup = app.buttons["score-edit"]
+        XCTAssertTrue(markup.waitForExistence(timeout: 30), "no markup control")
+        markup.tap()
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10),
+                      "markup mode did not open while playing")
+
+        let ink = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+        XCTAssertTrue(ink.waitForExistence(timeout: 30), "no annotation canvas")
+        let before = strokeCount(ink)
+
+        // A stroke straight through where the cursor is standing.
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.28))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.34))
+        from.press(forDuration: 0.05, thenDragTo: to)
+
+        let drew = NSPredicate(format: "value != %@", "\(before) strokes")
+        expectation(for: drew, evaluatedWith: ink, handler: nil)
+        waitForExpectations(timeout: 20)
+        XCTAssertGreaterThan(strokeCount(ink), before,
+                             "the Pencil could not mark while the transport ran")
+        shot("pencil-while-playing")
+    }
+
+    private func strokeCount(_ canvas: XCUIElement) -> Int {
+        Int((canvas.value as? String)?
+            .replacingOccurrences(of: " strokes", with: "") ?? "-1") ?? -1
+    }
+
+    /// The playhead's 2pt weight is a size ON SCREEN, at any zoom.
+    ///
+    /// Every constant in the layer is divided by the scroll view's zoom for
+    /// exactly this reason: undivided, the line is a hairline zoomed out and a
+    /// slab lying over the noteheads at 3x. Right-by-inspection is not
+    /// verification, so this photographs it at two zooms and leaves the pair
+    /// in the repo to be looked at.
+    func testThePlayheadKeepsItsWeightAtAnyZoom() {
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+
+        revealTransport()
+        startPlaying()
+        shot("playhead-zoom-1x")
+
+        canvas.pinch(withScale: 3.0, velocity: 1.5)
+        // Let the raster settle: the layer divides by the SETTLED zoom, so a
+        // shot taken mid-gesture would photograph a weight neither value.
+        sleep(4)
+        shot("playhead-zoom-3x")
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "zooming stopped playback")
+    }
+
+    /// The mixer: reachable, one strip per staff, and its controls live.
+    func testTheMixerOpensWithAStripPerStaff() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        revealTransport()
+        startPlaying()
+
+        // The voice list is STILL THERE. The mixer is a richer way to reach
+        // the same mutes and the old path survives the build that adds it.
+        XCTAssertTrue(app.buttons["transport-voices"].exists,
+                      "the voice list was removed in the build that replaced it")
+
+        let mixerButton = app.buttons["transport-mixer"]
+        XCTAssertTrue(mixerButton.waitForExistence(timeout: 20), "no way to the mixer")
+        mixerButton.tap()
+
+        let mixer = app.descendants(matching: .any)["mixer"].firstMatch
+        if !mixer.waitForExistence(timeout: 20) {
+            shot("mixer-did-not-open")
+            XCTFail("the mixer did not open."
+                    + " button=\(mixerButton.value as? String ?? "-")"
+                    + " grip=\(app.descendants(matching: .any)["mixer-grip"].firstMatch.exists)"
+                    + " strip0=\(app.descendants(matching: .any)["strip-mute-0"].firstMatch.exists)")
+        }
+
+        // A strip per staff -- the seeded quartet has four.
+        let strips = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "strip-mute-"))
+        XCTAssertEqual(strips.count, 4, "expected one strip per staff")
+
+        // The activity LEDs, which are the reason the engine emits merged
+        // sounding intervals at all. This waits for a moment where SOME staves
+        // sound and others do not: an all-lit shot proves the lamps can come
+        // on and says nothing about them being PER CHANNEL, which is the whole
+        // point of driving them from per-part data. The score opens with the
+        // top staff resting while the lower three play, so the moment exists.
+        func ledStates() -> [String] {
+            (0..<4).map {
+                app.descendants(matching: .any)["strip-led-\($0)"]
+                    .firstMatch.value as? String ?? "?"
+            }
+        }
+        var mixed: [String] = []
+        for _ in 0..<40 {
+            let states = ledStates()
+            if states.contains("yes") && states.contains("no") { mixed = states; break }
+            usleep(250_000)
+        }
+        XCTAssertFalse(mixed.isEmpty,
+                       "never a moment where some staves sounded and others did "
+                       + "not; LEDs read \(ledStates())")
+        shot("mixer")
+
+        // Muted does not go dark. The staff IS playing and the reader simply
+        // cannot hear it, which is how they confirm the mute is working -- so
+        // the lamp follows the music and the strip dims around it.
+        if let lit = ledStates().firstIndex(of: "yes") {
+            let mute = app.descendants(matching: .any)["strip-mute-\(lit)"].firstMatch
+            mute.tap()
+            XCTAssertEqual(mute.value as? String, "on", "the strip did not mute")
+            XCTAssertEqual(app.descendants(matching: .any)["strip-led-\(lit)"]
+                            .firstMatch.value as? String, "yes",
+                           "muting a channel put its activity lamp out")
+            shot("mixer-muted-still-lit")
+            mute.tap()
+        }
+
+        // The mute is live, and it is the SAME mute the transport reports.
+        let firstMute = app.descendants(matching: .any)["strip-mute-0"].firstMatch
+        XCTAssertEqual(firstMute.value as? String, "off")
+        firstMute.tap()
+        XCTAssertEqual(firstMute.value as? String, "on", "the strip mute did nothing")
+        XCTAssertTrue(app.buttons["transport-voices"].label.contains("3 of 4"),
+                      "the mixer and the transport disagree about the mutes: "
+                      + app.buttons["transport-voices"].label)
+
+        // The fader is adjustable, which is also the VoiceOver path.
+        let fader = app.descendants(matching: .any)["strip-fader-1"].firstMatch
+        XCTAssertTrue(fader.exists, "no fader on the second strip")
+        XCTAssertEqual(fader.value as? String, "7 of 10", "the default is 7")
+
+        // The scrubber seeks. The bar CHIP that rides above the handle can
+        // only exist while a finger is down, and XCUITest runs every gesture
+        // on the main thread with no hook inside it -- so what the chip SAYS
+        // is proven in MixerLayoutTests (it names a bar, never a time) and
+        // what the scrubber DOES is proven here.
+        let scrubber = app.descendants(matching: .any)["mixer-scrubber"].firstMatch
+        XCTAssertTrue(scrubber.waitForExistence(timeout: 10), "no scrubber")
+        let before = app.staticTexts["transport-bar"].label
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            .press(forDuration: 0.2,
+                   thenDragTo: scrubber.coordinate(
+                       withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let moved = NSPredicate(format: "label != %@", before)
+        expectation(for: moved, evaluatedWith: app.staticTexts["transport-bar"],
+                    handler: nil)
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(app.staticTexts["transport-bar"].label.hasPrefix("bar "),
+                      "scrubbing did not move the play head")
+        shot("mixer-scrubbed")
+
+        // The grip moves it without a drag -- the path for readers who cannot
+        // drag at all, which is the whole reason it is a tap and not only a
+        // handle. Four corners, and back to where it started.
+        let grip = app.descendants(matching: .any)["mixer-grip"].firstMatch
+        var corners: [CGPoint] = [grip.frame.origin]
+        var labels: [String] = [grip.value as? String ?? "?"]
+        for _ in 0..<4 {
+            grip.tap()
+            // Read AFTER the move has settled: the value is queried faster
+            // than SwiftUI redraws, and reading straight after the tap
+            // returned the previous corner twice.
+            usleep(500_000)
+            corners.append(grip.frame.origin)
+            labels.append(grip.value as? String ?? "?")
+        }
+        XCTAssertEqual(Set(labels.dropLast()).count, 4,
+                       "the grip should cycle four distinct corners: \(labels)")
+        XCTAssertEqual(corners.first, corners.last,
+                       "four taps should come back round to the start")
+        grip.tap()
+        shot("mixer-moved")
+
+        // Re-found after the move: the panel is in another corner now, and the
+        // element captured before it moved is at the old frame.
+        let close = app.descendants(matching: .any)["mixer-close"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "no close control")
+        if close.isHittable {
+            close.tap()
+        } else {
+            close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(waitForDisappearance(
+            of: app.descendants(matching: .any)["mixer-grip"].firstMatch, timeout: 10),
+                      "the mixer would not close")
+        XCTAssertEqual(app.buttons["transport-mixer"].value as? String, "off",
+                       "the transport still says the mixer is open")
+    }
+
+    /// Paging away from the music during playback, and the way back.
+    ///
+    /// The chip is invisible whenever the playhead is on the page being
+    /// looked at, which is most of the time -- so it can only be proven by
+    /// deliberately drifting away from it. That is also the behaviour worth
+    /// proving: the music KEEPS PLAYING, the page stays where the reader put
+    /// it, and nothing moves under them until they ask.
+    func testPagingAwayDuringPlaybackOffersTheWayBack() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        revealTransport()
+        startPlaying()
+
+        let chip = app.buttons["sync-to-playback"]
+        XCTAssertFalse(chip.exists,
+                       "nothing to sync to: the playhead is on the visible page")
+
+        // Page a long way from the music, the way a reader looking ahead does.
+        let far = app.descendants(matching: .any)["thumb-6"].firstMatch
+        XCTAssertTrue(far.waitForExistence(timeout: 20), "no page rail")
+        far.tap()
+
+        XCTAssertTrue(chip.waitForExistence(timeout: 20),
+                      "paged away from the playhead and was offered no way back")
+        // The music did not stop, and the page did not snap back.
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "turning a page stopped playback")
+        XCTAssertTrue(chip.label.hasPrefix("Back to"),
+                      "the chip should name where it will take you: \(chip.label)")
+        // Let the page settle before photographing it. The rail and the badge
+        // update the moment the tap lands while the canvas is still scrolling,
+        // so a shot taken immediately shows the OLD page under a new page
+        // number -- a picture that would be read as a bug in the canvas.
+        sleep(3)
+        shot("sync-chip")
+
+        // And it stays away. Following does NOT resume on its own -- being
+        // yanked back the moment the music wandered into view is the thing
+        // this rule exists to stop.
+        XCTAssertTrue(chip.exists, "the page moved back without being asked")
+
+        chip.tap()
+        XCTAssertTrue(waitForDisappearance(of: chip, timeout: 20),
+                      "tapping Sync did not take the reader back to the music")
+        shot("sync-chip-after")
+    }
+}
