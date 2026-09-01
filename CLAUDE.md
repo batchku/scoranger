@@ -36,15 +36,17 @@ So:
 - **Material arriving from outside is accepted as it is.** OMR is imperfect by
   nature and the user brings a score in *so they can fix it*.
 - **Proof belongs in the checks, which run before a release, not in front of a
-  user.** Eight of them, and every fix in them was reverted in turn to confirm
-  the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
-  marks move no note), `check_import.py` (release gate: every source imports to
+  user.** `engine/scripts/run_checks.sh` runs every one of them, and every fix
+  in them was reverted in turn to confirm the check fails without it:
+  `check_rhythm.py` (ops preserve rhythm; structural marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
   `check_structure.py` and `check_whistle.py` (notation),
   `check_addresses.py` (a selection-scoped op touches only what was selected),
-  and `check_identity.py` (an existing library survives the id migration with
+  `check_identity.py` (an existing library survives the id migration with
   every reference intact, a rename changes nothing but the slug, and two
-  offline devices allocate versions that do not collide).
+  offline devices allocate versions that do not collide), and `check_sync.py`
+  (a signed-out device pays nothing for sync, and a delete outlives the row it
+  deleted).
 
 ## The engine CLI
 
@@ -251,6 +253,19 @@ two devices working offline both resolve to the same value. Rationale and the
 plan this belongs to: `design/FIREBASE.md` §3. **The engine does not get a
 `FirestoreRepository`** — it runs on-device and a shipped client cannot hold
 service-account credentials, so sync belongs beside it in Swift (§2).
+
+### Sync is a decorator, and only when someone signs in
+
+`scoranger_engine/sync.py` wraps the repository through
+`workspace.repository_factory` and records what this device owes a server: a
+`rev` on each document, and a per-document journal that survives the row it
+describes -- which is what stops a swept-away delete coming back from another
+device. **It is not installed by default.** Signed out there is no journal
+file, no `rev`, and no Firebase anywhere in the app; that is a product decision
+(design/FIREBASE.md §2, §9.1), not an accident, and `check_sync.py` asserts it
+first. The Swift half that consumes it -- `VersionGraph`, `SyncMerge`,
+`ArtifactHolding` in `ios/Scoranger/ScoreModel/` -- decides forks, per-field
+merges and what may be evicted, and is pure logic under `ScorangerTests`.
 
 **Titles and credits**: a score has exactly one title. It lives in the notation
 (MusicXML `<work-title>` *and* `<movement-title>` — Verovio engraves the

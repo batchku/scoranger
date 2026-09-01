@@ -117,6 +117,10 @@ struct VersionDoc: Codable, Identifiable, Hashable {
     var file: String
     var op: String
     var time: String?
+    /// The version this one was made FROM. Present in the manifest since the
+    /// history existed; decoded here since two devices could append to the
+    /// same parent (`VersionGraph`, design/FIREBASE.md §7 rule 2).
+    var parent: String? = nil
     var parts: [PartDoc]?
     /// The chat turn (prompt) this version was created during, if any.
     var turn: TurnRef?

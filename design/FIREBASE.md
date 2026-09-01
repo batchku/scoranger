@@ -172,6 +172,52 @@ and the key is extractable from any distributed build. Accounts are what make
 this fixable, and fixing it belongs in the same stage that introduces them, not
 in a later "quotas" stage.
 
+### 1.5 What moved between 42b6fa3 and 0.5.4
+
+This document was written against `dev` at 42b6fa3. Re-read against ef27426,
+five things it says are now wrong or incomplete, and one is a new constraint
+rather than a correction. Everything else in section 1 still measures true:
+`DrawingStore` is still slug-keyed at `ScorePagesView.swift:792`, the two baked
+keys are still in `ios/project.yml`, and page indices are still
+device-independent.
+
+**A piece carries its own credits now.** §4.2 lists `pieces/{pieceUid}` as
+`name, order`. A piece also has `composer`, `arranger` and `tags`
+(`set_piece_metadata`, `all_tags`), and for a library of scans that is the only
+place a composer can live -- a PDF arrangement has no notation to carry one.
+Those three fields sync like any other, but the tags list is the first
+collection-wide vocabulary in the model: `all_tags()` is computed over every
+piece, so a device with a partial library computes a different filter list.
+Recompute it from the pulled documents, never cache it.
+
+**A whole library now arrives at once.** `bulk-import` (Import Folder) creates
+a piece per folder and an arrangement per file in one act; the owner's Newzik
+library is 43 pieces and 111 artifacts. §10.1's tightest free-tier limit is
+5,000 Cloud Storage **uploads** a month, and an import of that size is ~110 of
+them in a minute. It fits, and it is the burst the artifact queue has to
+survive being interrupted in, which the plan assumed would only ever happen to
+a book.
+
+**A startup migration writes documents.** `applyBundledMetadataIfNeeded` runs
+on launch, matches the bundled Newzik metadata onto pieces by name and writes
+composer, arranger, tags and renames. It is gated on a `UserDefaults` flag,
+which is **per device, not per library**: with sync on, the second iPad runs it
+again over a library the first already migrated. This one converges, because it
+fills in rather than overwrites and a renamed piece no longer matches. The
+general shape does not: a migration that is not idempotent becomes a fan-out of
+conflicting writes, once per device, on every launch. Any future one belongs
+behind a flag stored in the library, not in `UserDefaults`.
+
+**Nothing in the app decodes `uid`.** Stage 0 put a `uid` on every score,
+piece, setlist, book and source and into the manifest, and no Swift model has
+a field for it -- `ScoreDoc`, `PieceDoc`, `SetlistDoc` and `BookDoc` are still
+keyed on the slug alone. That is fine while everything is local and is the
+first thing stage 1 needs, since a share and a push both address the uid.
+
+**The status line has a home.** §5.3 asks for one line saying what is waiting
+and when it last synced. `NoticeBar` (`Navigation/Screen.swift`) is that
+control; it did not exist when this was written.
+
 ---
 
 ## 2. Where the sync layer lives
@@ -1091,6 +1137,44 @@ evicted.
 *The reason to ship this alone:* it is the whole sync spine under load, with
 exactly one user's data at stake and no concurrency. Every bug found here is a
 bug not found in front of a band.
+
+**Built so far, all of it offline and none of it touching Firebase.** The parts
+of stage 1 that can be decided without a project were done first, on purpose:
+they are the parts a live backend makes slow and expensive to get wrong, and
+they are testable in three seconds without one.
+
+- `engine/scoranger_engine/sync.py` -- `JournalingRepository`, the decorator the
+  stage-0 `repository_factory` hook was left for. It puts a `rev` on every
+  document it writes, bumped only when the document actually changed, and
+  appends a per-document journal of what this device owes. **It is off by
+  default and constructed only when sync is on**, so a signed-out device has no
+  journal file, no `rev` and no cost -- checked first, because that promise is
+  the one a later refactor breaks quietly. Adoption is automatic: a journal that
+  has never met this library owes all of it, which is both "signing in does not
+  migrate anything" (§9.2) and "losing `sync.db` is a re-push, not a data loss".
+  The journal earns its place on deletes: `sweep()` reclaims a deleted score's
+  row and `_drop_empty_pieces` removes a piece with no tombstone phase at all,
+  and after either there is nothing left in the library that remembers. Proved
+  by `engine/scripts/check_sync.py`.
+- `VersionGraph.swift` -- rule 2 made real: forks found, `latest` resolved by
+  timestamp with the tie broken by id so two devices rank a history the same
+  way, siblings for the branch one tap away, and a child that arrived before its
+  parent deliberately NOT announced as a fork. `VersionDoc` gained `parent`,
+  which the manifest always carried and nothing decoded.
+- `SyncMerge.swift` -- rules 3 and 4: the changed-field payload for an
+  `updateData`, per-field merge in which a field this device still owes keeps
+  its local value, and a tombstone that wins from either side and keeps nothing
+  but the identity.
+- `ArtifactHolding.swift` -- §5.1's holding policy, §5.2's three tiers behind
+  one setting, and §5.4's eviction, including the check that section asks for by
+  name: an artifact that has not been pushed is the only copy that exists and is
+  never evicted, whatever the budget says.
+
+Each of those was confirmed by reverting the fix and watching the test fail.
+What is left in stage 1 is exactly the part that needs a Firebase project:
+`SyncCoordinator` itself, Auth, App Check, the OMR server change, gzip on
+upload, the two-libraries screen, and the `libraryId` that §9.2 wants written
+into the database on first launch.
 
 ### Stage 2: a shared setlist you can read
 
