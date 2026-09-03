@@ -1334,6 +1334,274 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     }
 
 
+# --------------------------------------------- guitar chord diagrams
+#
+# A chord diagram is a fact about the CHORD, so it hangs off the chord symbols
+# the part already carries — `set-chords` writes them, `chart_style` places
+# them — rather than off the notes underneath. A second notion of where a chord
+# sits would fall out of step with the first one the moment either moved.
+#
+# What goes into the notation is the SHAPE, in the shorthand every guitarist
+# reads: `[x,3,2,0,1,0]`, one entry per string from the low E up, `x` for a
+# string that is not sounded, a number for the fret it is stopped at. Nothing
+# else is stored, because nothing else has to be: the window of the neck to
+# draw, whether the top line is the nut, where a barre lies and whether a
+# "5 fr." label is needed all follow from those six values, by the rules below,
+# which both renderers apply and neither invents.
+#
+# It rides as a <direction><words> at the chord symbol's own offset, and that
+# is a deliberate second choice. MusicXML's own element for this is <frame>
+# inside <harmony>, and music21 WRITES one — but it drops the frame notes on
+# the way back in, and every version in the workspace is written and read back,
+# so a diagram would survive exactly one op and then vanish. The shorthand
+# survives the round trip, and it is not a renderer's private encoding either:
+# exported to any other program it reads as the line a player would write.
+
+# The marker text, and the pattern that finds it again. Mirrored in
+# render.py::CHORD_DIAGRAM_RE and ios/Scoranger/ScoreModel/ChordDiagrams.swift.
+CHORD_DIAGRAM_RE = re.compile(r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\]")
+
+# Sounding pitches of the open strings, low to high. Only their pitch classes
+# decide a shape; the octaves are here so "the root is the lowest string that
+# sounds" is a comparison and not a convention.
+GUITAR_TUNINGS = {
+    "EADGBE": ("E2", "A2", "D3", "G3", "B3", "E4"),
+    "DADGAD": ("D2", "A2", "D3", "G3", "A3", "D4"),
+    "DADGBE": ("D2", "A2", "D3", "G3", "B3", "E4"),
+}
+TUNING_ALIASES = {"STANDARD": "EADGBE", "DROPD": "DADGBE", "DROP-D": "DADGBE"}
+
+# One hand covers four consecutive frets; a chart that asks for five is asking
+# for a stretch nobody plays.
+GUITAR_FRET_SPAN = 3
+# Above the twelfth fret a six-string chord stops being a chord chart.
+GUITAR_MAX_FRET = 12
+# Four strings is the fewest that reads as a chord rather than a fragment —
+# open D (xx0232) is four, and it is the thinnest shape anyone teaches.
+GUITAR_MIN_STRINGS = 4
+# Five fingers, one of them holding the neck.
+GUITAR_MAX_FINGERS = 4
+# How many frets the grid shows, and the rule for the nut: a shape that fits
+# inside the first five frets is drawn against the nut; anything higher is
+# drawn as a window, labelled with the fret it starts at.
+GUITAR_GRID_FRETS = 5
+
+# The published chart. The search below can find a shape for anything, but it
+# does not know that x32010 is *the* C — asked for the lowest playable voicing
+# it offers whatever the arithmetic likes. These are the open-position shapes a
+# player already has in their hands, and they are a table for the same reason
+# the whistle's fingerings are a table: they are published fact, not a
+# derivation. Standard tuning only; everything else goes to the search, which
+# is what makes `--tuning` real rather than decorative.
+OPEN_CHORD_SHAPES = {
+    "C": "x32010", "C7": "x32310", "Cmaj7": "x32000", "C6": "x32210",
+    "D": "xx0232", "D7": "xx0212", "Dmaj7": "xx0222", "Dm": "xx0231",
+    "Dm7": "xx0211", "D6": "xx0202",
+    "E": "022100", "E7": "020100", "Em": "022000", "Em7": "020000",
+    "Emaj7": "021100",
+    "F": "133211", "Fmaj7": "xx3210", "Fm": "133111",
+    "G": "320003", "G7": "320001", "Gmaj7": "320002", "G6": "320000",
+    "A": "x02220", "A7": "x02020", "Am": "x02210", "Am7": "x02010",
+    "Amaj7": "x02120", "A6": "x02222",
+    "B7": "x21202", "Bm": "x24432", "Bm7": "x20202",
+}
+
+
+def guitar_tuning(name: str) -> tuple[str, ...]:
+    """The open strings of a named tuning, low to high."""
+    key = name.upper().replace(" ", "")
+    key = TUNING_ALIASES.get(key, key)
+    if key not in GUITAR_TUNINGS:
+        raise ValueError(f"No chart for the tuning '{name}'. "
+                         f"Have: {sorted(GUITAR_TUNINGS)} "
+                         f"(aliases: {sorted(TUNING_ALIASES)})")
+    return GUITAR_TUNINGS[key]
+
+
+def chord_symbol_text(cs) -> str:
+    """The chord symbol as a player writes it: 'C', 'Am7', 'B-7'."""
+    root = cs.root()
+    quality = {v: k for k, v in QUALITY_KINDS.items()}.get(cs.chordKind or "major", "")
+    return f"{root.name}{quality}" if root is not None else str(cs.figure)
+
+
+def _shape_from_text(text: str) -> list[int | None]:
+    """'x32010' or 'x,10,9,7,8,x' -> six frets, None for a silent string."""
+    parts = text.split(",") if "," in text else list(text)
+    return [None if p.strip().lower() == "x" else int(p) for p in parts]
+
+
+def shape_text(frets: list[int | None]) -> str:
+    """Six frets -> the marker a player can read. Always comma-separated: a
+    tenth fret is two digits and 'x109780' means nothing to anyone."""
+    return "[" + ",".join("x" if f is None else str(f) for f in frets) + "]"
+
+
+def parse_shape(text: str) -> list[int | None] | None:
+    """The inverse, tolerant of the surrounding words. None when it is not one."""
+    match = CHORD_DIAGRAM_RE.search(text or "")
+    if match is None:
+        return None
+    frets = _shape_from_text(match.group(0)[1:-1])
+    return frets if len(frets) == 6 else None
+
+
+def diagram_window(frets: list[int | None]) -> tuple[int, bool]:
+    """(first fret drawn, is the top line the nut?).
+
+    A shape inside the first five frets is drawn against the nut, which is the
+    thick line; anything higher is a window on the neck, starting at its lowest
+    stopped fret and labelled with it. This is the whole of what decides both
+    the thick line and the "5 fr." label, so the two can never disagree.
+    """
+    stopped = [f for f in frets if f]
+    if not stopped or max(stopped) <= GUITAR_GRID_FRETS:
+        return 1, True
+    return min(stopped), False
+
+
+def diagram_barre(frets: list[int | None]) -> tuple[int, int, int] | None:
+    """(fret, lowest string, highest string) of the barre, or None.
+
+    One finger lies across several strings when the lowest stopped fret is
+    stopped on more than one string AND something is stopped above it in
+    between — otherwise those are just two fingers that happen to share a fret.
+    Drawn as one bar rather than as separate dots, which is what tells a player
+    it is one finger.
+    """
+    stopped = {i: f for i, f in enumerate(frets) if f}
+    if not stopped:
+        return None
+    low = min(stopped.values())
+    at_low = sorted(i for i, f in stopped.items() if f == low)
+    if len(at_low) < 2:
+        return None
+    first, last = at_low[0], at_low[-1]
+    if not any(f > low for i, f in stopped.items() if first < i < last):
+        return None
+    return low, first, last
+
+
+def _fingers_needed(frets: list[int | None]) -> int:
+    stopped = {i: f for i, f in enumerate(frets) if f}
+    barre = diagram_barre(frets)
+    if barre is None:
+        return len(stopped)
+    fret, first, last = barre
+    return 1 + sum(1 for i, f in stopped.items()
+                   if not (f == fret and first <= i <= last))
+
+
+def guitar_shape(pitch_classes: set[int], root_pc: int,
+                 open_pitches: tuple[str, ...]) -> list[int | None] | None:
+    """The lowest playable voicing of a chord, or None when there is none.
+
+    Lowest position first: the search walks up the neck a fret at a time and
+    stops at the first window that yields anything, so a chord that can be
+    played open is played open. Within a window it prefers the voicing that
+    sounds the most strings, then the one that sits lowest.
+
+    The constraints are the ones a hand imposes: every chord tone present, the
+    root the lowest string sounding, no silent string trapped between two
+    sounding ones, four frets of reach, four fingers.
+    """
+    import itertools
+
+    opens = [m21pitch.Pitch(p).midi for p in open_pitches]
+    for base in range(0, GUITAR_MAX_FRET + 1):
+        window = list(range(base, base + GUITAR_FRET_SPAN + 1))
+        if base > 0:
+            window = [0] + window
+        choices = []
+        for open_midi in opens:
+            options: list[int | None] = [None]
+            options += [f for f in window if (open_midi + f) % 12 in pitch_classes]
+            choices.append(options)
+        best = None
+        for combo in itertools.product(*choices):
+            sounded = [i for i, f in enumerate(combo) if f is not None]
+            if len(sounded) < max(GUITAR_MIN_STRINGS, len(pitch_classes)):
+                continue
+            if sounded != list(range(sounded[0], sounded[-1] + 1)):
+                continue      # a silenced string trapped inside the chord
+            if (opens[sounded[0]] + combo[sounded[0]]) % 12 != root_pc:
+                continue
+            if {(opens[i] + combo[i]) % 12 for i in sounded} != pitch_classes:
+                continue
+            shape = list(combo)
+            if _fingers_needed(shape) > GUITAR_MAX_FINGERS:
+                continue
+            rank = (-len(sounded), max(f for f in shape if f is not None))
+            if best is None or rank < best[0]:
+                best = (rank, shape)
+        if best is not None:
+            return best[1]
+    return None
+
+
+def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> dict:
+    """Engrave a guitar chord diagram over every chord symbol on a part.
+
+    The diagram is written as the shape shorthand at the symbol's own offset;
+    the grid, the nut, the dots, the barre and the position label are drawn
+    from it by the renderers. A chord nobody can play in the tuning asked for
+    is REPORTED, with its measure and its symbol, and left without a diagram —
+    the same way `check-range` reports what an instrument cannot reach.
+    """
+    from music21 import expressions as m21expressions
+    from music21 import harmony as m21harmony
+
+    def markers(measure):
+        return [e for e in measure.getElementsByClass(m21expressions.TextExpression)
+                if parse_shape(e.content) is not None]
+
+    measures = list(part.getElementsByClass(stream.Measure))
+    if clear:
+        cleared = 0
+        for measure in measures:
+            for old in markers(measure):
+                measure.remove(old)
+                cleared += 1
+        return {"part": part_label(part), "cleared": cleared}
+
+    opens = guitar_tuning(tuning)
+    drawn: list[dict] = []
+    unplayable: list[dict] = []
+    for measure in measures:
+        for old in markers(measure):
+            measure.remove(old)
+        for symbol in measure.getElementsByClass(m21harmony.ChordSymbol):
+            name = chord_symbol_text(symbol)
+            pcs = {p.pitchClass for p in symbol.pitches}
+            root = symbol.root()
+            curated = (OPEN_CHORD_SHAPES.get(name)
+                       if guitar_tuning(tuning) == GUITAR_TUNINGS["EADGBE"] else None)
+            frets = _shape_from_text(curated) if curated else (
+                guitar_shape(pcs, root.pitchClass, opens) if root is not None else None)
+            if frets is None:
+                unplayable.append({
+                    "measure": measure.number, "symbol": name,
+                    "why": f"no shape for {name} in {tuning.upper()} within "
+                           f"{GUITAR_MAX_FRET} frets"})
+                continue
+            marker = m21expressions.TextExpression(shape_text(frets))
+            marker.placement = "above"
+            measure.insert(symbol.offset, marker)
+            base, nut = diagram_window(frets)
+            drawn.append({"measure": measure.number, "symbol": name,
+                          "shape": shape_text(frets), "first_fret": base,
+                          "nut": nut, "barre": diagram_barre(frets) is not None,
+                          "from_chart": bool(curated)})
+    return {
+        "part": part_label(part),
+        "tuning": tuning.upper(),
+        "diagrams": len(drawn),
+        "shapes": drawn[:40],
+        "unplayable": unplayable[:20],
+        "unplayable_count": len(unplayable),
+    }
+
+
 ADJUSTABLE_KINDS = {"harm"}
 
 
