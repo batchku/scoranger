@@ -175,10 +175,15 @@ final class PerfMetrics: @unchecked Sendable {
     ///
     /// The panel is for a reader holding an iPad. This is for a sweep: the UI
     /// test drives the app and the numbers come back in the log, rather than
-    /// being scraped off a scrolling diagnostic view. Behind a launch argument,
-    /// and DEBUG only -- a shipped build has no reason to print anything.
+    /// being scraped off a scrolling diagnostic view.
+    ///
+    /// Behind a launch argument, and NOT behind `#if DEBUG` any more. It was,
+    /// and that made every number this project had a Debug number: Verovio is
+    /// compute-heavy C++ and SwiftDraw is Swift, both built at -Onone in the
+    /// configuration the sweep could reach, and a 4-second render there is not
+    /// evidence about the build a reader installs. A shipped app still prints
+    /// nothing, because a shipped app is never launched with this argument.
     func startConsoleDumpIfRequested() {
-        #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-perfDump"),
               dumpTimer == nil else { return }
         // os_log, not print: a UI test drives the app as a SEPARATE process,
@@ -191,7 +196,6 @@ final class PerfMetrics: @unchecked Sendable {
                 + PerfReport.attribution(ledger, name: Name.versionMenu)
             logger.log("SCORANGER-PERF\n\(text, privacy: .public)\nSCORANGER-PERF-END")
         }
-        #endif
     }
 
     /// The names used, in one place so the panel and the instrumentation cannot
@@ -203,10 +207,23 @@ final class PerfMetrics: @unchecked Sendable {
         static let titleMenu = "menu.title open"
         /// A whole render pass: engrave, rasterise, and the model built from it.
         static let render = "render (engrave + rasterise)"
+        /// Inside the engrave, so the 4 s can be spent where it is actually
+        /// spent rather than where it is assumed to be. Verovio's own work is
+        /// C++ and will not answer to anything we do; the SVG-to-PDF pass is
+        /// SwiftDraw and Core Graphics and might.
+        static let engraveLoad = "engrave: load"
+        static let engraveMEI = "engrave: MEI passes"
+        static let engraveSVG = "engrave: SVG (verovio)"
+        static let engravePDF = "engrave: SVG -> PDF (swiftdraw)"
+        static let engraveModel = "engrave: geometry model"
         /// One manifest fetch and the library rebuild it triggers.
         static let manifest = "manifest refresh"
         /// One page thumbnail.
         static let thumbnail = "thumbnail"
+        /// One tile of the continuous strip, drawn from the PDF.
+        static let canvasTile = "canvas tile raster"
+        /// One page of the paged canvas, drawn from the PDF.
+        static let canvasPage = "canvas page raster"
         /// An engine round trip, suffixed with the op: `bridge.set-metadata`.
         static func bridge(_ op: String) -> String { "bridge.\(op)" }
     }

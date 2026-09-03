@@ -49,6 +49,12 @@ struct ScorePagesView: View {
     /// following the music must not invalidate this view twenty times a second
     /// (see CanvasScroller).
     @State private var scroller = CanvasScroller()
+    /// The viewport the continuous strip is FITTED to, which is not always the
+    /// viewport it has -- see `ContinuousTiles.fittingViewport`. A panel that
+    /// takes height off the canvas must not re-scale the music, because a
+    /// re-scaled strip is a fresh raster for every tile of it.
+    @State private var fittedTo: CGSize = .zero
+    @State private var fittedDocument: String = ""
 
     /// Fit to twelve.
     ///
@@ -78,8 +84,13 @@ struct ScorePagesView: View {
             // the whole score.
             let stripPage = continuous ? document.page(at: 0) : nil
             let stripBox = stripPage?.bounds(for: .mediaBox).size ?? .zero
+            // NOT geo.size. The strip is fitted by height, so a band or a bar
+            // opening over the canvas would otherwise re-scale the whole score
+            // and redraw every tile of it.
+            let fitViewport = fittedTo == .zero ? geo.size : fittedTo
             let stripScale = ContinuousTiles.fittedScale(
-                pageSize: stripBox, viewport: geo.size, bottomChrome: Self.bottomChrome)
+                pageSize: stripBox, viewport: fitViewport,
+                bottomChrome: Self.bottomChrome)
             let surface = CGSize(width: stripBox.width * stripScale,
                                  height: stripBox.height * stripScale)
             // The geometry is in the SVG's viewBox units, not the PDF's points
@@ -177,6 +188,28 @@ struct ScorePagesView: View {
                 if visibleRect == .zero {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
                 }
+            }
+            // The latch. Kept here rather than computed in the body, because a
+            // view's body may not write its own state -- and one frame drawn
+            // at the previous fit is exactly what is wanted anyway: the frame
+            // a panel opens on is the frame that must NOT re-scale.
+            .onChange(of: geo.size, initial: true) { _, size in
+                let next = ContinuousTiles.fittingViewport(
+                    now: size, latched: fittedTo,
+                    sameDocument: fittedDocument == state.engravingKey)
+                if next != fittedTo { fittedTo = next }
+                // Only when it differs. Assigning the same value to @State
+                // still invalidates the view, and this view being invalidated
+                // is the thing the whole pass is about.
+                if fittedDocument != state.engravingKey {
+                    fittedDocument = state.engravingKey
+                }
+            }
+            // A different engraving is a different score on the canvas, and
+            // whatever the last one was fitted to says nothing about it.
+            .onChange(of: state.engravingKey) { _, key in
+                fittedDocument = key
+                if fittedTo != geo.size { fittedTo = geo.size }
             }
             // Follow the sound. Only on a CHANGE of bar: the engine publishes
             // a beat twenty times a second and re-deciding the scroll that
@@ -546,7 +579,8 @@ struct ScorePagesView: View {
         let deep = ContinuousTiles.atDepth(tiles: tiles, visible: visibleRect)
         HStack(spacing: 0) {
             ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
-                ContinuousTileView(page: page, tile: tile, scale: scale,
+                ContinuousTileView(page: page, document: state.engravingKey,
+                                   index: index, tile: tile, scale: scale,
                                    atDepth: deep.contains(index))
             }
         }
@@ -599,6 +633,8 @@ struct ScorePagesView: View {
     private func pageView(_ page: PDFPage, index: Int, width: CGFloat,
                           atDepth: Bool) -> some View {
         PageView(page: page,
+                 document: state.engravingKey,
+                 index: index,
                  width: width,
                  rasterZoom: atDepth ? rasterZoom : 1,
                  drawingStore: DrawingStore.shared,
@@ -953,6 +989,9 @@ private struct SelectionHighlight: View {
 
 private struct PageView: View {
     let page: PDFPage
+    /// Which engraving, for the raster cache's key.
+    let document: String
+    let index: Int
     let width: CGFloat
     let rasterZoom: CGFloat
     let drawingStore: DrawingStore
@@ -963,7 +1002,7 @@ private struct PageView: View {
         let bounds = page.bounds(for: .mediaBox)
         let height = width * bounds.height / max(bounds.width, 1)
         ZStack {
-            PDFPageImage(page: page,
+            PDFPageImage(page: page, document: document, index: index,
                          size: CGSize(width: width, height: height),
                          rasterZoom: rasterZoom)
             // The canvas is laid out at the zoomed size and scaled back down,
@@ -988,6 +1027,9 @@ private struct PageView: View {
 
 private struct PDFPageImage: View {
     let page: PDFPage
+    /// Which engraving, for the raster cache's key.
+    let document: String
+    let index: Int
     let size: CGSize
     /// Settled zoom: the page is drawn at the same size but rasterised finer,
     /// so zooming in sharpens without moving anything.
@@ -1011,11 +1053,22 @@ private struct PDFPageImage: View {
     /// while the pages nobody is looking at cost about 2MB each.
     private static let maxRasterWidth: CGFloat = 5200
 
+    /// Drawn once per (engraving, page, size, zoom) and remembered -- see
+    /// `ContinuousTileView.render` for why the canvas is asked for the same
+    /// picture over and over.
     private func render() -> UIImage {
         // 2x for crispness, scaled up with the settled zoom, still bounded.
         let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
-        return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
-                              for: .mediaBox)
+        let key = RasterKey(document: document, page: index,
+                            tile: CGRect(origin: .zero, size: size),
+                            scale: 1, detail: scale)
+        return CanvasRasters.shared.value(for: key, cost: CanvasRasters.bytes) {
+            PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
+                page.thumbnail(
+                    of: CGSize(width: size.width * scale, height: size.height * scale),
+                    for: .mediaBox)
+            }
+        }
     }
 }
 
@@ -1027,6 +1080,11 @@ private struct PDFPageImage: View {
 /// music should be reads as a broken score, and a cheap raster does not.
 private struct ContinuousTileView: View {
     let page: PDFPage
+    /// Which engraving this tile belongs to (`AppState.engravingKey`), so the
+    /// picture can be remembered without keying on a pointer that outlives
+    /// nothing.
+    let document: String
+    let index: Int
     /// The tile in SURFACE points (the strip as laid out on screen).
     let tile: CGRect
     /// Surface points per PDF point.
@@ -1040,8 +1098,22 @@ private struct ContinuousTileView: View {
             .frame(width: tile.width, height: tile.height)
     }
 
+    /// Drawn once per (engraving, tile, scale, depth) and remembered.
+    ///
+    /// This body runs on every rebuild of the canvas -- and the canvas is
+    /// rebuilt by every publish on AppState, because `ZoomableScroll` swaps
+    /// its hosting controller's root view whenever `ScorePagesView`'s body is
+    /// re-evaluated. Without the cache each of those redrew the whole strip
+    /// from the PDF, one `drawPDFPage` per tile: that is what opening the
+    /// version band cost in continuous layout.
     private func render() -> UIImage {
-        ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
+        let key = RasterKey(document: document, page: index, tile: tile,
+                            scale: scale,
+                            detail: ContinuousTiles.detail(atDepth: atDepth))
+        return CanvasRasters.shared.value(for: key, cost: CanvasRasters.bytes) {
+            ContinuousTiles.raster(page: page, tile: tile, scale: scale,
+                                   atDepth: atDepth)
+        }
     }
 }
 
