@@ -116,3 +116,67 @@ final class ArtifactTagTests: XCTestCase {
         XCTAssertTrue(ArtifactHolding.both.hasNotation)
     }
 }
+
+/// And the tag actually reaches every list the reader looks at (#3, #4).
+final class LibraryFormatChipTests: XCTestCase {
+
+    private func version(_ id: String, _ file: String) -> VersionDoc {
+        VersionDoc(id: id, file: file, op: "import", time: "2026-09-01T10:00:00",
+                   parts: nil, turn: nil)
+    }
+
+    private func manifest() -> Manifest {
+        let scanned = ScoreDoc(slug: "scan-1", name: "Scanned", title: "Scanned",
+                               composer: nil, latest: "v001",
+                               versions: [version("v001", "v001.pdf")],
+                               sources: nil, piece: "tune")
+        let engraved = ScoreDoc(slug: "eng-1", name: "Engraved", title: "Engraved",
+                                composer: nil, latest: "v001",
+                                versions: [version("v001", "v001.musicxml")],
+                                sources: nil, piece: "other")
+        let loose = ScoreDoc(slug: "loose", name: "Loose", title: "Loose",
+                             composer: nil, latest: "v001",
+                             versions: [version("v001", "v001.pdf")],
+                             sources: nil, piece: nil)
+        return Manifest(generated: nil, scores: [scanned, engraved, loose],
+                        pieces: [PieceDoc(slug: "tune", name: "Tune",
+                                          arrangements: ["scan-1"], composer: nil,
+                                          arranger: nil, tags: nil),
+                                 PieceDoc(slug: "other", name: "Other",
+                                          arrangements: ["eng-1"], composer: nil,
+                                          arranger: nil, tags: nil)],
+                        setlists: [SetlistDoc(slug: "gig", name: "Gig",
+                                              arrangements: ["scan-1", "eng-1"])],
+                        books: nil)
+    }
+
+    /// The piece row leads with what it holds: it is the fact that decides
+    /// whether anything else on the row can be worked on.
+    func testAPieceRowLeadsWithWhatItHolds() {
+        let rows = LibraryModel.pieceRows(manifest: manifest())
+        XCTAssertEqual(rows.first { $0.id == "tune" }?.chips.first?.text, "PDF")
+        XCTAssertEqual(rows.first { $0.id == "other" }?.chips.first?.text, "MUSICXML")
+    }
+
+    func testAnUnfiledArrangementIsTaggedToo() {
+        let rows = LibraryModel.unfiledRows(manifest: manifest())
+        XCTAssertEqual(rows.first?.chips.first?.text, "PDF")
+        XCTAssertTrue(rows.first?.chips.contains { $0.text == "UNFILED" } ?? false,
+                      "and it keeps the chip it already had")
+    }
+
+    /// A set list of one scan and one engraving holds both, which is what a
+    /// player needs to know before the gig.
+    func testASetListSaysWhatItsRunningOrderHolds() {
+        let rows = LibraryModel.setlistRows(manifest: manifest())
+        XCTAssertEqual(rows.first?.chips.map(\.text), ["PDF", "MUSICXML", "ORDERED"])
+    }
+
+    /// Typing "pdf" now finds the scans, at no cost -- search already reads
+    /// the chips.
+    func testTypingTheFormatFindsIt() {
+        let rows = LibraryModel.pieceRows(manifest: manifest())
+        XCTAssertEqual(LibraryModel.searched(rows, query: "pdf").map(\.id), ["tune"])
+        XCTAssertEqual(LibraryModel.searched(rows, query: "musicxml").map(\.id), ["other"])
+    }
+}

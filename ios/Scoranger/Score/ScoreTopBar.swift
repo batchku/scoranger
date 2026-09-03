@@ -356,6 +356,49 @@ struct ScoreTopBar: View {
     }
 }
 
+/// What the arrangement on screen IS: a PDF, or engraved notation (0.6.3 #5).
+///
+/// Top left of the canvas, opposite the page and bar counters, because it is
+/// the same kind of fact -- something about what you are looking at rather
+/// than a control. It is the fact that explains the rest of the screen: why
+/// the pencil selects nothing, why continuous is greyed out, why the transport
+/// says there is nothing to play. Every one of those was discoverable only by
+/// trying it and failing.
+///
+/// It says the CONSEQUENCE as well as the format. "PDF" alone answers a
+/// question nobody asked; "PDF · not editable" answers the one they have.
+struct ArtifactMarker: View {
+    let kind: ScoreArtifact.Kind
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: kind == .notation ? "music.note.list" : "doc.text")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(kind == .notation ? Theme.Accent.clayStrong
+                                                   : Theme.Ink.ink3)
+            Text(ArtifactTag.label(kind))
+                .typeRole(.data)
+                .foregroundStyle(kind == .notation ? Theme.Accent.clayStrong
+                                                   : Theme.Ink.ink2)
+            Text(ArtifactTag.markerDetail(kind))
+                .typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink3)
+        }
+        .padding(.horizontal, Theme.Metric.s8)
+        .padding(.vertical, 4)
+        .background(kind == .notation ? Theme.Accent.clayTint : Theme.Surface.panel)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                .stroke(kind == .notation ? Theme.Accent.clayBorder : Theme.Line.line2,
+                        lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(ArtifactTag.label(kind)), \(ArtifactTag.markerDetail(kind))")
+        .accessibilityIdentifier("artifact-marker")
+    }
+}
+
 /// Page and bar counters (12.11).
 ///
 /// §7 expected `bar N` to wait on a parallel session for the geometry layer. It

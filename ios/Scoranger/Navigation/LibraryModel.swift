@@ -52,9 +52,13 @@ enum LibraryModel {
             // words, and saying it twice on one row is noise (0.4.1 §5). The
             // warning and plain chips stay -- they are facts you cannot read
             // anywhere else on the row.
-            var chips: [LibraryRow.Chip] = []
-            // Tags read as what they are -- where the tune is from -- so they
-            // lead the row's chips, ahead of the housekeeping ones.
+            // What this piece HOLDS leads every other chip (0.6.3 #3, #4).
+            // A library of imported PDFs and OMR'd notation looked identical
+            // row by row, and it is the fact that decides whether anything
+            // else on the row can be transposed, selected, asked about or
+            // played -- so it goes ahead of where the tune is from.
+            var chips = ArtifactTag.chips(
+                files: arrangements.flatMap { $0.versions.map(\.file) })
             for tag in piece.tags ?? [] {
                 chips.append(.init(text: tag, kind: .plain))
             }
@@ -87,7 +91,8 @@ enum LibraryModel {
     /// reserves no space for one.
     static func unfiledRows(manifest: Manifest) -> [LibraryRow] {
         manifest.scores.filter { ($0.piece ?? "").isEmpty }.map { score in
-            var chips: [LibraryRow.Chip] = [.init(text: "UNFILED", kind: .warning)]
+            var chips = ArtifactTag.chips(files: score.versions.map(\.file))
+            chips.append(.init(text: "UNFILED", kind: .warning))
             if isOMRDraft(score) { chips.append(.init(text: "OMR DRAFT", kind: .warning)) }
             return LibraryRow(
                 id: score.slug,
@@ -142,11 +147,17 @@ enum LibraryModel {
             // the same wording pieces use, then the running order
             let count = setlist.arrangements.count
             let heading = "\(count) arrangement\(count == 1 ? "" : "s")"
+            // A set list is a gig's running order, and what a player needs to
+            // know before the gig is whether any of it is still a PDF (#4).
+            var chips = ArtifactTag.chips(
+                files: setlist.arrangements.compactMap { scores[$0] }
+                    .flatMap { $0.versions.map(\.file) })
+            chips.append(.init(text: "ORDERED", kind: .plain))
             return LibraryRow(
                 id: setlist.slug,
                 title: setlist.name,
                 subtitle: ([heading] + order).joined(separator: " · "),
-                chips: [.init(text: "ORDERED", kind: .plain)],
+                chips: chips,
                 meta: "",
                 sortName: setlist.name,
                 composer: "",

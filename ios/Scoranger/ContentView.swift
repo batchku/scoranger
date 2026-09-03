@@ -195,6 +195,15 @@ struct ContentView: View {
                 // cannot be opened is worse than one that is in the wrong place.
 
             }
+            // What this arrangement IS, opposite the counters (0.6.3 #5).
+            .overlay(alignment: .topLeading) {
+                if state.selectedScore != nil, state.pdfDocument != nil {
+                    ArtifactMarker(kind: state.displayedArtifact)
+                        .padding(.top, Theme.Metric.s8)
+                        .padding(.leading, Theme.Metric.s12)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {
                     PositionCounters(pages: state.layout.showsPageCounter ? pageCounter : nil,
