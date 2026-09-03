@@ -1790,10 +1790,13 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
             for p in pitches:
                 if not _tab_string_frets(p.ps, opens, capo):
                     low = min(opens) + capo
-                    reasons.append(
-                        f"{p.nameWithOctave} is "
-                        + ("below the lowest string" if p.ps < low
-                           else f"above the {TAB_MAX_FRET}th fret"))
+                    if p.ps >= low:
+                        why = f"above the {TAB_MAX_FRET}th fret"
+                    elif capo:
+                        why = f"below the capo at fret {capo}"
+                    else:
+                        why = "below the lowest string"
+                    reasons.append(f"{p.nameWithOctave} is {why}")
             unplayable.append({
                 "measure": n.measureNumber,
                 "pitch": ", ".join(p.nameWithOctave for p in pitches),

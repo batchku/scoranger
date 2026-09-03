@@ -26,7 +26,7 @@ enum SVGForSwiftDraw {
     static func prepare(_ svg: String) -> String {
         // fingerings become drawn circles before anything else looks at the
         // text: they are shapes from here on, not glyphs
-        var s = ChordDiagrams.draw(in: FingeringDiagrams.draw(in: svg))
+        var s = TabStaff.draw(in: ChordDiagrams.draw(in: FingeringDiagrams.draw(in: svg)))
         for (glyph, ascii) in accidentalSubs {
             s = s.replacingOccurrences(of: glyph, with: ascii)
         }
