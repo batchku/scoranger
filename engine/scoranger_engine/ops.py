@@ -1622,6 +1622,169 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> 
     }
 
 
+# ------------------------------------------------------- guitar tablature
+#
+# Tab is the other half of what a guitarist reads, and it is a different
+# question from the chord diagrams above: WHERE ON THE NECK this note is
+# played, note by note, rather than what shape a chord is. The two are separate
+# ops for that reason -- a lead sheet wants grids and no tab, a line being
+# learned wants tab and no grids, and an arranger wants both on one staff.
+#
+# It is engraved the way the whistle's fingerings are, and for the same
+# reasons: six lyric verses under the part, one per string, so the notation
+# itself carries the tab. It sits under the right notehead, exports with the
+# score, prints, and survives every later op -- none of which is true of
+# anything drawn over the page.
+#
+# Verse 1 is the HIGHEST string, because that is how a tab staff is written:
+# the top line is the string nearest the floor.
+#
+# What is stored is the fret number as text, and a dash for a string that is
+# not played. The renderers draw the six lines of the tab staff through the
+# dashes and leave the numbers standing in the gaps -- the dash is the
+# meaning, the line is the drawing, exactly the arrangement the whistle's
+# letters and circles have.
+
+TAB_LYRIC_TAG = "gt"
+# A string that is not played on this beat. It is a character every font has,
+# unlike the box glyphs a tab staff would otherwise want.
+TAB_REST = "-"
+# Nobody reads a chord tab spread over more than a hand's width.
+TAB_CHORD_SPAN = 4
+# How far up the neck tab goes. Higher than a chord diagram's twelve, because
+# a diagram past the twelfth fret is a curiosity and a melody up there is not:
+# nineteen is where an acoustic's neck meets its body, and the last fret a
+# player reaches without thinking about it.
+TAB_MAX_FRET = 19
+
+
+def _tab_string_frets(pitch_ps: float, opens: list[float], capo: int) -> list[int]:
+    """Every string that can play this pitch, as (string index, fret) pairs,
+    lowest fret first. A capo shortens every string by its own number of
+    frets, and nothing below it can be played at all."""
+    out = []
+    for index, open_ps in enumerate(opens):
+        fret = int(round(pitch_ps - open_ps))
+        if capo <= fret <= TAB_MAX_FRET:
+            out.append((index, fret - capo))
+    return sorted(out, key=lambda pair: pair[1])
+
+
+def _tab_chord_layout(pitches, opens: list[float], capo: int):
+    """Strings and frets for a chord, or None when no hand can hold it.
+
+    One string per note, in pitch order -- a guitar cannot play two notes on
+    one string -- inside four frets. The lowest position that works is chosen,
+    which is what makes the arithmetic match how a player thinks.
+    """
+    import itertools
+
+    options = [_tab_string_frets(p.ps, opens, capo) for p in pitches]
+    if any(not o for o in options):
+        return None
+    best = None
+    for combo in itertools.product(*options):
+        strings = [s for s, _ in combo]
+        if len(set(strings)) != len(strings) or strings != sorted(strings):
+            continue
+        frets = [f for _, f in combo]
+        stopped = [f for f in frets if f > 0]
+        if stopped and max(stopped) - min(stopped) >= TAB_CHORD_SPAN:
+            continue
+        rank = (max(frets), max(frets) - min(frets))
+        if best is None or rank < best[0]:
+            best = (rank, combo)
+    return best[1] if best else None
+
+
+def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
+               clear: bool = False) -> dict:
+    """Write guitar tablature under a part, as six stacked lyric verses.
+
+    The lowest position that plays the note, which is the one a player reaches
+    for first. A chord is laid out as a whole -- one string per note, inside
+    four frets -- so it can force a position higher than any of its notes would
+    have taken alone, and the report SAYS SO, bar by bar, rather than leaving
+    the reader to wonder why bar 12 climbed the neck.
+
+    Notes the tuning cannot play are reported and left without a fret. Nothing
+    is transposed to make it fit: a note an octave below the bottom string is
+    the arrangement's problem to solve, not the tab's to hide.
+    """
+    from music21 import note as m21note
+
+    def tab_verses(n):
+        return [ly for ly in n.lyrics if ly.identifier == TAB_LYRIC_TAG]
+
+    if clear:
+        cleared = 0
+        for n in part.recurse().notes:
+            kept = [ly for ly in n.lyrics if ly.identifier != TAB_LYRIC_TAG]
+            if len(kept) != len(n.lyrics):
+                n.lyrics = kept
+                cleared += 1
+        return {"part": part_label(part), "cleared": cleared}
+
+    opens = [m21pitch.Pitch(p).ps for p in guitar_tuning(tuning)]
+    if capo < 0 or capo > TAB_MAX_FRET:
+        raise ValueError(f"A capo goes on frets 0-{TAB_MAX_FRET}, not {capo}")
+
+    written = 0
+    unplayable: list[dict] = []
+    raised: list[dict] = []
+    for n in part.recurse().notes:
+        pitches = sorted(n.pitches, key=lambda p: p.ps)
+        n.lyrics = [ly for ly in n.lyrics if ly.identifier != TAB_LYRIC_TAG]
+        if len(pitches) > len(opens):
+            unplayable.append({"measure": n.measureNumber,
+                               "pitch": ", ".join(p.nameWithOctave for p in pitches),
+                               "why": f"{len(pitches)} notes on {len(opens)} strings"})
+            continue
+        layout = _tab_chord_layout(pitches, opens, capo)
+        if layout is None:
+            reasons = []
+            for p in pitches:
+                if not _tab_string_frets(p.ps, opens, capo):
+                    low = min(opens) + capo
+                    reasons.append(
+                        f"{p.nameWithOctave} is "
+                        + ("below the lowest string" if p.ps < low
+                           else f"above the {TAB_MAX_FRET}th fret"))
+            unplayable.append({
+                "measure": n.measureNumber,
+                "pitch": ", ".join(p.nameWithOctave for p in pitches),
+                "why": "; ".join(reasons) or "no hand shape inside four frets"})
+            continue
+        # what each note would have cost on its own, so a chord that pushed the
+        # hand up the neck can say so
+        alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
+        highest = max(f for _, f in layout)
+        if highest > alone:
+            raised.append({"measure": n.measureNumber, "to_fret": highest,
+                           "lowest_alone": alone})
+        frets = {string: fret for string, fret in layout}
+        # verse 1 is the HIGHEST string: a tab staff's top line is the string
+        # nearest the floor
+        for verse, string in enumerate(reversed(range(len(opens))), start=1):
+            text = str(frets[string]) if string in frets else TAB_REST
+            # applyRaw, or music21 reads the dash as a hyphenated syllable and
+            # keeps the syllabic rather than the text
+            n.addLyric(text, lyricNumber=verse, applyRaw=True,
+                       lyricIdentifier=TAB_LYRIC_TAG)
+        written += 1
+
+    return {
+        "part": part_label(part),
+        "tuning": tuning.upper(),
+        "capo": capo,
+        "notes_tabbed": written,
+        "positions_raised": raised[:20],
+        "positions_raised_count": len(raised),
+        "unplayable": unplayable[:20],
+        "unplayable_count": len(unplayable),
+    }
+
+
 def clear_stale_diagrams(score, names: list[str] | None = None) -> int:
     """Drop chord diagrams whose chords have moved out from under them.
 

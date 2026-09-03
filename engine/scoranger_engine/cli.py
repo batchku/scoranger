@@ -391,6 +391,15 @@ def cmd_whistle_fingerings(a):
             {"part": a.part, "whistle": a.whistle, "clear": a.clear}, details)
 
 
+def cmd_guitar_tab(a):
+    score = _load(a.score, None)
+    part = ops.find_parts(score, [a.part])[0]
+    details = ops.guitar_tab(score, part, a.tuning, capo=a.capo, clear=a.clear)
+    _mutate(a.score, score, "guitar-tab",
+            {"part": a.part, "tuning": a.tuning, "capo": a.capo, "clear": a.clear},
+            details)
+
+
 def cmd_chord_diagrams(a):
     score = _load(a.score, None)
     part = ops.find_parts(score, [a.part])[0]
@@ -750,6 +759,16 @@ def main() -> None:
     s.add_argument("--whistle", default="D", help="whistle key (D, C, E-, F, G, A)")
     s.add_argument("--clear", action="store_true", help="remove fingerings instead")
     s.set_defaults(fn=cmd_whistle_fingerings)
+
+    s = sub.add_parser("guitar-tab",
+                       help="Write guitar tablature under a part")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--tuning", default="EADGBE",
+                   help="EADGBE (standard), DADGAD, DADGBE (drop D)")
+    s.add_argument("--capo", type=int, default=0, help="fret the capo sits on")
+    s.add_argument("--clear", action="store_true", help="remove the tab instead")
+    s.set_defaults(fn=cmd_guitar_tab)
 
     s = sub.add_parser("chord-diagrams",
                        help="Engrave guitar chord diagrams over a part's chord symbols")

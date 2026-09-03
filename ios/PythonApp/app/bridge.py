@@ -277,6 +277,17 @@ def _dispatch(op, a):
                                       {"part": a["part"], "kind": a.get("kind") or "harm",
                                        "measure": a.get("measure")})
         return {"version": entry["id"], "details": details}
+    if op == "guitar-tab":
+        score = _load(a["score"], None)
+        part = _part(score, a["part"])
+        details = ops.guitar_tab(score, part, a.get("tuning") or "EADGBE",
+                                 capo=int(a.get("capo") or 0),
+                                 clear=bool(a.get("clear")))
+        entry = workspace.add_version(a["score"], score, "guitar-tab",
+                                      {"part": a["part"],
+                                       "tuning": a.get("tuning") or "EADGBE",
+                                       "capo": int(a.get("capo") or 0)})
+        return {"version": entry["id"], "details": details}
     if op == "chord-diagrams":
         score = _load(a["score"], None)
         part = _part(score, a["part"])

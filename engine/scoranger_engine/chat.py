@@ -383,6 +383,19 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
                    "reset": reset}, fn)
 
 
+def guitar_tablature(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
+                     capo: int = 0, clear: bool = False) -> dict:
+    """Write guitar tablature under a part: a fret number per note on a
+    six-line tab staff, at the lowest position that plays it. `tuning` is
+    EADGBE (standard), DADGAD or DADGBE (drop D); `capo` is the fret the capo
+    sits on. Notes the tuning cannot play are reported, and so is any bar where
+    a chord forced the hand higher up the neck. `clear` removes the tab."""
+    def fn(s):
+        return ops.guitar_tab(s, _part(s, part), tuning, capo=capo, clear=clear)
+    return _apply(ctx.deps, "guitar-tab",
+                  {"part": part, "tuning": tuning, "capo": capo, "clear": clear}, fn)
+
+
 def guitar_chord_diagrams(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
                           clear: bool = False) -> dict:
     """Draw a guitar chord diagram above every chord symbol already on a part:
@@ -434,6 +447,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
+         guitar_tablature,
          set_structure,
          adjust_element,
          assign_to_piece]
