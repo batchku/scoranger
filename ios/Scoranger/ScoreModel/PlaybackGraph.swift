@@ -43,6 +43,14 @@ final class PlaybackGraph {
     /// Order matters and is not obvious: every sampler must be attached and
     /// connected BEFORE the sequencer loads, because a track's destination has
     /// to be part of a running graph for the sequencer to accept it.
+    /// True when the app was launched by the UI-test harness.
+    ///
+    /// `-seedTestLibrary` is passed by every UI test and by nothing else, so it
+    /// identifies the harness without inventing a second flag that a future
+    /// test could forget to pass.
+    static let silencedForTesting: Bool =
+        ProcessInfo.processInfo.arguments.contains("-seedTestLibrary")
+
     func load(midi: URL, timeline: PlaybackTimeline) throws {
         teardown()
         for part in timeline.parts {
@@ -62,6 +70,16 @@ final class PlaybackGraph {
                            bankMSB: PlaybackSound.percussionBankMSB)
         clickSampler = click
 
+        // A UI test drives real playback -- the transport, the mixer, the
+        // playhead all need the clock running -- and on a developer's machine
+        // that came out of the speakers while they were working. The graph is
+        // built and run exactly as it ships; only the master output is turned
+        // down, so every test still asserts what it always did.
+        //
+        // This cannot touch the offline assertions: those render through
+        // `enableManualRenderingMode` into a buffer and never reach this
+        // mixer, which is why they can still measure RMS and gain.
+        if PlaybackGraph.silencedForTesting { engine.mainMixerNode.outputVolume = 0 }
         if !engine.isRunning { try engine.start() }
         let loaded = AVAudioSequencer(audioEngine: engine)
         try loaded.load(from: midi, options: [])
