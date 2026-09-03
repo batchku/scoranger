@@ -188,3 +188,90 @@ final class PlayheadTests: XCTestCase {
                              "the cursor stood still while the music played on")
     }
 }
+
+// MARK: - The continuous strip (bug 6)
+
+/// The DAW rule: the line stands still and the score scrolls past it.
+final class ContinuousPlayheadTests: XCTestCase {
+    private let surface: CGFloat = 20000
+    private let viewport: CGFloat = 1000
+
+    /// In the body of the piece the offset tracks the line exactly, so the line
+    /// does not move on screen at all: that is the whole feature.
+    func testTheLineStandsStillWhileTheScoreScrolls() {
+        var onScreen: [CGFloat] = []
+        for x in stride(from: CGFloat(2000), through: 8000, by: 250) {
+            let offset = Playhead.stripOffset(playheadX: x, viewportWidth: viewport,
+                                              surfaceWidth: surface)
+            onScreen.append(x - offset)
+        }
+        for position in onScreen {
+            XCTAssertEqual(position, viewport * Playhead.parkFraction, accuracy: 0.001,
+                           "the line moved on screen instead of the score moving")
+        }
+    }
+
+    /// Before the park point there is nothing to scroll to, so the score holds
+    /// still and the line travels in from the first bar.
+    func testAtTheStartTheScoreHoldsStillAndTheLineTravels() {
+        for x in [CGFloat(0), 100, 200, 299] {
+            XCTAssertEqual(Playhead.stripOffset(playheadX: x, viewportWidth: viewport,
+                                                surfaceWidth: surface), 0,
+                           "the score should not move before the line reaches the park point")
+        }
+        XCTAssertGreaterThan(
+            Playhead.stripOffset(playheadX: 500, viewportWidth: viewport,
+                                 surfaceWidth: surface), 0)
+    }
+
+    /// And at the end it stops at the last screenful rather than scrolling the
+    /// music off the left edge.
+    func testAtTheEndTheScoreStopsAndTheLineTravelsOn() {
+        let offset = Playhead.stripOffset(playheadX: surface - 10,
+                                          viewportWidth: viewport, surfaceWidth: surface)
+        XCTAssertEqual(offset, surface - viewport)
+    }
+
+    /// A score shorter than the viewport cannot scroll at all.
+    func testAShortScoreNeverScrolls() {
+        XCTAssertEqual(Playhead.stripOffset(playheadX: 400, viewportWidth: viewport,
+                                            surfaceWidth: 600), 0)
+    }
+
+    func testAnEmptyViewportIsNotADivision() {
+        XCTAssertEqual(Playhead.stripOffset(playheadX: 400, viewportWidth: 0,
+                                            surfaceWidth: 600), 0)
+    }
+
+    // MARK: the note under the line
+
+    private func note(_ staff: Int, _ x: CGFloat) -> (staff: Int, frame: CGRect) {
+        (staff, CGRect(x: x, y: CGFloat(staff) * 100, width: 10, height: 10))
+    }
+
+    /// One note per staff, so a quartet lights four noteheads at once rather
+    /// than saying three parts are silent.
+    func testEveryStaffSoundingUnderTheLineIsLit() {
+        let bar = [note(1, 10), note(1, 60), note(2, 10), note(2, 60),
+                   note(3, 10), note(4, 10)]
+        let lit = Playhead.sounding(notes: bar, x: 65)
+        XCTAssertEqual(lit.count, 4, "one note on each of the four staves")
+        XCTAssertEqual(lit.map(\.minX), [60, 60, 10, 10])
+    }
+
+    /// A note stays lit until the line reaches the next one, which is what
+    /// "for the note's duration" means with no onset map to ask.
+    func testANoteStaysLitUntilTheLineReachesTheNext() {
+        let bar = [note(1, 10), note(1, 60)]
+        for x in stride(from: CGFloat(10), to: 60, by: 5) {
+            XCTAssertEqual(Playhead.sounding(notes: bar, x: x).first?.minX, 10)
+        }
+        XCTAssertEqual(Playhead.sounding(notes: bar, x: 60).first?.minX, 60)
+    }
+
+    /// Before the first note of the bar nothing is lit -- better than lighting
+    /// a note that has not sounded.
+    func testNothingIsLitBeforeTheFirstNote() {
+        XCTAssertTrue(Playhead.sounding(notes: [note(1, 40)], x: 10).isEmpty)
+    }
+}
