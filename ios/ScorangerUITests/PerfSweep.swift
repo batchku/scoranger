@@ -108,4 +108,36 @@ final class PerfSweep: XCTestCase {
         }
         readReadings("version-switch")
     }
+
+    /// The same tap, in CONTINUOUS layout.
+    ///
+    /// The hypothesis worth testing, and the one that matches the words: "since
+    /// we introduced these different ways of having both XML and PDFs
+    /// rendering it has become incredibly slow". `titleMenuOpen` is
+    /// `@Published` on AppState, so opening the band invalidates every view
+    /// observing AppState -- the canvas included. Paged holds a page or two;
+    /// continuous holds tiles. If the tap costs more here, the cost is the
+    /// rebuild and not the band.
+    func testVersionDropdownLatencyInContinuous() {
+        launch()
+        openFirstScore()
+
+        let toContinuous = app.buttons["layout-continuous"].firstMatch
+        guard toContinuous.waitForExistence(timeout: 10) else {
+            XCTFail("no continuous layout control on the bar")
+            return
+        }
+        toContinuous.tap()
+        settle(6.0)   // the re-engrave, kept OUT of the taps below
+
+        for _ in 0..<10 {
+            let trigger = app.buttons["score-versions"].firstMatch
+            guard trigger.waitForExistence(timeout: 10) else { break }
+            trigger.tap()
+            settle(1.2)
+            trigger.tap()
+            settle(0.8)
+        }
+        readReadings("version-dropdown-continuous")
+    }
 }

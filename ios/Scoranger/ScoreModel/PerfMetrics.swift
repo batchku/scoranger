@@ -181,9 +181,13 @@ final class PerfMetrics: @unchecked Sendable {
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-perfDump"),
               dumpTimer == nil else { return }
+        // os_log, not print: a UI test drives the app as a SEPARATE process,
+        // whose stdout never reaches xcodebuild's log. This lands in the
+        // unified log, where `log show` can fetch it after the run.
+        let logger = Logger(subsystem: "com.irllabs.scoranger", category: "performance")
         dumpTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             let text = PerfReport.text(PerfMetrics.shared.snapshot())
-            print("SCORANGER-PERF\n\(text)\nSCORANGER-PERF-END")
+            logger.log("SCORANGER-PERF\n\(text, privacy: .public)\nSCORANGER-PERF-END")
         }
         #endif
     }
