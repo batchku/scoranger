@@ -8,6 +8,13 @@ NAME when the file carries no title, and Verovio engraves the movement title.
 There was a guard for it, and it only caught a name with an EXTENSION still
 attached -- "my-score.mxl". A stem on its own walked straight through.
 
+Then it came back through the other door. `import` was guarded; ADDING A
+VERSION FROM A FILE was not, and that is the OMR path: the app hands the engine
+`v001.mxl`, named after the version it transcribed, and the arrangement the
+reader had titled "Sous le ciel de Paris" was suddenly called "v001.mxl" in the
+library and at the top of the page. So the last two sections here cover every
+path that builds a version out of a file, not only the first import.
+
 Run: engine/.venv/bin/python engine/scripts/check_import_title.py
 """
 
@@ -133,6 +140,97 @@ def main() -> int:
               "under-paris-skies-solo" not in
               " ".join(re.findall(r"<(?:work|movement)-title>(.*?)</(?:work|movement)-title>",
                                   text3, re.S)))
+
+    print("\nOMR: adding a version FROM A FILE does not rename the arrangement")
+    # A scan, imported the way the app imports one: the title is the human
+    # name, the artifact is a PDF, and the version is v001.
+    from pypdf import PdfWriter
+    pdf_writer = PdfWriter()
+    pdf_writer.add_blank_page(width=612, height=792)
+    scan_src = Path(workspace) / "sous-le-ciel-quartet.pdf"
+    with open(scan_src, "wb") as f:
+        pdf_writer.write(f)
+    r = call("import-pdf", path=str(scan_src), name="sous-le-ciel-quartet")
+    scan = (r.get("result") or {}).get("score")
+    check("the scan imported", bool(scan), json.dumps(r)[:200])
+    manifest = (call("manifest").get("result") or {})
+    scan_doc = next((s for s in manifest.get("scores", []) if s["slug"] == scan), None)
+    check("a scan's title is spelled out, not left as the file's stem",
+          scan_doc is not None and scan_doc.get("title") == "Sous le ciel quartet",
+          f"title is {(scan_doc or {}).get('title')!r}")
+
+    # Now the OMR path: a file named after the VERSION it transcribed,
+    # carrying no title of its own. This is the whole bug -- what came back
+    # was called "v001.mxl", in the library and on the page.
+    omr = stream.Score()
+    omr_part = stream.Part()
+    omr_part.partName = "Flute"
+    for pitch in ("C4", "D4", "E4", "F4"):
+        omr_part.append(note.Note(pitch, quarterLength=1.0))
+    omr.append(omr_part)
+    transcription = Path(workspace) / "v001.musicxml"
+    omr.write("musicxml", fp=str(transcription))
+    # Strip the title elements music21 writes for itself. OMR output has none
+    # -- Audiveris read a page, not a header -- and a file with none is what
+    # makes music21 seed the movement title from the FILE NAME. Written by
+    # music21 and then cut down, because a fixture that keeps its own title
+    # cannot show the bug at all.
+    xml = transcription.read_text()
+    xml = re.sub(r"\s*<work>.*?</work>", "", xml, flags=re.S)
+    xml = re.sub(r"\s*<movement-title>.*?</movement-title>", "", xml, flags=re.S)
+    transcription.write_text(xml)
+    seeded = (converter.parse(str(transcription), forceSource=True)
+              .metadata.movementName)
+    check("the fixture reproduces the trap: music21 titles it after the file",
+          seeded == "v001.musicxml", f"music21 seeded {seeded!r}")
+    r = json.loads(bridge.handle(json.dumps({
+        "op": "add-version-from-file",
+        "args": {"score": scan, "path": str(transcription), "op": "omr"}})))
+    check("the transcription became a version", bool((r.get("result") or {}).get("version")),
+          json.dumps(r)[:200])
+
+    manifest = (call("manifest").get("result") or {})
+    after = next((s for s in manifest.get("scores", []) if s["slug"] == scan), None)
+    check("the arrangement keeps its title after OMR",
+          after is not None and after.get("title") == "Sous le ciel quartet",
+          f"title is {(after or {}).get('title')!r}")
+
+    r = call("export", score=scan, format="musicxml")
+    path = (r.get("result") or {}).get("path")
+    check("the transcription exported", bool(path), json.dumps(r)[:200])
+    if path:
+        text = Path(path).read_text()
+        engraved = re.findall(r"<(?:work|movement)-title>(.*?)</(?:work|movement)-title>",
+                              text, re.S)
+        check("and the NOTATION carries it -- that is what engraves",
+              all(t.strip() == "Sous le ciel quartet" for t in engraved) and engraved,
+              f"titles are {engraved!r}")
+        check("no file name reached the page",
+              not any("v001" in t for t in engraved), f"titles are {engraved!r}")
+        check("and no placeholder either",
+              not any("music21" in t.casefold() for t in engraved),
+              f"titles are {engraved!r}")
+
+    print("\nand an arrangement with no title of its own takes the file's, if real")
+    plain2 = stream.Score()
+    p4 = stream.Part()
+    p4.partName = "Flute"
+    p4.append(note.Note("C4", quarterLength=4.0))
+    plain2.append(p4)
+    from music21 import metadata as m21meta2
+    plain2.metadata = m21meta2.Metadata()
+    plain2.metadata.title = "Autumn Leaves"
+    named = Path(workspace) / "v002.mxl"
+    plain2.write("musicxml", fp=str(named))
+    for existing, incoming, stem, expected in [
+        ("Sous le ciel de Paris", "v001.mxl", "v001", "Sous le ciel de Paris"),
+        (None, "Autumn Leaves", "v002", "Autumn Leaves"),
+        ("under-paris-skies", "v001.mxl", "v001", "Under paris skies"),
+        (None, "v001.mxl", "v001", None),
+    ]:
+        got = ops.title_for_added_version(existing, incoming, stem)
+        check(f"existing={existing!r} + file={incoming!r} -> {expected!r}",
+              got == expected, f"got {got!r}")
 
     print("\nand the rule itself, on the strings it has to tell apart")
     for text, stem, expected in [

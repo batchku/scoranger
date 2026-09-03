@@ -1525,6 +1525,50 @@ def clean_imported_metadata(score, fallback_title: str,
     return set_metadata(score, title=title or humanise_title(fallback_title))
 
 
+def title_for_added_version(existing: str | None, incoming: str | None,
+                            source_stem: str | None = None) -> str | None:
+    """Which title a version built FROM A FILE should carry.
+
+    Adding a version is not a rename. The arrangement already has a title --
+    the one the reader imported the PDF under -- and OMR handing back a file
+    called v001.mxl must not become the name of their music. It did: music21
+    seeds the movement title from the source file name, `_write_version`
+    projects the notation's metadata onto the score document, and Verovio
+    engraves the movement title. So "v001.mxl" appeared in the library and at
+    the top of the page.
+
+    The arrangement's own title wins. The incoming file's title is used only
+    when the arrangement has none worth keeping -- and a file name is never
+    a title in either position.
+    """
+    if existing and not _is_junk_title(existing):
+        return existing
+    if incoming and not _is_junk_title(incoming, source_stem):
+        return incoming
+    # Only the arrangement's own name is worth spelling out. A file name that
+    # has been de-hyphenated is still a file name, and this is the last place
+    # it could become one.
+    return humanise_title(existing or "") or None
+
+
+def carry_title_into_version(score, existing: str | None,
+                             source_stem: str | None = None) -> dict:
+    """Put `title_for_added_version` into the notation, which is what engraves."""
+    from music21 import metadata as m21metadata
+
+    incoming = engraved_title(score)
+    title = title_for_added_version(existing, incoming, source_stem)
+    if title:
+        return set_metadata(score, title=title)
+    # Nothing anywhere is usable. Leave no file name behind: an empty title
+    # engraves nothing, and a file name engraves a file name.
+    if score.metadata is None:
+        score.metadata = m21metadata.Metadata()
+    score.metadata.title = None
+    score.metadata.movementName = None
+    return score_metadata(score)
+
+
 def humanise_title(text: str) -> str:
     """A slug spelled out. "sous-le-ciel-quartet" -> "Sous le ciel quartet"."""
     value = (text or "").strip()
