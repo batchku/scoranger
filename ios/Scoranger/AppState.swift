@@ -26,6 +26,13 @@ final class AppState: ObservableObject {
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
     @Published var omrBusy = false
+    /// The transcription in flight, so a control that OFFERS OMR can show what
+    /// OMR is doing rather than a bare "busy". Both paths in -- the More
+    /// screen's switch and the transport's button -- read it.
+    @Published private(set) var omrPendingID: UUID?
+
+    var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
+    var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
     /// Per-score enharmonic preference backing the gear menu's "Use flats"
     /// toggle; flipping it applies a respell op. Defaults to flats.
     @Published var useFlats: [String: Bool] = [:]
@@ -1275,12 +1282,21 @@ final class AppState: ObservableObject {
         guard let slug = selectedSlug,
               let version = displayedVersion,
               ScoreArtifact.kind(ofFile: version.file) == .scan else { return }
+        // Claimed HERE, not inside convertPDF: fetching the artifact's path is
+        // a round trip to the engine, and until this was set both ways in --
+        // the More screen's switch and the transport's button -- read as idle
+        // and a second tap started a second run on the same page.
+        guard !omrBusy else { return }
+        omrBusy = true
         Task {
             do {
                 let path = try await local.versionFilePath(score: slug, version: version.id)
                 convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
             } catch {
+                omrBusy = false
                 lastError = error.localizedDescription
+                notice = "That scan could not be opened for transcription: "
+                       + error.localizedDescription
             }
         }
     }
@@ -1393,10 +1409,12 @@ final class AppState: ObservableObject {
         let name = url.deletingPathExtension().lastPathComponent
         if scoped { url.stopAccessingSecurityScopedResource() }
         guard let pdfData else {
+            omrBusy = false
             notice = "Couldn't read the PDF."
             return
         }
         guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
+            omrBusy = false
             saveToIntake(pdfData, filename: url.lastPathComponent)
             return
         }
@@ -1409,9 +1427,11 @@ final class AppState: ObservableObject {
         omrBusy = true
         let pending = PendingImport(name: name, piece: piece)
         pendingImports.append(pending)
+        omrPendingID = pending.id
         Task {
             defer {
                 omrBusy = false
+                omrPendingID = nil
                 pendingImports.removeAll { $0.id == pending.id }
             }
             do {

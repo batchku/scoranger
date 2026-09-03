@@ -82,14 +82,7 @@ struct ScoreOptionsScreen: View {
             // to offer. A row that stays and does nothing is worse than a row
             // that goes.
             if state.displayedArtifact == .scan {
-                ScreenRow(title: "Make editable",
-                          value: state.omrBusy ? "reading…" : "run OMR",
-                          leads: false,
-                          identifier: "more-make-editable") {
-                    guard !state.omrBusy else { return }
-                    state.makeEditable()
-                    onBack()
-                }
+                makeEditableRow
                 note("This arrangement is a PDF. Reading it produces a notation "
                      + "version you can transpose, select and ask about — the "
                      + "PDF stays as it is, so you can compare them.")
@@ -134,6 +127,53 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-settings") { onSettings() }
         }
         .padding(.bottom, Theme.Metric.s32)
+    }
+
+    /// OMR, offered the way Performance mode is offered: a switch, because a
+    /// row that performs among rows that lead does not read as pressable
+    /// (MakeEditable). It reports its own progress in place and does not pop
+    /// the screen -- popping is what made pressing it look like nothing had
+    /// happened.
+    ///
+    /// One-way: OMR cannot be un-run. When it succeeds the arrangement is no
+    /// longer a scan and this row goes; when it fails the switch comes back
+    /// off and the notice says why.
+    private var makeEditableRow: some View {
+        let omr = MakeEditable.control(busy: state.omrBusy,
+                                       stage: state.omrStage,
+                                       fraction: state.omrFraction)
+        return VStack(alignment: .leading, spacing: 7) {
+            PanelToggle(title: "Make editable",
+                        isOn: Binding(get: { omr.isOn },
+                                      set: { on in
+                                          guard on, omr.acceptsTap else { return }
+                                          state.makeEditable()
+                                      }))
+            HStack(spacing: Theme.Metric.s8) {
+                if omr.showsSpinner {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Theme.Accent.clay)
+                }
+                Text(omr.detail)
+                    .typeRole(.meta)
+                    .foregroundStyle(Theme.Ink.ink3)
+                Spacer(minLength: 0)
+            }
+            if let fraction = omr.fraction {
+                ProgressView(value: fraction)
+                    .tint(Theme.Accent.clay)
+                    .frame(maxWidth: 220)
+            }
+        }
+        .padding(.horizontal, Theme.Metric.s20)
+        .padding(.vertical, 11)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Theme.Line.line).frame(height: 1)
+        }
+        .accessibilityIdentifier("more-make-editable")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Make editable, \(omr.detail)")
     }
 
     /// The part-wide half of size and position: the default every chord symbol
