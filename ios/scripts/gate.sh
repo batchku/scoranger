@@ -206,33 +206,57 @@ for n in range(1, workers + 1):
              "--path", path, "--format", "json"]))
     except subprocess.CalledProcessError:
         continue
-    def walk(node, trail=()):
-        if isinstance(node, dict):
-            name = node.get("name") or node.get("nodeIdentifier")
-            kind = node.get("nodeType")
-            if kind == "Test Case" and node.get("nodeIdentifier"):
-                d = node.get("duration") or ""
-                secs = 0.0
-                for part in str(d).replace(",", " ").split():
-                    if part.endswith("s"):
-                        try: secs += float(part[:-1])
-                        except ValueError: pass
-                    elif part.endswith("m"):
-                        try: secs += float(part[:-1]) * 60
-                        except ValueError: pass
-                cls = trail[-1] if trail else ""
-                if secs: durations[f"{cls}/{node['nodeIdentifier']}"] = secs
-            for v in node.values():
-                walk(v, trail + ((name,) if kind == "Test Suite" else ()))
-        elif isinstance(node, list):
-            for v in node: walk(v, trail)
-    walk(tests)
+
+    def seconds(text):
+        # "1m 22s", "41s", "0.5s"
+        total = 0.0
+        for part in str(text or "").replace(",", " ").split():
+            try:
+                if part.endswith("ms"): total += float(part[:-2]) / 1000
+                elif part.endswith("s"): total += float(part[:-1])
+                elif part.endswith("m"): total += float(part[:-1]) * 60
+                elif part.endswith("h"): total += float(part[:-1]) * 3600
+            except ValueError:
+                pass
+        return total
+
+    # A Test Case's nodeIdentifier is "Class/method()"; the TARGET is the name
+    # of the bundle node above it, and -only-testing wants all three. Reading
+    # the class off the enclosing suite instead wrote "RenderShot/RenderShot/
+    # testX()" for every class whose name is not the target's, and those tests
+    # then had no recorded duration to balance with.
+    def walk(node, bundle=""):
+        if not isinstance(node, dict):
+            if isinstance(node, list):
+                for v in node: walk(v, bundle)
+            return
+        kind = node.get("nodeType")
+        if kind and kind.endswith("test bundle"):
+            bundle = node.get("name") or bundle
+        if kind == "Test Case" and node.get("nodeIdentifier") and bundle:
+            secs = seconds(node.get("duration"))
+            if secs:
+                durations[f"{bundle}/{node['nodeIdentifier']}"] = secs
+        for child in node.get("children", []):
+            walk(child, bundle)
+    walk(tests.get("testNodes", tests))
 
 print(f"    TOTAL {total} tests: {passed} passed, {failed} failed, {skipped} skipped")
 if durations:
+    # MERGED, never replaced: a run narrowed with -only-testing would otherwise
+    # throw away the timings of every test it did not run, and the next full
+    # gate would split on nothing.
+    table = {}
+    if os.path.exists(durfile):
+        for line in open(durfile):
+            parts = line.split("\t")
+            if len(parts) == 2:
+                try: table[parts[0].strip()] = float(parts[1])
+                except ValueError: pass
+    table.update(durations)
     with open(durfile, "w") as f:
-        for k in sorted(durations):
-            f.write(f"{k}\t{durations[k]:.1f}\n")
+        for k in sorted(table):
+            f.write(f"{k}\t{table[k]:.1f}\n")
 if total < expected:
     print(f"!!! {expected} tests were enumerated but only {total} executed.")
     print("!!! A worker ran nothing -- check that each has its own simulator.")
