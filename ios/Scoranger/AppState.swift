@@ -22,7 +22,34 @@ final class AppState: ObservableObject {
     @Published var pdfDocument: PDFDocument?
     @Published var loadingPDF = false
     @Published var engineOK = false
+    /// Why the RENDER failed, and nothing else.
+    ///
+    /// Its one reader is the "Render failed" placeholder in `ContentView`,
+    /// which is on screen only when a score is open and no page could be
+    /// drawn -- so it shows a Verovio failure with the build stamp, in mono,
+    /// where the failure happened. Forty other failures used to be written
+    /// here too and were therefore silent: an Import Book that died on a
+    /// missing Python module set this from the LIBRARY, where nothing renders
+    /// it, and looked exactly like a button that did nothing.
+    ///
+    /// Everything that is not a render failure goes to `notice` through
+    /// `report(_:_:)`. `check_error_reporting.py` fails the build if a new
+    /// write appears here.
     @Published var lastError: String?
+
+    /// The engine failure already spoken. `refresh` polls every two seconds;
+    /// without this the notice would come back a second after dismissal.
+    private var reportedEngineFailure: String?
+
+    /// Say so.
+    ///
+    /// `action` is the verb phrase as the reader would say it -- "rename that
+    /// part", not the op's name. This is the ONLY route a non-render failure
+    /// takes to the screen: `notice`, which `NoticeBar` renders over both the
+    /// library and an open score.
+    func report(_ action: String, _ error: Error) {
+        notice = OperationReport.failure(action, error: error)
+    }
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
     @Published var omrBusy = false
@@ -33,10 +60,6 @@ final class AppState: ObservableObject {
 
     var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
     var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
-    /// Per-score enharmonic preference backing the gear menu's "Use flats"
-    /// toggle; flipping it applies a respell op. Defaults to flats.
-    @Published var useFlats: [String: Bool] = [:]
-
     /// What the lasso caught, held by durable address so it survives the
     /// re-render every engine op triggers. This replaces the yellow-band
     /// highlight, which inferred bar numbers from where a stroke landed across
@@ -82,7 +105,6 @@ final class AppState: ObservableObject {
     /// that the thing remembering "it is open" did not survive the next frame.
     @Published var scoreMode: ScoreMode = .read
     @Published var titleMenuOpen = false
-    @Published var moreMenuOpen = false
 
     @Published var currentSetlist: String?
     /// Which pages are on screen, reported by the canvas. Feeds the counters
@@ -268,10 +290,8 @@ final class AppState: ObservableObject {
                 _ = try await local.call(op: "adjust-element", args: args)
                 await refresh()
                 await renderIfNeeded(force: true)
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("move that chord symbol", error)
             }
         }
     }
@@ -315,8 +335,7 @@ final class AppState: ObservableObject {
                                                 "size": chordDefaultSize])
                 await refresh()
                 await renderIfNeeded(force: true)
-            } catch let e as EngineError { lastError = e.error }
-            catch { lastError = error.localizedDescription }
+            } catch { report("resize the chord symbols", error) }
         }
     }
 
@@ -333,8 +352,7 @@ final class AppState: ObservableObject {
                                                 "reset": true])
                 await refresh()
                 await renderIfNeeded(force: true)
-            } catch let e as EngineError { lastError = e.error }
-            catch { lastError = error.localizedDescription }
+            } catch { report("put the chord symbols back", error) }
         }
     }
 
@@ -779,7 +797,7 @@ final class AppState: ObservableObject {
                 : "Imported \(imported); \(failed) could not be read."
             await refresh()
         } catch {
-            lastError = error.localizedDescription
+            report("import that folder", error)
         }
     }
 
@@ -832,6 +850,9 @@ final class AppState: ObservableObject {
     }
 
     func startPolling() {
+        // A measurement run asks for the readings in the log (-perfDump);
+        // nothing happens without it.
+        PerfMetrics.shared.startConsoleDumpIfRequested()
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -1040,13 +1061,16 @@ final class AppState: ObservableObject {
         scanChatInbox()
         #endif
         do {
+            let manifestSpan = PerfMetrics.shared.begin(PerfMetrics.Name.manifest)
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
+            manifestSpan?.end()
             // Only publish a manifest that differs. The poll runs every 1.5s,
             // and republishing an identical library rebuilt the whole sidebar
             // — including any open context menu — twice a second, which is why
             // a long-press could keep the app from ever going idle.
             if manifest != m { manifest = m }
             engineOK = true
+            reportedEngineFailure = nil   // a later outage speaks again
             // a selection pointing at a deleted score would otherwise leave the
             // canvas showing nothing with no row highlighted
             if let slug = selectedSlug, !m.scores.contains(where: { $0.slug == slug }) {
@@ -1066,7 +1090,17 @@ final class AppState: ObservableObject {
             await renderIfNeeded()
         } catch {
             engineOK = false
-            if useLocalEngine { lastError = error.localizedDescription }
+            // Once per failure, not once per poll. `refresh` runs every two
+            // seconds, so reporting each one would put the bar back a second
+            // after it was dismissed -- and staying silent is how a Python
+            // import error at launch became "the app does nothing".
+            if useLocalEngine {
+                let said = OperationReport.failure("reach the score engine", error: error)
+                if reportedEngineFailure != said {
+                    reportedEngineFailure = said
+                    notice = said
+                }
+            }
         }
     }
 
@@ -1114,6 +1148,8 @@ final class AppState: ObservableObject {
         // that draws but catches nothing looks like.
         var rendered = false
         defer { if !rendered && renderedKey == key { renderedKey = nil } }
+        let renderSpan = PerfMetrics.shared.begin(PerfMetrics.Name.render)
+        defer { renderSpan?.end() }
         do {
             let data: Data
             var model: ScoreGeometry?
@@ -1244,15 +1280,12 @@ final class AppState: ObservableObject {
             try playback.load(midi: performance.midi, timeline: performance.timeline,
                               key: key)
             playback.report(unavailable: nil)
-        } catch let e as EngineError {
-            lastError = e.error
-            playback.report(unavailable: e.error)
         } catch {
-            lastError = error.localizedDescription
-            // Said in the transport as well as in the notice. A failure to
-            // build the audio graph used to leave a play button that did
-            // nothing and a voice list with nothing in it.
-            playback.report(unavailable: error.localizedDescription)
+            // Said in the TRANSPORT, which is where someone who just pressed
+            // play is looking, and not also in a notice: one failure, one
+            // report. A failure to build the audio graph used to leave a play
+            // button that did nothing and a voice list with nothing in it.
+            playback.report(unavailable: OperationReport.reason(error))
         }
     }
 
@@ -1308,9 +1341,8 @@ final class AppState: ObservableObject {
                 convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
             } catch {
                 omrBusy = false
-                lastError = error.localizedDescription
                 notice = "That scan could not be opened for transcription: "
-                       + error.localizedDescription
+                       + OperationReport.reason(error)
             }
         }
     }
@@ -1329,10 +1361,8 @@ final class AppState: ObservableObject {
             return slug
         } catch {
             // Said out loud, like the import above it. BookScreen shows a note
-            // when it works and showed NOTHING when it did not -- lastError,
-            // which the redesigned library does not display.
-            let reason = (error as? EngineError)?.error ?? error.localizedDescription
-            lastError = reason
+            // when it works and showed NOTHING when it did not.
+            let reason = OperationReport.reason(error)
             notice = BookImportStage.extractionFailure(name: name, reason: reason)
             return nil
         }
@@ -1364,8 +1394,7 @@ final class AppState: ObservableObject {
                 try? FileManager.default.removeItem(at: tmp)
                 await refresh()
             } catch {
-                let reason = (error as? EngineError)?.error ?? error.localizedDescription
-                lastError = reason
+                let reason = OperationReport.reason(error)
                 notice = BookImportStage.failure(name: name, reason: reason)
             }
         }
@@ -1406,7 +1435,7 @@ final class AppState: ObservableObject {
                 pinnedVersion = nil
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                report("open that PDF", error)
             }
         }
     }
@@ -1655,7 +1684,7 @@ final class AppState: ObservableObject {
                 pinnedVersion = nil
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                report("import that file", error)
             }
         }
     }
@@ -1738,10 +1767,8 @@ final class AppState: ObservableObject {
             if slug == selectedSlug { pinnedVersion = nil }
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("save those details", error)
         }
         return false
     }
@@ -1791,10 +1818,8 @@ final class AppState: ObservableObject {
             }
             await refresh()
             return now
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("change that arrangement's short name", error)
         }
         return nil
     }
@@ -1810,10 +1835,8 @@ final class AppState: ObservableObject {
             if slug == selectedSlug { pinnedVersion = nil }
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("rename that part", error)
         }
         return false
     }
@@ -1854,8 +1877,12 @@ final class AppState: ObservableObject {
                 }
                 written += 1
             } catch {
-                // One piece failing is not a reason to abandon the other 39.
-                lastError = error.localizedDescription
+                // INTERNAL, deliberately silent. One piece failing is not a
+                // reason to abandon the other 39, and this migration is not
+                // something the reader asked for -- a bar apiece, forty times,
+                // over work nobody requested, is worse than saying nothing.
+                // What it did NOT write stays visibly blank on the piece.
+                print("SCORANGER-MIGRATE piece \(action.slug): \(error)")
             }
         }
         UserDefaults.standard.set(true, forKey: key)
@@ -1875,10 +1902,8 @@ final class AppState: ObservableObject {
             _ = try await local.call(op: "set-piece-metadata", args: args)
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("save that piece's details", error)
         }
         return false
     }
@@ -1893,10 +1918,8 @@ final class AppState: ObservableObject {
                                      args: ["piece": piece, "name": trimmed])
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("rename that piece", error)
         }
         return false
     }
@@ -1919,7 +1942,7 @@ final class AppState: ObservableObject {
     func exportFile(slug: String, version: String?,
                     format: ScoreExport.Format) async -> URL? {
         guard let score = manifest?.scores.first(where: { $0.slug == slug }) else {
-            lastError = "No arrangement '\(slug)' to export"
+            notice = "Couldn't export: there is no arrangement '\(slug)'."
             return nil
         }
         let name = ScoreExport.filename(title: score.title ?? score.name,
@@ -1948,10 +1971,8 @@ final class AppState: ObservableObject {
                 try FileManager.default.copyItem(at: URL(fileURLWithPath: produced), to: dest)
             }
             return dest
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("export that arrangement", error)
         }
         return nil
     }
@@ -1963,10 +1984,8 @@ final class AppState: ObservableObject {
             let r = try await local.call(op: "duplicate", args: args)
             await refresh()
             return r["score"] as? String
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("duplicate that arrangement", error)
         }
         return nil
     }
@@ -1983,10 +2002,8 @@ final class AppState: ObservableObject {
                     _ = try await local.call(op: "unassign-piece", args: ["score": scoreSlug])
                 }
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("file that arrangement", error)
             }
         }
     }
@@ -2000,10 +2017,8 @@ final class AppState: ObservableObject {
             let r = try await local.call(op: "create-arrangement", args: args)
             await refresh()
             return r["score"] as? String
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("create the arrangement", error)
         }
         return nil
     }
@@ -2054,10 +2069,8 @@ final class AppState: ObservableObject {
             let r = try await local.call(op: "create-setlist", args: ["name": name])
             await refresh()
             return r["slug"] as? String
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("create that set list", error)
         }
         return nil
     }
@@ -2092,10 +2105,8 @@ final class AppState: ObservableObject {
             _ = try await local.call(op: op, args: args)
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("change that set list", error)
         }
         return false
     }
@@ -2126,10 +2137,8 @@ final class AppState: ObservableObject {
                 _ = try await local.call(op: "reorder-piece",
                                          args: ["piece": piece, "order": order])
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("move that arrangement", error)
             }
         }
     }
@@ -2145,10 +2154,8 @@ final class AppState: ObservableObject {
                                     args: ["setlist": setlist, "order": order])
             await refresh()
             return true
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("reorder that set list", error)
         }
         return false
     }
@@ -2159,10 +2166,8 @@ final class AppState: ObservableObject {
                 _ = try await local.call(op: "reorder-piece",
                                          args: ["piece": piece, "order": order])
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("reorder that piece", error)
             }
         }
     }
@@ -2232,10 +2237,8 @@ final class AppState: ObservableObject {
             await refresh()
             return (r["piece"] as? [String: Any])?["slug"] as? String
                 ?? r["slug"] as? String
-        } catch let e as EngineError {
-            lastError = e.error
         } catch {
-            lastError = error.localizedDescription
+            report("create that piece", error)
         }
         return nil
     }
@@ -2246,10 +2249,8 @@ final class AppState: ObservableObject {
                 _ = try await local.call(op: "assign-piece",
                                          args: ["score": scoreSlug, "piece": name])
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("file that arrangement under a new piece", error)
             }
         }
     }
@@ -2268,10 +2269,8 @@ final class AppState: ObservableObject {
                                         args: ["piece": slug,
                                                "with_arrangements": withArrangements])
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("delete that piece", error)
             }
         }
     }
@@ -2325,10 +2324,8 @@ final class AppState: ObservableObject {
                     pinnedVersion = nil
                 }
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("delete that arrangement", error)
             }
         }
     }
@@ -2344,10 +2341,8 @@ final class AppState: ObservableObject {
                 }
                 pinnedVersion = nil
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("transpose the score", error)
             }
         }
     }
@@ -2363,10 +2358,8 @@ final class AppState: ObservableObject {
                                                 "prefer": preferFlats ? "flats" : "sharps"])
                 pinnedVersion = nil
                 await refresh()
-            } catch let e as EngineError {
-                lastError = e.error
             } catch {
-                lastError = error.localizedDescription
+                report("respell the score", error)
             }
         }
     }

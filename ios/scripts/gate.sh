@@ -7,6 +7,10 @@
 # minutes, and nine of its ten most expensive tests. A screenshot cannot fail a
 # build, so paying for it on every run buys nothing.
 #
+# PerfSweep is skipped for the same reason: it MEASURES. There is no agreed
+# latency budget for it to assert against, and inventing one to make it a gate
+# would be inventing a requirement.
+#
 # They are NOT deleted and NOT unrunnable. To take a set of sweeps:
 #   xcodebuild test -project Scoranger.xcodeproj -scheme Scoranger \
 #     -destination "$DEST" -only-testing:ScorangerUITests/VisualSweep
@@ -25,4 +29,5 @@ exec xcodebuild test \
   -skip-testing:ScorangerUITests/RowShot \
   -skip-testing:ScorangerUITests/InkShot \
   -skip-testing:ScorangerUITests/InkZoomShot \
+  -skip-testing:ScorangerUITests/PerfSweep \
   "${@:2}"

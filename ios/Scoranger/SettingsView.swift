@@ -92,6 +92,7 @@ struct SettingsView: View {
                 PanelNote(text: "Prints every touch on the score — pencil or finger, how many "
                           + "are down, how long they were held, and whether a selection "
                           + "started. For reporting a gesture that is not working.")
+                PerfPanel()
             }
             .padding(Theme.Metric.panelPadding)
 
@@ -285,5 +286,77 @@ struct SettingsView: View {
             selfTestResult = lines.joined(separator: "\n")
             selfTestRunning = false
         }
+    }
+}
+
+
+/// Where the app's time actually goes.
+///
+/// Off by default and free when off (`PerfMetrics`). Switched on, it records
+/// the durations that decide whether the app feels quick: an engine round trip,
+/// a render pass, a thumbnail, a manifest refresh, and the two title-bar
+/// dropdowns from tap to the frame that answers.
+///
+/// It does NOT observe the recorder. The readings are pulled when this view is
+/// on screen, because publishing on every sample would invalidate views at the
+/// rate the samples arrive -- which is the problem, not the instrument.
+struct PerfPanel: View {
+    @State private var isOn = PerfMetrics.shared.isOn
+    @State private var ledger = PerfLedger()
+    @State private var copied = false
+
+    /// Slow enough to cost nothing, quick enough that a reader who just tapped
+    /// something sees it appear.
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+            PanelToggle(title: "Measure what the app spends time on", isOn: $isOn)
+                .onChange(of: isOn) { _, on in
+                    PerfMetrics.shared.setOn(on)
+                    ledger = PerfMetrics.shared.snapshot()
+                }
+            PanelNote(text: "Times the engine, the engraver, the page thumbnails and the "
+                      + "title-bar dropdowns. Switching it on clears what was there, so a "
+                      + "reading is of what you do next. Off costs nothing.")
+
+            if isOn {
+                // Monospaced and scrolling sideways, like the touch readout
+                // above it: the columns ARE the reading, and a proportional
+                // face turns the table into a paragraph.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(PerfReport.text(ledger, buildStamp: BuildStamp.short))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.Ink.ink2)
+                        .fixedSize(horizontal: true, vertical: true)
+                }
+                .padding(Theme.Metric.s8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.Surface.well)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(Theme.Line.line2, lineWidth: 1)
+                }
+                .accessibilityIdentifier("perf-readings")
+                HStack(spacing: Theme.Metric.s12) {
+                    PanelButton(title: copied ? "Copied" : "Copy") {
+                        UIPasteboard.general.string =
+                            PerfReport.text(ledger, buildStamp: BuildStamp.short)
+                        copied = true
+                    }
+                    PanelButton(title: "Clear") {
+                        PerfMetrics.shared.clear()
+                        ledger = PerfMetrics.shared.snapshot()
+                        copied = false
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .onReceive(tick) { _ in
+            guard isOn else { return }
+            ledger = PerfMetrics.shared.snapshot()
+        }
+        .onAppear { ledger = PerfMetrics.shared.snapshot() }
     }
 }
