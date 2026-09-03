@@ -5,6 +5,14 @@ import XCTest
 /// and the PDF / MusicXML tags in the library and on the score.
 final class ReorgShot: XCTestCase {
 
+    /// The page on the canvas -- the element that says an engraving has landed
+    /// rather than that a canvas exists.
+    private func engravedPage(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+    }
+
     private func snap(_ name: String) {
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = name
@@ -30,7 +38,7 @@ final class ReorgShot: XCTestCase {
                 .matching(NSPredicate(format: "identifier BEGINSWITH %@",
                                       "arrangement-choice-")).firstMatch
             if choice.waitForExistence(timeout: 30) {
-                sleep(1)
+                settle(choice)
                 snap("piece-screen-arrangement-tags")
                 choice.tap()
             }
@@ -43,10 +51,13 @@ final class ReorgShot: XCTestCase {
         app.launchArguments = ["-seedTestLibrary"]
         app.launch()
         _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
-        sleep(3)
+        // The library fills in as the seed imports; photograph it once the rows
+        // have stopped arriving rather than three seconds in.
+        settle(app.descendants(matching: .any)["library-search"], still: 0.8)
         snap("library-format-tags-and-build-stamp")
         guard openFirstScore(app) else { return XCTFail("the score never engraved") }
-        sleep(4)
+        _ = engravedPage(app).waitForExistence(timeout: 180)
+        settle(engravedPage(app), still: 0.6)
         snap("score-artifact-marker")
     }
 
@@ -58,7 +69,8 @@ final class ReorgShot: XCTestCase {
         guard openFirstScore(app, named: "Sous le ciel") else {
             return XCTFail("the score never engraved")
         }
-        sleep(4)
+        _ = engravedPage(app).waitForExistence(timeout: 180)
+        settle(engravedPage(app), still: 0.6)
         snap("score-top-bar-with-transport-toggle")
 
         // The transport has to be showing for the mixer button to exist. It
@@ -66,14 +78,16 @@ final class ReorgShot: XCTestCase {
         if app.otherElements["transport"].exists == false,
            app.buttons["score-transport-toggle"].exists {
             app.buttons["score-transport-toggle"].tap()
-            sleep(1)
+            _ = app.otherElements["transport"].waitForExistence(timeout: 20)
         }
         guard app.buttons["transport-mixer"].waitForExistence(timeout: 120) else {
             snap("no-mixer-button")
             return XCTFail("no mixer button: playback is unavailable for this score")
         }
         app.buttons["transport-mixer"].tap()
-        sleep(2)
+        let panel = app.otherElements["mixer"].firstMatch
+        _ = panel.waitForExistence(timeout: 30)
+        settle(panel)
         snap("mixer-half-height-with-tempo")
         let mixer = app.otherElements["mixer"].firstMatch
         if mixer.exists { print("MIXER frame: \(mixer.frame)") }
@@ -81,8 +95,11 @@ final class ReorgShot: XCTestCase {
         if tempo.exists {
             print("TEMPO frame: \(tempo.frame), value: \(tempo.value ?? "-")")
             // Drag it well to the left and photograph the transport agreeing.
+            let was = tempo.value as? String ?? ""
             tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
-            sleep(1)
+            waitUntil("the tempo to move", timeout: 15) {
+                (tempo.value as? String ?? "") != was
+            }
             snap("mixer-tempo-moved")
             print("TRANSPORT tempo now: "
                   + "\(app.descendants(matching: .any)["transport-tempo"].firstMatch.label)")
@@ -99,13 +116,15 @@ final class ReorgShot: XCTestCase {
         app.launch()
         _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
         guard openFirstScore(app) else { return XCTFail("the score never engraved") }
-        sleep(3)
+        _ = engravedPage(app).waitForExistence(timeout: 180)
         app.buttons["score-more"].tap()
-        sleep(1)
+        let root = app.descendants(matching: .any)["more-chords"].firstMatch
+        _ = root.waitForExistence(timeout: 20)
+        settle(root)
         snap("options-root")
-        if app.descendants(matching: .any)["more-chords"].firstMatch.exists {
-            app.descendants(matching: .any)["more-chords"].firstMatch.tap()
-            sleep(1)
+        if root.exists {
+            root.tap()
+            settle(app.windows.firstMatch, still: 0.5)
             snap("options-chord-symbols")
         }
     }
@@ -117,11 +136,20 @@ final class ReorgShot: XCTestCase {
         app.launch()
         _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
         guard openFirstScore(app) else { return XCTFail("the score never engraved") }
-        sleep(3)
+        _ = engravedPage(app).waitForExistence(timeout: 180)
+        let rows = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-")).firstMatch
         if app.buttons["score-versions"].exists {
-            app.buttons["score-versions"].tap(); sleep(1); snap("dropdown-versions-only")
+            app.buttons["score-versions"].tap()
+            _ = rows.waitForExistence(timeout: 20)
+            snap("dropdown-versions-only")
             app.buttons["score-versions"].tap()
         }
-        app.buttons["score-title"].tap(); sleep(1); snap("dropdown-arrangements")
+        app.buttons["score-title"].tap()
+        let arrangements = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-arrangement-")).firstMatch
+        _ = arrangements.waitForExistence(timeout: 20)
+        settle(app.windows.firstMatch, still: 0.5)
+        snap("dropdown-arrangements")
     }
 }

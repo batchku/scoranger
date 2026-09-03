@@ -44,3 +44,8 @@ design/png/
 
 # QA sweep screenshots: copyrighted scores, and large. Kept local only.
 design/qa/
+
+# gate run artifacts (per-worker logs, result bundles, shard lists)
+ios/build/gate/
+ios/DerivedData-Gate/
+ios/DerivedData-Baseline/

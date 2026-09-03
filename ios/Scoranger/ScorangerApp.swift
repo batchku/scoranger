@@ -4,6 +4,16 @@ import SwiftUI
 struct ScorangerApp: App {
     @StateObject private var state = AppState()
 
+    /// The one moment a test's reset can be total.
+    ///
+    /// `@AppStorage` reads its value as the property wrapper is constructed,
+    /// and `AppState` is constructed with this struct, so anything later --
+    /// the old reset ran from `RootView.task` -- clears keys whose values have
+    /// already been handed out. Here, nothing has read a default yet.
+    init() {
+        TestReset.wipe()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

@@ -125,7 +125,6 @@ struct RootView: View {
             await state.tidyPieces()
             Theme.verifyFontsRegistered()
             state.migrateScoreLayout()
-            state.resetViewPreferencesForTesting()
             state.startPolling()
             #if DEBUG
             // Measurement fixture (L21): reach the spread with no tapping, so
