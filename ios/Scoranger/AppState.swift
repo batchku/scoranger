@@ -625,6 +625,23 @@ final class AppState: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?
 
+    /// Which engraving `pdfDocument` currently holds, as a string the canvas
+    /// can key its rasters by.
+    ///
+    /// NOT the `PDFPage`'s object identity, which is what a raster cache would
+    /// otherwise reach for: a page freed when the version changes can be
+    /// replaced at the same address, and the canvas would then draw the
+    /// previous score's music. NOT `renderedKey` either -- a forced re-render
+    /// keeps that string and changes the pages under it -- so a counter is
+    /// stamped in and this changes on every document swap.
+    ///
+    /// Deliberately not `@Published`: it is set immediately before
+    /// `pdfDocument`, whose publish is what rebuilds the canvas, so the canvas
+    /// always reads the value belonging to the document it was handed. A second
+    /// publish here would only invalidate the views this exists to spare.
+    private(set) var engravingKey: String = ""
+    private var engravingCount = 0
+
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
     /// Pencil markup state. Lives here because the pill drives it and the score
@@ -1166,6 +1183,10 @@ final class AppState: ObservableObject {
             }
             if renderedKey == key {  // selection may have moved while fetching
                 rendered = true
+                // Before the document, so the canvas the publish rebuilds
+                // reads the key belonging to the pages it is handed.
+                engravingCount += 1
+                engravingKey = "\(key)#\(engravingCount)"
                 pdfDocument = PDFDocument(data: data)
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no

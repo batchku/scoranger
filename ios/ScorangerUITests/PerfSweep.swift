@@ -61,12 +61,35 @@ final class PerfSweep: XCTestCase {
         add(note)
     }
 
+    /// Put the canvas in a KNOWN layout before measuring it.
+    ///
+    /// The layout is `@AppStorage`, and nothing in this sweep resets defaults,
+    /// so it survives the app being killed between tests -- and the test that
+    /// switches to continuous runs last, alphabetically. Every launch after it
+    /// therefore started in continuous, and `testVersionDropdownLatency`
+    /// measured the PAGED canvas only when it happened to run after a fresh
+    /// install. It read 43 ms once and 638 ms the next day off the same code.
+    /// A measurement that depends on the order of the runs before it is not a
+    /// measurement.
+    @discardableResult
+    private func choose(layout: String) -> Bool {
+        let control = app.buttons["layout-\(layout)"].firstMatch
+        guard control.waitForExistence(timeout: 10) else {
+            XCTFail("no \(layout) layout control on the bar")
+            return false
+        }
+        control.tap()
+        settle(6.0)   // the re-engrave, kept OUT of whatever is measured next
+        return true
+    }
+
     /// The owner's named example: "clicking on the drop-down for versions and a
     /// score can take a second". Ten opens, so the reading is a distribution
     /// and not one anecdote.
     func testVersionDropdownLatency() {
         launch()
         openFirstScore()
+        guard choose(layout: "page") else { return }
 
         for i in 0..<10 {
             let trigger = app.buttons["score-versions"].firstMatch
@@ -88,6 +111,7 @@ final class PerfSweep: XCTestCase {
         launch()
         openFirstScore()
 
+        guard choose(layout: "page") else { return }
         let trigger = app.buttons["score-versions"].firstMatch
         guard trigger.waitForExistence(timeout: 10) else {
             XCTFail("no versions control on the bar")
@@ -122,13 +146,7 @@ final class PerfSweep: XCTestCase {
         launch()
         openFirstScore()
 
-        let toContinuous = app.buttons["layout-continuous"].firstMatch
-        guard toContinuous.waitForExistence(timeout: 10) else {
-            XCTFail("no continuous layout control on the bar")
-            return
-        }
-        toContinuous.tap()
-        settle(6.0)   // the re-engrave, kept OUT of the taps below
+        guard choose(layout: "continuous") else { return }
 
         for _ in 0..<10 {
             let trigger = app.buttons["score-versions"].firstMatch

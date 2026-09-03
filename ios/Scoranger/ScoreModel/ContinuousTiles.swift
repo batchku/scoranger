@@ -174,9 +174,14 @@ enum ContinuousTiles {
         }
     }
 
+    /// Pixels per surface point. Named rather than inlined because it is half
+    /// of what identifies a tile's picture, and the raster cache's key has to
+    /// say the same thing the drawing does.
+    static func detail(atDepth: Bool) -> CGFloat { atDepth ? 2 : 0.35 }
+
     private static func draw(page: PDFPage, tile: CGRect, scale: CGFloat,
                              atDepth: Bool) -> UIImage {
-        let detail: CGFloat = atDepth ? 2 : 0.35
+        let detail = detail(atDepth: atDepth)
         let pixel = CGSize(width: max(tile.width * detail, 1),
                            height: max(tile.height * detail, 1))
         let box = page.bounds(for: .mediaBox)
