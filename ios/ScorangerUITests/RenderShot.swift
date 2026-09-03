@@ -161,6 +161,16 @@ final class RenderShot: XCTestCase {
         if app.otherElements["thumbnail-strip"].exists {
             snap("04-thumbnail-strip")
         }
+
+        // Bug 4's second half: the shading flipped lighter/darker between one
+        // page and two, because the raster cap landed on a different size of
+        // the same enormous single "page". Two real pages, photographed.
+        if tap("layout-spread", wait: 4) {
+            waitForPages { $0 > 1 }
+            settle(3)
+            snap("05-two-page-spread")
+            print("RENDERSHOT: spread counter = \"\(counter)\"")
+        }
     }
 
     /// Bug 6: the line stands still and the score scrolls past it, a hand on

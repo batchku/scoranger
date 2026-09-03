@@ -456,22 +456,6 @@ struct ScorePagesView: View {
         state.readerTurnedPage()
     }
 
-    /// Where the sounding bar sits on the strip, in surface points.
-    ///
-    /// Nil where there is no geometry, which is EVERY remote-engine render:
-    /// that path fetches a finished PDF and builds no index, so there is
-    /// nothing to look a bar up in. Playback still works there; it simply does
-    /// not follow. A guessed position would be worse than none -- the reader
-    /// would trust it and look away from the music.
-    private func soundingBarFrame(scale: CGFloat) -> CGRect? {
-        guard state.layout.isContinuous, let bar = playback.soundingBar,
-              let page = state.geometry?.page(0) else { return nil }
-        guard let frame = BarPosition.frame(ofBar: bar,
-                                            among: BarPosition.bars(onPage: page))
-        else { return nil }
-        return PlaybackFollow.surfaceFrame(pageFrame: frame, scale: scale)
-    }
-
     /// Keep the sounding bar readable, without taking the score away from a
     /// reader who has just panned somewhere to look at it.
     ///
@@ -738,21 +722,6 @@ struct ScorePagesView: View {
 /// "here is an instant", and what a player glancing up needs is "here is the
 /// bar you are in". Behind the music and unfilled at the edges, so it never
 /// competes with a notehead for the eye.
-private struct PlayHead: View {
-    let frame: CGRect
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(Theme.Accent.clay.opacity(0.16))
-            .overlay(alignment: .leading) {
-                Rectangle().fill(Theme.Accent.clayStrong.opacity(0.75)).frame(width: 2)
-            }
-            .frame(width: max(frame.width, 4), height: frame.height)
-            .offset(x: frame.minX, y: frame.minY)
-            .accessibilityHidden(true)
-    }
-}
-
 /// Boxes over the selected elements, scaled from page coordinates to the size
 /// the page is drawn at.
 /// The playhead: where the sound has got to, on the engraved page.
