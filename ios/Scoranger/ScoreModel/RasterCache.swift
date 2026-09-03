@@ -222,12 +222,16 @@ enum CanvasRasters {
     /// identical observers would clear the cache once per call.
     @MainActor private static var observing = false
 
-    @MainActor static func observeMemoryWarnings() {
+    @MainActor static func observeMemoryWarnings(
+        andAlso alsoClear: @escaping @Sendable () -> Void = {}) {
         guard !observing else { return }
         observing = true
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil, queue: nil) { _ in shared.clear() }
+            object: nil, queue: nil) { _ in
+                shared.clear()
+                alsoClear()
+            }
     }
 }
 #endif

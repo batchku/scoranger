@@ -632,8 +632,10 @@ final class AppState: ObservableObject {
     /// otherwise reach for: a page freed when the version changes can be
     /// replaced at the same address, and the canvas would then draw the
     /// previous score's music. NOT `renderedKey` either -- a forced re-render
-    /// keeps that string and changes the pages under it -- so a counter is
-    /// stamped in and this changes on every document swap.
+    /// keeps that string and changes the pages under it -- so a stamp is
+    /// added, allocated where the ENGRAVING is made. It therefore changes
+    /// exactly when the pages change, and stays put when a held engraving is
+    /// shown again, which is what keeps that engraving's rasters valid.
     ///
     /// Deliberately not `@Published`: it is set immediately before
     /// `pdfDocument`, whose publish is what rebuilds the canvas, so the canvas
@@ -894,8 +896,10 @@ final class AppState: ObservableObject {
         PerfMetrics.shared.startConsoleDumpIfRequested()
         // The rasters the canvas holds are the first thing worth giving back
         // under pressure: every one of them can be drawn again, and being
-        // killed cannot be undone.
-        CanvasRasters.observeMemoryWarnings()
+        // killed cannot be undone. The engravings go with them -- 24MB is
+        // worth handing back even at 3 s to make one again, when the
+        // alternative is the app disappearing under the reader.
+        CanvasRasters.observeMemoryWarnings { Self.engravings.clear() }
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
