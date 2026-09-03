@@ -223,6 +223,14 @@ final class ScorangerUITests: XCTestCase {
     /// about switching between versions needs two. Make the second rather than
     /// hope for it.
     private func ensureASecondVersion() {
+        // Read the count BEFORE the menu covers the bar. The version control
+        // lives on the top bar and the options screen the transpose runs from
+        // sits over it, so the count cannot be watched while the op is in
+        // flight -- it is checked on the way back out. This replaced a
+        // `sleep(25)`, the most expensive wait in the suite, which was still
+        // not always long enough.
+        let versionsBefore = versionCount()
+        let engravingBefore = engravingKey()
         app.buttons["score-more"].tap()
         // the … menu is layered: Transpose opens its own layer, and the two
         // semitone rows live in there
@@ -236,19 +244,24 @@ final class ScorangerUITests: XCTestCase {
             return XCTFail("Transpose opened but offers no semitone up")
         }
         up.tap()
-        sleep(25)
         // and come back OUT of the options: transposing pops to the options
         // root, which is a full screen sitting over the canvas -- a test that
         // went straight on to draw was drawing on the options screen
         let back = app.buttons.matching(
             NSPredicate(format: "label BEGINSWITH %@", "Back to")).firstMatch
-        if back.exists { back.tap() }
+        if back.waitForExistence(timeout: 30) { back.tap() }
         if app.buttons["score-more"].exists && app.buttons["score-more"].isSelected {
             app.buttons["score-more"].tap()
         }
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 120),
                       "the canvas never came back after transposing")
-        sleep(8)
+        expect("the transposed version to be recorded", timeout: 180) {
+            versionCount() > versionsBefore
+        }
+        // ...and to reach the canvas, which is a second round trip: the score
+        // is re-engraved after the op lands, and the OLD engraving stays up
+        // until it does.
+        waitForEngraving(replacing: engravingBefore)
     }
 
     /// Close Settings, whichever shape it is: a docked panel from the library
@@ -356,6 +369,62 @@ final class ScorangerUITests: XCTestCase {
             usleep(200_000)
         }
         return !element.exists
+    }
+
+    /// The page the canvas is showing.
+    ///
+    /// Its identifier is "canvas-<slug>/<version>/pN" and its value is the
+    /// stroke count, which makes it the one element a test can read the
+    /// engraving's IDENTITY from rather than merely its presence.
+    private var engravedPage: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+    }
+
+    /// Which engraving is on the canvas, or "" when none is.
+    private func engravingKey() -> String {
+        let page = engravedPage
+        return page.exists ? page.identifier : ""
+    }
+
+    /// Wait for the ENGRAVING, not for the canvas.
+    ///
+    /// `score-canvas` appears before anything is on it, the previous pages
+    /// deliberately stay up until the new ones land (#44), and the app opens
+    /// the most recently touched arrangement by itself at launch -- so the
+    /// first canvas to exist can belong to a different arrangement than the
+    /// one the test just opened, and a stroke drawn on it lands mid-swap.
+    ///
+    /// Fifteen places waited twelve seconds for this and hoped. Twelve seconds
+    /// is both too long on a machine that is not busy and too short on four
+    /// simulators that are.
+    @discardableResult
+    private func waitForEngraving(of slug: String? = nil,
+                                  replacing previous: String? = nil,
+                                  timeout: TimeInterval = 180) -> XCUIElement {
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: timeout),
+                      "the score never finished engraving")
+        expect("an engraving on the canvas"
+               + (slug.map { " for \($0)" } ?? "")
+               + (previous.map { " other than \($0)" } ?? ""), timeout: timeout) {
+            let key = engravingKey()
+            guard !key.isEmpty else { return false }
+            if let slug, !key.hasPrefix("canvas-\(slug)/") { return false }
+            if let previous, key == previous { return false }
+            return true
+        }
+        settle([canvas, engravedPage])
+        return canvas
+    }
+
+    /// "3 versions" in the top bar, as a number. -1 when the bar is covered or
+    /// the score is not open.
+    private func versionCount() -> Int {
+        let control = app.buttons["score-versions"]
+        guard control.exists else { return -1 }
+        return Int(control.label.split(separator: " ").first ?? "") ?? -1
     }
 
     // MARK: - The score view's own chrome (NAVIGATION_SYSTEM.md §4.5)
@@ -615,13 +684,13 @@ final class ScorangerUITests: XCTestCase {
 
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        sleep(1)
+        settle([app.scrollViews["score-canvas"], engravedPage])
         assertWidth(screen - chat, "chat open")
         assertPageFillsCanvas("chat open")
         shot("width-chat-only")
 
         app.buttons["Close chat"].tap()
-        sleep(1)
+        settle([app.scrollViews["score-canvas"], engravedPage])
         assertWidth(screen, "chat closed again")
         assertPageFillsCanvas("chat closed again")
     }
@@ -642,7 +711,9 @@ final class ScorangerUITests: XCTestCase {
                       + "\(app.windows.firstMatch.frame)")
         // and it actually leaves
         close.tap()
-        sleep(4)
+        expect("the score to close", timeout: 30) {
+            !app.buttons["score-title"].exists
+        }
         // by what is GONE, not by what appears: the library's compact layout
         // has no search field, so asserting one made this fail on the very
         // device the bug was about
@@ -755,7 +826,13 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["layout-continuous"].tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 180),
                       "the continuous engraving never arrived")
-        sleep(10)
+        // Continuous has no pages to count, so the page counter GOING is the
+        // new engraving landing: the previous layout's pages stay up until it
+        // does (#44), counter and all.
+        expect("the continuous engraving to replace the paged one", timeout: 180) {
+            !app.descendants(matching: .any)["counter-pages"].exists
+        }
+        settle(canvas)
         // proof for the release notes: the APP's window, not the device
         // display -- simctl's capture composites a stale band when the
         // simulator has been rotated by another harness
@@ -839,7 +916,9 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 10),
                       "the versions did not drop down in performance mode")
         first.tap()
-        sleep(3)
+        expect("the version dropdown to close on the switch", timeout: 30) {
+            !first.exists
+        }
         XCTAssertTrue(app.otherElements["performance-bar"].exists,
                       "switching version dropped out of performance mode")
         shot("version-jumped-performance")
@@ -864,26 +943,31 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(page.waitForExistence(timeout: 30), "no page found")
 
         app.buttons["score-edit"].tap()
-        sleep(1)
-        // two separate strokes, well apart, neither crossing the other
-        for (from, to) in [(CGVector(dx: 0.25, dy: 0.30), CGVector(dx: 0.45, dy: 0.34)),
-                           (CGVector(dx: 0.55, dy: 0.55), CGVector(dx: 0.75, dy: 0.60))] {
-            score.coordinate(withNormalizedOffset: from)
-                .press(forDuration: 0.1,
-                       thenDragTo: score.coordinate(withNormalizedOffset: to))
-            sleep(1)
-        }
+        XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 20),
+                      "the ink bar did not open")
         // the canvas publishes its own stroke count, so this is the drawing
-        // itself and not a screenshot read
+        // itself and not a screenshot read -- and it is what says a stroke has
+        // landed, which is what the two `sleep(1)`s here were guessing at
         func strokes() -> Int {
             Int((page.value as? String ?? "").split(separator: " ").first ?? "") ?? -1
+        }
+        // two separate strokes, well apart, neither crossing the other
+        for (index, ends) in [(CGVector(dx: 0.25, dy: 0.30), CGVector(dx: 0.45, dy: 0.34)),
+                              (CGVector(dx: 0.55, dy: 0.55), CGVector(dx: 0.75, dy: 0.60))]
+            .enumerated() {
+            score.coordinate(withNormalizedOffset: ends.0)
+                .press(forDuration: 0.1,
+                       thenDragTo: score.coordinate(withNormalizedOffset: ends.1))
+            waitUntil("stroke \(index + 1) to land", timeout: 20) {
+                strokes() >= index + 1
+            }
         }
         XCTAssertEqual(strokes(), 2, "the two strokes did not land; value was "
                        + "\(page.value as? String ?? "nil")")
         shot("undo-two-strokes")
 
         page.twoFingerTap()
-        sleep(2)
+        waitUntil("the undo to remove a stroke", timeout: 20) { strokes() < 2 }
         XCTAssertEqual(strokes(), 1,
                        "one tap should undo one stroke, not two")
         shot("undo-one-left")
@@ -905,7 +989,7 @@ final class ScorangerUITests: XCTestCase {
 
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        sleep(1)
+        settle([score, page])
         // the canvas has already given the chat its width; only the keyboard
         // is still to come
         let canvasBefore = score.frame
@@ -916,7 +1000,9 @@ final class ScorangerUITests: XCTestCase {
         input.tap()
         XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 15),
                       "no keyboard came up, so this proves nothing")
-        sleep(2)
+        // the keyboard SLIDES in, and everything below is a geometry: wait for
+        // the three frames to stop moving rather than for two seconds
+        settle([app.keyboards.element, score, page])
         shot("keyboard-up")
 
         XCTAssertEqual(score.frame.height, canvasBefore.height, accuracy: 2,
@@ -980,13 +1066,13 @@ final class ScorangerUITests: XCTestCase {
             // pan to the left extreme: the left of the page has to come to rest
             // at the canvas's own left edge, not at some inner limit
             for _ in 0..<4 { pan(from: 0.1, to: 0.9) }
-            sleep(2)
+            settle(page, still: 0.5)
             XCTAssertEqual(page.frame.minX, canvas.minX, accuracy: 30,
                            "at \(z)x the left of the page stops at "
                            + "\(page.frame.minX), canvas starts at \(canvas.minX) (\(what))")
             shot("zoom-left-edge-\(what)")
             for _ in 0..<8 { pan(from: 0.9, to: 0.1) }
-            sleep(2)
+            settle(page, still: 0.5)
             XCTAssertEqual(page.frame.maxX, canvas.maxX, accuracy: 30,
                            "at \(z)x the right of the page stops at "
                            + "\(page.frame.maxX), canvas ends at \(canvas.maxX) (\(what))")
@@ -995,13 +1081,13 @@ final class ScorangerUITests: XCTestCase {
             // from which a couple of pinches climb back)
             score.pinch(withScale: 0.2, velocity: -2.0)
             for _ in 0..<8 where scale() < 1 { score.pinch(withScale: 1.4, velocity: 1.0) }
-            sleep(1)
+            settle(page, still: 0.5)
         }
 
         checkRegion("no-panels")
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        sleep(1)
+        settle([score, page])
         checkRegion("chat-open")
     }
 
@@ -1009,15 +1095,13 @@ final class ScorangerUITests: XCTestCase {
     /// the whole gap rather than being clipped to an inner box.
     func testZoomPansAcrossTheWholeCanvas() {
         openArrangement(firstArrangement)
-        let score = app.scrollViews["score-canvas"]
-        XCTAssertTrue(score.waitForExistence(timeout: 180))
-        sleep(2)
+        let score = waitForEngraving(of: firstArrangement)
         let full = app.windows.firstMatch.frame.width
         XCTAssertEqual(score.frame.width, full, accuracy: 4,
                        "with no panels the canvas should be the whole screen")
         for scale in [2.0, 1.5] {
             score.pinch(withScale: scale, velocity: 1.5)
-            sleep(1)
+            settle(engravedPage, still: 0.4)
             score.swipeLeft(velocity: .fast)
             score.swipeRight(velocity: .fast)
             XCTAssertEqual(score.frame.width, full, accuracy: 4,
@@ -1030,11 +1114,12 @@ final class ScorangerUITests: XCTestCase {
         // compound unpredictably, so asserting an exact page frame here is
         // flakier than it is useful. The canvas frame is what stays asserted.
         app.buttons["score-ask"].tap()
-        sleep(1)
+        XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 20))
+        settle([score, engravedPage])
         score.pinch(withScale: 2.0, velocity: 1.5)
-        sleep(1)
+        settle(engravedPage, still: 0.4)
         for _ in 0..<3 { score.swipeRight(velocity: .fast) }
-        sleep(1)
+        settle([score, engravedPage], still: 0.4)
         // 380, the chat panel: the library overlay it used to be is gone
         XCTAssertEqual(score.frame.width, full - 380, accuracy: 4,
                        "the canvas shrank when the chat panel opened while zoomed")
@@ -1214,9 +1299,7 @@ final class ScorangerUITests: XCTestCase {
     func testTheEngravedTitleFollowsTheArrangementTitle() {
 
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(2)
+        waitForEngraving(of: firstArrangement)
         shot("engraved-title-before")
 
         openArrangementScreen(firstArrangement)
@@ -1230,8 +1313,13 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: app.buttons["save-metadata"], timeout: 90))
         goBack()
 
-        // the canvas re-engraves the new version by itself
-        sleep(6)
+        // the canvas re-engraves the new version by itself, and the screen
+        // this photograph is of is the one carrying the new title
+        expect("the new title to reach the screen", timeout: 90) {
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", "String Quartet"))
+                .count > 0
+        }
         shot("engraved-title-after")
         goBack()            // arrangement screen -> the piece it belongs to
         let row = app.buttons["arrangement-choice-\(firstArrangement)"]
@@ -1448,9 +1536,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["library-search"]
                         .waitForExistence(timeout: 90))
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never engraved")
-        sleep(10)
+        waitForEngraving(of: firstArrangement)
     }
 
     // NOT covered end to end: selecting a chord symbol with the Pencil and
@@ -1499,9 +1585,7 @@ final class ScorangerUITests: XCTestCase {
     /// It reads the visible rect now.
     func testTheBarCounterFollowsTheViewportNotThePage() {
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(8)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         let counter = app.staticTexts["counter-bar"]
         XCTAssertTrue(counter.waitForExistence(timeout: 30),
@@ -1518,16 +1602,16 @@ final class ScorangerUITests: XCTestCase {
         // for the right reason either.
         for _ in 0..<3 {
             canvas.pinch(withScale: 4.0, velocity: 3.0)
-            sleep(1)
+            settle(engravedPage, still: 0.4)
         }
-        sleep(3)
         for _ in 0..<3 {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.55))
                 .press(forDuration: 0.05,
                        thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)))
-            sleep(1)
+            settle(engravedPage, still: 0.4)
         }
-        sleep(4)
+        // the counter reads the VISIBLE rect, so it settles with the page
+        settle(engravedPage, still: 0.6)
 
         let after = app.staticTexts["counter-bar"]
         XCTAssertTrue(after.exists, "the counter disappeared once zoomed")
@@ -1672,14 +1756,11 @@ final class ScorangerUITests: XCTestCase {
     func testLassoSelectsElementsAndHandsThemToChat() {
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
-                      "the score never finished engraving")
         // The canvas existing is not the same as *this* score being on it: the
         // app opens the most recently touched arrangement at launch, so the
         // first canvas to appear can belong to the other one and the stroke
         // would land mid-swap. Wait for the engrave this test asked for.
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         // A stroke through a system. Which y holds notes depends on where the
         // page sits, so try a few bands rather than pinning one magic number —
@@ -1809,9 +1890,7 @@ final class ScorangerUITests: XCTestCase {
     /// Launched WITHOUT the Pencil stand-in, so these really are fingers.
     func testAFingerNeverSelectsHoweverItDrags() {
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         // quick drags (a scroll), and slow held ones (what the old finger
         // lasso needed) -- neither may select
@@ -1831,9 +1910,7 @@ final class ScorangerUITests: XCTestCase {
     /// live on the PencilKit canvas, which only takes touches while markup is on.
     func testTwoFingerTapUndoesEvenWithMarkupOff() {
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never engraved")
-        sleep(10)
+        waitForEngraving(of: firstArrangement)
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
 
@@ -1849,8 +1926,7 @@ final class ScorangerUITests: XCTestCase {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
                 .press(forDuration: 0.05,
                        thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
-            if strokes() >= 1 { break }
-            sleep(2)
+            if waitUntil("the stroke to land", timeout: 8, { strokes() >= 1 }) { break }
         }
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
 
@@ -1877,9 +1953,7 @@ final class ScorangerUITests: XCTestCase {
     func testTheChipNamesTheSelectionAndHasNoModes() {
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {
@@ -2004,9 +2078,7 @@ final class ScorangerUITests: XCTestCase {
     /// not carry someone's pencil marks onto a different engraving.
     func testAnnotationsBelongToTheVersionTheyWereMadeOn() {
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never engraved")
-        sleep(10)
+        waitForEngraving(of: firstArrangement)
         ensureASecondVersion()
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 10), "no ink bar")
@@ -2039,11 +2111,11 @@ final class ScorangerUITests: XCTestCase {
             return XCTFail("need more than one version to switch between")
         }
         rows.element(boundBy: rows.count - 1).tap()
-        sleep(12)
+        // the OLD engraving stays up until the new one lands (#44), so this is
+        // the identifier changing rather than a canvas existing
+        waitForEngraving(replacing: firstKey)
 
-        let other = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
-            .firstMatch
+        let other = engravedPage
         XCTAssertTrue(other.waitForExistence(timeout: 60), "the other version never engraved")
         XCTAssertNotEqual(other.identifier, firstKey,
                           "switching versions did not change which canvas is on screen")
@@ -2081,7 +2153,9 @@ final class ScorangerUITests: XCTestCase {
         let to = canvas.coordinate(withNormalizedOffset:
                                     CGVector(dx: 0.82, dy: lines >= 8 ? 0.92 : 0.45))
         from.press(forDuration: 0.15, thenDragTo: to)
-        sleep(1)
+        waitUntil("the grip to publish its new size", timeout: 20) {
+            (grip.value as? String ?? "") != before
+        }
         let after = grip.value as? String ?? ""
         print("GRIP after: \(after)")
         XCTAssertNotEqual(after, before,
@@ -2099,9 +2173,7 @@ final class ScorangerUITests: XCTestCase {
         openArrangement(firstArrangement)
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         var caught = false
         for y in [0.30, 0.20, 0.42] where !caught {
@@ -2144,9 +2216,7 @@ final class ScorangerUITests: XCTestCase {
         openArrangement(firstArrangement)
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
         ensureASecondVersion()
 
         var caught = false
@@ -2238,7 +2308,12 @@ final class ScorangerUITests: XCTestCase {
             guard row.exists, row.isHittable else { continue }
             let identifier = row.identifier
             row.tap()
-            sleep(3)
+            let wanted = identifier.replacingOccurrences(of: "step-", with: "")
+                                   .replacingOccurrences(of: "version-", with: "")
+            waitUntil("the highlight to move to \(identifier)", timeout: 30) {
+                let now = highlighted()
+                return now.count == 1 && (now.first?.contains(wanted) ?? false)
+            }
             lit = highlighted()
             XCTAssertEqual(lit.count, 1,
                            "after opening \(identifier), \(lit.count) rows are highlighted: \(lit)")
@@ -2261,10 +2336,7 @@ final class ScorangerUITests: XCTestCase {
         withPencilStandIn()
         setTwoPageSpread(on: true)
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
         shot("two-page-spread")
 
         guard let left = lassoBars(on: canvas, from: 0.08, to: 0.34) else {
@@ -2272,7 +2344,10 @@ final class ScorangerUITests: XCTestCase {
         }
         // chat opened over the canvas; put it away before drawing again
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
-        sleep(2)
+        expect("the chat to close before the next lasso", timeout: 20) {
+            !app.buttons["Close chat"].exists
+        }
+        settle([canvas, engravedPage])
         guard let right = lassoBars(on: canvas, from: 0.66, to: 0.92) else {
             return XCTFail("nothing was selected anywhere on the right-hand page")
         }
@@ -2508,9 +2583,7 @@ final class ScorangerUITests: XCTestCase {
     /// owns zooming; the canvas is only ever told what scale to draw at.
     func testPinchingInInkModeZoomsTheScoreNotTheInk() {
         openArrangement(firstArrangement)
-        let score = app.scrollViews["score-canvas"]
-        XCTAssertTrue(score.waitForExistence(timeout: 180), "the score never engraved")
-        sleep(5)
+        let score = waitForEngraving(of: firstArrangement)
         func zoom() -> CGFloat {
             CGFloat(Double((score.value as? String)?
                 .replacingOccurrences(of: "zoom ", with: "") ?? "0") ?? 0)
@@ -2521,7 +2594,9 @@ final class ScorangerUITests: XCTestCase {
         for _ in 0..<6 where zoom() < before * 1.4 {
             score.pinch(withScale: 3.0, velocity: 2.0)
         }
-        sleep(2)
+        waitUntil("the score's own zoom to catch up", timeout: 20) {
+            zoom() > before * 1.2
+        }
         XCTAssertGreaterThan(zoom(), before * 1.2,
                              "pinching in ink mode did not zoom the SCORE "
                              + "(\(before) -> \(zoom())) -- the ink layer took it")
@@ -2535,10 +2610,7 @@ final class ScorangerUITests: XCTestCase {
     /// awkward is never stranded.
     func testTheInkToolsDockAndCanBeMovedAndPutBack() {
         openArrangement(firstArrangement)
-        let score = app.scrollViews["score-canvas"]
-        XCTAssertTrue(score.waitForExistence(timeout: 180),
-                      "the score never engraved")
-        sleep(5)
+        let score = waitForEngraving(of: firstArrangement)
         app.buttons["score-edit"].tap()
         XCTAssertTrue(app.buttons["Draw"].waitForExistence(timeout: 20),
                       "the ink bar did not open")
@@ -2556,7 +2628,7 @@ final class ScorangerUITests: XCTestCase {
             .press(forDuration: 0.1,
                    thenDragTo: score.coordinate(
                     withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
-        sleep(1)
+        settle(handle)
         let moved = handle.frame
         XCTAssertLessThan(moved.midY, docked.midY - 100,
                           "the handle did not move the tools: \(docked) -> \(moved)")
@@ -2564,7 +2636,7 @@ final class ScorangerUITests: XCTestCase {
         // ...and a tap puts them back, which is the way home for anyone who
         // cannot drag
         handle.tap()
-        sleep(1)
+        settle(handle)
         XCTAssertEqual(handle.frame.midY, docked.midY, accuracy: 8,
                        "tapping the handle did not re-dock the tools")
 
@@ -2600,8 +2672,9 @@ final class ScorangerUITests: XCTestCase {
                     .press(forDuration: 0.05,
                            thenDragTo: canvas.coordinate(
                             withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
-                if strokes() > before { return }
-                sleep(3)
+                if waitUntil("the stroke to land", timeout: 10, { strokes() > before }) {
+                    return
+                }
             }
         }
 
@@ -2654,7 +2727,6 @@ final class ScorangerUITests: XCTestCase {
         // and re-seed, and the engrave of whatever the app opens by itself —
         // and only then waits for another engine round trip. The assertion is
         // unchanged: a new arrangement is #3 of its piece.
-        sleep(6)
         XCTAssertTrue(element(labelStartingWith: "Arrangement number 3")
                         .waitForExistence(timeout: 180),
                       "the new arrangement did not appear as #3 of the piece")
@@ -2809,10 +2881,7 @@ extension ScorangerUITests {
     func testThePlayheadDrawsAndTheLassoStillSelectsUnderIt() {
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         revealTransport()
         startPlaying()
@@ -2851,10 +2920,7 @@ extension ScorangerUITests {
     func testThePencilStillMarksWhileTheTransportRuns() {
         withPencilStandIn()
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         revealTransport()
         startPlaying()
@@ -2898,10 +2964,7 @@ extension ScorangerUITests {
     /// in the repo to be looked at.
     func testThePlayheadKeepsItsWeightAtAnyZoom() {
         openArrangement(firstArrangement)
-        let canvas = app.scrollViews["score-canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        let canvas = waitForEngraving(of: firstArrangement)
 
         revealTransport()
         startPlaying()
@@ -2910,7 +2973,7 @@ extension ScorangerUITests {
         canvas.pinch(withScale: 3.0, velocity: 1.5)
         // Let the raster settle: the layer divides by the SETTLED zoom, so a
         // shot taken mid-gesture would photograph a weight neither value.
-        sleep(4)
+        settle(engravedPage, still: 0.6)
         shot("playhead-zoom-3x")
         XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
                        "zooming stopped playback")
@@ -2919,9 +2982,7 @@ extension ScorangerUITests {
     /// The mixer: reachable, one strip per staff, and its controls live.
     func testTheMixerOpensWithAStripPerStaff() {
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        waitForEngraving(of: firstArrangement)
         revealTransport()
         startPlaying()
 
@@ -3066,9 +3127,7 @@ extension ScorangerUITests {
     /// it, and nothing moves under them until they ask.
     func testPagingAwayDuringPlaybackOffersTheWayBack() {
         openArrangement(firstArrangement)
-        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
-                      "the score never finished engraving")
-        sleep(12)
+        waitForEngraving(of: firstArrangement)
         revealTransport()
         startPlaying()
 
@@ -3092,7 +3151,7 @@ extension ScorangerUITests {
         // update the moment the tap lands while the canvas is still scrolling,
         // so a shot taken immediately shows the OLD page under a new page
         // number -- a picture that would be read as a bug in the canvas.
-        sleep(3)
+        settle(engravedPage, still: 0.6)
         shot("sync-chip")
 
         // And it stays away. Following does NOT resume on its own -- being

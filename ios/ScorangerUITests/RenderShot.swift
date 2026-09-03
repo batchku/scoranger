@@ -41,8 +41,22 @@ final class RenderShot: XCTestCase {
         add(shot)
     }
 
+    /// A fixed pause. What is LEFT of it after the condition-wait pass: the
+    /// polling interval inside `waitForPages`/`waitFor`, the interval this
+    /// deliberately lets playback advance across, and the pauses before a
+    /// SCREENSHOT of the continuous strip -- which has no page counter, no
+    /// annotation canvas and nothing else to observe, so there is no fact to
+    /// wait for and a shorter pause would photograph the previous layout.
     private func settle(_ seconds: TimeInterval = 1.2) {
         Thread.sleep(forTimeInterval: seconds)
+    }
+
+    /// The page on the canvas: an engraving that has landed, rather than a
+    /// canvas that exists.
+    private var engravedPage: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
     }
 
     @discardableResult
@@ -110,14 +124,13 @@ final class RenderShot: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 240), "the seeded library never appeared")
         row.tap()
-        settle()
         if !app.buttons["score-title"].waitForExistence(timeout: 5) {
             let open = app.buttons.matching(
                 NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-")).firstMatch
             if open.waitForExistence(timeout: 8) { open.tap() }
         }
         _ = app.buttons["score-title"].waitForExistence(timeout: 120)
-        settle(2.5)
+        _ = engravedPage.waitForExistence(timeout: 180)
     }
 
     /// Page -> continuous -> page, photographed at every step.
@@ -126,11 +139,10 @@ final class RenderShot: XCTestCase {
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary"]
         app.launch()
         XCUIDevice.shared.orientation = .portrait
-        settle(1.5)
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
         openFirstScore()
 
         tap("layout-page")
-        settle(2.5)
         let first = waitForPages { $0 > 0 }
         snap("01-paged-first-open")
         print("RENDERSHOT: paged on open = \"\(first)\"")
@@ -144,7 +156,6 @@ final class RenderShot: XCTestCase {
         print("RENDERSHOT: continuous counter = \"\(counter)\" (there should be none)")
 
         tap("layout-page")
-        settle(2.0)
         let after = waitForPages { $0 > 1 }
         snap("03-paged-after-continuous")
         print("RENDERSHOT: paged after continuous = \"\(after)\"")
@@ -183,8 +194,8 @@ final class RenderShot: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["-seedTestLibrary"]
         app.launch()
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
         XCUIDevice.shared.orientation = .portrait
-        settle(1.5)
         openFirstScore()
 
         tap("layout-continuous")
