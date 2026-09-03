@@ -14,15 +14,29 @@ them as an arrangement of "Misty" is what makes a book useful rather than a
 it reads, it takes markup, and OMR can make it editable -- so everything that
 already works for a scan works for it.
 
+Import Book was broken end to end on device and nowhere else. `create_book`
+and `extract_from_book` both `import pypdf`, and pypdf was not among the
+packages ios/scripts/vendor_engine.sh vendors into the app -- so on an iPad
+every book op raised ModuleNotFoundError inside the engine, into a `lastError`
+the library never displayed. The host had pypdf, so every check here passed.
+
+That is why the last section runs the two book ops through the app's own
+bridge on the DEVICE's sys.path: the embedded interpreter is isolated and sees
+only the stdlib, PythonApp/app and PythonApp/app_packages (PythonBridge.c), so
+a dependency that is merely installed on this Mac does not count as shipped.
+
 Fixtures are synthetic: the repository is public, so no committed fixture may
 carry copyrighted music.
 
 Run: engine/.venv/bin/python engine/scripts/check_books.py
 """
 
+import json
 import os
+import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -54,6 +68,55 @@ def page_count(path: Path) -> int:
     from pypdf import PdfReader
 
     return len(PdfReader(str(path)).pages)
+
+
+
+ROOT = Path(__file__).resolve().parents[2]
+APP = ROOT / "ios" / "PythonApp" / "app"
+APP_PACKAGES = ROOT / "ios" / "PythonApp" / "app_packages"
+
+# What PythonBridge.c hands the embedded interpreter, and nothing else. The
+# child rebuilds sys.path from the stdlib entries of whatever python runs it,
+# then appends these two -- so this Mac's site-packages, which is where pypdf
+# lives when it has not been vendored, is out of reach exactly as on device.
+DEVICE_CHILD = """
+import json, os, sys
+sys.path = [p for p in sys.path
+            if p and "site-packages" not in p and "dist-packages" not in p]
+sys.path += [{app!r}, {packages!r}]
+os.environ["SCORANGER_WORKSPACE"] = {workspace!r}
+import bridge
+out = []
+for op, args in [("import-book", {{"path": {pdf!r}, "name": "The Real Book"}}),
+                 ("book-extract", {{"book": "the-real-book", "from_page": 11,
+                                    "to_page": 13, "name": "Misty"}})]:
+    out.append(json.loads(bridge.handle(json.dumps({{"op": op, "args": args}}))))
+print("RESULT" + json.dumps(out))
+"""
+
+
+def on_the_device_path(root: Path) -> list[tuple[str, bool, str]]:
+    """Run import-book and book-extract the way the iPad runs them."""
+    if not APP_PACKAGES.exists():
+        return [("the app has vendored packages to run against", False,
+                 f"{APP_PACKAGES} is missing -- run ios/scripts/vendor_engine.sh")]
+
+    source = numbered_pdf(root / "device-book.pdf", 40)
+    script = DEVICE_CHILD.format(app=str(APP), packages=str(APP_PACKAGES),
+                                 workspace=str(root / "device-workspace"),
+                                 pdf=str(source))
+    proc = subprocess.run([sys.executable, "-I", "-c", textwrap.dedent(script)],
+                          capture_output=True, text=True)
+    line = next((l for l in proc.stdout.splitlines() if l.startswith("RESULT")), None)
+    if line is None:
+        return [("the app's bridge answered at all", False,
+                 (proc.stderr or proc.stdout).strip()[-300:])]
+    results = json.loads(line[len("RESULT"):])
+    out = []
+    for label, r in zip(("a book imports", "and an arrangement comes out of it"),
+                        results):
+        out.append((label, bool(r.get("ok")), str(r.get("error") or "")[:200]))
+    return out
 
 
 def main() -> int:
@@ -108,6 +171,10 @@ def main() -> int:
             check(False, f"{why} should have been refused")
         except ValueError as e:
             check("page" in str(e).lower(), f"{why} is refused: {e}")
+
+    print("and the app can do all of it on the sys.path it actually ships with")
+    for label, ok, detail in on_the_device_path(root):
+        check(ok, f"{label}{': ' + detail if detail else ''}")
 
     print()
     if FAILURES:
