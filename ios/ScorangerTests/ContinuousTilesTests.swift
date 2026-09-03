@@ -9,28 +9,116 @@ final class ContinuousTilesTests: XCTestCase {
 
     // MARK: - Fitting
 
+    /// A single-voice tune: `breaks: none` plus `adjustPageHeight` trims the
+    /// strip to its one staff, and one staff is SHORT.
+    private let oneStaff = CGSize(width: 9400, height: 150)
+
+    /// A tall iPad in portrait, with the transport's reserve.
+    private let portrait = CGSize(width: 1032, height: 1250)
+
+    /// A system tall enough that fitting its height is the binding constraint
+    /// -- more staves than half a page holds.
+    private let bigSystem = CGSize(width: 30000, height: 900)
+
     /// Continuous is bound by HEIGHT. Fitting its width would scale a 21000pt
     /// strip into 1200pt of glass, which is not notation any more.
-    func testTheStripIsFittedByHeight() {
-        let viewport = CGSize(width: 1210, height: 634)
-        let scale = ContinuousTiles.fittedScale(pageSize: strip, viewport: viewport)
-        XCTAssertEqual(strip.height * scale, 634 - 24, accuracy: 0.5,
+    func testTheStripIsFittedByHeightWhileThatFitsUnderTheCeiling() {
+        let scale = ContinuousTiles.fittedScale(pageSize: bigSystem, viewport: portrait)
+        XCTAssertEqual(bigSystem.height * scale, portrait.height - 24, accuracy: 0.5,
                        "the strip should fill the height, less its margins")
-        XCTAssertGreaterThan(strip.width * scale, viewport.width,
+        XCTAssertGreaterThan(bigSystem.width * scale, portrait.width,
                              "and be far wider than the viewport, which is the point")
     }
 
     /// The pill's reserve is honoured here too, or the strip sits under it --
     /// the same defect as L21, one layout over.
     func testTheChromeIsKeptClear() {
-        let viewport = CGSize(width: 1210, height: 634)
-        let scale = ContinuousTiles.fittedScale(pageSize: strip, viewport: viewport,
+        let scale = ContinuousTiles.fittedScale(pageSize: bigSystem, viewport: portrait,
                                                 bottomChrome: 84)
-        XCTAssertEqual(strip.height * scale, 634 - 24 - 84, accuracy: 0.5)
+        XCTAssertEqual(bigSystem.height * scale, portrait.height - 24 - 84, accuracy: 0.5)
+    }
+
+    // MARK: - The ceiling (#9)
+
+    /// #9: a single-voice tune was stuck at giant notes with nothing below to
+    /// zoom out to, because the zoom floor IS this fit and this fit had no
+    /// upper bound. Fitting 150pt of staff into a portrait iPad is 8x.
+    func testASingleStaffIsNotBlownUpToFillTheHeight() {
+        let unbounded = (portrait.height - 24) / oneStaff.height
+        XCTAssertGreaterThan(unbounded, 8, "the fixture should be the pathological case")
+        let scale = ContinuousTiles.fittedScale(pageSize: oneStaff, viewport: portrait)
+        XCTAssertLessThan(scale, 2, "one staff must not be magnified eight times")
+        XCTAssertEqual(scale,
+                       ContinuousTiles.maximumMagnification
+                           * ContinuousTiles.pageScale(viewport: portrait),
+                       accuracy: 0.001, "it lands on the ceiling, not on fit-height")
+    }
+
+    /// The rule, stated: the strip is never drawn more than twice the size the
+    /// same music is on a page fitted to the same viewport.
+    func testTheStripIsNeverMoreThanTwiceTheSizeItIsOnAFittedPage() {
+        for viewport in [portrait,
+                         CGSize(width: 1210, height: 634),
+                         CGSize(width: 834, height: 1112),
+                         CGSize(width: 390, height: 844)] {
+            let ceiling = ContinuousTiles.maximumMagnification
+                * ContinuousTiles.pageScale(viewport: viewport, bottomChrome: 84)
+            for size in [strip, oneStaff, CGSize(width: 5000, height: 1100)] {
+                let scale = ContinuousTiles.fittedScale(pageSize: size, viewport: viewport,
+                                                        bottomChrome: 84)
+                XCTAssertLessThanOrEqual(scale, ceiling + 0.001,
+                                         "\(size) in \(viewport) is drawn larger than a page")
+            }
+        }
+    }
+
+    /// A tall strip -- many staves -- is still fitted, so it cannot overflow.
+    func testATallStripIsStillFittedToTheHeight() {
+        let tall = CGSize(width: 30000, height: 2400)
+        let scale = ContinuousTiles.fittedScale(pageSize: tall, viewport: portrait,
+                                                bottomChrome: 84)
+        XCTAssertLessThanOrEqual(tall.height * scale, portrait.height - 24 - 84 + 0.5)
     }
 
     func testAnEmptyViewportDoesNotDivideByZero() {
         XCTAssertEqual(ContinuousTiles.fittedScale(pageSize: .zero, viewport: .zero), 1)
+    }
+
+    // MARK: - What is on screen, in the engraving's own coordinates
+
+    /// The badge read "bar 68" on a score just opened, because the paged
+    /// canvas's page-frame arithmetic was being run over a page that does not
+    /// exist in continuous mode. The strip is ONE engraving; the slice is the
+    /// viewport divided by the scale.
+    func testTheVisibleSliceIsTheViewportInEngravedCoordinates() {
+        let scale: CGFloat = 0.5
+        let viewport = CGRect(x: 1000, y: ContinuousTiles.margin, width: 1000, height: 269)
+        let slice = ContinuousTiles.visibleSlice(contentRect: viewport, scale: scale,
+                                                 pageSize: strip)
+        XCTAssertEqual(slice?.minX, 2000)
+        XCTAssertEqual(slice?.minY, 0)
+        XCTAssertEqual(slice?.width, 2000)
+    }
+
+    /// At the head of the strip the reader is at the head of the MUSIC: bar 1,
+    /// the clef, and the left margin before it.
+    func testTheHeadOfTheStripIsTheHeadOfTheScore() {
+        let slice = ContinuousTiles.visibleSlice(
+            contentRect: CGRect(x: 0, y: 0, width: 1000, height: 300),
+            scale: 0.5, pageSize: strip)
+        XCTAssertEqual(slice?.minX, 0, "the first thing on screen is the first bar")
+    }
+
+    func testTheSliceCannotRunPastTheEndOfTheMusic() {
+        let slice = ContinuousTiles.visibleSlice(
+            contentRect: CGRect(x: strip.width * 0.5 - 100, y: 0, width: 4000, height: 300),
+            scale: 0.5, pageSize: strip)
+        XCTAssertEqual(slice?.maxX ?? 0, strip.width, accuracy: 0.5)
+    }
+
+    func testNoSliceBeforeTheScrollViewHasReported() {
+        XCTAssertNil(ContinuousTiles.visibleSlice(contentRect: .zero, scale: 0.5,
+                                                  pageSize: strip))
     }
 
     // MARK: - Tiling

@@ -23,18 +23,93 @@ enum ContinuousTiles {
     /// Room left above and below the strip, matching the paged canvas.
     static let margin: CGFloat = 12
 
-    /// The scale that fits the strip's HEIGHT to the viewport.
+    /// The scale that fits the strip's HEIGHT to the viewport, but never draws
+    /// the music larger than it is on a fitted PAGE.
     ///
     /// Continuous mode is bound by height, never by width -- the width is the
     /// whole score and fitting it would render the music invisible. This is the
     /// amendment to the paged canvas's fit-page zoom floor (NAV_REVISION §6.4):
     /// here the floor is fit-height.
+    ///
+    /// The ceiling is the fix for #9. Fit-height alone had no upper bound, and
+    /// the strip is SHORT: `breaks: none` with `adjustPageHeight` trims it to
+    /// its one system, about 540pt for a four-staff score and about 150pt for a
+    /// single voice. Fitting 150pt into a portrait iPad is a scale of thirteen.
+    /// That is what "you cannot zoom out past one staff filling the height" was,
+    /// and what the enormous noteheads were: the zoom floor IS this fit, so
+    /// there was nothing below it to zoom out to.
+    ///
+    /// The ceiling is stated against the page rather than as a number of
+    /// points: **the strip is never drawn more than `maximumMagnification`
+    /// times the size the same music is on a page fitted to the same
+    /// viewport.** The strip may be larger than a page -- there is height to
+    /// spend and only one system to spend it on -- but a single staff blown up
+    /// until it fills a portrait iPad is four noteheads across, which is the
+    /// opposite of what a line that runs on is for. A strip shorter than the
+    /// viewport is centred in it, and empty air above and below one system is
+    /// honest.
     static func fittedScale(pageSize: CGSize, viewport: CGSize,
                             bottomChrome: CGFloat = 0) -> CGFloat {
         guard pageSize.width > 0, pageSize.height > 0,
               viewport.height > 0 else { return 1 }
         let clear = max(viewport.height - margin * 2 - max(bottomChrome, 0), 1)
-        return max(clear / pageSize.height, 0.01)
+        let byHeight = clear / pageSize.height
+        let ceiling = maximumMagnification
+            * pageScale(viewport: viewport, bottomChrome: bottomChrome)
+        return max(min(byHeight, ceiling), 0.01)
+    }
+
+    /// How much bigger than a fitted page the strip may be drawn.
+    ///
+    /// Two, so a four-staff system still fills most of a portrait iPad -- which
+    /// is what fit-height was for and worth keeping -- while the single staff
+    /// that fit-height magnified eight times lands at a size a player can
+    /// actually read ahead in.
+    static let maximumMagnification: CGFloat = 2
+
+    /// The scale a fitted PAGE is drawn at in this viewport: surface points per
+    /// engraved point.
+    ///
+    /// Both layouts come out of the same Verovio engraving at the same scale,
+    /// so one engraved point is the same amount of music in either -- which is
+    /// what makes the page's scale a meaningful ceiling for the strip's.
+    static func pageScale(viewport: CGSize, bottomChrome: CGFloat = 0) -> CGFloat {
+        let page = EngravingOptions.pageSize
+        guard page.width > 0, page.height > 0 else { return 1 }
+        let width = PagedCanvas.fittedPageWidth(viewport: viewport,
+                                                pageAspect: page.height / page.width,
+                                                pages: 1,
+                                                gutter: SpreadLayout.gutter,
+                                                margin: SpreadLayout.margin,
+                                                bottomChrome: bottomChrome)
+        return width / page.width
+    }
+
+    /// The slice of the ENGRAVED strip that is on screen, in page (SVG user)
+    /// coordinates -- the space the geometry index and the bar readout use.
+    ///
+    /// The paged canvas answers the same question by intersecting each page's
+    /// laid-out frame with the viewport. That arithmetic was being run in
+    /// continuous mode too, over a page frame that does not exist there, and it
+    /// reported a slice deep in a score the reader had only just opened: the
+    /// badge read "bar 68" while the transport read bar 1.
+    ///
+    /// - Parameters:
+    ///   - contentRect: the viewport in the scroll view's content coordinates.
+    ///   - scale: surface points per engraved point (`fittedScale`).
+    ///   - pageSize: the engraved strip, so the slice cannot run off its ends.
+    static func visibleSlice(contentRect: CGRect, scale: CGFloat,
+                             pageSize: CGSize) -> CGRect? {
+        guard scale > 0, pageSize.width > 0, pageSize.height > 0,
+              contentRect.width > 0, contentRect.height > 0 else { return nil }
+        // the strip is padded vertically on the canvas; the engraving is not
+        let inPage = CGRect(x: contentRect.minX / scale,
+                            y: (contentRect.minY - margin) / scale,
+                            width: contentRect.width / scale,
+                            height: contentRect.height / scale)
+        let slice = inPage.intersection(CGRect(origin: .zero, size: pageSize))
+        guard !slice.isNull, !slice.isEmpty else { return nil }
+        return slice
     }
 
     /// The tiles covering a strip of this size, in surface points.
