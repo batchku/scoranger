@@ -260,6 +260,15 @@ check("a fret number breaks its line",
       plain.count("<path") == 6 and fretted.count("<path") == 7
       and "<text" in fretted and "<text" not in plain,
       f"{plain.count('<path')} paths plain, {fretted.count('<path')} fretted")
+# and the break is a GAP: two segments that meet at the number are not a break
+import re as _re  # noqa: E402
+ends = [float(m) for m in _re.findall(r'L ([-\d.]+) 0"', fretted)]
+check("...and the break is a gap, not a seam",
+      bool(ends) and ends[0] < 500 - 1, str(ends))
+wide = render.tab_column_svg(["10", "-", "-", "-", "-", "-"], 500, 0, 100, 0, 1000)
+wide_ends = [float(m) for m in _re.findall(r'L ([-\d.]+) 0"', wide)]
+check("...and a two-digit fret gets a wider one",
+      bool(wide_ends) and wide_ends[0] < ends[0], f"{wide_ends[:1]} vs {ends[:1]}")
 
 # The Swift half cannot be run from here; TabStaffTests does the drawing
 # comparison. What is asserted is that it is still holding itself to the same
