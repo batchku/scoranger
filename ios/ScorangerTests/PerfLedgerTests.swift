@@ -137,3 +137,45 @@ final class PerfLedgerTests: XCTestCase {
         XCTAssertEqual(PerfLedger.ms(2.5), "2500 ms")
     }
 }
+
+/// The text a reader pastes back into a report.
+final class PerfReportTests: XCTestCase {
+
+    func testAnEmptyLedgerSaysSoRatherThanShowingAnEmptyTable() {
+        let text = PerfReport.text(PerfLedger())
+        XCTAssertTrue(text.contains("No measurements yet"), text)
+    }
+
+    func testTheBuildStampLeadsSoAQuotedNumberNamesItsBuild() {
+        var l = PerfLedger()
+        l.record("render", start: 0, duration: 0.4)
+        XCTAssertTrue(PerfReport.text(l, buildStamp: "0.6.3 (161) abc1234")
+                        .hasPrefix("0.6.3 (161) abc1234"))
+    }
+
+    func testEveryRowCarriesItsSampleCountAndUnits() {
+        var l = PerfLedger()
+        l.record("menu.versions open", start: 0, duration: 0.98)
+        l.record("menu.versions open", start: 2, duration: 1.02)
+        let text = PerfReport.text(l)
+        XCTAssertTrue(text.contains("menu.versions open"), text)
+        XCTAssertTrue(text.contains("ms"), text)
+        // n = 2: a single reading is an anecdote
+        XCTAssertTrue(text.contains(" 2 "), text)
+    }
+
+    func testALongNameIsTruncatedRatherThanBreakingTheColumns() {
+        var l = PerfLedger()
+        l.record(String(repeating: "z", count: 60), start: 0, duration: 0.1)
+        let lines = PerfReport.text(l).split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines[1].count, lines[0].count, "columns drifted:\n" + lines.joined(separator: "\n"))
+    }
+
+    func testTheDearestRowComesFirst() {
+        var l = PerfLedger()
+        l.record("cheap", start: 0, duration: 0.01)
+        l.record("dear", start: 1, duration: 1.5)
+        let lines = PerfReport.text(l).split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines[1].hasPrefix("dear"), lines[1])
+    }
+}

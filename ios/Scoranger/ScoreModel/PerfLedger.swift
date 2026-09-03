@@ -158,3 +158,39 @@ struct PerfLedger {
         return String(format: "%.1f ms", ms)
     }
 }
+
+/// The readings as text, for a reader to paste into a report.
+///
+/// Pure, and tested, because this is the artifact that will be quoted back --
+/// the same reason the build stamp is on the failure screen. A number without
+/// its units and its sample count is not evidence.
+enum PerfReport {
+
+    static func text(_ ledger: PerfLedger, buildStamp: String = "") -> String {
+        var out: [String] = []
+        if !buildStamp.isEmpty { out.append(buildStamp) }
+        let rows = ledger.summaries()
+        if rows.isEmpty {
+            out.append("No measurements yet. Use the app with this switched on.")
+            return out.joined(separator: "\n")
+        }
+        out.append("what                             n     median      p95      max    total")
+        for s in rows {
+            let name = s.name.count > 30
+                ? String(s.name.prefix(29)) + "…"
+                : s.name.padding(toLength: 30, withPad: " ", startingAt: 0)
+            out.append(name
+                       + pad("\(s.count)", 4)
+                       + pad(PerfLedger.ms(s.median), 11)
+                       + pad(PerfLedger.ms(s.p95), 9)
+                       + pad(PerfLedger.ms(s.max), 9)
+                       + pad(PerfLedger.ms(s.total), 9))
+        }
+        return out.joined(separator: "\n")
+    }
+
+    private static func pad(_ s: String, _ width: Int) -> String {
+        s.count >= width ? " " + s
+                         : String(repeating: " ", count: width - s.count) + s
+    }
+}
