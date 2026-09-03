@@ -217,3 +217,52 @@ final class PerfAttributionReportTests: XCTestCase {
                         .contains("never measured"))
     }
 }
+
+/// The gate. A diagnostic that costs anything measurable when off is one that
+/// gets left off and rots -- so this asserts the off path, not the on path.
+final class PerfMetricsGateTests: XCTestCase {
+
+    override func setUp() {
+        super.setUp()
+        PerfMetrics.shared.setOn(false)
+    }
+
+    func testOffIsTheDefaultAndRecordsNothing() {
+        XCTAssertFalse(PerfMetrics.shared.isOn)
+        PerfMetrics.shared.record("x", start: 0, duration: 1.0)
+        XCTAssertTrue(PerfMetrics.shared.snapshot().isEmpty)
+    }
+
+    func testASpanIsNotEvenALLOCATEDWhenOff() {
+        XCTAssertNil(PerfMetrics.shared.begin("x"),
+                     "begin() must return nil when off, so the caller's ?.end() "
+                     + "is one nil test and no object is made")
+    }
+
+    func testMeasureStillRunsTheWorkWhenOff() {
+        var ran = false
+        PerfMetrics.shared.measure("x") { ran = true }
+        XCTAssertTrue(ran)
+        XCTAssertTrue(PerfMetrics.shared.snapshot().isEmpty)
+    }
+
+    func testSwitchingOnRecordsAndSwitchingOffStops() {
+        PerfMetrics.shared.setOn(true)
+        PerfMetrics.shared.record("x", start: 0, duration: 0.1)
+        XCTAssertFalse(PerfMetrics.shared.snapshot().isEmpty)
+        PerfMetrics.shared.setOn(false)
+        PerfMetrics.shared.record("y", start: 0, duration: 0.1)
+        XCTAssertNil(PerfMetrics.shared.snapshot().latest("y"))
+    }
+
+    /// Turning it on starts a fresh reading, so what the panel shows is the
+    /// session the reader is about to take.
+    func testSwitchingOnClearsWhatWasThere() {
+        PerfMetrics.shared.setOn(true)
+        PerfMetrics.shared.record("old", start: 0, duration: 0.1)
+        PerfMetrics.shared.setOn(false)
+        PerfMetrics.shared.setOn(true)
+        XCTAssertTrue(PerfMetrics.shared.snapshot().isEmpty)
+        PerfMetrics.shared.setOn(false)
+    }
+}
