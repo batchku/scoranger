@@ -50,6 +50,25 @@ final class PlaybackEngine: ObservableObject {
     @Published var voices = PlaybackVoices() { didSet { applyMutes() } }
     @Published var metronome = false { didSet { applyMutes() } }
 
+    /// Which SOUND each part is played with.
+    ///
+    /// Read-only from outside, because every change has to reach the sampler
+    /// as well as the struct and a settable property would let a caller move
+    /// one without the other. Deliberately NOT kept across scores the way the
+    /// mutes are: these are filed per arrangement and read back off disk on
+    /// load, so opening a score restores what the reader chose FOR IT.
+    @Published private(set) var instruments = PlaybackInstruments()
+
+    /// The arrangement the choices above belong to.
+    private(set) var loadedSlug: String?
+
+    /// Injectable so the suite can point it somewhere disposable.
+    private let instrumentStore: PlaybackInstrumentStore
+
+    init(instrumentStore: PlaybackInstrumentStore = .shared) {
+        self.instrumentStore = instrumentStore
+    }
+
     /// The audio itself. Extracted so the RMS assertions can render it
     /// offline: what a listener would hear is measured in `PlaybackAudioTests`
     /// against THIS object, not against a copy of its wiring.
@@ -71,8 +90,18 @@ final class PlaybackEngine: ObservableObject {
     ///
     /// Throws rather than reporting, because the caller knows whether this was
     /// the reader pressing play (say so) or a prefetch (stay quiet).
-    func load(midi: URL, timeline: PlaybackTimeline, key: String) throws {
+    func load(midi: URL, timeline: PlaybackTimeline, key: String,
+              slug: String? = nil) throws {
         stop()
+        // The reader's instrument choices are filed per ARRANGEMENT, so they
+        // are read back for the slug rather than carried from whatever was
+        // loaded before. A choice made on one score has nothing to say about
+        // another, and a new VERSION of the same score keeps them -- which is
+        // the point: transposing a bar must not reset every strip.
+        if let slug {
+            instruments = instrumentStore.instruments(for: slug)
+            loadedSlug = slug
+        }
         // Channels are keyed on INDEX, so a reader's mutes only survive into a
         // performance whose staves did not move. An op that removes a part
         // renumbers the rest, and carrying a mute across that silences an
@@ -82,7 +111,7 @@ final class PlaybackEngine: ObservableObject {
         }
         self.timeline = timeline
         try activateSession()
-        try graph.load(midi: midi, timeline: timeline)
+        try graph.load(midi: midi, timeline: timeline, instruments: instruments)
         loadedKey = key
         unavailable = nil
         applyMutes()
@@ -112,8 +141,10 @@ final class PlaybackEngine: ObservableObject {
         stop()
         teardown()
         voices = PlaybackVoices()
+        instruments = PlaybackInstruments()
         timeline = .empty
         loadedKey = nil
+        loadedSlug = nil
     }
 
     private func teardown() { graph.teardown() }
@@ -179,6 +210,71 @@ final class PlaybackEngine: ObservableObject {
     /// Move one channel's fader, 0-10.
     func setFader(_ value: Int, channel: Int) {
         voices.setFader(value, channel: channel)   // didSet re-applies the mixer
+    }
+
+    // MARK: - Instruments
+
+    /// The sound a channel will be played with, chosen or guessed.
+    func instrument(for part: PlaybackTimeline.Part)
+        -> (program: UInt8, bank: GeneralMIDI.Bank) {
+        instruments.resolved(for: part)
+    }
+
+    /// Whether the reader has an opinion about this channel, as opposed to
+    /// taking the guess. The strip shows the difference.
+    func hasChosenInstrument(for part: PlaybackTimeline.Part) -> Bool {
+        instruments.choice(for: part) != nil
+    }
+
+    /// Put a sound on one channel.
+    ///
+    /// This is PLAYBACK and not notation: no version is made, no pitch moves,
+    /// no clef changes. `change-instrument` in the engine is the other thing,
+    /// and it is still the way to actually rewrite a part.
+    ///
+    /// It takes effect on the running graph -- `loadSoundBankInstrument` is
+    /// per-node and each part has its own sampler -- so the transport is not
+    /// restarted and the play head does not move.
+    func setInstrument(program: UInt8, bank: GeneralMIDI.Bank = .melodic,
+                       for part: PlaybackTimeline.Part) {
+        instruments.choose(program: program, bank: bank, for: part)
+        graph.setInstrument(program: program, bank: bank, channel: part.index)
+        saveInstruments()
+    }
+
+    /// Back to the guess for one channel.
+    func clearInstrument(for part: PlaybackTimeline.Part) {
+        instruments.clear(part)
+        let sound = instruments.resolved(for: part)
+        graph.setInstrument(program: sound.program, bank: sound.bank,
+                            channel: part.index)
+        saveInstruments()
+    }
+
+    /// The whole score on one sound: "I just want to hear every voice on a
+    /// piano." One pass over the samplers rather than n round trips.
+    func setInstrumentEverywhere(program: UInt8,
+                                 bank: GeneralMIDI.Bank = .melodic) {
+        instruments.chooseAll(program: program, bank: bank, parts: timeline.parts)
+        graph.applyInstruments(instruments, parts: timeline.parts)
+        saveInstruments()
+    }
+
+    /// Back to the guess on every channel.
+    func clearInstruments() {
+        instruments.clearAll()
+        graph.applyInstruments(instruments, parts: timeline.parts)
+        saveInstruments()
+    }
+
+    /// Which channels could not load the sound they were given. They still
+    /// play, on the sampler's own default -- refusing an arrangement because
+    /// one staff is unusual is the wrong trade for a practice aid.
+    var soundFailures: [Int] { graph.bankFailures }
+
+    private func saveInstruments() {
+        guard let loadedSlug else { return }
+        instrumentStore.save(instruments, for: loadedSlug)
     }
 
     // MARK: - Tempo
