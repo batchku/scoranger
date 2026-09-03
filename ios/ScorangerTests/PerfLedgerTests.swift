@@ -1,0 +1,139 @@
+import XCTest
+
+/// The arithmetic behind the diagnostics panel.
+///
+/// Kept pure and separate from the recording, because the interesting question
+/// is not "how long did one thing take" but "of the second the reader waited,
+/// what was the app doing" -- which is attribution over a window, and is the
+/// part that can be got wrong silently.
+final class PerfLedgerTests: XCTestCase {
+
+    // MARK: - Recording
+
+    func testAnEmptyLedgerSummarisesToNothing() {
+        XCTAssertTrue(PerfLedger().summaries().isEmpty)
+    }
+
+    func testSamplesGroupByName() {
+        var l = PerfLedger()
+        l.record("engrave", start: 0, duration: 0.1)
+        l.record("engrave", start: 1, duration: 0.3)
+        l.record("bridge.info", start: 2, duration: 0.05)
+        let s = l.summaries()
+        XCTAssertEqual(s.count, 2)
+        XCTAssertEqual(s.first(where: { $0.name == "engrave" })?.count, 2)
+    }
+
+    func testSummariesAreOrderedByWhereTheTimeWent() {
+        var l = PerfLedger()
+        l.record("cheap", start: 0, duration: 0.01)
+        l.record("cheap", start: 1, duration: 0.01)
+        l.record("dear", start: 2, duration: 0.9)
+        XCTAssertEqual(l.summaries().map(\.name), ["dear", "cheap"])
+    }
+
+    func testTheLedgerIsBoundedSoALongSessionCannotGrowForever() {
+        var l = PerfLedger()
+        for i in 0..<(PerfLedger.keepPerName + 50) {
+            l.record("tile", start: Double(i), duration: 0.001)
+        }
+        XCTAssertEqual(l.summaries().first?.count, PerfLedger.keepPerName)
+    }
+
+    func testTheOLDESTSamplesAreTheOnesDropped() {
+        var l = PerfLedger()
+        l.record("tile", start: 0, duration: 9.0)          // the one to lose
+        for i in 1...PerfLedger.keepPerName {
+            l.record("tile", start: Double(i), duration: 0.001)
+        }
+        XCTAssertEqual(l.summaries().first?.max ?? 0, 0.001, accuracy: 1e-9)
+    }
+
+    // MARK: - The numbers
+
+    func testSummaryReportsTheSpreadAndNotOnlyTheMean() {
+        var l = PerfLedger()
+        for (i, d) in [0.1, 0.2, 0.3, 0.4, 1.0].enumerated() {
+            l.record("open", start: Double(i), duration: d)
+        }
+        let s = l.summaries()[0]
+        XCTAssertEqual(s.count, 5)
+        XCTAssertEqual(s.total, 2.0, accuracy: 1e-9)
+        XCTAssertEqual(s.min, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(s.median, 0.3, accuracy: 1e-9)
+        XCTAssertEqual(s.max, 1.0, accuracy: 1e-9)
+        // the slow one is what the reader feels, and a mean of 0.4 hides it
+        XCTAssertEqual(s.p95, 1.0, accuracy: 1e-9)
+    }
+
+    func testMedianOfAnEvenCountTakesTheMiddlePair() {
+        var l = PerfLedger()
+        for (i, d) in [0.1, 0.2, 0.3, 0.4].enumerated() {
+            l.record("x", start: Double(i), duration: d)
+        }
+        XCTAssertEqual(l.summaries()[0].median, 0.25, accuracy: 1e-9)
+    }
+
+    func testASingleSampleIsItsOwnEveryStatistic() {
+        var l = PerfLedger()
+        l.record("x", start: 0, duration: 0.42)
+        let s = l.summaries()[0]
+        XCTAssertEqual(s.min, 0.42, accuracy: 1e-9)
+        XCTAssertEqual(s.median, 0.42, accuracy: 1e-9)
+        XCTAssertEqual(s.p95, 0.42, accuracy: 1e-9)
+        XCTAssertEqual(s.max, 0.42, accuracy: 1e-9)
+    }
+
+    // MARK: - Attribution: what was the app doing while the reader waited
+
+    func testWorkInsideTheWindowIsAttributedToIt() {
+        var l = PerfLedger()
+        l.record("bridge.info", start: 10.1, duration: 0.2)
+        l.record("engrave", start: 10.4, duration: 0.5)
+        l.record("engrave", start: 99.0, duration: 5.0)     // another era
+        let acc = l.accounted(from: 10.0, to: 11.0)
+        XCTAssertEqual(acc.count, 2)
+        XCTAssertEqual(acc.first(where: { $0.name == "engrave" })?.total ?? 0,
+                       0.5, accuracy: 1e-9)
+    }
+
+    func testWorkOverLAPPINGTheWindowCountsOnlyTheOverlap() {
+        var l = PerfLedger()
+        // began before the window opened and ran past its close
+        l.record("engrave", start: 9.5, duration: 2.0)      // 9.5 -> 11.5
+        let acc = l.accounted(from: 10.0, to: 11.0)
+        XCTAssertEqual(acc[0].total, 1.0, accuracy: 1e-9)
+    }
+
+    func testAWindowWithNoRecordedWorkAccountsForNothing() {
+        var l = PerfLedger()
+        l.record("engrave", start: 1.0, duration: 0.5)
+        XCTAssertTrue(l.accounted(from: 10.0, to: 11.0).isEmpty)
+    }
+
+    /// The finding this whole panel exists to make sayable: the reader waited
+    /// a second and the app was measurably doing NOTHING it knows how to name.
+    func testUnaccountedTimeIsTheAnswerWhenNothingWasMeasured() {
+        var l = PerfLedger()
+        l.record("bridge.info", start: 10.1, duration: 0.05)
+        XCTAssertEqual(l.unaccounted(from: 10.0, to: 11.0), 0.95, accuracy: 1e-9)
+    }
+
+    func testUnaccountedTimeNeverGoesNegativeWhenWorkOverlapsItself() {
+        var l = PerfLedger()
+        // two tiles rasterised in parallel: 0.8s of work inside a 1.0s window,
+        // but wall-clock cannot go below zero however many threads ran
+        l.record("tile", start: 10.0, duration: 0.8)
+        l.record("tile", start: 10.0, duration: 0.8)
+        XCTAssertGreaterThanOrEqual(l.unaccounted(from: 10.0, to: 11.0), 0)
+    }
+
+    // MARK: - Reading it back
+
+    func testDurationsReadInMilliseconds() {
+        XCTAssertEqual(PerfLedger.ms(0.9812), "981 ms")
+        XCTAssertEqual(PerfLedger.ms(0.0004), "0.4 ms")
+        XCTAssertEqual(PerfLedger.ms(0.0156), "15.6 ms")
+        XCTAssertEqual(PerfLedger.ms(2.5), "2500 ms")
+    }
+}
