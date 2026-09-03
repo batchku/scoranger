@@ -178,6 +178,36 @@ final class ScorangerUITests: XCTestCase {
     /// The seeded piece's slug, for the ids the screens carry.
     private var pieceSlug: String { "sous-le-ciel-de-paris" }
 
+    /// Open the VERSIONS band from the score bar.
+    ///
+    /// 0.6.3 #8 split the one dropdown in two: the version count opens the
+    /// versions, the title block opens the piece's other arrangements. Tests
+    /// that switch version go through the version count now — the title no
+    /// longer reaches it.
+    ///
+    /// `score-versions` is optional on a narrow bar (`ScoreBarLayout`), so the
+    /// failure message says so rather than reading as a missing element.
+    @discardableResult
+    private func openVersionsBand() -> XCUIElement {
+        let versions = app.buttons["score-versions"]
+        XCTAssertTrue(versions.waitForExistence(timeout: 20),
+                      "no version count in the score bar. At this width it is "
+                      + "the only route to the versions band — the title block "
+                      + "opens the arrangements since 0.6.3 #8")
+        versions.tap()
+        let row = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20),
+                      "the version count did not open the versions band")
+        return versions
+    }
+
+    /// Every version row currently in the band, newest first.
+    private var versionRows: XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+    }
+
     /// A row of the "…" menu, by identifier rather than by element type.
     private func menuRow(_ id: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
@@ -654,33 +684,54 @@ final class ScorangerUITests: XCTestCase {
             "✕ left the score but landed nowhere")
     }
 
-    /// #62: on a narrow bar the version COUNT yields (ScoreBarLayout), so the
-    /// title block is the only route to the version dropdown. That route has to
-    /// actually work, or version switching is dead on a phone.
+    /// #62: version switching has to be reachable FROM THE SCORE BAR at
+    /// whatever width the bar happens to be, or it is dead on that device.
     ///
     /// Runs at whatever width the destination gives it: pointed at an iPhone it
     /// guards the compact case, and on an iPad it guards the wide one.
+    ///
+    /// It used to tap the title block, on `ScoreBarLayout`'s stated invariant
+    /// that "the title block opens the same dropdown, so versions stay
+    /// REACHABLE" when the version count yields. 0.6.3 #8 ended that: the title
+    /// opens the ARRANGEMENTS now. So this asks the question the invariant was
+    /// making a promise about — is there ANY route from this bar to the
+    /// versions — and takes whichever control offers it. On a bar too narrow to
+    /// seat the version count there is currently no answer, and this fails
+    /// saying exactly that rather than reporting a missing element.
     func testTheTitleOpensTheVersionsAndJumps() {
         // opened by launch argument rather than by tapping a library row: the
         // row-tap path is unreliable on a phone-sized simulator, and what is
-        // under test here is the title block, not navigation
+        // under test here is the score bar, not navigation
         app.terminate()
         app.launchArguments = ["-seedTestLibrary", "-openFirstScoreSpread"]
         app.launch()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 240),
                       "the score never finished engraving")
 
+        let versions = app.buttons["score-versions"]
         let title = app.buttons["score-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 20), "no title block")
-        XCTAssertTrue(title.isHittable,
-                      "the title is the only way to versions at this width and "
-                      + "cannot be tapped: \(title.frame)")
-        title.tap()
+
+        // Whichever control this width offers. The version count is the route
+        // #8 made; the title block is the route #62 relied on.
+        let route: XCUIElement
+        if versions.exists, versions.isHittable {
+            route = versions
+        } else {
+            XCTAssertTrue(title.isHittable,
+                          "the version count has yielded at this width and the "
+                          + "title cannot be tapped either: \(title.frame)")
+            route = title
+        }
+        route.tap()
 
         let first = app.buttons["menu-version-v001"]
         XCTAssertTrue(first.waitForExistence(timeout: 10),
-                      "the title did not open the version dropdown — with the "
-                      + "version count yielded, nothing else reaches it")
+                      "no route from the score bar to the versions at this width. "
+                      + "The version count is \(versions.exists ? "present" : "yielded") "
+                      + "and the title block opens the arrangements since 0.6.3 #8 — "
+                      + "so version switching is unreachable while reading. "
+                      + "ScoreBarLayout still documents the opposite.")
         first.tap()
         XCTAssertTrue(waitForLabel(app.buttons["score-title"], contains: "v001",
                                    timeout: 60),
@@ -1464,31 +1515,69 @@ final class ScorangerUITests: XCTestCase {
     // check_adjust_journey.py. The gap is the gesture, and it is recorded in
     // BACKLOG.md rather than papered over.
 
-    /// The part-wide half: a default every symbol inherits, and the way out of
-    /// every override.
-    func testTheChordSymbolsScreenCarriesTheDefaultAndTheResetAll() {
+    /// The part-wide half: a default every symbol inherits, reachable in one
+    /// hop, and settable by pressing the size you want.
+    ///
+    /// It asserted "Reset all adjustments" until 0.6.3 #7 removed it — a
+    /// destructive part-wide op on a screen whose other control is a size
+    /// stepper. Per-element reset is untouched and lives on the element's own
+    /// adjust bar; `ChordAdjustSessionTests` covers it. So the removal is
+    /// asserted here rather than dropped, or the row can quietly come back.
+    ///
+    /// The screen also came UP a level in the same pass: it was … → Score
+    /// display → Chord symbols, and "Score display" is gone (#6).
+    func testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder() {
         openScoreWithChords()
         app.buttons["score-more"].tap()
-        let display = menuRow("more-display")
-        XCTAssertTrue(display.waitForExistence(timeout: 20), "no Score display row")
-        display.tap()
-        let chords = menuRow("display-chords")
-        XCTAssertTrue(chords.waitForExistence(timeout: 10), "no Chord symbols row")
+        let chords = menuRow("more-chords")
+        XCTAssertTrue(chords.waitForExistence(timeout: 20),
+                      "no Chord symbols row on the … menu — with Score display "
+                      + "gone this is the only route to it")
         chords.tap()
 
-        XCTAssertTrue(app.staticTexts["chords-size"].waitForExistence(timeout: 10),
+        let size = app.staticTexts["chords-size"]
+        XCTAssertTrue(size.waitForExistence(timeout: 10),
                       "no default size on the Chord symbols screen")
         XCTAssertTrue(app.buttons["chords-bigger"].exists)
         XCTAssertTrue(app.buttons["chords-smaller"].exists)
+        // WHICH part it lands on: a part-wide op that names no part is
+        // indistinguishable from one that never ran.
+        XCTAssertTrue(app.descendants(matching: .any)["chords-part"].firstMatch.exists,
+                      "the screen does not say which part the default applies to")
 
-        // reset-all is two-step and inline, never a dialog
-        let resetAll = menuRow("chords-reset-all")
-        XCTAssertTrue(resetAll.exists, "no reset-all")
-        resetAll.tap()
-        XCTAssertTrue(app.buttons["chords-confirm-reset"].waitForExistence(timeout: 10),
-                      "reset-all should ask first, inline")
-        XCTAssertTrue(app.buttons["chords-confirm-reset-keep"].exists,
-                      "and offer a way out")
+        // The ladder is the thing #7 actually fixed: the number between the
+        // two glyphs was the obvious thing to press and was not a button, so
+        // the control was reported as controlling nothing. Every rung is a
+        // button now — press one that is NOT the current value and the default
+        // has to follow it.
+        let current = size.label
+        let rungs = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "chords-size-"))
+        XCTAssertGreaterThan(rungs.count, 1,
+                             "the size ladder is not on the screen")
+        var pressed: String?
+        for index in 0..<rungs.count {
+            let rung = rungs.element(boundBy: index)
+            let points = rung.identifier
+                .replacingOccurrences(of: "chords-size-", with: "")
+            guard "\(points) pt" != current else { continue }
+            guard rung.isHittable else { continue }
+            rung.tap()
+            pressed = points
+            break
+        }
+        guard let pressed else {
+            return XCTFail("no rung of the ladder could be tapped — the ladder is "
+                           + "back to being a picture of a control")
+        }
+        XCTAssertTrue(waitForLabel(size, contains: "\(pressed) pt", timeout: 20),
+                      "tapping \(pressed) on the ladder did not set the default: "
+                      + "it still reads \(size.label)")
+
+        // #7 removed reset-all from here. It must not reappear.
+        XCTAssertFalse(app.descendants(matching: .any)["chords-reset-all"]
+                        .firstMatch.exists,
+                       "Reset all adjustments is back on the Chord symbols screen")
         shot("chords-screen")
     }
 
@@ -1601,32 +1690,56 @@ final class ScorangerUITests: XCTestCase {
         }
     }
 
-    /// The title in the score bar opens a band listing the piece's other
-    /// arrangements and this arrangement's recent versions -- the one place
-    /// switching happens while you are reading (§6.3).
+    /// The title band is ONE surface with two controls in front of it, and
+    /// each opens its own column (0.6.3 #8).
+    ///
+    /// It used to be one dropdown showing both columns at once, so "N
+    /// versions" put a list of other pieces on screen beside the thing that
+    /// was asked for. The split is only worth having if each control shows its
+    /// own list and NOT the other one, so that is what this asserts — in both
+    /// directions, and including that switching between them does not need the
+    /// band closed first.
     func testTheTitleBandOpensFromTheScoreTitle() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         let title = app.buttons["score-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 20), "no title in the score bar")
+
+        // The title block: the piece's other ARRANGEMENTS.
         title.tap()
         XCTAssertTrue(title.isSelected, "the title does not show that it is open")
-        // both columns, by their rows: an identifier on the band itself would
-        // be inherited by the columns and swallow every row in them
-        XCTAssertTrue(app.buttons.matching(
+        // by their rows: an identifier on the band itself would be inherited by
+        // the column and swallow every row in it
+        let arrangements = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-arrangement-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the band lists no arrangements")
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "tapping the title did not open the band")
-        shot("title-band")
-        title.tap()
-        XCTAssertTrue(waitForDisappearance(of: app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch, timeout: 10),
+        XCTAssertTrue(arrangements.firstMatch.waitForExistence(timeout: 20),
+                      "the title did not open the arrangements")
+        XCTAssertEqual(versionRows.count, 0,
+                       "the arrangements column is showing versions beside them — "
+                       + "the two columns are back")
+        shot("title-band-arrangements")
+
+        // The version count: this arrangement's VERSIONS, and it swaps the
+        // band over rather than needing it closed first.
+        let versions = app.buttons["score-versions"]
+        XCTAssertTrue(versions.waitForExistence(timeout: 20),
+                      "no version count in the score bar")
+        versions.tap()
+        XCTAssertTrue(versionRows.firstMatch.waitForExistence(timeout: 20),
+                      "the version count did not open the versions")
+        XCTAssertTrue(waitForDisappearance(of: arrangements.firstMatch, timeout: 10),
+                      "the versions column is showing arrangements beside them — "
+                      + "which is the bug #8 fixed")
+        XCTAssertTrue(versions.isSelected,
+                      "the version count does not show that it is open")
+        XCTAssertFalse(title.isSelected,
+                       "the title still reads as open while the band shows versions")
+        shot("title-band-versions")
+
+        // and it closes from the control that opened it
+        versions.tap()
+        XCTAssertTrue(waitForDisappearance(of: versionRows.firstMatch, timeout: 10),
                       "the band did not close again")
     }
 
@@ -2096,15 +2209,11 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
         app.buttons["score-edit"].tap()   // leave markup mode
 
-        // switch to an earlier version, from the title dropdown -- which is
-        // where switching version lives now, and where a reader would do it
-        app.buttons["score-title"].tap()
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the title band never opened")
-        let rows = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+        // switch to an earlier version, from the version count -- which is
+        // where switching version lives since 0.6.3 #8, and where a reader
+        // would do it
+        openVersionsBand()
+        let rows = versionRows
         guard rows.count > 1 else {
             return XCTFail("need more than one version to switch between")
         }
@@ -2229,15 +2338,11 @@ final class ScorangerUITests: XCTestCase {
         guard caught else { return XCTFail("nothing was selected on the page") }
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
 
-        app.buttons["score-title"].tap()
-        // wait for the band, then count: counting a query the instant after a
-        // tap counts an empty screen
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the title band never opened")
-        let rows = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+        // the version count, not the title: they open different columns since
+        // 0.6.3 #8. openVersionsBand waits for the band before returning, so
+        // the count below is not taken off an empty screen.
+        openVersionsBand()
+        let rows = versionRows
         guard rows.count > 1 else { return XCTFail("need two versions in the dropdown") }
         rows.element(boundBy: rows.count - 1).tap()
 
@@ -2751,8 +2856,10 @@ extension ScorangerUITests {
     /// Everything else about playback is tested without a device -- the bar
     /// map, the mutes, the follow geometry, the sequencer's track order. What
     /// none of that can show is that the feature is REACHABLE: the transport
-    /// lives behind a switch on the Score display screen, and a switch that
-    /// does not reveal it leaves the whole thing shipped and invisible.
+    /// is drawn only when `showTransport` says so, and a build where nothing
+    /// turns that on leaves the whole thing shipped and invisible -- which is
+    /// what 0.6 did. `revealTransport` walks whichever of its routes this
+    /// width offers.
     ///
     /// The assertion at the end is the product rule: every voice off is a
     /// destination, not an error, and the transport says the metronome is
@@ -2838,21 +2945,56 @@ extension ScorangerUITests {
 
 extension ScorangerUITests {
 
-    /// Turn the transport on: Score display, then the switch.
+    /// Get the transport on screen, and say which of the three ways got it
+    /// there.
+    ///
+    /// It used to be one way: … → Score display → the switch. That menu is
+    /// gone (0.6.3 #6) and the switch moved to the top bar beside the layout
+    /// cells, so this walks the routes a reader now has, in the order a reader
+    /// meets them:
+    ///
+    ///   1. it is ALREADY there. `TransportReveal` puts it up unasked on the
+    ///      first playable arrangement and `showTransport` now defaults to
+    ///      true, so on these fixtures this is the usual answer.
+    ///   2. the top bar's `score-transport-toggle`, which is where the switch
+    ///      went.
+    ///   3. … → Show transport, which `ScoreBarLayout` keeps as the route for
+    ///      a bar too narrow to seat the toggle.
+    ///
+    /// All three end in the same assertion, so this cannot pass by finding a
+    /// control -- only by the transport actually being on screen.
     func revealTransport() {
-        let more = app.buttons["score-more"]
-        XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
-        more.tap()
-        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
-        // A PanelToggle is a Toggle to a screen reader, named by its title.
-        let switchElement = app.switches["Show transport"]
-        XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
-                      "Score display no longer offers the transport")
-        if (switchElement.value as? String) != "1" { switchElement.tap() }
-        XCTAssertEqual(switchElement.value as? String, "1",
-                       "the transport switch did not take")
-        goBack()
-        goBack()
+        let transport = app.otherElements["transport"]
+        if transport.waitForExistence(timeout: 30) { return }
+
+        // (2) the toggle on the bar. `active:` is what a barButton exposes as
+        // selected, so an already-on toggle is left alone rather than pressed
+        // back off.
+        let barToggle = app.buttons["score-transport-toggle"]
+        if barToggle.exists {
+            if !barToggle.isSelected { barToggle.tap() }
+        } else {
+            // (3) the switch in Options, which the bar yields to at narrow
+            // widths. If this is missing too, the feature has no route at all.
+            let more = app.buttons["score-more"]
+            XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
+            more.tap()
+            let row = menuRow("more-transport")
+            XCTAssertTrue(row.waitForExistence(timeout: 20),
+                          "the bar has no transport toggle at this width and "
+                          + "Options no longer carries the switch either — the "
+                          + "transport is unreachable")
+            // A PanelToggle is a Toggle to a screen reader, named by its title.
+            let switchElement = app.switches["Show transport"]
+            XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
+                          "the Show transport row is not a switch")
+            if (switchElement.value as? String) != "1" { switchElement.tap() }
+            XCTAssertEqual(switchElement.value as? String, "1",
+                           "the transport switch did not take")
+            goBack()
+        }
+        XCTAssertTrue(transport.waitForExistence(timeout: 30),
+                      "the transport was turned on and is still not on screen")
     }
 
     /// Press play and wait for the play head to actually move.
