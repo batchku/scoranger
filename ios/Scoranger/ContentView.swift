@@ -20,7 +20,13 @@ struct ContentView: View {
     /// Off by default and named a preview (§9.2): a transport that does nothing
     /// teaches people the app is broken. Previous and next step the setlist and
     /// work whether or not this is on.
-    @AppStorage("showTransport") private var showTransport = false
+    /// Defaults to TRUE since 0.6.1. It was false, and playback -- the whole
+    /// of 0.6 -- was invisible behind a toggle in a submenu.
+    @AppStorage("showTransport") private var showTransport = true
+    /// Whether the transport has ever been put on screen unasked. Carries a
+    /// reader holding a stored `false` from the builds where that was the
+    /// default (see TransportReveal).
+    @AppStorage("didRevealTransport") private var didRevealTransport = false
 
     /// Lane 1 is the ink bar's, and it is only occupied when the bar is out.
     private var inkLaneHeight: CGFloat { state.annotation.isOn ? 56 : 0 }
@@ -86,6 +92,15 @@ struct ContentView: View {
             scoreBody
             if let screen = scoreScreen { scoreScreenView(screen) }
         }
+    }
+
+    /// Reveal the transport the first time an arrangement can play.
+    private func revealTransportIfNeeded() {
+        let d = TransportReveal.decide(canPlay: state.playbackAvailability.canPlay,
+                                       showTransport: showTransport,
+                                       alreadyRevealed: didRevealTransport)
+        if d.showTransport != showTransport { showTransport = d.showTransport }
+        if d.revealed != didRevealTransport { didRevealTransport = d.revealed }
     }
 
     @ViewBuilder
@@ -222,7 +237,9 @@ struct ContentView: View {
                                })
             }
             // The TRANSPORT is about the music, not about pages, so it belongs
-            // in every mode that has chrome at all.
+            // in every mode that has chrome at all. It is revealed the first
+            // time something can actually play (TransportReveal) -- a reader
+            // should never have to know the toggle exists to find playback.
             if state.scoreMode != .performance, showTransport {
                 Transport(setlistLabel: setlistLabel,
                           canStep: setlistPosition != nil,
@@ -298,7 +315,12 @@ struct ContentView: View {
         }
         .task {
             Theme.verifyFontsRegistered()
+            revealTransportIfNeeded()
         }
+        // and again when what is on screen changes: the first arrangement
+        // opened may be a scan, and the transport should arrive on the first
+        // one that can actually play rather than only at launch.
+        .onChange(of: state.playbackAvailability) { _, _ in revealTransportIfNeeded() }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes,
                       allowsMultipleSelection: true) { result in
