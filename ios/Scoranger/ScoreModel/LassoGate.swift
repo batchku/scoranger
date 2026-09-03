@@ -41,6 +41,29 @@ enum LassoGate {
         isPencil && !markupActive
     }
 
+    /// How long a STAND-IN finger must have been down before it may draw.
+    ///
+    /// Zero for a real Pencil, which is why this is not part of the rule above:
+    /// a Pencil cannot pan, so a Pencil drag has exactly one meaning and there
+    /// is nothing to wait for.
+    ///
+    /// The stand-in is a different animal. To it, a finger about to pinch and a
+    /// finger about to select are the same touch -- and a pinch's first finger
+    /// MOVES before its second one lands. A lasso starting there cancelled that
+    /// touch out of the scroll view's pinch, so under the stand-in the canvas
+    /// could not be zoomed at all: the suite could prove a selection or prove a
+    /// zoom, never both in one test, which is exactly what a pair of pictures
+    /// at two zooms needs.
+    ///
+    /// A tenth of a second separates them cleanly. Every lasso in the suite
+    /// presses for 0.6s before it drags; a synthesised pinch's fingers are
+    /// moving within a frame or two of landing.
+    static let standInHold: TimeInterval = 0.1
+
+    static func standInMayDraw(heldFor: TimeInterval) -> Bool {
+        heldFor >= standInHold
+    }
+
     /// A finger never selects. It pans and zooms, in either mode.
     static func fingerSelects() -> Bool { false }
 

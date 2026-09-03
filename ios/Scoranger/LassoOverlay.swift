@@ -44,7 +44,20 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         ProcessInfo.processInfo.arguments.contains("-uiTestPencil")
 
     private func isPencil(_ touch: UITouch) -> Bool {
-        touch.type == .pencil || (Self.fingerStandsInForPencil && touch.type == .direct)
+        if touch.type == .pencil { return true }
+        guard Self.fingerStandsInForPencil, touch.type == .direct else { return false }
+        // The stroke in flight stays the Pencil however many fingers join it.
+        // That is the held-finger "add", and it must keep working.
+        if drawing == touch { return true }
+        // Otherwise ONE finger stands in for the Pencil and two are not one. A
+        // Pencil is never two touches, and while the stand-in claimed both, a
+        // pinch's first finger arrived as a Pencil touchdown: it cleared the
+        // selection, claimed the stroke, and froze the canvas, so the score
+        // could not be zoomed at all under the stand-in. Reverting this and
+        // the two below put the zoom back at 1.00 through eight pinches, with
+        // the selection wiped -- which is how it is known to be load-bearing
+        // rather than defensive.
+        return down.count <= 1
     }
 
     /// The touch drawing the lasso, once one has been chosen.
@@ -154,6 +167,20 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         }
     }
 
+    /// What "a Pencil is down" means for the FREEZE.
+    ///
+    /// A real Pencil counts the moment it lands, which is the rule: a palm that
+    /// arrived first must stop dragging the page as soon as the Pencil joins
+    /// it. The test stand-in counts only once a lasso is actually in flight,
+    /// because a finger about to pinch and a finger about to select are the
+    /// same touch to it -- and freezing at touchdown switches the pinch
+    /// recogniser off before its second finger has landed.
+    private var freezingTouch: UITouch? {
+        if let pencil = down.keys.first(where: { $0.type == .pencil }) { return pencil }
+        guard Self.fingerStandsInForPencil else { return nil }
+        return drawing
+    }
+
     /// Freeze the canvas while a Pencil is selecting, thaw it after.
     ///
     /// This is the palm rejection. Outside markup mode PencilKit is not taking
@@ -162,7 +189,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// scrolling off also cancels a pan already in flight, so a palm that
     /// landed first cannot keep dragging the page once the Pencil arrives.
     private func syncCanvasFreeze() {
-        let frozen = !LassoGate.canvasMayMove(pencilDown: pencilTouch != nil,
+        let frozen = !LassoGate.canvasMayMove(pencilDown: freezingTouch != nil,
                                               markupActive: annotationActive)
         guard frozen != canvasFrozen else { return }
         canvasFrozen = frozen
@@ -217,10 +244,17 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         // glass, and whatever they are doing.
         guard selectionEnabled, drawing == nil,
               let touch = pencilTouch, touches.contains(touch),
-              LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive)
+              LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive),
+              // a real Pencil waits for nothing; the stand-in waits a tenth of
+              // a second so a pinch's first finger is not read as a stroke
+              !Self.fingerStandsInForPencil
+                  || LassoGate.standInMayDraw(heldFor: elapsed(touch))
         else { return }
         report(touch, phase: "moved", began: true)
         beginLasso(with: touch)
+        // Under the stand-in the freeze waits for this moment rather than for
+        // the touchdown, so it has to be asked for here.
+        syncCanvasFreeze()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -334,6 +368,16 @@ final class LassoAnchorView: UIView {
         didSet { if isSubtracting != oldValue { applyColours() } }
     }
 
+    /// The scroll view's settled zoom.
+    ///
+    /// The anchor lives INSIDE the zoom transform, so a line width written here
+    /// is multiplied by it: a 0.75pt hairline is a 9pt orange band at the 12x
+    /// the render overhaul raised the ceiling to. The weight is divided by the
+    /// zoom for the same reason the playhead's is (`SelectionInk`).
+    var zoom: CGFloat = 1 {
+        didSet { if zoom != oldValue { applyWeight() } }
+    }
+
     private let shape = CAShapeLayer()
     /// Unit (0…1) points, live or committed.
     private var path: [CGPoint] = []
@@ -342,14 +386,20 @@ final class LassoAnchorView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        // Fine rather than crude: at 1.5pt with 6pt dashes the outline read as
-        // a marquee drawn over the music. A hairline with short dashes sits
-        // with the engraving instead of on top of it.
-        shape.lineWidth = 0.75
-        shape.lineDashPattern = [2.5, 2.5]
         shape.lineJoin = .round
+        applyWeight()
         applyColours()
         layer.addSublayer(shape)
+    }
+
+    /// Fine rather than crude: at 1.5pt with 6pt dashes the outline read as a
+    /// marquee drawn over the music. A hairline with short dashes sits with the
+    /// engraving instead of on top of it -- at every zoom, which is the part
+    /// that was missing.
+    private func applyWeight() {
+        shape.lineWidth = SelectionInk.onScreen(SelectionInk.lassoWeight, zoom: zoom)
+        shape.lineDashPattern = SelectionInk.lassoDashes(zoom: zoom)
+            .map { NSNumber(value: Double($0)) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -392,14 +442,19 @@ struct LassoAnchor: UIViewRepresentable {
     let pageIndex: Int
     /// The committed lasso for this page, if any.
     let committed: [CGPoint]
+    /// The scroll view's settled zoom, so the outline stays a hairline.
+    var zoom: CGFloat = 1
+
     func makeUIView(context: Context) -> LassoAnchorView {
         let view = LassoAnchorView()
         view.pageIndex = pageIndex
+        view.zoom = zoom
         return view
     }
 
     func updateUIView(_ view: LassoAnchorView, context: Context) {
         view.pageIndex = pageIndex
+        view.zoom = zoom
         view.show(committed)
     }
 }
