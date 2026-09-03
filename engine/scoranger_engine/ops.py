@@ -1479,6 +1479,11 @@ def diagram_barre(frets: list[int | None]) -> tuple[int, int, int] | None:
     first, last = at_low[0], at_low[-1]
     if not any(f > low for i, f in stopped.items() if first < i < last):
         return None
+    # A finger lying across the neck stops every string it crosses, so a shape
+    # with an OPEN string inside the span is not a barre and is not playable
+    # either: the search rejects it on the finger count for the same reason.
+    if any(frets[i] == 0 for i in range(first, last + 1)):
+        return None
     return low, first, last
 
 
@@ -1529,9 +1534,14 @@ def guitar_shape(pitch_classes: set[int], root_pc: int,
             if {(opens[i] + combo[i]) % 12 for i in sounded} != pitch_classes:
                 continue
             shape = list(combo)
-            if _fingers_needed(shape) > GUITAR_MAX_FINGERS:
+            fingers = _fingers_needed(shape)
+            if fingers > GUITAR_MAX_FINGERS:
                 continue
-            rank = (-len(sounded), max(f for f in shape if f is not None))
+            # Most strings first, then the fewest fingers -- which is what
+            # picks the barre a player would use over three separate fingers
+            # holding the same fret -- then the lowest reach.
+            rank = (-len(sounded), fingers,
+                    max(f for f in shape if f is not None))
             if best is None or rank < best[0]:
                 best = (rank, shape)
         if best is not None:
