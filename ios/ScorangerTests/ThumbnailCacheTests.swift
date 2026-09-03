@@ -58,6 +58,20 @@ final class ThumbnailCacheTests: XCTestCase {
                        ThumbnailCache.key(document: a, index: 1))
     }
 
+    /// A new engraving is made on every render and the last one released, so
+    /// documents are not alive at the same time -- which is exactly when an
+    /// address stops being unique. A document that has gone must not be able to
+    /// hand its thumbnails to the next one.
+    func testAReleasedDocumentDoesNotHandItsKeyToTheNextOne() {
+        var dead: String?
+        autoreleasepool {
+            let gone = document(pages: 2)
+            dead = ThumbnailCache.key(document: gone, index: 0)
+        }
+        let fresh = document(pages: 2)
+        XCTAssertNotEqual(dead, ThumbnailCache.key(document: fresh, index: 0))
+    }
+
     /// Rasterising is the expensive part, so a page is drawn once.
     func testAPageIsRasterisedOnceAndThenReused() {
         let doc = document(pages: 3)
