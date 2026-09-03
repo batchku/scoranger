@@ -112,18 +112,16 @@ python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv <<'PY'
 import json, sys, os, collections
 tests_json, workers, out, durfile = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 
+# enabledTests only: -skip-testing is honoured by the enumeration, and the
+# sweeps it skips turn up under disabledTests in the same file.
 ids = set()
-def walk(node):
-    if isinstance(node, dict):
-        i = node.get("identifier")
-        if isinstance(i, str) and "/" in i:
+for value in json.load(open(tests_json)).get("values", []):
+    for test in value.get("enabledTests", []):
+        i = test.get("identifier")
+        if isinstance(i, str) and i.count("/") >= 2:
             ids.add(i)
-        for v in node.values():
-            walk(v)
-    elif isinstance(node, list):
-        for v in node:
-            walk(v)
-walk(json.load(open(tests_json)))
+if not ids:
+    sys.exit("no tests enumerated")
 
 ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/"))
 unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/"))

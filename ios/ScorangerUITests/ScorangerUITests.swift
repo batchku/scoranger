@@ -104,20 +104,27 @@ final class ScorangerUITests: XCTestCase {
                         "row-", piece)).firstMatch
         XCTAssertTrue(pieceRow.waitForExistence(timeout: 180),
                       "the library never listed the piece holding \(slug)")
-        pieceRow.tap()
 
-        // The tap can land while the library is still settling -- after the
-        // pencil stand-in relaunch it reliably does -- and then it opens
-        // nothing at all. Whichever lasso test ran FIRST after that relaunch
-        // failed here, and the other passed, which is what made it look like a
-        // flake rather than a race.
+        // The tap can land while the library is still settling and then push
+        // nothing at all. The seed imports the scores and only AFTERWARDS
+        // files them into a set list, and every row is rebuilt when it does;
+        // `withPencilStandIn()` relaunches into the middle of that, which is
+        // why whichever lasso test ran first after it failed here and the
+        // other passed -- a race that read as a flake.
         //
-        // One retry, and only while the row is still there to tap: the
-        // assertion below is unchanged, so the piece screen must still list
-        // its arrangements.
+        // It was one retry before, and it was still the commonest failure in
+        // the suite: it failed in a plain serial run on an idle machine. Four
+        // simulators take longer to settle, not less. So: wait for the row to
+        // stop moving, tap, check that the piece screen arrived, and unwind
+        // and try again if it did not. Tapping again cannot double-open -- the
+        // piece row does not exist on the piece screen.
         let choice = app.buttons["arrangement-choice-\(slug)"]
-        if !choice.waitForExistence(timeout: 10), pieceRow.exists, pieceRow.isHittable {
+        for attempt in 0..<4 where !choice.exists {
+            settle(pieceRow, still: 0.5, timeout: 20)
+            guard pieceRow.exists, pieceRow.isHittable else { break }
             pieceRow.tap()
+            if choice.waitForExistence(timeout: attempt == 0 ? 15 : 30) { break }
+            resetToLibraryRoot()
         }
         XCTAssertTrue(choice.waitForExistence(timeout: 30),
                       "the piece screen did not list its arrangements")
@@ -133,6 +140,26 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["piece-new-arrangement-\(pieceSlug)"]
                         .waitForExistence(timeout: 20),
                       "the piece screen did not open")
+    }
+
+    /// Open the title band on its versions column, and check that it opened.
+    ///
+    /// Tapping `score-title` while the ink bar is still sliding away lands on
+    /// nothing, and the test that followed reported "the title band never
+    /// opened" -- which was true, and was not what was wrong. Leaving markup
+    /// mode is a state to wait for; one tap on a control is a fact to check.
+    private func openTitleBand() {
+        expect("markup mode to close before the title bar is used", timeout: 20) {
+            !app.buttons["Draw"].exists
+        }
+        let rows = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+        for _ in 0..<3 where !rows.firstMatch.exists {
+            app.buttons["score-title"].tap()
+            if rows.firstMatch.waitForExistence(timeout: 15) { break }
+        }
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 20),
+                      "the title band never opened")
     }
 
     /// A row's ☰. Pushes to the item's screen.
@@ -2095,16 +2122,13 @@ final class ScorangerUITests: XCTestCase {
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.30, dy: 0.45))
             .press(forDuration: 0.05,
                    thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.45)))
+        waitUntil("the stroke to land", timeout: 20) { strokes() == 1 }
         XCTAssertEqual(strokes(), 1, "the stroke did not land")
         app.buttons["score-edit"].tap()   // leave markup mode
 
         // switch to an earlier version, from the title dropdown -- which is
         // where switching version lives now, and where a reader would do it
-        app.buttons["score-title"].tap()
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the title band never opened")
+        openTitleBand()
         let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else {
@@ -2229,13 +2253,9 @@ final class ScorangerUITests: XCTestCase {
         guard caught else { return XCTFail("nothing was selected on the page") }
         if app.buttons["Close chat"].exists { app.buttons["Close chat"].tap() }
 
-        app.buttons["score-title"].tap()
         // wait for the band, then count: counting a query the instant after a
         // tap counts an empty screen
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the title band never opened")
+        openTitleBand()
         let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else { return XCTFail("need two versions in the dropdown") }
