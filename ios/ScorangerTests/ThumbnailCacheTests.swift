@@ -56,6 +56,31 @@ final class ThumbnailCacheTests: XCTestCase {
                           ThumbnailCache.key(document: a, index: 1))
         XCTAssertEqual(ThumbnailCache.key(document: a, index: 1),
                        ThumbnailCache.key(document: a, index: 1))
+        // ...nor between two sizes of the same page. The book browser draws
+        // page 137 twice -- once in its strip, once big enough to read a title
+        // off -- and a key that named only the page handed whichever asked
+        // second the other one's raster.
+        let thumb = CGSize(width: 104, height: 136)
+        let page = CGSize(width: 650, height: 840)
+        XCTAssertNotEqual(ThumbnailCache.key(document: a, index: 0, size: thumb),
+                          ThumbnailCache.key(document: a, index: 0, size: page))
+        XCTAssertEqual(ThumbnailCache.key(document: a, index: 0, size: thumb),
+                       ThumbnailCache.key(document: a, index: 0, size: thumb))
+    }
+
+    /// The same page at two sizes is two rasters, not one stretched.
+    func testTheSamePageAtTwoSizesIsTwoImages() throws {
+        let doc = document(pages: 2)
+        ThumbnailCache.shared.clear()
+        let thumb = ThumbnailCache.shared.image(document: doc, index: 0,
+                                                size: CGSize(width: 104, height: 136))
+        let page = ThumbnailCache.shared.image(document: doc, index: 0,
+                                               size: CGSize(width: 650, height: 840))
+        // PDFKit fits the page's own aspect ratio inside what is asked for,
+        // so the widths are near the request rather than equal to it. What
+        // matters is that they are two rasters and not one served twice.
+        XCTAssertEqual(try XCTUnwrap(thumb).size.width, 104, accuracy: 2)
+        XCTAssertEqual(try XCTUnwrap(page).size.width, 650, accuracy: 2)
     }
 
     /// A new engraving is made on every render and the last one released, so
