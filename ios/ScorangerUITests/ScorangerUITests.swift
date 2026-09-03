@@ -1582,11 +1582,12 @@ final class ScorangerUITests: XCTestCase {
     func testTheChordSymbolsScreenCarriesTheDefaultAndTheResetAll() {
         openScoreWithChords()
         app.buttons["score-more"].tap()
-        let display = menuRow("more-display")
-        XCTAssertTrue(display.waitForExistence(timeout: 20), "no Score display row")
-        display.tap()
-        let chords = menuRow("display-chords")
-        XCTAssertTrue(chords.waitForExistence(timeout: 10), "no Chord symbols row")
+        // "Score display" is gone (0.6.3 #6): its page/spread/continuous rows
+        // are the three buttons at the top of the score, and what was left
+        // behind it was chord symbols -- which now sit on the Options root
+        // rather than two screens deep (#7).
+        let chords = menuRow("more-chords")
+        XCTAssertTrue(chords.waitForExistence(timeout: 20), "no Chord symbols row")
         chords.tap()
 
         XCTAssertTrue(app.staticTexts["chords-size"].waitForExistence(timeout: 10),
@@ -2773,8 +2774,9 @@ extension ScorangerUITests {
     /// Everything else about playback is tested without a device -- the bar
     /// map, the mutes, the follow geometry, the sequencer's track order. What
     /// none of that can show is that the feature is REACHABLE: the transport
-    /// lives behind a switch on the Score display screen, and a switch that
-    /// does not reveal it leaves the whole thing shipped and invisible.
+    /// lives behind a switch -- on the bar, and on the Options root -- and a
+    /// switch that does not reveal it leaves the whole thing shipped and
+    /// invisible, which is exactly what 0.6 did.
     ///
     /// The assertion at the end is the product rule: every voice off is a
     /// destination, not an error, and the transport says the metronome is
@@ -2860,20 +2862,34 @@ extension ScorangerUITests {
 
 extension ScorangerUITests {
 
-    /// Turn the transport on: Score display, then the switch.
+    /// Turn the transport on.
+    ///
+    /// It used to be two screens down, behind "Score display". That screen is
+    /// gone (0.6.3 #6) and the switch sits on the Options root, as well as on
+    /// the bar -- both, because a narrow bar yields the toggle
+    /// (ScoreBarLayout) and a switch reachable only at some screen widths is
+    /// not reachable. The bar is the short way, so that is what this takes,
+    /// and it falls back to the Options row when the bar has yielded it.
     func revealTransport() {
+        let toggle = app.buttons["score-transport-toggle"]
+        if toggle.waitForExistence(timeout: 20) {
+            if (toggle.value as? String) != "on" { toggle.tap() }
+            expect("the transport switch to take", timeout: 20) {
+                (toggle.value as? String) == "on"
+            }
+            return
+        }
+        // the bar yielded it: the Options root still carries it
         let more = app.buttons["score-more"]
         XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
         more.tap()
-        tapAnyway(menuRow("more-display"), in: app.scrollViews.firstMatch)
         // A PanelToggle is a Toggle to a screen reader, named by its title.
         let switchElement = app.switches["Show transport"]
         XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
-                      "Score display no longer offers the transport")
+                      "the Options root no longer offers the transport")
         if (switchElement.value as? String) != "1" { switchElement.tap() }
         XCTAssertEqual(switchElement.value as? String, "1",
                        "the transport switch did not take")
-        goBack()
         goBack()
     }
 
