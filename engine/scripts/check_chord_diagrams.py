@@ -153,6 +153,28 @@ from music21 import expressions as m21expressions  # noqa: E402
 check("nothing is written for it",
       not list(part.recurse().getElementsByClass(m21expressions.TextExpression)))
 
+# --- a transposed score does not keep the old shapes ------------------------
+#
+# Six frets are one chord. Transpose the music and every diagram on it is
+# describing the chord that used to be there, so they go, and the report says
+# how many.
+score = m21stream.Score()
+part = m21stream.Part()
+part.partName = "Guitar"
+measure = m21stream.Measure(number=1)
+measure.append(m21meter.TimeSignature("4/4"))
+measure.insert(0.0, m21harmony.ChordSymbol("C"))
+measure.append(m21note.Note("C4", quarterLength=4))
+part.append(measure)
+score.append(part)
+ops.chord_diagrams(score, part, "EADGBE")
+moved = ops.transpose(score, "M2")
+check("transposing clears the diagrams it would have made wrong",
+      moved.get("chord_diagrams_cleared") == 1, str(moved))
+check("...and leaves none behind",
+      not [e for e in part.recurse().getElementsByClass(m21expressions.TextExpression)
+           if ops.parse_shape(e.content) is not None])
+
 # --- a barre is a barre -----------------------------------------------------
 F = ops.parse_shape("[1,3,3,2,1,1]")
 check("F barres the first fret", ops.diagram_barre(F) == (1, 0, 5),
@@ -191,6 +213,50 @@ check("the nut is thicker than a fret line",
 check("a windowed shape has no nut", 'stroke-width="16"' not in high_svg)
 check("...and carries its fret number", "4 fr." in high_svg)
 check("a shape at the nut carries no fret number", "fr." not in nut_svg)
+
+# --- the reader's nudge reaches the page ------------------------------------
+#
+# `adjust-element --kind diagram` writes three numbers onto the marker, and
+# Verovio drops all three, so the MEI pass has to carry them. Both of these
+# were wrong once and both were visible only on an engraving.
+import tempfile as _tempfile  # noqa: E402
+
+score = m21stream.Score()
+part = m21stream.Part()
+part.partName = "Guitar"
+for index, symbol in enumerate(["C", "G"]):
+    measure = m21stream.Measure(number=index + 1)
+    if index == 0:
+        measure.append(m21meter.TimeSignature("4/4"))
+    measure.insert(0.0, m21harmony.ChordSymbol(symbol))
+    measure.append(m21note.Note("C4", quarterLength=4))
+    part.append(measure)
+score.append(part)
+ops.chord_diagrams(score, part, "EADGBE")
+nudged = ops.adjust_element(score, "Guitar", kind="diagram", measure=2,
+                            size=18.0, offset_x=25.0, offset_y=30.0)
+check("a diagram is addressable by adjust-element", nudged["adjusted"] == 1, str(nudged))
+path = Path(_tempfile.mkdtemp(prefix="scoranger-diagram-")) / "s.musicxml"
+score.write("musicxml", fp=str(path))
+found = render.diagram_adjustments(path)
+check("the nudge is in the notation, not in the renderer",
+      found == [{"size": None, "dx": None, "dy": None},
+                {"size": 18.0, "dx": 25.0, "dy": 30.0}], str(found))
+
+import verovio as _verovio  # noqa: E402
+_tk = _verovio.toolkit()
+_tk.loadFile(str(path))
+carried = render.mei_with_chord_diagrams(_tk.getMEI(), path)
+blocks = carried.split("<dir")[1:]
+check("a nudge upwards is carried upwards",
+      'vo="6"' in blocks[1] and "vo=" not in blocks[0],
+      "MusicXML relative-y and a dir's @vo both measure up")
+check("...and sideways", 'ho="5"' in blocks[1])
+# an enlarged diagram needs a taller block, or it draws through the staff
+check("an enlarged diagram reserves more rows than a plain one",
+      blocks[1].count("<lb/>") > blocks[0].count("<lb/>"),
+      f'{blocks[1].count("<lb/>")} vs {blocks[0].count("<lb/>")}')
+check("...and says how much bigger it is", '@1.5"' in blocks[1])
 
 # --- the two renderers draw the same picture --------------------------------
 CASES = [

@@ -244,7 +244,6 @@ enum ChordDiagrams {
         let matches = re.matches(in: mei, range: NSRange(location: 0, length: ns.length))
         guard !matches.isEmpty else { return nil }
 
-        let blank = Array(repeating: " ", count: rows).joined(separator: "<lb/>")
         var out = ""
         var cursor = 0
         for (index, m) in matches.enumerated() {
@@ -253,17 +252,24 @@ enum ChordDiagrams {
             var attrs = ns.substring(with: m.range(at: 1))
             let shape = ns.substring(with: m.range(at: 2))
             let adjustment = index < adjustments.count ? adjustments[index] : Adjustment()
+            let scale = adjustment.size.map { $0 / defaultPoints } ?? 1
             var label = shape
-            if let size = adjustment.size {
-                label += "@" + g(size / defaultPoints)
-            }
+            if adjustment.size != nil { label += "@" + g(scale) }
+            // The reserved block grows with the diagram: the rows are what
+            // Verovio spaces the system by, and seven of them are seven
+            // whatever size the drawing is.
+            let blank = Array(repeating: " ",
+                              count: Int((Double(rows) * scale).rounded(.up)))
+                .joined(separator: "<lb/>")
             // Verovio turns a <words relative-y> into a @vgrp of its own, which
             // would scatter the diagrams up the page; ours replaces it.
             attrs = attrs.replacingOccurrences(of: "\\s+vgrp=\"[^\"]*\"", with: "",
                                                options: .regularExpression)
             if let dx = adjustment.dx { attrs += " ho=\"\(g(dx * tenthsToHalfSpaces))\"" }
-            // MusicXML measures up, MEI @vo measures down
-            if let dy = adjustment.dy { attrs += " vo=\"\(g(-dy * tenthsToHalfSpaces))\"" }
+            // Both measure UP: MusicXML's relative-y does, and so does @vo on
+            // a direction placed ABOVE a staff -- a negative one pushed the
+            // block down onto the staff when it was measured.
+            if let dy = adjustment.dy { attrs += " vo=\"\(g(dy * tenthsToHalfSpaces))\"" }
             out += "<dir\(attrs) vgrp=\"\(vgrp)\" label=\"\(label)\">\(blank)</dir>"
             cursor = m.range.location + m.range.length
         }

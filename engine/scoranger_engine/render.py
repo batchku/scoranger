@@ -6,6 +6,7 @@ substituted with plain 'b'/'#' before conversion.
 """
 
 import io
+from math import ceil
 import re
 import tempfile
 import threading
@@ -884,14 +885,23 @@ def mei_with_chord_diagrams(mei: str, musicxml_path=None) -> str | None:
         adjustment = adjustments[index] if index < len(adjustments) else {}
         index += 1
         size = adjustment.get("size")
-        label = shape if size is None else f"{shape}@{size / DEFAULT_DIAGRAM_POINTS:g}"
+        scale = 1.0 if size is None else size / DEFAULT_DIAGRAM_POINTS
+        label = shape if size is None else f"{shape}@{scale:g}"
         attrs = re.sub(r'\s+vgrp="[^"]*"', "", attrs)
         if adjustment.get("dx") is not None:
             attrs += f' ho="{adjustment["dx"] * _TENTHS_TO_HALF_SPACES:g}"'
         if adjustment.get("dy") is not None:
-            # MusicXML measures up, MEI @vo measures down
-            attrs += f' vo="{-adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
-        rows = "<lb/>".join([" "] * DIAGRAM_ROWS)
+            # Both measure UP here: MusicXML's relative-y does, and so does
+            # @vo on a direction placed ABOVE a staff -- a negative one pushed
+            # the block 540 units DOWN onto the staff when it was measured.
+            # (The <harm> pass above negates its own; harm and dir are not
+            # the same element, and this one is what the ruler says.)
+            attrs += f' vo="{adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
+        # The reserved block grows with the diagram. Without this an
+        # enlarged one drew straight down through the staff underneath it:
+        # the rows are what Verovio spaces the system by, and seven of them
+        # are seven whatever size the drawing is.
+        rows = "<lb/>".join([" "] * ceil(DIAGRAM_ROWS * scale))
         return f'<dir{attrs} vgrp="{DIAGRAM_VGRP}" label="{label}">{rows}</dir>'
 
     out = _DIR_MARKER_RE.sub(block, mei)

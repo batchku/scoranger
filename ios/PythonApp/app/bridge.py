@@ -277,6 +277,15 @@ def _dispatch(op, a):
                                       {"part": a["part"], "kind": a.get("kind") or "harm",
                                        "measure": a.get("measure")})
         return {"version": entry["id"], "details": details}
+    if op == "chord-diagrams":
+        score = _load(a["score"], None)
+        part = _part(score, a["part"])
+        details = ops.chord_diagrams(score, part, a.get("tuning") or "EADGBE",
+                                     clear=bool(a.get("clear")))
+        entry = workspace.add_version(a["score"], score, "chord-diagrams",
+                                      {"part": a["part"],
+                                       "tuning": a.get("tuning") or "EADGBE"})
+        return {"version": entry["id"], "details": details}
     if op == "whistle-fingerings":
         score = _load(a["score"], None)
         part = _part(score, a["part"])

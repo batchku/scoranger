@@ -85,6 +85,13 @@ final class ChordDiagramsTests: XCTestCase {
         // seven rows reserved, and the shape moved into the label
         XCTAssertEqual(text.components(separatedBy: "<lb/>").count - 1,
                        (ChordDiagrams.rows - 1) * 2)
+        // and the block grows with the diagram, or an enlarged one draws
+        // straight down through the staff underneath it
+        let bigger = try! XCTUnwrap(ChordDiagrams.meiWithDiagrams(
+            "<measure><dir place=\"above\">[x,3,2,0,1,0]</dir></measure>",
+            adjustments: [ChordDiagrams.Adjustment(size: 24)]))
+        XCTAssertEqual(bigger.components(separatedBy: "<lb/>").count - 1,
+                       ChordDiagrams.rows * 2 - 1)
         XCTAssertTrue(text.contains("label=\"[x,3,2,0,1,0]\""))
         XCTAssertNil(ChordDiagrams.meiWithDiagrams("<measure><dir>a tempo</dir></measure>"))
     }
@@ -106,7 +113,7 @@ final class ChordDiagramsTests: XCTestCase {
         XCTAssertTrue(out.contains("label=\"[x,3,2,0,1,0]@1.5\""), out)
         // MusicXML measures in tenths and upwards; MEI in half-spaces and down
         XCTAssertTrue(out.contains("ho=\"4\""), out)
-        XCTAssertTrue(out.contains("vo=\"6\""), out)
+        XCTAssertTrue(out.contains("vo=\"-6\""), out)
     }
 
     func testDrawingReplacesTheReservedBlock() {

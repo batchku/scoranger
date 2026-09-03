@@ -368,7 +368,8 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
                    kind: str = "harm", ordinal: int = 0, size: float | None = None,
                    offset_x: float | None = None, offset_y: float | None = None,
                    reset: bool = False, all_elements: bool = False) -> dict:
-    """Change the size or position of an added element -- chord symbols today.
+    """Change the size or position of an added element. kind="harm" is a chord
+    symbol, kind="diagram" a guitar chord diagram.
     `size` is an absolute point size (12 is the default); `offset_x`/`offset_y`
     nudge it sideways/up in MusicXML tenths, positive y being up. Address one
     with measure (+ ordinal when a bar has several), or pass all_elements=True
@@ -380,6 +381,19 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
     return _apply(ctx.deps, "adjust-element",
                   {"part": part, "kind": kind, "measure": measure, "size": size,
                    "reset": reset}, fn)
+
+
+def guitar_chord_diagrams(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
+                          clear: bool = False) -> dict:
+    """Draw a guitar chord diagram above every chord symbol already on a part:
+    the grid, the dots, the barre, the nut, and a "5 fr." label when the shape
+    sits up the neck. `tuning` is EADGBE (standard), DADGAD or DADGBE (drop D).
+    Chords with no playable shape are reported. `clear` removes them.
+    Size and position are `adjust_element`'s business, with kind="diagram"."""
+    def fn(s):
+        return ops.chord_diagrams(s, _part(s, part), tuning, clear=clear)
+    return _apply(ctx.deps, "chord-diagrams",
+                  {"part": part, "tuning": tuning, "clear": clear}, fn)
 
 
 def penny_whistle_fingerings(ctx: RunContext[str], part: str, whistle: str = "D",
@@ -419,7 +433,8 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
          limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
-         pull_part, set_metadata, penny_whistle_fingerings, set_structure,
+         pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
+         set_structure,
          adjust_element,
          assign_to_piece]
 

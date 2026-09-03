@@ -539,6 +539,7 @@ def transpose(score, interval_str: str, names: list[str] | None = None,
                 "scope": scope,
                 "measures": f"{from_measure or 1}-{to_measure if to_measure is not None else 'end'}",
                 "measures_transposed": touched,
+                "chord_diagrams_cleared": clear_stale_diagrams(score, names),
                 "redundant_accidentals_hidden": cleaned["hidden"]}
     if names:
         targets = find_parts(score, names)
@@ -551,6 +552,7 @@ def transpose(score, interval_str: str, names: list[str] | None = None,
     cleaned = normalize_accidentals(score, names)
     return {"interval": itv.niceName, "direction": itv.direction.name.lower(),
             "scope": scope,
+            "chord_diagrams_cleared": clear_stale_diagrams(score, names),
             "redundant_accidentals_hidden": cleaned["hidden"]}
 
 
@@ -1620,7 +1622,38 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> 
     }
 
 
-ADJUSTABLE_KINDS = {"harm"}
+def clear_stale_diagrams(score, names: list[str] | None = None) -> int:
+    """Drop chord diagrams whose chords have moved out from under them.
+
+    A shape is six frets, and six frets are one chord: transpose the music and
+    every diagram on it describes the chord that used to be there. The symbols
+    themselves move -- music21 transposes a ChordSymbol -- so the page would
+    show a C grid over a D, which is worse than showing nothing.
+
+    Removing them and saying so in the report is the honest half of that: the
+    shapes are one `chord-diagrams` away, and a stale diagram is a lie a player
+    would act on.
+    """
+    from music21 import expressions as m21expressions
+
+    parts = find_parts(score, names) if names else list(score.parts)
+    removed = 0
+    for part in parts:
+        for measure in part.getElementsByClass(stream.Measure):
+            for marker in [e for e in measure.getElementsByClass(
+                    m21expressions.TextExpression)
+                    if parse_shape(e.content) is not None]:
+                measure.remove(marker)
+                removed += 1
+    return removed
+
+
+# What `adjust-element` can move and resize. A chord DIAGRAM is addressed the
+# same way its chord symbol is, and nudged through the same three MusicXML
+# fields, because the alternative -- a second mechanism for a second kind of
+# added element -- is how two things that look alike start behaving
+# differently.
+ADJUSTABLE_KINDS = {"harm", "diagram"}
 
 
 def adjust_element(score, name: str, kind: str = "harm",
@@ -1646,6 +1679,7 @@ def adjust_element(score, name: str, kind: str = "harm",
     does, so the UI passes exactly what the user selected. `all_elements`
     reaches every one in the part, for "make all the chord names bigger".
     """
+    from music21 import expressions as m21expressions
     from music21 import harmony as m21harmony
 
     if kind not in ADJUSTABLE_KINDS:
@@ -1655,20 +1689,29 @@ def adjust_element(score, name: str, kind: str = "harm",
 
     part = find_parts(score, [name])[0]
     measures = {m.number: m for m in part.getElementsByClass(stream.Measure)}
+    # A diagram is the shape marker `chord-diagrams` wrote at the chord
+    # symbol's own offset, so measure + ordinal addresses the diagram and its
+    # symbol identically -- the reader points at one thing on the page.
+    noun = "chord symbol" if kind == "harm" else "chord diagram"
+
+    def in_measure(m):
+        if kind == "diagram":
+            return [e for e in m.getElementsByClass(m21expressions.TextExpression)
+                    if parse_shape(e.content) is not None]
+        return list(m.getElementsByClass(m21harmony.ChordSymbol))
 
     if all_elements:
-        targets = [c for m in measures.values()
-                   for c in m.getElementsByClass(m21harmony.ChordSymbol)]
+        targets = [c for m in measures.values() for c in in_measure(m)]
         if not targets:
-            raise ValueError(f"No chord symbols in part '{part_label(part)}'")
+            raise ValueError(f"No {noun}s in part '{part_label(part)}'")
     else:
         if measure is None:
             raise ValueError("Which one? Pass a measure, or --all for the whole part")
         m = measures.get(measure)
-        found = list(m.getElementsByClass(m21harmony.ChordSymbol)) if m is not None else []
+        found = in_measure(m) if m is not None else []
         if ordinal >= len(found):
             raise ValueError(
-                f"No chord symbol #{ordinal} in measure {measure} of "
+                f"No {noun} #{ordinal} in measure {measure} of "
                 f"'{part_label(part)}' (it has {len(found)})")
         targets = [found[ordinal]]
 

@@ -239,6 +239,13 @@ struct LocalChat {
                                      "reset": bool("put it back where it was")],
                                     required: ["part"]),
                  op: "adjust-element", rename: [:]),
+        ToolSpec(name: "guitar_chord_diagrams",
+                 description: "Draw a guitar chord diagram above every chord symbol already on a part: the grid, the finger dots, a barre as one bar, the nut at first position and a \"5 fr.\" label above it. Chords with no playable shape are reported, not faked. Set clear=true to remove them. Size and position are adjust_element's business, with kind=\"diagram\".",
+                 parameters: params(["part": str("the part whose chord symbols get diagrams"),
+                                     "tuning": str("EADGBE (standard), DADGAD, or DADGBE (drop D)"),
+                                     "clear": bool("remove the diagrams instead")],
+                                    required: ["part"]),
+                 op: "chord-diagrams", rename: [:]),
         ToolSpec(name: "penny_whistle_fingerings",
                  description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). Notes the whistle cannot play are reported. Set clear=true to remove them.",
                  parameters: params(["part": str("the part to fingerings"),
@@ -298,9 +305,14 @@ struct LocalChat {
             if let to = s("move_to") { return "Moving the \(what) to bar \(to)" }
             return "Adding \(what) at bar \(s("measure") ?? "?")"
         case "adjust_element":
-            if s("reset") == "true" { return "Putting the chord name back" }
-            if let size = s("size") { return "Setting the chord name to \(size)pt" }
-            return "Moving the chord name"
+            let what = s("kind") == "diagram" ? "chord diagram" : "chord name"
+            if s("reset") == "true" { return "Putting the \(what) back" }
+            if let size = s("size") { return "Setting the \(what) to \(size)pt" }
+            return "Moving the \(what)"
+        case "guitar_chord_diagrams":
+            return s("clear") == "true"
+                ? "Removing chord diagrams from \(s("part") ?? "the part")"
+                : "Drawing chord diagrams over \(s("part") ?? "the part")"
         case "penny_whistle_fingerings":
             return s("clear") == "true"
                 ? "Removing whistle fingerings from \(s("part") ?? "the part")"

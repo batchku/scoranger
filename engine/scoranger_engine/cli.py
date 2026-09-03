@@ -761,10 +761,12 @@ def main() -> None:
     s.set_defaults(fn=cmd_chord_diagrams)
 
     s = sub.add_parser("adjust-element",
-                       help="size and position of an added element (chord symbols)")
+                       help="size and position of an added element "
+                            "(chord symbols, chord diagrams)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
-    s.add_argument("--kind", default="harm")
+    s.add_argument("--kind", default="harm",
+                   help="harm (a chord symbol) or diagram (a chord diagram)")
     s.add_argument("--measure", type=int)
     s.add_argument("--ordinal", type=int, default=0)
     s.add_argument("--size", type=float, help="absolute point size")
