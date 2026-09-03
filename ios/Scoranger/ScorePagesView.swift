@@ -30,9 +30,9 @@ struct ScorePagesView: View {
     /// The laid-out width of the continuous strip, so a tap knows where the
     /// end of the music is.
     @State private var surfaceWidth: CGFloat = 0
-    /// Surface points per engraved point on the strip, kept here so the chip
-    /// and the tap zones -- which live outside the GeometryReader that computes
-    /// it -- measure against the same strip the canvas drew.
+    /// Surface points per unit of the ENGRAVING's own coordinates, kept here so
+    /// the sync chip -- which lives outside the GeometryReader that computes it
+    /// -- measures against the same strip the canvas drew.
     @State private var engravedScale: CGFloat = 1
     /// Pencil markup: the shared controller, driven from the top bar.
     private var annotation: AnnotationController { state.annotation }
@@ -82,6 +82,14 @@ struct ScorePagesView: View {
                 pageSize: stripBox, viewport: geo.size, bottomChrome: Self.bottomChrome)
             let surface = CGSize(width: stripBox.width * stripScale,
                                  height: stripBox.height * stripScale)
+            // The geometry is in the SVG's viewBox units, not the PDF's points
+            // -- 383690 wide against 16970 for the same strip. Everything that
+            // meets the geometry (the play head, the bar readout) converts
+            // through THIS, and everything that meets the PDF (the tiles) uses
+            // stripScale. Mixing them put the play head 22 times too far into
+            // the piece: it left the screen in the first bar.
+            let strip = state.geometry?.page(0)
+            let engraved = surface.width / max(strip?.size.width ?? 0, 1)
             let spread = state.twoPageSpread
             let unit = PagedCanvas.unit(at: state.pageIndex,
                                         pageCount: document.pageCount, spread: spread)
@@ -122,8 +130,8 @@ struct ScorePagesView: View {
                                visibleRect = rect
                                if continuous {
                                    publishVisibleStrip(contentRect: rect,
-                                                       scale: stripScale,
-                                                       pageSize: stripBox)
+                                                       scale: engraved,
+                                                       pageSize: strip?.size ?? .zero)
                                } else {
                                    publishVisibleBars(contentRect: rect,
                                                       contentSize: content,
@@ -146,7 +154,8 @@ struct ScorePagesView: View {
                 if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
                 if continuous, let stripPage {
-                    continuousStrip(stripPage, surface: surface, scale: stripScale)
+                    continuousStrip(stripPage, surface: surface, scale: stripScale,
+                                    engraved: engraved)
                 } else {
                     pageUnit(unit, width: width)
                 }
@@ -157,7 +166,7 @@ struct ScorePagesView: View {
             .onChange(of: surface.width, initial: true) { _, new in
                 surfaceWidth = new
             }
-            .onChange(of: stripScale, initial: true) { _, new in
+            .onChange(of: engraved, initial: true) { _, new in
                 engravedScale = new
             }
             .id(continuous ? -1 : state.pageIndex)
@@ -548,7 +557,7 @@ struct ScorePagesView: View {
     /// happens when this app asks for that much bitmap.
     @ViewBuilder
     private func continuousStrip(_ page: PDFPage, surface: CGSize,
-                                 scale: CGFloat) -> some View {
+                                 scale: CGFloat, engraved: CGFloat) -> some View {
         let tiles = ContinuousTiles.tiles(surface: surface)
         let deep = ContinuousTiles.atDepth(tiles: tiles, visible: visibleRect)
         HStack(spacing: 0) {
@@ -560,7 +569,7 @@ struct ScorePagesView: View {
         .overlay(alignment: .topLeading) {
             ContinuousPlayheadLayer(playback: playback,
                                     page: state.geometry?.page(0),
-                                    scale: scale,
+                                    scale: engraved,
                                     surfaceWidth: surface.width,
                                     viewportWidth: visibleRect.width,
                                     isFollowing: state.pageFollow.isFollowing,
@@ -826,7 +835,7 @@ private struct ContinuousPlayheadLayer: View {
     @ObservedObject var playback: PlaybackEngine
     /// The strip's engraving: one page, the whole score.
     let page: ScorePage?
-    /// Surface points per engraved point.
+    /// Surface points per unit of the engraving's own coordinates.
     let scale: CGFloat
     let surfaceWidth: CGFloat
     let viewportWidth: CGFloat

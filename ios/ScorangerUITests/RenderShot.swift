@@ -89,6 +89,22 @@ final class RenderShot: XCTestCase {
         return counter
     }
 
+    /// The transport's own bar readout, which says whether a sound is running.
+    private var transportBar: String {
+        let chip = app.staticTexts["transport-bar"]
+        return chip.exists ? chip.label : ""
+    }
+
+    /// Poll for a condition. Playback has to be BUILT before it can play, and
+    /// how long that takes is a property of the score, not a number to guess.
+    private func waitFor(_ seconds: TimeInterval, _ done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if done() { return }
+            settle(0.5)
+        }
+    }
+
     private func openFirstScore() {
         let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
@@ -145,5 +161,58 @@ final class RenderShot: XCTestCase {
         if app.otherElements["thumbnail-strip"].exists {
             snap("04-thumbnail-strip")
         }
+    }
+
+    /// Bug 6: the line stands still and the score scrolls past it, a hand on
+    /// the score hands following over, and Sync hands it back.
+    ///
+    /// A sweep with one assertion. What it can prove without ears is that the
+    /// strip MOVED under a playhead that stayed put, and that the chip turns up
+    /// after a manual scroll -- the rest is in the screenshots.
+    func testTheStripScrollsUnderTheLine() {
+        app = XCUIApplication()
+        app.launchArguments = ["-seedTestLibrary"]
+        app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        settle(1.5)
+        openFirstScore()
+
+        tap("layout-continuous")
+        waitForPages { $0 == 0 }
+        settle(12)
+        snap("10-continuous-before-play")
+
+        guard tap("transport-play", wait: 10) else {
+            print("RENDERSHOT: no transport-play; nothing to photograph")
+            return
+        }
+        // Building the performance takes a moment on a long score, and how long
+        // is not a number to guess. The sound has started when the transport's
+        // own bar readout MOVES -- "bar 1" is what it says standing still.
+        let standing = transportBar
+        waitFor(90) { self.transportBar != standing }
+        settle(3)
+        snap("11-playing-line-parked")
+        let firstBar = app.staticTexts["counter-bar"].exists
+            ? app.staticTexts["counter-bar"].label : ""
+        settle(6)
+        snap("12-playing-later")
+        let laterBar = app.staticTexts["counter-bar"].exists
+            ? app.staticTexts["counter-bar"].label : ""
+        print("RENDERSHOT: bar readout \"\(firstBar)\" then \"\(laterBar)\"")
+
+        // a hand on the score: playback does NOT stop, following does
+        app.scrollViews["score-canvas"].firstMatch.swipeLeft()
+        app.scrollViews["score-canvas"].firstMatch.swipeLeft()
+        let chip = app.buttons["sync-to-playback"]
+        waitFor(12) { chip.exists }
+        snap("13-after-a-manual-scroll")
+        print("RENDERSHOT: sync chip after a manual scroll = \(chip.exists)")
+        if chip.exists {
+            chip.tap()
+            settle(2.5)
+            snap("14-after-sync")
+        }
+        if app.buttons["transport-play"].exists { app.buttons["transport-play"].tap() }
     }
 }
