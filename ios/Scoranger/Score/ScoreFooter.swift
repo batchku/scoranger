@@ -319,9 +319,13 @@ struct Transport: View {
         }
     }
 
+    /// The SAME number the mixer's tempo slider sits on. It was the timeline's
+    /// opening tempo, which the slider could not change -- a readout and a
+    /// control claiming one value while reading two.
     private var tempoLabel: String {
-        let bpm = Int(playback.timeline.openingTempo.rounded())
-        return playback.timeline.tempoFromScore ? "\(bpm) bpm" : "\(bpm) (default)"
+        PlaybackTempo.label(bpm: playback.tempoBPM,
+                            fromScore: playback.timeline.tempoFromScore,
+                            overridden: playback.tempoOverride != nil)
     }
 
     /// One row per part, each a switch. Muting every one of them is how the
