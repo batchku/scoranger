@@ -60,10 +60,6 @@ final class AppState: ObservableObject {
 
     var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
     var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
-    /// Per-score enharmonic preference backing the gear menu's "Use flats"
-    /// toggle; flipping it applies a respell op. Defaults to flats.
-    @Published var useFlats: [String: Bool] = [:]
-
     /// What the lasso caught, held by durable address so it survives the
     /// re-render every engine op triggers. This replaces the yellow-band
     /// highlight, which inferred bar numbers from where a stroke landed across
@@ -109,7 +105,6 @@ final class AppState: ObservableObject {
     /// that the thing remembering "it is open" did not survive the next frame.
     @Published var scoreMode: ScoreMode = .read
     @Published var titleMenuOpen = false
-    @Published var moreMenuOpen = false
 
     @Published var currentSetlist: String?
     /// Which pages are on screen, reported by the canvas. Feeds the counters
