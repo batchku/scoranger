@@ -38,13 +38,19 @@ enum BuildStamp {
 /// Two places show it (#53) -- here on the library, and Settings → About --
 /// and both read the same value out of Info.plist through `BuildStamp`, so
 /// they cannot disagree about which build this is.
+///
+/// It sat at the BOTTOM of the library, below every row, which meant a tester
+/// on a full library had to scroll to the end of their music to answer "which
+/// build are you on?". It is at the top now, centred, outside the scroll view
+/// -- so it is on screen whatever the list is doing. No top padding of its
+/// own any more: the row it sits in owns its spacing.
 struct BuildStampLine: View {
     var body: some View {
         Text(BuildStamp.short)
             .typeRole(.data)
             .foregroundStyle(Theme.Ink.ink3.opacity(0.8))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, Theme.Metric.s24)
+            .lineLimit(1)
+            .fixedSize()
             .accessibilityIdentifier("build-stamp")
     }
 }

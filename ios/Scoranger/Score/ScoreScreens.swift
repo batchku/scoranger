@@ -33,9 +33,6 @@ struct ScoreOptionsScreen: View {
     /// sheet is how iOS puts a file into Files, Mail or another program, and
     /// re-implementing it would be both worse and impossible.
     @State private var sharing: URL?
-    /// The two-step inline confirm for the part-wide reset (no dialog).
-    @State private var resettingChords = false
-
     var body: some View {
         Group {
             if let section {
@@ -94,8 +91,23 @@ struct ScoreOptionsScreen: View {
                      + "version you can transpose, select and ask about — the "
                      + "PDF stays as it is, so you can compare them.")
             }
-            ScreenRow(title: "Score display", value: state.layout.summary,
-                      identifier: "more-display") { push("Score display") }
+            // "Score display" is gone (0.6.3 #6). It held page/spread/
+            // continuous -- which are three buttons at the TOP of the score,
+            // where a reader can see what they are looking at -- and the
+            // transport switch, which is now beside them. What was left behind
+            // it was chord symbols, so chord symbols come up a level rather
+            // than sitting two screens deep (#7).
+            //
+            // The transport switch stays HERE as well as on the bar: a narrow
+            // bar yields the toggle (ScoreBarLayout), and a build where the
+            // only way to reach a switch depends on screen width is a build
+            // where some readers cannot reach it at all.
+            PanelToggle(title: "Show transport", isOn: $showTransport)
+                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("more-transport")
+            ScreenRow(title: "Chord symbols", value: "\(state.chordDefaultSize) pt",
+                      identifier: "more-chords") { push("Chord symbols") }
             // Every row states its current answer where it has one. A screen of
             // bare labels is a menu; the answers are what make it a summary of
             // where the score stands (L34).
@@ -113,11 +125,11 @@ struct ScoreOptionsScreen: View {
             }
             ScreenRow(title: "Transpose", value: "by interval",
                       identifier: "more-transpose") { push("Transpose") }
-            ScreenRow(title: "Versions",
-                      value: state.selectedScore.map {
-                          "\(state.displayedVersionID ?? "—") of \($0.versions.count)"
-                      } ?? state.displayedVersionID,
-                      identifier: "more-versions") { push("Versions") }
+            // "Versions" is gone from here (0.6.3 #8). The versions dropdown
+            // at the top of the score is the way in, and it now shows versions
+            // and NOTHING ELSE -- which is what made a second list necessary.
+            // The section body below is kept: "All N versions" in the dropdown
+            // still pushes it.
             ScreenRow(title: "Piece & arrangement details",
                       value: state.selectedScore.flatMap { score in
                           state.placement(of: score.slug)?.piece.name
@@ -178,24 +190,66 @@ struct ScoreOptionsScreen: View {
         .padding(.horizontal, Theme.Metric.s20)
         .padding(.vertical, Theme.Metric.s12)
 
+        // The LADDER, tappable. The stepper above it was reported as a
+        // control that controls nothing -- two SF Symbol glyphs and a number,
+        // where the number was the obvious thing to press and was not a
+        // button at all. Every rung is a button now, so "18" can be reached by
+        // tapping 18. The stepper stays: it is the path for anyone stepping
+        // one rung at a time, and an access path is not removed in the build
+        // that adds its replacement.
+        sizeLadder
+
         note("New chord symbols inherit this. A symbol you have nudged or "
              + "resized keeps its own size until you reset it.")
 
-        BandHeader("Careful")
-        if resettingChords {
-            ConfirmDeleteStrip(what: "every chord symbol's size and position in this part",
-                               verb: "Reset all",
-                               identifier: "chords-confirm-reset",
-                               onDelete: {
-                                   resettingChords = false
-                                   state.resetAllChordAdjustments()
-                               },
-                               onKeep: { resettingChords = false })
+        // WHICH part it lands on. A part-wide op that names no part is
+        // indistinguishable from one that never ran, which is exactly how
+        // this control came to be reported as dead.
+        if let part = state.chordPartName() {
+            ScreenRow(title: "Applies to", value: part, leads: false,
+                      identifier: "chords-part") {}
+                .disabled(true)
         } else {
-            ScreenRow(title: "Reset all adjustments", leads: false,
-                      isDestructive: true,
-                      identifier: "chords-reset-all") { resettingChords = true }
+            note("No arrangement is open, so there is nothing to resize.")
         }
+
+        // "Reset all adjustments" was here and is gone (0.6.3 #7): a
+        // destructive part-wide op on a screen whose other control is a size
+        // stepper. Per-element reset is unaffected -- it lives on the element's
+        // own adjust bar, where the thing being reset is on screen.
+    }
+
+    /// Every size a chord symbol can take, as buttons.
+    private var sizeLadder: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Metric.s6) {
+            ForEach(ChordAdjustSession.sizeLadder, id: \.self) { size in
+                let selected = size == state.chordDefaultSize
+                Button {
+                    state.setChordDefault(size)
+                } label: {
+                    Text("\(size)")
+                        .typeRole(.data)
+                        .foregroundStyle(selected ? Theme.Accent.clayStrong : Theme.Ink.ink2)
+                        .frame(minWidth: 40, minHeight: 34)
+                        .background(selected ? Theme.Accent.clayTint : Theme.Surface.panel)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                .stroke(selected ? Theme.Accent.clay : Theme.Line.line2,
+                                        lineWidth: 1)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(size) point")
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
+                .accessibilityIdentifier("chords-size-\(size)")
+            }
+            }
+            .padding(.horizontal, Theme.Metric.s20)
+        }
+        .padding(.bottom, Theme.Metric.s12)
     }
 
     /// One row per format, each saying what it is FOR rather than what it is:
@@ -228,32 +282,10 @@ struct ScoreOptionsScreen: View {
     private func sectionBody(_ section: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             switch section {
-            case "Score display":
-                ScreenRow(title: "Chord symbols", value: "size and position",
-                          identifier: "display-chords") { push("Chord symbols") }
-                // The same three-way value the top bar carries. A toggle here
-                // could not say "continuous" at all, and two surfaces
-                // disagreeing about one property is how the impossible state
-                // got in last time.
-                ForEach(ScoreLayout.allCases, id: \.self) { option in
-                    ScreenRow(title: option.label, leads: false,
-                              isSelected: state.layout == option,
-                              identifier: "display-\(option.rawValue)") {
-                        state.layout = option
-                        state.pageIndex = 0
-                        Task { await state.renderIfNeeded() }
-                    }
-                }
-                    .padding(Theme.Metric.s20)
-                    .accessibilityIdentifier("display-spread")
-                PanelToggle(title: "Show transport", isOn: $showTransport)
-                    .padding(.horizontal, Theme.Metric.s20)
-                    .accessibilityIdentifier("display-transport")
-                note("Play, the metronome, and a switch for each voice. Turn "
-                     + "every voice off and the metronome plays alone, which is "
-                     + "what the continuous view is for: the music scrolls "
-                     + "while you play along. Previous and next step the "
-                     + "current set list.")
+            // "Score display" lived here (0.6.3 #6). Page / spread /
+            // continuous are three buttons at the top of the score and the
+            // transport switch is beside them; a second surface for the same
+            // two properties is how the impossible state got in last time.
             case "Annotations":
                 ScreenRow(title: "Clear markup on this version", leads: false,
                           isDestructive: true, identifier: "annotations-clear") {
@@ -314,6 +346,10 @@ struct ScoreOptionsScreen: View {
 struct TitleSwitcherBand: View {
     @EnvironmentObject var state: AppState
     let score: ScoreDoc
+    /// Which list this is. The band shows ONE, chosen by the control that
+    /// opened it -- the versions dropdown was showing a column of other
+    /// pieces beside the versions it was asked for (0.6.3 #8).
+    var mode: TitleBandLayout.Mode
     var onPickArrangement: (String) -> Void
     var onPickVersion: (String?) -> Void
     var onAllVersions: () -> Void
@@ -335,15 +371,18 @@ struct TitleSwitcherBand: View {
     /// run of versions, which this flat list cannot.
     private var hasAllVersionsRow: Bool { score.versions.count > 4 }
 
+    private var arrangements: [String] { piece?.arrangements ?? [score.slug] }
+
     private var contentHeight: CGFloat {
-        TitleBandLayout.contentHeight(arrangements: (piece?.arrangements ?? [score.slug]).count,
-                                      versions: shownVersions.count,
-                                      hasAllVersionsRow: hasAllVersionsRow)
+        TitleBandLayout.contentHeight(
+            mode: mode,
+            rows: mode == .versions ? shownVersions.count : arrangements.count,
+            hasAllVersionsRow: hasAllVersionsRow)
     }
 
     var body: some View {
         ScrollView {
-            columns
+            column
         }
         .frame(height: TitleBandLayout.height(content: contentHeight,
                                               available: available))
@@ -359,50 +398,51 @@ struct TitleSwitcherBand: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var columns: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
-                ForEach(Array((piece?.arrangements ?? [score.slug]).enumerated()),
-                        id: \.offset) { index, slug in
-                    if let arrangement = state.manifest?.scores.first(where: { $0.slug == slug }) {
-                        switchRow(title: arrangement.title ?? arrangement.name,
-                                  number: index + 1,
-                                  selected: slug == score.slug,
-                                  id: "menu-arrangement-\(slug)") { onPickArrangement(slug) }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 0) {
-                BandHeader("Versions")
-                ForEach(shownVersions, id: \.id) { version in
-                    // What MADE the version, not just its id: "v003 / v002 /
-                    // v001" told a reader nothing, so switching version while
-                    // reading was a guess.
-                    switchRow(title: TitleBandLayout.versionLabel(
-                                        prompt: version.turn?.prompt, op: version.op),
-                              number: nil,
-                              detail: version.id,
-                              selected: version.id == state.displayedVersionID,
-                              id: "menu-version-\(version.id)") {
-                        onPickVersion(version.id == score.latest ? nil : version.id)
-                    }
-                }
-                if hasAllVersionsRow {
-                    ScreenRow(title: "All \(score.versions.count) versions",
-                              identifier: "menu-all-versions", action: onAllVersions)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder
+    private var column: some View {
+        switch mode {
+        case .arrangements: arrangementColumn
+        case .versions:     versionColumn
         }
-        // The rule between the columns is an OVERLAY, not a member of the
-        // stack. As a member it was `Rectangle().frame(width: 1)` -- a shape
-        // with a width and no height, which takes every point it is offered
-        // and took the band with it: five rows filled half the screen and the
-        // music was squeezed into what was left.
-        .overlay { Rectangle().fill(Theme.Line.line).frame(width: 1) }
+    }
+
+    private var arrangementColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
+            ForEach(Array(arrangements.enumerated()), id: \.offset) { index, slug in
+                if let arrangement = state.manifest?.scores.first(where: { $0.slug == slug }) {
+                    switchRow(title: arrangement.title ?? arrangement.name,
+                              number: index + 1,
+                              selected: slug == score.slug,
+                              id: "menu-arrangement-\(slug)") { onPickArrangement(slug) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var versionColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BandHeader("Versions")
+            ForEach(shownVersions, id: \.id) { version in
+                // What MADE the version, not just its id: "v003 / v002 /
+                // v001" told a reader nothing, so switching version while
+                // reading was a guess.
+                switchRow(title: TitleBandLayout.versionLabel(
+                                    prompt: version.turn?.prompt, op: version.op),
+                          number: nil,
+                          detail: version.id,
+                          selected: version.id == state.displayedVersionID,
+                          id: "menu-version-\(version.id)") {
+                    onPickVersion(version.id == score.latest ? nil : version.id)
+                }
+            }
+            if hasAllVersionsRow {
+                ScreenRow(title: "All \(score.versions.count) versions",
+                          identifier: "menu-all-versions", action: onAllVersions)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func switchRow(title: String, number: Int?, detail: String? = nil,

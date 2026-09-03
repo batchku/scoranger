@@ -28,7 +28,33 @@ final class ScoreBarLayoutTests: XCTestCase {
         XCTAssertFalse(fit.showsVersions, "the version count is what pushed ✕ off")
         XCTAssertFalse(fit.showsModeChip)
         XCTAssertEqual(fit.layoutCells, 2, "a spread across 390pt is two thumbnails")
+        XCTAssertFalse(fit.showsTransportToggle,
+                       "the toggle yields on a phone -- Options still carries it")
         XCTAssertTrue(ScoreBarLayout.fits(fit, in: iPhonePortrait))
+    }
+
+    /// An iPad seats the transport toggle, which is the point of putting it on
+    /// the bar: the switch that was two screens down is now one tap away.
+    func testAnIPadSeatsTheTransportToggle() {
+        XCTAssertTrue(ScoreBarLayout.fit(barWidth: iPadLandscape).showsTransportToggle)
+        XCTAssertTrue(ScoreBarLayout.fit(barWidth: iPadPortrait).showsTransportToggle)
+    }
+
+    /// It yields AFTER the version count and BEFORE a layout cell: the layout
+    /// control is the only route to continuous, and the toggle is not the only
+    /// route to anything.
+    func testTheTransportToggleYieldsBeforeALayoutCell() {
+        var seenTransportDrop = false
+        for width in stride(from: CGFloat(1400), through: 300, by: -5) {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            if !fit.showsTransportToggle { seenTransportDrop = true }
+            if fit.layoutCells < 3 {
+                XCTAssertTrue(seenTransportDrop,
+                              "a layout cell went before the transport toggle at "
+                              + "\(width)pt")
+            }
+        }
+        XCTAssertTrue(seenTransportDrop)
     }
 
     func testAnIPadShowsTheWholeBar() {
@@ -43,7 +69,7 @@ final class ScoreBarLayoutTests: XCTestCase {
         var seenChipDrop = false, seenVersionsDrop = false, seenCellDrop = false
         var width = ScoreBarLayout.essentials + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.modeChipWidth
-            + ScoreBarLayout.titleMinimum
+            + ScoreBarLayout.transportWidth + ScoreBarLayout.titleMinimum
         while width > 200 {
             let fit = ScoreBarLayout.fit(barWidth: width)
             if !fit.showsModeChip { seenChipDrop = true }
@@ -100,6 +126,8 @@ final class ScoreBarLayoutTests: XCTestCase {
                            "the numeral came back at \(width)pt")
             XCTAssertFalse(fit.showsSubtitle && !previous.showsSubtitle,
                            "the subtitle came back at \(width)pt")
+            XCTAssertFalse(fit.showsTransportToggle && !previous.showsTransportToggle,
+                           "the transport toggle came back at \(width)pt")
             previous = fit
         }
     }

@@ -280,6 +280,15 @@ final class AppState: ObservableObject {
         return probe.canResize(step)
     }
 
+    /// Set the part-wide default outright, which is what tapping a rung of the
+    /// size ladder does. The stepper walks the same ladder one rung at a time.
+    func setChordDefault(_ size: Int) {
+        guard ChordAdjustSession.sizeLadder.contains(size),
+              size != chordDefaultSize else { return }
+        chordDefaultSize = size
+        applyChordDefault()
+    }
+
     func stepChordDefault(_ step: ChordAdjustSession.SizeStep) {
         var probe = ChordAdjustSession(size: chordDefaultSize)
         guard probe.canResize(step) else { return }
@@ -324,7 +333,12 @@ final class AppState: ObservableObject {
 
     /// The part carrying chord symbols -- the selected one where the reader has
     /// picked a symbol, else the first part that has any.
-    private func chordPartName() -> String? {
+    ///
+    /// Internal, not private: the Options screen NAMES the part it is about to
+    /// resize every chord symbol in. The size control was reported as doing
+    /// nothing, and a part-wide op that says nothing about which part it hit
+    /// is indistinguishable from one that did not run.
+    func chordPartName() -> String? {
         if let address = adjustTarget, let named = partName(forStaff: address.staff) {
             return named
         }

@@ -35,6 +35,9 @@ struct ContentView: View {
     /// lane appears or disappears -- never per frame, or the panel drifts
     /// under the reader's hand.
     private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
+    /// Which list the title band is showing. The versions dropdown and the
+    /// title block open the same band on two different columns (0.6.3 #8).
+    @State private var titleMenuMode: TitleBandLayout.Mode = .versions
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
@@ -149,6 +152,8 @@ struct ContentView: View {
                         subtitle: scoreSubtitle,
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
+                        titleMenuMode: $titleMenuMode,
+                        showTransport: $showTransport,
                         moreOpen: Binding(get: { scoreScreen != nil },
                                           set: { on in
                                               scoreScreen = on ? .options : nil
@@ -163,6 +168,7 @@ struct ContentView: View {
                         })
             if state.titleMenuOpen, let score = state.selectedScore {
                 TitleSwitcherBand(score: score,
+                                  mode: titleMenuMode,
                                   onPickArrangement: { slug in
                                       state.titleMenuOpen = false
                                       state.select(slug: slug)

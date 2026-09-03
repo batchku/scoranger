@@ -176,6 +176,10 @@ struct LibraryView: View {
                 .accessibilityIdentifier("library-settings")
             Spacer()
         }
+        // Centred on the ROW rather than placed in it, so the gear's width
+        // does not push it off centre -- and as an overlay it cannot make the
+        // row taller either.
+        .overlay { BuildStampLine() }
     }
 
     private var header: some View {
@@ -376,14 +380,10 @@ struct LibraryView: View {
                 case .empty, .noMatches: empty
                 }
             }
-            .padding(.bottom, Theme.Metric.s12)
-            // Which build this is, quietly, on the screen the app opens to
-            // (#53). It lives in Settings → About as well; a tester who cannot
-            // say which build they are on cannot report anything useful about
-            // it, and Settings is two taps away from the thing they are
-            // looking at.
-            BuildStampLine()
-                .padding(.bottom, 90)
+            .padding(.bottom, 90)
+            // The build stamp used to end this scroll view. It is in the top
+            // row now: a tester should not have to scroll past their whole
+            // library to say which build they are on (#53).
         }
     }
 
