@@ -87,6 +87,41 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
         return counted > 0 ? (sum / Double(counted)).squareRoot() : 0
     }
 
+    /// Play one key on one channel and measure what comes out.
+    ///
+    /// All-sound-off (MIDI controller 120) before and after, because a sampler
+    /// tail is long: a church organ still ringing from the previous program
+    /// would make the next one look like it sounded. Without that cut, this
+    /// test passes whether or not the sound it is measuring exists.
+    private func rms(_ graph: PlaybackGraph, channel: Int, key: UInt8,
+                     seconds: Double = 0.4) throws -> Double {
+        let sampler = graph.samplers[channel]
+        sampler.sendController(120, withValue: 0, onChannel: 0)
+        _ = try render(graph, seconds: 0.05)
+        sampler.startNote(key, withVelocity: 100, onChannel: 0)
+        let level = try render(graph, seconds: seconds)
+        sampler.stopNote(key, onChannel: 0)
+        sampler.sendController(120, withValue: 0, onChannel: 0)
+        _ = try render(graph, seconds: 0.05)
+        return level
+    }
+
+    /// The loudest of a few standard keys. One key is not a fair question of a
+    /// bank that holds a piccolo and a contrabass, and a program that is silent
+    /// at middle C but speaks an octave down is not a silent program.
+    private func loudest(_ graph: PlaybackGraph, keys: [UInt8]) throws -> Double {
+        var best = 0.0
+        for key in keys { best = max(best, try rms(graph, channel: 0, key: key)) }
+        return best
+    }
+
+    private func sounding(_ parts: [PlaybackTimeline.Part]) throws -> PlaybackGraph {
+        let graph = try loaded(parts: parts)
+        graph.apply(PlaybackVoices(), parts: parts, metronome: false)
+        if !graph.engine.isRunning { try graph.engine.start() }
+        return graph
+    }
+
     // MARK: - The catalogue is real
 
     /// All 128, one at a time, on the graph that ships. An entry the picker
@@ -134,6 +169,77 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
     func testAChannelTheGraphDoesNotHaveIsRefused() throws {
         let graph = try loaded(parts: quartet())
         XCTAssertFalse(graph.setInstrument(program: 0, bank: .melodic, channel: 99))
+    }
+
+    // MARK: - The catalogue SOUNDS
+
+    /// **Loading is not sounding.** `loadSoundBankInstrument` returning true
+    /// says the sampler accepted a bank and a program; it does not say a note
+    /// on that program makes a noise, and a picker row that loads and then
+    /// plays silence is worse than one that is not offered -- the reader
+    /// changes a staff's sound, hears nothing, and blames the mute.
+    ///
+    /// So every one of the 128 the picker offers is PLAYED here and the output
+    /// is measured, on the graph that ships. Three keys because one is not a
+    /// fair question of a bank holding both a piccolo and a contrabass.
+    ///
+    /// The `XCTAssertTrue` carries the other half and is not decoration. A
+    /// REFUSED load leaves the previous patch on the sampler, so a program the
+    /// bank does not hold still makes a noise -- measured, by putting a
+    /// percussion program the file has nothing at into this loop and watching
+    /// it sound like the piano before it. Silence alone cannot see that; the
+    /// loader's answer can.
+    ///
+    /// And this assertion can fail: forcing one program's channel to zero
+    /// volume names it in the list. Verified the same way.
+    func testEveryMelodicProgramActuallyMakesASound() throws {
+        let graph = try sounding(quartet())
+        var silent: [String] = []
+        for instrument in GeneralMIDI.melodic {
+            XCTAssertTrue(graph.setInstrument(program: instrument.program,
+                                              bank: .melodic, channel: 0),
+                          "\(instrument.name) would not load")
+            if try loudest(graph, keys: [60, 48, 72]) <= silence {
+                silent.append("\(instrument.program) \(instrument.name)")
+            }
+        }
+        XCTAssertEqual(silent, [],
+                       "the picker offers these and they play nothing")
+    }
+
+    /// The same question of the nine kits, on kit keys rather than pitches: a
+    /// drum kit answers to key numbers, and middle C on a drum bank is a
+    /// different instrument rather than a different pitch.
+    func testEveryDrumKitActuallyMakesASound() throws {
+        let graph = try sounding(quartet())
+        var silent: [String] = []
+        for kit in GeneralMIDI.kits {
+            XCTAssertTrue(graph.setInstrument(program: kit.program,
+                                              bank: .percussion, channel: 0),
+                          "\(kit.name) would not load")
+            // bass drum, snare, closed hi-hat -- every kit has these three
+            if try loudest(graph, keys: [36, 38, 42]) <= silence {
+                silent.append("\(kit.program) \(kit.name)")
+            }
+        }
+        XCTAssertEqual(silent, [], "these kits play nothing")
+    }
+
+    /// The measurement above can only fail if it can tell silence from sound.
+    /// A program the percussion bank does not hold is the control: it is
+    /// refused by the loader, and if it is forced onto the sampler anyway
+    /// nothing comes out of it.
+    func testTheMeasurementCanTellSilenceFromSound() throws {
+        let graph = try sounding(quartet())
+        XCTAssertTrue(graph.setInstrument(program: 0, bank: .melodic, channel: 0))
+        XCTAssertGreaterThan(try rms(graph, channel: 0, key: 60), silence,
+                             "a grand piano at middle C is not silence")
+        // Never started: a sampler asked for no note makes no sound, which is
+        // what the threshold has to be able to see.
+        _ = try render(graph, seconds: 0.05)
+        graph.samplers[0].sendController(120, withValue: 0, onChannel: 0)
+        XCTAssertLessThanOrEqual(try render(graph, seconds: 0.4), silence,
+                                 "the threshold cannot see silence")
     }
 
     // MARK: - Mid-performance
