@@ -790,6 +790,190 @@ def _draw_hole(block: str, y: float | None = None,
     return _TEXT_RE.sub(shape, block, count=1)
 
 
+# ------------------------------------------------------- guitar tablature
+#
+# The notation carries six verses per note: a fret number on the string that
+# is played, a dash on the ones that are not (ops.guitar_tab). What is drawn
+# is a tab staff -- six lines running through the dashes, with the numbers
+# standing in gaps in the lines.
+#
+# The DASH is the meaning and the LINE is the drawing, the same arrangement
+# the whistle's letters and circles have. Left as text a column of dashes is
+# six loose hyphens per note; drawn as segments that reach half way to the
+# neighbouring column they join into the six continuous lines a player reads.
+#
+# The rows are re-placed here rather than asked of Verovio, for the reason the
+# whistle's are: `lyricSize` is one document-wide text size that also governs
+# chord symbols, so shrinking the tab to fit would shrink every chord name on
+# the page with it.
+#
+# Mirrored in ios/Scoranger/ScoreModel/TabStaff.swift; engine/scripts/
+# check_guitar_tab.py holds the two to one golden fragment.
+
+TAB_TAG = "gt"
+TAB_ROWS = 6
+# Rows sit closer than Verovio's lyric pitch: a tab staff is tighter than six
+# lines of words, and the column only ever gets shorter, which is the safe
+# direction when it hangs below the staff.
+TAB_PITCH_RATIO = 0.62
+TAB_DIGIT_VS_PITCH = 0.9
+TAB_LINE_VS_PITCH = 0.055
+# Half the gap a one-digit number is given in its line. A two-digit fret needs
+# half as much again.
+TAB_BREAK_VS_PITCH = 0.42
+# How far a column's lines run when there is no neighbour to meet: the start
+# and end of a system, in drawn row pitches.
+TAB_END_ADVANCE = 1.1
+# A number sits ON its line, so its baseline is below it.
+TAB_BASELINE_VS_PITCH = 0.32
+# MusicXML measures a nudge in TENTHS of a staff space, and this pass places
+# the rows itself, so it needs the two in the same units. Measured off a real
+# engraving: a staff space is 180 SVG units where the lyric row pitch is 390,
+# so ten tenths are 0.4615 of a row pitch.
+TAB_TENTH_VS_ROW_PITCH = 0.04615
+
+
+def tab_column_svg(texts: list, x: float, top_y: float, row_pitch: float,
+                   left: float, right: float, scale: float = 1.0) -> str:
+    """One column of tab: six line segments, and the frets standing in them.
+
+    Pure, and the only place the numbers are decided, so the on-device
+    renderer can be held to the same answer -- see
+    ios/Scoranger/ScoreModel/TabStaff.swift and check_guitar_tab.py.
+    """
+    pitch = row_pitch * TAB_PITCH_RATIO * scale
+    stroke = pitch * TAB_LINE_VS_PITCH
+    parts = []
+    for row, text in enumerate(texts):
+        y = top_y + row * pitch
+        fret = text.strip() if text else ""
+        if fret and fret != "-":
+            gap = pitch * TAB_BREAK_VS_PITCH * (1.0 if len(fret) < 2 else 1.5)
+            for x1, x2 in ((left, x - gap), (x + gap, right)):
+                if x2 > x1:
+                    parts.append(
+                        f'<path d="M {x1:g} {y:g} L {x2:g} {y:g}" '
+                        f'stroke="currentColor" stroke-width="{stroke:g}" fill="none"/>')
+            parts.append(
+                f'<text text-anchor="middle" font-style="normal" x="{x:g}" '
+                f'y="{y + pitch * TAB_BASELINE_VS_PITCH:g}">'
+                f'<tspan font-size="{pitch * TAB_DIGIT_VS_PITCH:g}px">{fret}</tspan></text>')
+        else:
+            parts.append(
+                f'<path d="M {left:g} {y:g} L {right:g} {y:g}" '
+                f'stroke="currentColor" stroke-width="{stroke:g}" fill="none"/>')
+    return "".join(parts)
+
+
+def tab_columns(svg: str) -> list[dict]:
+    """Every tab column in a page, with the rows Verovio laid out for it.
+
+    A column is a run of consecutive tagged verses whose y increases and whose
+    x stays put. Both tests are needed: y alone merges the last column of one
+    system with the first of the next, which is further down the page only
+    because it is further down the page.
+    """
+    from . import ops
+
+    verses = []
+    for match in _VERSE_RE.finditer(svg):
+        block = match.group(0)
+        label = _LABEL_RE.search(block)
+        # the label is the tag AND whatever `adjust-element --kind tab` wrote
+        # onto it: Verovio carries a lyric's name to the page and drops its
+        # size and its offsets, so the name is what reaches here
+        adjustment = ops.parse_tab_label(label.group(1)) if label else None
+        if adjustment is None:
+            continue
+        text = _ANY_SYL_RE.search(block)
+        x = _X_RE.search(block)
+        y = _Y_RE.search(block)
+        if x is None or y is None:
+            continue
+        verses.append({"match": match, "text": text.group(1) if text else "",
+                       "x": float(x.group(1)), "y": float(y.group(1)),
+                       "scale": adjustment[0] or 1.0,
+                       "dx": adjustment[1] or 0.0, "dy": adjustment[2] or 0.0})
+    columns: list[dict] = []
+    run: list[dict] = []
+
+    def settle():
+        if len(run) < 2:
+            run.clear()
+            return
+        ys = [v["y"] for v in run]
+        gaps = sorted(b - a for a, b in zip(ys, ys[1:]) if b > a)
+        if gaps:
+            pitch = (gaps[len(gaps) // 2] if len(gaps) % 2
+                     else (gaps[len(gaps) // 2 - 1] + gaps[len(gaps) // 2]) / 2)
+            xs = sorted(v["x"] for v in run)
+            # the whole column moves and resizes together, so its first verse
+            # speaks for it
+            columns.append({"rows": list(run), "pitch": pitch, "top": ys[0],
+                            "x": xs[len(xs) // 2], "scale": run[0]["scale"],
+                            "dx": run[0]["dx"], "dy": run[0]["dy"]})
+        run.clear()
+
+    for verse in verses:
+        if run:
+            last = run[-1]
+            tolerance = max(abs(verse["y"] - last["y"]) * 0.5, 2.0)
+            if not (verse["y"] > last["y"] and abs(verse["x"] - last["x"]) <= tolerance):
+                settle()
+        run.append(verse)
+    settle()
+    return columns
+
+
+def _tab_staff(svg: str) -> str:
+    """Draw the tab staff through every tab column in a page."""
+    if 'class="verse"' not in svg:
+        return svg
+    columns = tab_columns(svg)
+    if not columns:
+        return svg
+
+    # Columns of one SYSTEM share their top row, because Verovio lays every
+    # verse of a system on the same baseline. That is what lets each column's
+    # lines reach half way to its neighbour and meet them: the six lines are
+    # drawn a column at a time and still come out continuous.
+    systems: dict[int, list[dict]] = {}
+    for column in columns:
+        systems.setdefault(round(column["top"]), []).append(column)
+    drawn: dict[int, str] = {}
+    blanked: set[int] = set()
+    for row_columns in systems.values():
+        row_columns.sort(key=lambda c: c["x"])
+        for index, column in enumerate(row_columns):
+            pitch = column["pitch"] * TAB_PITCH_RATIO * column["scale"]
+            before = row_columns[index - 1]["x"] if index else None
+            after = row_columns[index + 1]["x"] if index + 1 < len(row_columns) else None
+            left = (column["x"] + before) / 2 if before is not None \
+                else column["x"] - pitch * TAB_END_ADVANCE
+            right = (column["x"] + after) / 2 if after is not None \
+                else column["x"] + pitch * TAB_END_ADVANCE
+            # MusicXML measures up; the page measures down
+            unit = column["pitch"] * TAB_TENTH_VS_ROW_PITCH
+            dx, dy = column["dx"] * unit, -column["dy"] * unit
+            texts = [row["text"] for row in column["rows"]]
+            drawn[column["rows"][0]["match"].start()] = tab_column_svg(
+                texts, column["x"] + dx, column["top"] + dy, column["pitch"],
+                left + dx, right + dx, column["scale"])
+            for row in column["rows"][1:]:
+                blanked.add(row["match"].start())
+
+    out, cursor = [], 0
+    for column in columns:
+        for row in column["rows"]:
+            match = row["match"]
+            out.append(svg[cursor:match.start()])
+            if match.start() in drawn:
+                out.append(f'<g class="verse tab">{drawn[match.start()]}</g>')
+            cursor = match.end()
+    out.append(svg[cursor:])
+    return "".join(out)
+
+
 # ------------------------------------------------- guitar chord diagrams
 #
 # The notation carries the shape and nothing else (ops.chord_diagrams): six
@@ -1144,10 +1328,10 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with deduped rehearsals")
         n_pages = tk.getPageCount()
-        svgs = [_chord_diagrams(_fingering_diagrams(
+        svgs = [_tab_staff(_chord_diagrams(_fingering_diagrams(
                     apply_chord_sizes(
                         _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves),
-                        src)))
+                        src))))
                 for p in range(1, n_pages + 1)]
     for svg in svgs:
         # the page's PHYSICAL size, which is not the size Verovio drew it at

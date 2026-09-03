@@ -1646,6 +1646,40 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> 
 # letters and circles have.
 
 TAB_LYRIC_TAG = "gt"
+
+
+def tab_label(size: float | None = None, dx: float | None = None,
+              dy: float | None = None) -> str:
+    """The lyric name a tab verse carries: the tag, and any adjustment.
+
+    `gt`, `gt@1.5`, `gt@1.5,20,-30`. It looks like an encoding because it is
+    one, and it is here rather than in three MusicXML attributes because
+    Verovio carries a lyric's NAME through to the page (as @label, and as a
+    <title> in the SVG) and drops its font-size and its offsets on the way.
+    The offsets are written to the notation as well, in the fields MusicXML
+    means for them, so an export to another program still carries the nudge --
+    but the renderers read this, because this is what reaches them.
+    """
+    if size is None and dx is None and dy is None:
+        return TAB_LYRIC_TAG
+    parts = [f"{size:g}" if size is not None else ""]
+    if dx is not None or dy is not None:
+        parts += [f"{dx:g}" if dx is not None else "",
+                  f"{dy:g}" if dy is not None else ""]
+    return f"{TAB_LYRIC_TAG}@" + ",".join(parts)
+
+
+def parse_tab_label(label: str) -> tuple[float | None, float | None, float | None] | None:
+    """(size ratio, dx, dy) from a tab verse's name, or None if it is not one."""
+    if not label or not label.startswith(TAB_LYRIC_TAG):
+        return None
+    rest = label[len(TAB_LYRIC_TAG):]
+    if not rest:
+        return None, None, None
+    if not rest.startswith("@"):
+        return None
+    fields = (rest[1:].split(",") + ["", ""])[:3]
+    return tuple(float(f) if f else None for f in fields)
 # A string that is not played on this beat. It is a character every font has,
 # unlike the box glyphs a tab staff would otherwise want.
 TAB_REST = "-"
@@ -1711,15 +1745,24 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
     is transposed to make it fit: a note an octave below the bottom string is
     the arrangement's problem to solve, not the tab's to hide.
     """
-    from music21 import note as m21note
+    from music21 import harmony as m21harmony
 
-    def tab_verses(n):
-        return [ly for ly in n.lyrics if ly.identifier == TAB_LYRIC_TAG]
+    def playable_notes(container):
+        """The notes a guitarist plays.
+
+        `recurse().notes` includes the chord SYMBOLS: a ChordSymbol is a Chord
+        in music21, so a part carrying a chart would have had tab written onto
+        its symbols as well as its notes -- six verses hung on an element that
+        is not on the staff at all.
+        """
+        return [n for n in container.recurse().notes
+                if not isinstance(n, m21harmony.Harmony)]
 
     if clear:
         cleared = 0
-        for n in part.recurse().notes:
-            kept = [ly for ly in n.lyrics if ly.identifier != TAB_LYRIC_TAG]
+        for n in playable_notes(part):
+            kept = [ly for ly in n.lyrics
+                    if parse_tab_label(str(ly.identifier or "")) is None]
             if len(kept) != len(n.lyrics):
                 n.lyrics = kept
                 cleared += 1
@@ -1732,9 +1775,10 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
     written = 0
     unplayable: list[dict] = []
     raised: list[dict] = []
-    for n in part.recurse().notes:
+    for n in playable_notes(part):
         pitches = sorted(n.pitches, key=lambda p: p.ps)
-        n.lyrics = [ly for ly in n.lyrics if ly.identifier != TAB_LYRIC_TAG]
+        n.lyrics = [ly for ly in n.lyrics
+                    if parse_tab_label(str(ly.identifier or "")) is None]
         if len(pitches) > len(opens):
             unplayable.append({"measure": n.measureNumber,
                                "pitch": ", ".join(p.nameWithOctave for p in pitches),
@@ -1770,7 +1814,7 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
             # applyRaw, or music21 reads the dash as a hyphenated syllable and
             # keeps the syllabic rather than the text
             n.addLyric(text, lyricNumber=verse, applyRaw=True,
-                       lyricIdentifier=TAB_LYRIC_TAG)
+                       lyricIdentifier=tab_label())
         written += 1
 
     return {
@@ -1816,7 +1860,12 @@ def clear_stale_diagrams(score, names: list[str] | None = None) -> int:
 # fields, because the alternative -- a second mechanism for a second kind of
 # added element -- is how two things that look alike start behaving
 # differently.
-ADJUSTABLE_KINDS = {"harm", "diagram"}
+# The point size an added element draws at when nobody has adjusted it, so a
+# stored absolute size reads as a ratio of what is on the page. Mirrored by
+# render.DEFAULT_DIAGRAM_POINTS and ChordDiagrams.defaultPoints.
+DEFAULT_ELEMENT_POINTS = 12.0
+
+ADJUSTABLE_KINDS = {"harm", "diagram", "tab"}
 
 
 def adjust_element(score, name: str, kind: str = "harm",
@@ -1855,12 +1904,21 @@ def adjust_element(score, name: str, kind: str = "harm",
     # A diagram is the shape marker `chord-diagrams` wrote at the chord
     # symbol's own offset, so measure + ordinal addresses the diagram and its
     # symbol identically -- the reader points at one thing on the page.
-    noun = "chord symbol" if kind == "harm" else "chord diagram"
+    noun = {"harm": "chord symbol", "diagram": "chord diagram",
+            "tab": "tabbed note"}[kind]
 
     def in_measure(m):
         if kind == "diagram":
             return [e for e in m.getElementsByClass(m21expressions.TextExpression)
                     if parse_shape(e.content) is not None]
+        if kind == "tab":
+            # the NOTE is the element: its six verses are one column, and they
+            # move and resize together or the column comes apart
+            from music21 import harmony as _harmony
+            return [n for n in m.recurse().notes
+                    if not isinstance(n, _harmony.Harmony)
+                    and any(parse_tab_label(str(ly.identifier or "")) is not None
+                            for ly in n.lyrics)]
         return list(m.getElementsByClass(m21harmony.ChordSymbol))
 
     if all_elements:
@@ -1879,6 +1937,30 @@ def adjust_element(score, name: str, kind: str = "harm",
         targets = [found[ordinal]]
 
     for element in targets:
+        if kind == "tab":
+            # A tab column's size and offset ride in the lyric NAME as well as
+            # in the style: Verovio carries the name to the page and drops the
+            # rest, so that is the copy the renderers can see. One place writes
+            # both, so they cannot say different things.
+            for lyric in element.lyrics:
+                if not (lyric.identifier
+                        and str(lyric.identifier).startswith(TAB_LYRIC_TAG)):
+                    continue
+                if reset:
+                    lyric.identifier = TAB_LYRIC_TAG
+                    lyric.style.relativeX = None
+                    lyric.style.relativeY = None
+                    continue
+                had = parse_tab_label(str(lyric.identifier)) or (None, None, None)
+                ratio = (size / DEFAULT_ELEMENT_POINTS) if size is not None else had[0]
+                dx = offset_x if offset_x is not None else had[1]
+                dy = offset_y if offset_y is not None else had[2]
+                lyric.identifier = tab_label(ratio, dx, dy)
+                if dx is not None:
+                    lyric.style.relativeX = dx
+                if dy is not None:
+                    lyric.style.relativeY = dy
+            continue
         if reset:
             element.style.fontSize = None
             element.style.relativeX = None
