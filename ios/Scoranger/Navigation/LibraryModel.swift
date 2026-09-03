@@ -319,6 +319,45 @@ enum LibraryListState: Equatable {
 
 extension LibraryModel {
 
+    /// What an EMPTY segment says, and the one button that resolves it.
+    ///
+    /// It used to be a two-way choice -- pieces, or everything else -- so the
+    /// Books segment said "No set lists yet" and offered "New set list". A
+    /// reader whose book import had just failed was told, in the place they
+    /// went looking for it, about a feature they had not asked for. Three
+    /// segments, three states, decided here so a fourth cannot inherit the
+    /// wrong copy.
+    struct EmptyState: Equatable {
+        var systemImage: String
+        var title: String
+        var message: String
+        var actionTitle: String
+    }
+
+    static func emptyState(segment: LibrarySegment) -> EmptyState {
+        switch segment {
+        case .pieces:
+            return EmptyState(
+                systemImage: "music.note.list",
+                title: "No music yet",
+                message: "Import a score, or make a blank arrangement and ask.",
+                actionTitle: "Import")
+        case .setlists:
+            return EmptyState(
+                systemImage: "list.bullet",
+                title: "No set lists yet",
+                message: "A set list is a gig's running order of arrangements.",
+                actionTitle: "New set list")
+        case .books:
+            return EmptyState(
+                systemImage: "books.vertical",
+                title: "No books yet",
+                message: "A book is a collection you take arrangements out of "
+                       + "— a fake book, a method book. Import a PDF of one.",
+                actionTitle: "Import book")
+        }
+    }
+
     static func listState(loaded: Bool, rows: Int, pendingImports: Int,
                           isFiltered: Bool) -> LibraryListState {
         if rows > 0 || pendingImports > 0 { return .rows }

@@ -309,6 +309,12 @@ def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
     return score_slug, entry
 
 
+def _ops_humanised(name: str) -> str:
+    from . import ops
+
+    return ops.humanise_title(name) or name
+
+
 def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
                      args: dict | None = None) -> tuple[str, dict]:
     """Create an arrangement whose artifact is a PDF. Returns (slug, version doc).
@@ -332,8 +338,10 @@ def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
     repo.set_score(slug, {
         "id": slug, "slug": slug, "name": name,
         # the file carries no metadata we can read, so the title is the name
-        # the caller gave -- never a slug, never the file name
-        "title": name, "composer": None, "arranger": None,
+        # the caller gave -- never a slug, never the file name. The app hands
+        # us a file stem for a scan, so it is spelled out the same way an
+        # import spells one: "sous-le-ciel-quartet" -> "Sous le ciel quartet".
+        "title": _ops_humanised(name), "composer": None, "arranger": None,
         "created": _now(), "latest": None,
     })
     # same rule as create_score: an arrangement holding no version must not
@@ -464,6 +472,26 @@ def add_version(slug: str, m21_score, op: str, args: dict) -> dict:
     """Append a new immutable version derived from the current latest."""
     parent = latest_version(slug)["id"]
     return _write_version(slug, m21_score, op, args, parent=parent)
+
+
+def add_version_from_file(slug: str, path, op: str, args: dict) -> dict:
+    """Append a version parsed from a NOTATION FILE (what OMR on demand does).
+
+    Separate from `add_version` because a file brings a title with it, and
+    music21 invents one from the file's name when the file carries none. Every
+    caller that reads notation off disk has to go through here, or the next one
+    engraves "v001.mxl" at the top of someone's music again.
+    """
+    from music21 import converter
+
+    from . import ops
+
+    source = Path(path)
+    m21_score = converter.parse(str(source), forceSource=True)
+    doc = _repo().get_score(slug) or {}
+    ops.carry_title_into_version(m21_score, doc.get("title") or doc.get("name"),
+                                 source_stem=source.stem)
+    return add_version(slug, m21_score, op, args)
 
 
 def add_source(slug: str, m21_score, name: str, origin: str) -> dict:

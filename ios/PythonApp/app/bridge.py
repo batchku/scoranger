@@ -71,11 +71,14 @@ def _dispatch(op, a):
         # arrangement, not a new arrangement. The scan stays as v001, so the
         # reader can flip between the page they know and the transcription of
         # it -- which is exactly what checking OMR output requires.
-        from music21 import converter
-
-        score = converter.parse(a["path"], forceSource=True)
-        entry = workspace.add_version(s_slug := a["score"], score,
-                                      a.get("op") or "omr", a.get("args") or {})
+        #
+        # Through workspace.add_version_from_file, never converter.parse into
+        # add_version: the file the app hands us is named after the version it
+        # transcribed ("v001.mxl"), music21 makes that the movement title, and
+        # Verovio engraves the movement title.
+        entry = workspace.add_version_from_file(
+            s_slug := a["score"], a["path"],
+            a.get("op") or "omr", a.get("args") or {})
         out = {"score": s_slug, "version": entry["id"]}
         if entry.get("rhythm_warnings"):
             out["rhythm_warnings"] = entry["rhythm_warnings"]

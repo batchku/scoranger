@@ -20,9 +20,16 @@ for f in __init__.py ops.py workspace.py db.py bulk.py; do
   cp "../engine/scoranger_engine/$f" "$APP/scoranger_engine/"
 done
 
+# pypdf is not optional: books ARE PDFs. workspace.create_book counts a book's
+# pages and extract_from_book cuts pages out of one, and both import pypdf.
+# Leaving it out shipped an Import Book that failed with ModuleNotFoundError
+# inside the engine, into a lastError nothing displayed -- the picker closed,
+# the library switched to Books, and nothing was there. Pure Python, no wheels
+# to strip. check_books.py now imports a book on the device's OWN sys.path so
+# the omission cannot come back.
 "$PY" -m pip install --quiet --no-deps --target "$PKGS" \
   music21 chardet joblib jsonpickle more-itertools webcolors \
-  requests certifi urllib3 idna charset_normalizer
+  requests certifi urllib3 idna charset_normalizer pypdf
 
 # strip what the app never uses. music21/__init__ imports both `corpus` and
 # `test`, so keep all .py code and delete only the bundled score data.

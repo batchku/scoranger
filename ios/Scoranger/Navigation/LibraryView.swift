@@ -361,15 +361,15 @@ struct LibraryView: View {
                 // overlay, which the redesign retired -- so an import showed a
                 // badge on a Home icon that was not tappable and then could
                 // not be found at all (0.4.1 item 9).
-                if segment == .pieces {
-                    ForEach(state.pendingImports) { pending in importingRow(pending) }
-                }
+                // ...and each in the list it is making something FOR: a book
+                // being read is not an arrangement arriving (ImportProgress).
+                ForEach(pendingHere) { pending in importingRow(pending) }
                 // Loading is not emptiness (#42): the manifest is nil until the
                 // engine answers, and claiming "No music yet" in that window
                 // flashed the empty state on every launch of a full library.
                 switch LibraryModel.listState(loaded: state.libraryLoaded,
                                               rows: rows.count,
-                                              pendingImports: state.pendingImports.count,
+                                              pendingImports: pendingHere.count,
                                               isFiltered: !search.isEmpty || !filters.isEmpty) {
                 case .rows:      grouped
                 case .loading:   loading
@@ -547,15 +547,20 @@ struct LibraryView: View {
     @ViewBuilder
     private var empty: some View {
         if search.isEmpty && filters.isEmpty {
-            StateView(systemImage: segment == .pieces ? "music.note.list" : "list.bullet",
-                      title: segment == .pieces ? "No music yet" : "No set lists yet",
-                      message: segment == .pieces
-                          ? "Import a score, or make a blank arrangement and ask."
-                          : "A set list is a gig's running order of arrangements.",
-                      actionTitle: segment == .pieces ? "Import" : "New set list",
+            let empty = LibraryModel.emptyState(segment: segment)
+            StateView(systemImage: empty.systemImage,
+                      title: empty.title,
+                      message: empty.message,
+                      actionTitle: empty.actionTitle,
                       actionKind: .primary,
                       identifier: "library-empty",
-                      action: { if segment == .pieces { onImport() } else { creatingName = "" } })
+                      action: {
+                          switch segment {
+                          case .pieces:   onImport()
+                          case .books:    onImportBook()
+                          case .setlists: creatingName = ""
+                          }
+                      })
                 .frame(maxWidth: .infinity)
                 .padding(.top, Theme.Metric.s32)
         } else {
@@ -573,6 +578,11 @@ struct LibraryView: View {
     // the de-duplication rather than a second way in.
 
     // MARK: - Data
+
+    /// The imports in flight that belong to the segment on screen.
+    private var pendingHere: [AppState.PendingImport] {
+        state.pendingImports.filter { $0.target.segment == segment }
+    }
 
     private var rows: [LibraryRow] {
         guard let manifest = state.manifest else { return [] }

@@ -26,6 +26,13 @@ final class AppState: ObservableObject {
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
     @Published var omrBusy = false
+    /// The transcription in flight, so a control that OFFERS OMR can show what
+    /// OMR is doing rather than a bare "busy". Both paths in -- the More
+    /// screen's switch and the transport's button -- read it.
+    @Published private(set) var omrPendingID: UUID?
+
+    var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
+    var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
     /// Per-score enharmonic preference backing the gear menu's "Use flats"
     /// toggle; flipping it applies a respell op. Defaults to flats.
     @Published var useFlats: [String: Bool] = [:]
@@ -498,6 +505,9 @@ final class AppState: ObservableObject {
         /// The piece it is going into, so the library can show that piece
         /// filling up rather than the import vanishing (0.4.1 item 9).
         var piece: String?
+        /// Which list this row belongs in. A book is not an arrangement and
+        /// its progress must not appear under Pieces (ImportProgress).
+        var target: ImportTarget = .arrangement
         var stage: String = "uploading…"
         /// nil = indeterminate (spinner); 0…1 = determinate bar
         var fraction: Double? = nil
@@ -1272,12 +1282,21 @@ final class AppState: ObservableObject {
         guard let slug = selectedSlug,
               let version = displayedVersion,
               ScoreArtifact.kind(ofFile: version.file) == .scan else { return }
+        // Claimed HERE, not inside convertPDF: fetching the artifact's path is
+        // a round trip to the engine, and until this was set both ways in --
+        // the More screen's switch and the transport's button -- read as idle
+        // and a second tap started a second run on the same page.
+        guard !omrBusy else { return }
+        omrBusy = true
         Task {
             do {
                 let path = try await local.versionFilePath(score: slug, version: version.id)
                 convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
             } catch {
+                omrBusy = false
                 lastError = error.localizedDescription
+                notice = "That scan could not be opened for transcription: "
+                       + error.localizedDescription
             }
         }
     }
@@ -1295,14 +1314,30 @@ final class AppState: ObservableObject {
             await refresh()
             return slug
         } catch {
-            lastError = error.localizedDescription
+            // Said out loud, like the import above it. BookScreen shows a note
+            // when it works and showed NOTHING when it did not -- lastError,
+            // which the redesigned library does not display.
+            let reason = (error as? EngineError)?.error ?? error.localizedDescription
+            lastError = reason
+            notice = BookImportStage.extractionFailure(name: name, reason: reason)
             return nil
         }
     }
 
     /// Import a PDF as a BOOK: a collection to take arrangements out of.
+    ///
+    /// It says so on screen while it runs and says so when it fails. Both were
+    /// missing: a fake book is a big file and the copy alone takes a while, so
+    /// a silent Task looked exactly like a broken one -- and the failure it
+    /// was actually hitting (pypdf was not vendored into the app) landed in
+    /// `lastError`, which the library does not display.
     func importBook(at url: URL) {
+        let name = url.deletingPathExtension().lastPathComponent
+        let pending = PendingImport(name: name, target: .book,
+                                    stage: BookImportStage.copying)
+        pendingImports.append(pending)
         Task {
+            defer { pendingImports.removeAll { $0.id == pending.id } }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -1310,12 +1345,14 @@ final class AppState: ObservableObject {
                     .appending(path: url.lastPathComponent)
                 try? FileManager.default.removeItem(at: tmp)
                 try FileManager.default.copyItem(at: url, to: tmp)
-                _ = try await local.importBook(
-                    fileURL: tmp, name: url.deletingPathExtension().lastPathComponent)
+                updatePending(pending.id, stage: BookImportStage.reading, fraction: nil)
+                _ = try await local.importBook(fileURL: tmp, name: name)
                 try? FileManager.default.removeItem(at: tmp)
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                let reason = (error as? EngineError)?.error ?? error.localizedDescription
+                lastError = reason
+                notice = BookImportStage.failure(name: name, reason: reason)
             }
         }
     }
@@ -1377,10 +1414,12 @@ final class AppState: ObservableObject {
         let name = url.deletingPathExtension().lastPathComponent
         if scoped { url.stopAccessingSecurityScopedResource() }
         guard let pdfData else {
+            omrBusy = false
             notice = "Couldn't read the PDF."
             return
         }
         guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
+            omrBusy = false
             saveToIntake(pdfData, filename: url.lastPathComponent)
             return
         }
@@ -1393,9 +1432,11 @@ final class AppState: ObservableObject {
         omrBusy = true
         let pending = PendingImport(name: name, piece: piece)
         pendingImports.append(pending)
+        omrPendingID = pending.id
         Task {
             defer {
                 omrBusy = false
+                omrPendingID = nil
                 pendingImports.removeAll { $0.id == pending.id }
             }
             do {
