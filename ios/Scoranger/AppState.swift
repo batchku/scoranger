@@ -818,19 +818,6 @@ final class AppState: ObservableObject {
         return groups.reversed()
     }
 
-    /// Test fixture only, alongside `-resetLibrary`: view preferences outlive
-    /// the workspace, so without this a test that turns the two-page spread on
-    /// leaves it on for every test that launches after it.
-    func resetViewPreferencesForTesting() {
-        guard ProcessInfo.processInfo.arguments.contains("-resetLibrary") else { return }
-        layout = .page
-        // Pencil marks live in Documents, keyed by score and version, and so
-        // outlive the workspace that -resetLibrary throws away. A stroke left
-        // by one run turned up on a later run's canvas and read as a drawing
-        // leaking between versions.
-        DrawingStore.shared.clear(prefix: "")
-    }
-
     func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
