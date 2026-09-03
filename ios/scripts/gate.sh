@@ -3,9 +3,8 @@
 #
 # The sweeps (VisualSweep, DesignerSweep, RowShot, InkShot, InkZoomShot) carry
 # no assertions about the product -- they photograph the app for a human to
-# look at. Measured across twelve gate
-# logs they were 43.6 of the gate's 76 minutes, and nine of its ten most
-# expensive tests. A screenshot cannot fail a build, so paying for it on every
+# look at. Measured across twelve gate logs they were 43.6 of the gate's 76
+# minutes, and nine of its ten most expensive tests. A screenshot cannot fail a build, so paying for it on every
 # run buys nothing.
 #
 # They are NOT deleted and NOT unrunnable. To take a set of sweeps:
