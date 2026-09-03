@@ -676,13 +676,19 @@ private struct SoundPicker: View {
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// What it is playing now, and the two things a reader does with a whole
-    /// mixer at once.
+    /// What it is playing now, and every action's inverse beside it.
     ///
     /// "All staves" is the ask this feature came from, in the arranger's own
     /// words: *"it's common for an arranger to for instance just want to hear
     /// every voice on a piano sound."* Doing that a strip at a time is one tap
     /// per staff and the reason they asked.
+    ///
+    /// **"All auto" is here because "all staves" is.** A control that changes
+    /// every channel at once and leaves the reader undoing it one channel at a
+    /// time is the create-only trap the house rule names: a tool that MAKES
+    /// something ships with the tool that unmakes it. Twelve taps to get back
+    /// from one is not an undo. Two scopes, two directions, four buttons minus
+    /// the one the list itself is.
     private var footer: some View {
         HStack(spacing: Theme.Metric.s6) {
             Text(GeneralMIDI.name(program: current.program, bank: current.bank))
@@ -692,9 +698,13 @@ private struct SoundPicker: View {
                 .truncationMode(.tail)
                 .accessibilityHidden(true)
             Spacer(minLength: 2)
-            action("GUESS", id: "picker-guess",
-                   label: "Back to the sound the staff name suggests") {
+            action("AUTO", id: "picker-guess",
+                   label: "This staff back to its automatic sound") {
                 playback.clearInstrument(for: part)
+            }
+            action("ALL AUTO", id: "picker-all-guess",
+                   label: "Every staff back to its automatic sound") {
+                playback.clearInstruments()
             }
             action("ALL STAVES", id: "picker-all-staves",
                    label: "Play every staff with this sound") {

@@ -3392,15 +3392,38 @@ extension ScorangerUITests {
         }
         shot("mixer-every-voice-on-a-piano")
 
-        // And back to the guess, which is a state and not a stored copy of one.
+        // And every staff back again. A control that changes the whole mixer
+        // at once and leaves the reader undoing it a strip at a time is not
+        // undoable; this is the inverse of the button above it.
         chip(0).tap()
-        XCTAssertTrue(app.descendants(matching: .any)["picker-guess"]
+        XCTAssertTrue(app.descendants(matching: .any)["picker-all-guess"]
                         .firstMatch.waitForExistence(timeout: 10), "no way back")
-        app.descendants(matching: .any)["picker-guess"].firstMatch.tap()
+        app.descendants(matching: .any)["picker-all-guess"].firstMatch.tap()
         app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
         XCTAssertTrue(chip(0).waitForExistence(timeout: 10))
+        for index in 0..<4 {
+            XCTAssertTrue((chip(index).value as? String ?? "")
+                            .hasSuffix(", automatic"),
+                          "strip \(index) did not go back to its guess: "
+                          + "\(chip(index).value as? String ?? "-")")
+        }
+
+        // One staff at a time is still one staff: the per-strip AUTO clears
+        // the strip it is on and leaves the others where the reader put them.
+        chip(1).tap()
+        app.descendants(matching: .any)["picker-family-0"].firstMatch.tap()
+        app.descendants(matching: .any)["picker-instrument-melodic-0"].firstMatch.tap()
+        app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
+        XCTAssertTrue(chip(1).waitForExistence(timeout: 10))
+        XCTAssertTrue((chip(1).value as? String ?? "").hasSuffix(", chosen"))
         XCTAssertTrue((chip(0).value as? String ?? "").hasSuffix(", automatic"),
-                      "the first strip did not go back to its guess")
+                      "choosing on one strip changed another")
+        chip(1).tap()
+        app.descendants(matching: .any)["picker-guess"].firstMatch.tap()
+        app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
+        XCTAssertTrue(chip(1).waitForExistence(timeout: 10))
+        XCTAssertTrue((chip(1).value as? String ?? "").hasSuffix(", automatic"),
+                      "the second strip did not go back to its guess")
 
         // None of it was notation. The engine's change-instrument rewrites a
         // part and leaves a version behind; this is the speaker, not the page.
