@@ -36,12 +36,15 @@ So:
 - **Material arriving from outside is accepted as it is.** OMR is imperfect by
   nature and the user brings a score in *so they can fix it*.
 - **Proof belongs in the checks, which run before a release, not in front of a
-  user.** Eight of them, and every fix in them was reverted in turn to confirm
+  user.** Ten of them, and every fix in them was reverted in turn to confirm
   the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
   marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
   `check_structure.py` and `check_whistle.py` (notation),
   `check_addresses.py` (a selection-scoped op touches only what was selected),
+  `check_chord_diagrams.py` and `check_guitar_tab.py` (the guitar work: the
+  shapes against a published chart, the tab against the open strings, and both
+  renderers against one golden fragment),
   `check_playback.py` (the MIDI and the bar map describe the same performance),
   and `check_bar_frames.py` (the rectangle the geometry reports for measure N
   IS the Nth bar -- Verovio nests a slur inside the measure it starts in, and a
@@ -97,6 +100,15 @@ scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natu
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
+scor adjust-element <score> --part X [--kind harm|diagram|tab]
+                    [--measure N] [--ordinal N] [--all] [--size PT]
+                    [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
+  # how big an added element is and where it sits, stored in the notation
+  # (MusicXML font-size / relative-x / relative-y) so it travels with the
+  # score. `harm` is a chord symbol, `diagram` a chord diagram, `tab` a tab
+  # column -- addressed by the same measure + ordinal, because the reader is
+  # pointing at one thing on the page. Verovio honours none of the three, so
+  # each renderer carries them across itself.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:
   # six holes top to bottom, a 7th verse "+" for the overblown octave. Notes the
@@ -107,6 +119,48 @@ scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # which must stay in step. Circle GLYPHS are not an option: the rasterizers'
   # fallback font has none and engraves empty boxes.
   # Chart: engine/scripts/check_whistle.py asserts it against the published one.
+scor guitar-tab <score> --part X [--tuning EADGBE] [--capo N] [--clear]
+  # guitar tablature under a part: a fret number per note on a six-line tab
+  # staff, at the LOWEST position that plays it -- the one a player reaches for
+  # first. A chord is laid out whole (one string per note, inside four frets),
+  # so it can force the hand higher than any of its notes would alone, and the
+  # report says which bar that happened in. Notes the tuning cannot play are
+  # reported, never transposed into range and never dropped.
+  # Engraved the way the whistle's fingerings are: six lyric verses per note,
+  # tagged `gt`, verse 1 the HIGHEST string, because a tab staff's top line is
+  # the string nearest the floor. A fret number where a string is played, a
+  # DASH where it is not -- and the dash is the meaning while the LINE is the
+  # drawing: render.py::_tab_staff and ios/Scoranger/ScoreModel/TabStaff.swift
+  # run the six lines through the dashes and leave the numbers standing in gaps
+  # cut in them. Left as text a column of dashes is six loose hyphens per note.
+  # Tunings: EADGBE, DADGAD, DADGBE (drop D). A capo shortens every string by
+  # its own number of frets; nothing under it can be played at all.
+  # Size and position are adjust-element's business, with --kind tab.
+scor chord-diagrams <score> --part X [--tuning EADGBE] [--clear]
+  # a guitar chord diagram over every chord symbol the part ALREADY carries --
+  # `set-chords` writes them and `chart_style` places them, and a second notion
+  # of where a chord sits would fall out of step with the first one the moment
+  # either moved.
+  # What goes in the notation is the shape, in the shorthand a player writes:
+  # [x,3,2,0,1,0], one entry per string from the low E up, `x` for a string not
+  # sounded. Nothing else, because nothing else has to be: the window of the
+  # neck, the thick NUT line, the barre and the "5 fr." label all follow from
+  # those six numbers, by rules both renderers apply and neither invents.
+  # It rides as a <direction><words> at the symbol's own offset, and that is a
+  # deliberate second choice: MusicXML's <frame> is where a diagram belongs and
+  # music21 WRITES one, but it drops the frame notes on the way back in, so a
+  # diagram would survive exactly one op -- every version is written and read
+  # back. The shorthand survives, and exports as a line a player can read.
+  # GLYPHS ARE NOT AN OPTION for the grid, the dots or the barre, the same
+  # lesson the whistle's circles taught: render.py::_chord_diagrams and
+  # ios/Scoranger/ScoreModel/ChordDiagrams.swift draw them as paths, and must
+  # stay in step -- check_chord_diagrams.py holds both to one golden fragment.
+  # A curated chart of open-position shapes first, a search up the neck second:
+  # the search finds a voicing for anything, but it does not know that x32010
+  # is *the* C. Chords with no playable shape are reported, not faked.
+  # Transposing the music CLEARS the diagrams (six frets are one chord, and a C
+  # grid over a D is worse than nothing); run the op again after.
+  # Size and position are adjust-element's business, with --kind diagram.
 scor set-structure <score> --kind KIND --measure N [--to-measure M] [--number N]
                    [--times N] [--remove] [--move-to N]
   # repeats, voltas and navigation marks. KIND is repeat-start / repeat-end /

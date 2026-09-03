@@ -155,6 +155,15 @@ actor VerovioRenderer {
             mei = placed
             reload = true
         }
+        // Chord diagrams: the marker each one rides in reserves one line of
+        // text, and a diagram is seven lines tall, so the block is opened up
+        // here and the document reloaded around it. render.py does the same on
+        // the export side.
+        if let diagrams = ChordDiagrams.meiWithDiagrams(
+            mei, adjustments: ChordDiagrams.adjustments(inMusicXML: source)) {
+            mei = diagrams
+            reload = true
+        }
         // A mark is written to every part so the parts keep it; the combined
         // score would otherwise draw the letter once per staff, on top of
         // itself. render.py does the same on the export side.

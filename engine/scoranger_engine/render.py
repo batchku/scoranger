@@ -6,6 +6,7 @@ substituted with plain 'b'/'#' before conversion.
 """
 
 import io
+from math import ceil
 import re
 import tempfile
 import threading
@@ -789,6 +790,457 @@ def _draw_hole(block: str, y: float | None = None,
     return _TEXT_RE.sub(shape, block, count=1)
 
 
+# ------------------------------------------------------- guitar tablature
+#
+# The notation carries six verses per note: a fret number on the string that
+# is played, a dash on the ones that are not (ops.guitar_tab). What is drawn
+# is a tab staff -- six lines running through the dashes, with the numbers
+# standing in gaps in the lines.
+#
+# The DASH is the meaning and the LINE is the drawing, the same arrangement
+# the whistle's letters and circles have. Left as text a column of dashes is
+# six loose hyphens per note; drawn as segments that reach half way to the
+# neighbouring column they join into the six continuous lines a player reads.
+#
+# The rows are re-placed here rather than asked of Verovio, for the reason the
+# whistle's are: `lyricSize` is one document-wide text size that also governs
+# chord symbols, so shrinking the tab to fit would shrink every chord name on
+# the page with it.
+#
+# Mirrored in ios/Scoranger/ScoreModel/TabStaff.swift; engine/scripts/
+# check_guitar_tab.py holds the two to one golden fragment.
+
+TAB_TAG = "gt"
+TAB_ROWS = 6
+# Rows sit closer than Verovio's lyric pitch: a tab staff is tighter than six
+# lines of words, and the column only ever gets shorter, which is the safe
+# direction when it hangs below the staff.
+TAB_PITCH_RATIO = 0.62
+TAB_DIGIT_VS_PITCH = 0.9
+TAB_LINE_VS_PITCH = 0.055
+# Half the gap a one-digit number is given in its line. A two-digit fret needs
+# half as much again.
+TAB_BREAK_VS_PITCH = 0.42
+# How far a column's lines run when there is no neighbour to meet: the start
+# and end of a system, in drawn row pitches.
+TAB_END_ADVANCE = 1.1
+# A number sits ON its line, so its baseline is below it.
+TAB_BASELINE_VS_PITCH = 0.32
+# MusicXML measures a nudge in TENTHS of a staff space, and this pass places
+# the rows itself, so it needs the two in the same units. Measured off a real
+# engraving: a staff space is 180 SVG units where the lyric row pitch is 390,
+# so ten tenths are 0.4615 of a row pitch.
+TAB_TENTH_VS_ROW_PITCH = 0.04615
+
+
+def tab_column_svg(texts: list, x: float, top_y: float, row_pitch: float,
+                   left: float, right: float, scale: float = 1.0) -> str:
+    """One column of tab: six line segments, and the frets standing in them.
+
+    Pure, and the only place the numbers are decided, so the on-device
+    renderer can be held to the same answer -- see
+    ios/Scoranger/ScoreModel/TabStaff.swift and check_guitar_tab.py.
+    """
+    pitch = row_pitch * TAB_PITCH_RATIO * scale
+    stroke = pitch * TAB_LINE_VS_PITCH
+    parts = []
+    for row, text in enumerate(texts):
+        y = top_y + row * pitch
+        fret = text.strip() if text else ""
+        if fret and fret != "-":
+            gap = pitch * TAB_BREAK_VS_PITCH * (1.0 if len(fret) < 2 else 1.5)
+            for x1, x2 in ((left, x - gap), (x + gap, right)):
+                if x2 > x1:
+                    parts.append(
+                        f'<path d="M {x1:g} {y:g} L {x2:g} {y:g}" '
+                        f'stroke="currentColor" stroke-width="{stroke:g}" fill="none"/>')
+            parts.append(
+                f'<text text-anchor="middle" font-style="normal" x="{x:g}" '
+                f'y="{y + pitch * TAB_BASELINE_VS_PITCH:g}">'
+                f'<tspan font-size="{pitch * TAB_DIGIT_VS_PITCH:g}px">{fret}</tspan></text>')
+        else:
+            parts.append(
+                f'<path d="M {left:g} {y:g} L {right:g} {y:g}" '
+                f'stroke="currentColor" stroke-width="{stroke:g}" fill="none"/>')
+    return "".join(parts)
+
+
+def tab_columns(svg: str) -> list[dict]:
+    """Every tab column in a page, with the rows Verovio laid out for it.
+
+    A column is a run of consecutive tagged verses whose y increases and whose
+    x stays put. Both tests are needed: y alone merges the last column of one
+    system with the first of the next, which is further down the page only
+    because it is further down the page.
+    """
+    from . import ops
+
+    verses = []
+    for match in _VERSE_RE.finditer(svg):
+        block = match.group(0)
+        label = _LABEL_RE.search(block)
+        # the label is the tag AND whatever `adjust-element --kind tab` wrote
+        # onto it: Verovio carries a lyric's name to the page and drops its
+        # size and its offsets, so the name is what reaches here
+        adjustment = ops.parse_tab_label(label.group(1)) if label else None
+        if adjustment is None:
+            continue
+        text = _ANY_SYL_RE.search(block)
+        x = _X_RE.search(block)
+        y = _Y_RE.search(block)
+        if x is None or y is None:
+            continue
+        verses.append({"match": match, "text": text.group(1) if text else "",
+                       "x": float(x.group(1)), "y": float(y.group(1)),
+                       "scale": adjustment[0] or 1.0,
+                       "dx": adjustment[1] or 0.0, "dy": adjustment[2] or 0.0})
+    columns: list[dict] = []
+    run: list[dict] = []
+
+    def settle():
+        if len(run) < 2:
+            run.clear()
+            return
+        ys = [v["y"] for v in run]
+        gaps = sorted(b - a for a, b in zip(ys, ys[1:]) if b > a)
+        if gaps:
+            pitch = (gaps[len(gaps) // 2] if len(gaps) % 2
+                     else (gaps[len(gaps) // 2 - 1] + gaps[len(gaps) // 2]) / 2)
+            xs = sorted(v["x"] for v in run)
+            # the whole column moves and resizes together, so its first verse
+            # speaks for it
+            columns.append({"rows": list(run), "pitch": pitch, "top": ys[0],
+                            "x": xs[len(xs) // 2], "scale": run[0]["scale"],
+                            "dx": run[0]["dx"], "dy": run[0]["dy"]})
+        run.clear()
+
+    for verse in verses:
+        if run:
+            last = run[-1]
+            tolerance = max(abs(verse["y"] - last["y"]) * 0.5, 2.0)
+            if not (verse["y"] > last["y"] and abs(verse["x"] - last["x"]) <= tolerance):
+                settle()
+        run.append(verse)
+    settle()
+    return columns
+
+
+def _tab_staff(svg: str) -> str:
+    """Draw the tab staff through every tab column in a page."""
+    if 'class="verse"' not in svg:
+        return svg
+    columns = tab_columns(svg)
+    if not columns:
+        return svg
+
+    # Columns of one SYSTEM share their top row, because Verovio lays every
+    # verse of a system on the same baseline. That is what lets each column's
+    # lines reach half way to its neighbour and meet them: the six lines are
+    # drawn a column at a time and still come out continuous.
+    systems: dict[int, list[dict]] = {}
+    for column in columns:
+        systems.setdefault(round(column["top"]), []).append(column)
+    drawn: dict[int, str] = {}
+    blanked: set[int] = set()
+    for row_columns in systems.values():
+        row_columns.sort(key=lambda c: c["x"])
+        for index, column in enumerate(row_columns):
+            pitch = column["pitch"] * TAB_PITCH_RATIO * column["scale"]
+            before = row_columns[index - 1]["x"] if index else None
+            after = row_columns[index + 1]["x"] if index + 1 < len(row_columns) else None
+            left = (column["x"] + before) / 2 if before is not None \
+                else column["x"] - pitch * TAB_END_ADVANCE
+            right = (column["x"] + after) / 2 if after is not None \
+                else column["x"] + pitch * TAB_END_ADVANCE
+            # MusicXML measures up; the page measures down
+            unit = column["pitch"] * TAB_TENTH_VS_ROW_PITCH
+            dx, dy = column["dx"] * unit, -column["dy"] * unit
+            texts = [row["text"] for row in column["rows"]]
+            drawn[column["rows"][0]["match"].start()] = tab_column_svg(
+                texts, column["x"] + dx, column["top"] + dy, column["pitch"],
+                left + dx, right + dx, column["scale"])
+            for row in column["rows"][1:]:
+                blanked.add(row["match"].start())
+
+    out, cursor = [], 0
+    for column in columns:
+        for row in column["rows"]:
+            match = row["match"]
+            out.append(svg[cursor:match.start()])
+            if match.start() in drawn:
+                out.append(f'<g class="verse tab">{drawn[match.start()]}</g>')
+            cursor = match.end()
+    out.append(svg[cursor:])
+    return "".join(out)
+
+
+# ------------------------------------------------- guitar chord diagrams
+#
+# The notation carries the shape and nothing else (ops.chord_diagrams): six
+# frets, `x` for a string that is not sounded. Everything drawn here follows
+# from those six numbers, so the page cannot say something the notation does
+# not.
+#
+# GLYPHS ARE NOT AN OPTION for the grid, the dots or the barre -- the same
+# lesson the whistle's circles taught: the font the PDF rasterizer falls back
+# to has no filled circle and engraves an empty box. Lines, filled discs and a
+# filled bar are drawn as paths. Only the fret numbers and the "5 fr." label
+# are text, because they are digits, which every font has.
+#
+# Verovio reserves the space, we do the drawing. A one-line <dir> reserves one
+# line of text above the staff, so the MEI pass below turns each marker into a
+# block of blank lines -- seven of them, a marks row and the six lines that
+# bound five frets -- and Verovio lays the system out around a block that size.
+# The same pass pins every marker to one vertical level with @vgrp: without it
+# Verovio gives each direction a level of its own and the diagrams climb the
+# page in steps, one per chord.
+#
+# Mirrored in ios/Scoranger/ScoreModel/ChordDiagrams.swift, which must draw the
+# same picture; engine/scripts/check_chord_diagrams.py holds the two to one
+# golden fragment.
+
+CHORD_DIAGRAM_RE = re.compile(r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\]")
+# rows of the reserved block: one for the marks, six for the lines of five frets
+DIAGRAM_ROWS = 7
+DIAGRAM_STRINGS = 6
+DIAGRAM_FRETS = 5
+# All of it is proportional to the string gap, and the string gap is the block's
+# own row pitch, so a diagram scales with the engraving exactly as the whistle's
+# holes do.
+DIAGRAM_GAP_VS_ROW = 1.0
+DIAGRAM_DOT_VS_GAP = 0.3
+# the bar is a shade slimmer than a dot is wide, so it does not touch the fret
+# lines above and below it
+DIAGRAM_BARRE_VS_GAP = 0.22
+DIAGRAM_LINE_VS_GAP = 0.05
+DIAGRAM_NUT_VS_GAP = 0.16
+DIAGRAM_MARK_TEXT_VS_GAP = 0.7
+DIAGRAM_POSITION_TEXT_VS_GAP = 0.6
+# The point size a diagram is drawn at when nobody has adjusted it, so an
+# absolute size from `adjust-element` reads as a ratio of the drawn one -- the
+# same arrangement chord symbols use (DEFAULT_CHORD_POINTS).
+DEFAULT_DIAGRAM_POINTS = 12.0
+# What the MEI pass writes so the SVG pass can find its own work again, and
+# the level every diagram is pinned to.
+DIAGRAM_VGRP = "1"
+_DIR_MARKER_RE = re.compile(r'<dir\b([^>]*)>\s*(\[[x\d,]+\])\s*</dir>')
+_WORDS_RE = re.compile(r"<words\b([^>]*)>([^<]*)</words>")
+
+
+def diagram_adjustments(musicxml_path) -> list[dict]:
+    """Each diagram's size and offset, in document order.
+
+    Read from the file, like `chord_adjustments`: MusicXML puts them on the
+    <words> the shape rides in, Verovio drops all three on the way to MEI, and
+    document order is the join. `adjust-element --kind diagram` writes them.
+    """
+    try:
+        text = Path(musicxml_path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out = []
+    for attrs, body in _WORDS_RE.findall(text):
+        if CHORD_DIAGRAM_RE.search(body) is None:
+            continue
+
+        def number(attr, tag=attrs):
+            found = re.search(rf'{attr}="([-\d.]+)"', tag)
+            return float(found.group(1)) if found else None
+        out.append({"size": number("font-size"),
+                    "dx": number("relative-x"), "dy": number("relative-y")})
+    return out
+
+
+def mei_with_chord_diagrams(mei: str, musicxml_path=None) -> str | None:
+    """Reserve a block for every diagram, and pin them all to one level.
+
+    Returns None when the score carries no diagram, so the caller can skip a
+    Verovio reload. The shape moves into @label -- which Verovio carries to the
+    SVG as a <title> -- and the body becomes blank rows, because the marker's
+    own text is not what anyone should read on the page.
+    """
+    adjustments = (diagram_adjustments(musicxml_path)
+                   if musicxml_path is not None else [])
+    index = 0
+
+    def block(match):
+        nonlocal index
+        attrs, shape = match.group(1), match.group(2)
+        adjustment = adjustments[index] if index < len(adjustments) else {}
+        index += 1
+        size = adjustment.get("size")
+        scale = 1.0 if size is None else size / DEFAULT_DIAGRAM_POINTS
+        label = shape if size is None else f"{shape}@{scale:g}"
+        attrs = re.sub(r'\s+vgrp="[^"]*"', "", attrs)
+        if adjustment.get("dx") is not None:
+            attrs += f' ho="{adjustment["dx"] * _TENTHS_TO_HALF_SPACES:g}"'
+        if adjustment.get("dy") is not None:
+            # Both measure UP here: MusicXML's relative-y does, and so does
+            # @vo on a direction placed ABOVE a staff -- a negative one pushed
+            # the block 540 units DOWN onto the staff when it was measured.
+            # (The <harm> pass above negates its own; harm and dir are not
+            # the same element, and this one is what the ruler says.)
+            attrs += f' vo="{adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
+        # The reserved block grows with the diagram. Without this an
+        # enlarged one drew straight down through the staff underneath it:
+        # the rows are what Verovio spaces the system by, and seven of them
+        # are seven whatever size the drawing is.
+        rows = "<lb/>".join([" "] * ceil(DIAGRAM_ROWS * scale))
+        return f'<dir{attrs} vgrp="{DIAGRAM_VGRP}" label="{label}">{rows}</dir>'
+
+    out = _DIR_MARKER_RE.sub(block, mei)
+    return out if index else None
+
+
+def diagram_geometry(x: float, top_y: float, row_pitch: float,
+                     scale: float = 1.0) -> dict:
+    """Where a diagram's parts go, from the block Verovio laid out.
+
+    Pure, and the only place the numbers are decided, so the on-device renderer
+    can be held to the same answer -- see
+    ios/Scoranger/ScoreModel/ChordDiagrams.swift and check_chord_diagrams.py.
+    """
+    gap = row_pitch * DIAGRAM_GAP_VS_ROW * scale
+    return {
+        "gap": gap,
+        "left": x,
+        "width": gap * (DIAGRAM_STRINGS - 1),
+        # the marks sit on the block's first row; the grid starts on the next
+        "marks_y": top_y,
+        "top": top_y + row_pitch * 0.5 + gap * 0.25,
+        "height": gap * DIAGRAM_FRETS,
+        "dot": gap * DIAGRAM_DOT_VS_GAP,
+        "barre": gap * DIAGRAM_BARRE_VS_GAP,
+        "line": gap * DIAGRAM_LINE_VS_GAP,
+        "nut": gap * DIAGRAM_NUT_VS_GAP,
+        "mark_text": gap * DIAGRAM_MARK_TEXT_VS_GAP,
+        "position_text": gap * DIAGRAM_POSITION_TEXT_VS_GAP,
+    }
+
+
+def _disc(cx: float, cy: float, r: float) -> str:
+    """A filled circle as two arcs: SwiftDraw draws the subset Verovio emits,
+    and <circle> came out of the on-device renderer as nothing at all."""
+    return (f'<path d="M {cx - r:g} {cy:g} A {r:g} {r:g} 0 1 0 {cx + r:g} {cy:g} '
+            f'A {r:g} {r:g} 0 1 0 {cx - r:g} {cy:g} Z" '
+            f'fill="currentColor" stroke="none"/>')
+
+
+def chord_diagram_svg(shape: list, x: float, top_y: float, row_pitch: float,
+                      scale: float = 1.0) -> str:
+    """One diagram, drawn. `shape` is six frets, None for a silent string.
+
+    Mirrored exactly in ChordDiagrams.swift: check_chord_diagrams.py compares
+    both against one golden fragment, so a change here that is not made there
+    fails the checks rather than the eye.
+    """
+    from . import ops
+
+    g = diagram_geometry(x, top_y, row_pitch, scale)
+    base, nut = ops.diagram_window(shape)
+    barre = ops.diagram_barre(shape)
+    parts = []
+
+    def line(x1, y1, x2, y2, width):
+        parts.append(f'<path d="M {x1:g} {y1:g} L {x2:g} {y2:g}" '
+                     f'stroke="currentColor" stroke-width="{width:g}" fill="none"/>')
+
+    for s in range(DIAGRAM_STRINGS):
+        sx = g["left"] + s * g["gap"]
+        line(sx, g["top"], sx, g["top"] + g["height"], g["line"])
+    for f in range(DIAGRAM_FRETS + 1):
+        fy = g["top"] + f * g["gap"]
+        thick = g["nut"] if (f == 0 and nut) else g["line"]
+        line(g["left"], fy, g["left"] + g["width"], fy, thick)
+
+    # the marks row: what each string does, low to high, as the notation writes
+    # it -- x for silent, 0 for open, the fret otherwise
+    for s, fret in enumerate(shape):
+        mark = "x" if fret is None else str(fret)
+        parts.append(
+            f'<text text-anchor="middle" font-style="normal" '
+            f'x="{g["left"] + s * g["gap"]:g}" y="{g["marks_y"]:g}">'
+            f'<tspan font-size="{g["mark_text"]:g}px">{mark}</tspan></text>')
+
+    def cell_centre(fret):
+        return g["top"] + (fret - base + 0.5) * g["gap"]
+
+    barred = set()
+    if barre is not None:
+        fret, first, last = barre
+        barred = {i for i in range(first, last + 1) if shape[i] == fret}
+        y = cell_centre(fret)
+        half = g["barre"]
+        parts.append(
+            f'<path d="M {g["left"] + first * g["gap"]:g} {y - half:g} '
+            f'H {g["left"] + last * g["gap"]:g} V {y + half:g} '
+            f'H {g["left"] + first * g["gap"]:g} Z" '
+            f'fill="currentColor" stroke="none"/>')
+
+    for s, fret in enumerate(shape):
+        if not fret or s in barred:
+            continue
+        parts.append(_disc(g["left"] + s * g["gap"], cell_centre(fret), g["dot"]))
+
+    if not nut:
+        parts.append(
+            f'<text font-style="normal" '
+            f'x="{g["left"] + g["width"] + g["gap"] * 0.4:g}" '
+            f'y="{g["top"] + g["gap"] * 0.7:g}">'
+            f'<tspan font-size="{g["position_text"]:g}px">{base} fr.</tspan></text>')
+    return "".join(parts)
+
+
+# A <dir> group holds a title and a text and nothing nested, so one closing
+# tag ends it -- unlike a verse, whose group closes twice.
+_DIAGRAM_GROUP_RE = re.compile(r'<g[^>]*class="dir">.*?</g>', re.S)
+_DIAGRAM_LABEL_RE = re.compile(r'<title class="labelAttr">(\[[x\d,]+\])(?:@([\d.]+))?</title>')
+_ROW_XY_RE = re.compile(r'<t(?:ext|span)[^>]*\bx="([-\d.]+)"[^>]*\by="([-\d.]+)"')
+
+
+def chord_diagram_blocks(svg: str) -> list[dict]:
+    """Every diagram marker in a page, with the block Verovio gave it.
+
+    The rows are the blank lines the MEI pass put there; their y positions are
+    the pitch the drawing is built from, exactly as the whistle's columns take
+    their pitch from the verses Verovio laid out.
+    """
+    blocks = []
+    for match in _DIAGRAM_GROUP_RE.finditer(svg):
+        label = _DIAGRAM_LABEL_RE.search(match.group(0))
+        if label is None:
+            continue
+        rows = _ROW_XY_RE.findall(match.group(0))
+        if len(rows) < 2:
+            continue
+        ys = [float(y) for _, y in rows]
+        pitch = min(b - a for a, b in zip(ys, ys[1:]) if b > a)
+        blocks.append({"match": match, "shape": label.group(1),
+                       "scale": float(label.group(2)) if label.group(2) else 1.0,
+                       "x": float(rows[0][0]), "top": ys[0], "pitch": pitch})
+    return blocks
+
+
+def _chord_diagrams(svg: str) -> str:
+    """Replace every reserved diagram block with the drawn diagram."""
+    from . import ops
+
+    blocks = chord_diagram_blocks(svg)
+    if not blocks:
+        return svg
+    out, cursor = [], 0
+    for block in blocks:
+        match = block["match"]
+        out.append(svg[cursor:match.start()])
+        shape = ops.parse_shape(block["shape"])
+        drawn = chord_diagram_svg(shape, block["x"], block["top"],
+                                  block["pitch"], block["scale"]) if shape else ""
+        out.append(f'<g class="dir chord-diagram">{drawn}</g>')
+        cursor = match.end()
+    out.append(svg[cursor:])
+    return "".join(out)
+
+
 def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
                title: str | None = None) -> dict:
     import cairosvg
@@ -858,6 +1310,15 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with chord offsets")
 
+        # Chord diagrams: the marker each one rides in reserves one line of
+        # text, and a diagram is seven lines tall, so the block is opened up
+        # here and the document reloaded around it.
+        diagrams = mei_with_chord_diagrams(mei, src)
+        if diagrams is not None:
+            mei = diagrams
+            if not tk.loadData(mei):
+                raise RuntimeError("Verovio could not reload MEI with chord diagrams")
+
         # A rehearsal mark is written to every part so extracted parts keep it;
         # in a COMBINED score Verovio anchors them all to one staff and draws
         # the letter over itself once per part.
@@ -867,10 +1328,10 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
             if not tk.loadData(mei):
                 raise RuntimeError("Verovio could not reload MEI with deduped rehearsals")
         n_pages = tk.getPageCount()
-        svgs = [_fingering_diagrams(
+        svgs = [_tab_staff(_chord_diagrams(_fingering_diagrams(
                     apply_chord_sizes(
                         _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves),
-                        src))
+                        src))))
                 for p in range(1, n_pages + 1)]
     for svg in svgs:
         # the page's PHYSICAL size, which is not the size Verovio drew it at

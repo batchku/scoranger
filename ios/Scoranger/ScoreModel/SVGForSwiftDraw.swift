@@ -10,7 +10,8 @@ import Foundation
 ///
 /// Three things happen, and each is a place this can go wrong:
 ///
-/// 1. fingerings become drawn circles, and SMuFL accidentals become ASCII —
+/// 1. fingerings become drawn circles and chord diagrams drawn grids, and
+    ///    SMuFL accidentals become ASCII —
 ///    the rasteriser's fallback font has neither
 /// 2. the inner `<svg class="definition-scale">` is flattened into a `<g>`,
 ///    hoisting its viewBox onto the root, which has only px width/height
@@ -25,7 +26,7 @@ enum SVGForSwiftDraw {
     static func prepare(_ svg: String) -> String {
         // fingerings become drawn circles before anything else looks at the
         // text: they are shapes from here on, not glyphs
-        var s = FingeringDiagrams.draw(in: svg)
+        var s = TabStaff.draw(in: ChordDiagrams.draw(in: FingeringDiagrams.draw(in: svg)))
         for (glyph, ascii) in accidentalSubs {
             s = s.replacingOccurrences(of: glyph, with: ascii)
         }
