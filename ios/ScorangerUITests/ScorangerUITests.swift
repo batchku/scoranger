@@ -442,7 +442,7 @@ final class ScorangerUITests: XCTestCase {
             if let previous, key == previous { return false }
             return true
         }
-        settle([canvas, engravedPage])
+        settle(all: [canvas, engravedPage])
         return canvas
     }
 
@@ -711,13 +711,13 @@ final class ScorangerUITests: XCTestCase {
 
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        settle([app.scrollViews["score-canvas"], engravedPage])
+        settle(all: [app.scrollViews["score-canvas"], engravedPage])
         assertWidth(screen - chat, "chat open")
         assertPageFillsCanvas("chat open")
         shot("width-chat-only")
 
         app.buttons["Close chat"].tap()
-        settle([app.scrollViews["score-canvas"], engravedPage])
+        settle(all: [app.scrollViews["score-canvas"], engravedPage])
         assertWidth(screen, "chat closed again")
         assertPageFillsCanvas("chat closed again")
     }
@@ -1016,7 +1016,7 @@ final class ScorangerUITests: XCTestCase {
 
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        settle([score, page])
+        settle(all: [score, page])
         // the canvas has already given the chat its width; only the keyboard
         // is still to come
         let canvasBefore = score.frame
@@ -1029,7 +1029,7 @@ final class ScorangerUITests: XCTestCase {
                       "no keyboard came up, so this proves nothing")
         // the keyboard SLIDES in, and everything below is a geometry: wait for
         // the three frames to stop moving rather than for two seconds
-        settle([app.keyboards.element, score, page])
+        settle(all: [app.keyboards.element, score, page])
         shot("keyboard-up")
 
         XCTAssertEqual(score.frame.height, canvasBefore.height, accuracy: 2,
@@ -1114,7 +1114,7 @@ final class ScorangerUITests: XCTestCase {
         checkRegion("no-panels")
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
-        settle([score, page])
+        settle(all: [score, page])
         checkRegion("chat-open")
     }
 
@@ -1142,11 +1142,11 @@ final class ScorangerUITests: XCTestCase {
         // flakier than it is useful. The canvas frame is what stays asserted.
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 20))
-        settle([score, engravedPage])
+        settle(all: [score, engravedPage])
         score.pinch(withScale: 2.0, velocity: 1.5)
         settle(engravedPage, still: 0.4)
         for _ in 0..<3 { score.swipeRight(velocity: .fast) }
-        settle([score, engravedPage], still: 0.4)
+        settle(all: [score, engravedPage], still: 0.4)
         // 380, the chat panel: the library overlay it used to be is gone
         XCTAssertEqual(score.frame.width, full - 380, accuracy: 4,
                        "the canvas shrank when the chat panel opened while zoomed")
@@ -2368,7 +2368,7 @@ final class ScorangerUITests: XCTestCase {
         expect("the chat to close before the next lasso", timeout: 20) {
             !app.buttons["Close chat"].exists
         }
-        settle([canvas, engravedPage])
+        settle(all: [canvas, engravedPage])
         guard let right = lassoBars(on: canvas, from: 0.66, to: 0.92) else {
             return XCTFail("nothing was selected anywhere on the right-hand page")
         }

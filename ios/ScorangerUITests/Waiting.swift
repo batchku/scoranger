@@ -67,8 +67,12 @@ extension XCTestCase {
 
     /// Both frames still. Two panels open together and the second one moves
     /// the first, so waiting on one of them alone can return between the two.
+    ///
+    /// Labelled `all:` rather than overloading the name: `XCTestCase` is an
+    /// Objective-C class, and two Swift overloads that differ only in the type
+    /// of their first argument compile to the same selector.
     @discardableResult
-    func settle(_ elements: [XCUIElement], still: TimeInterval = 0.35,
+    func settle(all elements: [XCUIElement], still: TimeInterval = 0.35,
                 timeout: TimeInterval = 20) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         var last = elements.map { $0.exists ? $0.frame : .zero }
