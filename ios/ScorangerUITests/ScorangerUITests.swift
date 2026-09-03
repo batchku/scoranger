@@ -54,11 +54,45 @@ final class ScorangerUITests: XCTestCase {
         // just made, the next could not find the set list the seed had not
         // reached yet. Waiting for the arrangement every test goes on to use
         // waits for the imports; nothing here retries an assertion.
-        let anyRow = app.buttons.matching(
+        //
+        // And waiting for the piece ROW is not enough either. Both samples are
+        // filed under the SAME piece, so the row appears when the FIRST import
+        // lands and says nothing about the second. `waitForTheSeedToFinish`
+        // waits for the count.
+        waitForTheSeedToFinish()
+    }
+
+    /// How many arrangements the fixture files under the seeded piece: both
+    /// `.mxl` files in `testdata/app-samples`.
+    private let seededArrangements = 2
+
+    /// Wait for the seed to be FINISHED, not merely started.
+    ///
+    /// `seedLibraryIfEmpty` guards on `m.scores.isEmpty`, so it runs once and
+    /// never resumes: an app terminated between the first import and the second
+    /// comes back to a library that is permanently half-seeded, and nothing
+    /// will ever add to it. `withPencilStandIn` terminates the app, so a setUp
+    /// that returned as soon as the piece row appeared was handing tests a
+    /// library with one arrangement in it perhaps one time in three.
+    ///
+    /// What that did downstream is worth stating, because it does not look like
+    /// a seeding fault: a piece holding ONE arrangement opens that arrangement
+    /// when its row is tapped, instead of pushing the piece screen. So the
+    /// symptom was "the piece screen did not list its arrangements" -- a
+    /// navigation failure, in a test about something else entirely.
+    private func waitForTheSeedToFinish(_ timeout: TimeInterval = 240) {
+        let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", piece)).firstMatch
-        XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
+        XCTAssertTrue(row.waitForExistence(timeout: timeout),
                       "the seeded library never finished importing")
+        XCTAssertTrue(
+            waitForLabel(row, contains: "\(seededArrangements) arrangements",
+                         timeout: timeout),
+            "the seed stopped at: \(row.label). The piece should hold "
+            + "\(seededArrangements) arrangements — both samples in "
+            + "testdata/app-samples. seedLibraryIfEmpty does not resume, so if "
+            + "the app was terminated part-way this can never come right.")
     }
 
     /// Relaunch with the Pencil stand-in, so a finger can drive the selection
@@ -84,20 +118,14 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["library-search"]
                         .waitForExistence(timeout: 90),
                       "the app never came back after the relaunch")
-        // and wait for the LIBRARY, not just the chrome around it.
+        // and wait for the LIBRARY, not just the chrome around it. This waited
+        // on the search field alone, which exists on the first frame.
         //
-        // This waited on the search field alone, which exists on the first
-        // frame. The seed is still importing behind it — and `seedLibraryIfEmpty`
-        // is all-or-nothing on a relaunch (`guard m.scores.isEmpty`), so the
-        // library this relaunch inherits is whatever the previous launch had
-        // finished writing, and nothing will add to it. Importing a sample
-        // holds the engine for tens of seconds, during which the library takes
-        // no taps at all: that is what "opened nothing" was.
-        let anyRow = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-                        "row-", piece)).firstMatch
-        XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
-                      "the library never came back after the pencil relaunch")
+        // The relaunch INHERITS the library rather than re-seeding it, so this
+        // is a check, not a wait: setUp has already seen the seed finish, and
+        // if the count is short here the terminate above cut it off and no
+        // amount of waiting will fix it.
+        waitForTheSeedToFinish()
     }
 
     /// Open an arrangement the way a person now does: the library is already
