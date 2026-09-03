@@ -137,15 +137,25 @@ scor guitar-tab <score> --part X [--tuning EADGBE] [--capo N] [--clear]
   # its own number of frets; nothing under it can be played at all.
   # Size and position are adjust-element's business, with --kind tab.
 scor chord-diagrams <score> --part X [--tuning EADGBE] [--clear]
+                    [--shape "A7=x02020"]
   # a guitar chord diagram over every chord symbol the part ALREADY carries --
   # `set-chords` writes them and `chart_style` places them, and a second notion
   # of where a chord sits would fall out of step with the first one the moment
   # either moved.
   # What goes in the notation is the shape, in the shorthand a player writes:
   # [x,3,2,0,1,0], one entry per string from the low E up, `x` for a string not
-  # sounded. Nothing else, because nothing else has to be: the window of the
-  # neck, the thick NUT line, the barre and the "5 fr." label all follow from
-  # those six numbers, by rules both renderers apply and neither invents.
+  # sounded. The window of the neck, the thick NUT line, the barre and the
+  # "5 fr." label all follow from those six numbers, by rules both renderers
+  # apply and neither invents.
+  # And after them, when there is one to say, the FINGERING:
+  # [3,2,0,0,0,3](3,2,0,0,0,4) is a G. The row above the grid is the HAND, not
+  # the frets -- ring and middle low and the PINKY on the top E -- and no
+  # arithmetic over six fret numbers produces that, which is why it is a table
+  # (ops.OPEN_FINGERINGS) and rides in the notation. A movable shape derives
+  # from the open one it is a barre of, by the rule a method book teaches: the
+  # index bars the fret the nut used to be and every other finger steps up one,
+  # so E 023100 becomes F 134211. Where neither knows the hand, the row shows
+  # the frets, as it always did -- an invented fingering would be a lie.
   # It rides as a <direction><words> at the symbol's own offset, and that is a
   # deliberate second choice: MusicXML's <frame> is where a diagram belongs and
   # music21 WRITES one, but it drops the frame notes on the way back in, so a
@@ -155,9 +165,12 @@ scor chord-diagrams <score> --part X [--tuning EADGBE] [--clear]
   # lesson the whistle's circles taught: render.py::_chord_diagrams and
   # ios/Scoranger/ScoreModel/ChordDiagrams.swift draw them as paths, and must
   # stay in step -- check_chord_diagrams.py holds both to one golden fragment.
-  # A curated chart of open-position shapes first, a search up the neck second:
+  # A curated chart of CONVENTIONAL shapes first, a search up the neck second:
   # the search finds a voicing for anything, but it does not know that x32010
-  # is *the* C. Chords with no playable shape are reported, not faked.
+  # is *the* C. The two rules disagree, and the chart wins: A7 and Dm7 can both
+  # be played open and are both written as fifth-fret barres, so that is what
+  # the op draws. --shape "A7=x02020" pins any chord to a shape of your own,
+  # ahead of both. Chords with no playable shape are reported, not faked.
   # Transposing the music CLEARS the diagrams (six frets are one chord, and a C
   # grid over a D is worse than nothing); run the op again after.
   # Size and position are adjust-element's business, with --kind diagram.

@@ -999,7 +999,8 @@ def _tab_staff(svg: str) -> str:
 # same picture; engine/scripts/check_chord_diagrams.py holds the two to one
 # golden fragment.
 
-CHORD_DIAGRAM_RE = re.compile(r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\]")
+CHORD_DIAGRAM_RE = re.compile(
+    r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\](?:\((?:[x\d],){5}[x\d]\))?")
 # rows of the reserved block: one for the marks, six for the lines of five frets
 DIAGRAM_ROWS = 7
 DIAGRAM_STRINGS = 6
@@ -1023,7 +1024,8 @@ DEFAULT_DIAGRAM_POINTS = 12.0
 # What the MEI pass writes so the SVG pass can find its own work again, and
 # the level every diagram is pinned to.
 DIAGRAM_VGRP = "1"
-_DIR_MARKER_RE = re.compile(r'<dir\b([^>]*)>\s*(\[[x\d,]+\])\s*</dir>')
+_DIR_MARKER_RE = re.compile(
+    r'<dir\b([^>]*)>\s*(\[[x\d,]+\](?:\([x\d,]+\))?)\s*</dir>')
 _WORDS_RE = re.compile(r"<words\b([^>]*)>([^<]*)</words>")
 
 
@@ -1127,8 +1129,13 @@ def _disc(cx: float, cy: float, r: float) -> str:
 
 
 def chord_diagram_svg(shape: list, x: float, top_y: float, row_pitch: float,
-                      scale: float = 1.0) -> str:
+                      scale: float = 1.0, fingers: list | None = None) -> str:
     """One diagram, drawn. `shape` is six frets, None for a silent string.
+
+    `fingers` is which finger goes on each of them, and it is what the marks
+    row shows when the notation carries one -- a guitarist reads the row above
+    a grid as a hand, not as a repeat of the dots. None falls back to the
+    frets, which is what a shape nobody has curated a hand for gets.
 
     Mirrored exactly in ChordDiagrams.swift: check_chord_diagrams.py compares
     both against one golden fragment, so a change here that is not made there
@@ -1153,9 +1160,11 @@ def chord_diagram_svg(shape: list, x: float, top_y: float, row_pitch: float,
         thick = g["nut"] if (f == 0 and nut) else g["line"]
         line(g["left"], fy, g["left"] + g["width"], fy, thick)
 
-    # the marks row: what each string does, low to high, as the notation writes
-    # it -- x for silent, 0 for open, the fret otherwise
-    for s, fret in enumerate(shape):
+    # the marks row: what each HAND does, low to high -- x for a string that is
+    # not sounded, 0 for one left open, and otherwise the finger that stops it,
+    # falling back to the fret when the notation names no fingering
+    marks = fingers if fingers is not None else shape
+    for s, fret in enumerate(marks):
         mark = "x" if fret is None else str(fret)
         parts.append(
             f'<text text-anchor="middle" font-style="normal" '
@@ -1194,7 +1203,8 @@ def chord_diagram_svg(shape: list, x: float, top_y: float, row_pitch: float,
 # A <dir> group holds a title and a text and nothing nested, so one closing
 # tag ends it -- unlike a verse, whose group closes twice.
 _DIAGRAM_GROUP_RE = re.compile(r'<g[^>]*class="dir">.*?</g>', re.S)
-_DIAGRAM_LABEL_RE = re.compile(r'<title class="labelAttr">(\[[x\d,]+\])(?:@([\d.]+))?</title>')
+_DIAGRAM_LABEL_RE = re.compile(
+    r'<title class="labelAttr">(\[[x\d,]+\](?:\([x\d,]+\))?)(?:@([\d.]+))?</title>')
 _ROW_XY_RE = re.compile(r'<t(?:ext|span)[^>]*\bx="([-\d.]+)"[^>]*\by="([-\d.]+)"')
 
 
@@ -1234,7 +1244,8 @@ def _chord_diagrams(svg: str) -> str:
         out.append(svg[cursor:match.start()])
         shape = ops.parse_shape(block["shape"])
         drawn = chord_diagram_svg(shape, block["x"], block["top"],
-                                  block["pitch"], block["scale"]) if shape else ""
+                                  block["pitch"], block["scale"],
+                                  ops.parse_fingering(block["shape"])) if shape else ""
         out.append(f'<g class="dir chord-diagram">{drawn}</g>')
         cursor = match.end()
     out.append(svg[cursor:])

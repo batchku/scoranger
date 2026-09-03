@@ -397,16 +397,22 @@ def guitar_tablature(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
 
 
 def guitar_chord_diagrams(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
-                          clear: bool = False) -> dict:
+                          clear: bool = False,
+                          shapes: list[str] | None = None) -> dict:
     """Draw a guitar chord diagram above every chord symbol already on a part:
-    the grid, the dots, the barre, the nut, and a "5 fr." label when the shape
-    sits up the neck. `tuning` is EADGBE (standard), DADGAD or DADGBE (drop D).
-    Chords with no playable shape are reported. `clear` removes them.
+    the grid, the dots, the barre, the nut, the row of finger numbers over it,
+    and a "5 fr." label when the shape sits up the neck. `tuning` is EADGBE
+    (standard), DADGAD or DADGBE (drop D). Chords with no playable shape are
+    reported. `shapes` pins chords to shapes of the player's choosing, ahead of
+    the conventional chart -- ["A7=x02020"] asks for the open A7 rather than
+    the fifth-fret barre. `clear` removes the diagrams.
     Size and position are `adjust_element`'s business, with kind="diagram"."""
     def fn(s):
-        return ops.chord_diagrams(s, _part(s, part), tuning, clear=clear)
+        return ops.chord_diagrams(s, _part(s, part), tuning, clear=clear,
+                                  shapes=ops.parse_shape_overrides(shapes))
     return _apply(ctx.deps, "chord-diagrams",
-                  {"part": part, "tuning": tuning, "clear": clear}, fn)
+                  {"part": part, "tuning": tuning, "clear": clear,
+                   "shape": shapes}, fn)
 
 
 def penny_whistle_fingerings(ctx: RunContext[str], part: str, whistle: str = "D",

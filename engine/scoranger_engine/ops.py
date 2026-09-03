@@ -1361,7 +1361,14 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
 
 # The marker text, and the pattern that finds it again. Mirrored in
 # render.py::CHORD_DIAGRAM_RE and ios/Scoranger/ScoreModel/ChordDiagrams.swift.
-CHORD_DIAGRAM_RE = re.compile(r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\]")
+#
+# Two groups, and the second is optional: [frets] is where the dots go, and
+# (fingers) is which finger goes on each one. The fingering is written ONLY
+# when it differs from the frets -- which for an open C it does not, so the
+# marker for a C stays the [x,3,2,0,1,0] it always was.
+CHORD_DIAGRAM_RE = re.compile(
+    r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\](?:\((?:[x\d],){5}[x\d]\))?")
+CHORD_FINGERING_RE = re.compile(r"\((?:[x\d],){5}[x\d]\)")
 
 # Sounding pitches of the open strings, low to high. Only their pitch classes
 # decide a shape; the octaves are here so "the root is the lowest string that
@@ -1390,22 +1397,76 @@ GUITAR_GRID_FRETS = 5
 
 # The published chart. The search below can find a shape for anything, but it
 # does not know that x32010 is *the* C — asked for the lowest playable voicing
-# it offers whatever the arithmetic likes. These are the open-position shapes a
-# player already has in their hands, and they are a table for the same reason
-# the whistle's fingerings are a table: they are published fact, not a
-# derivation. Standard tuning only; everything else goes to the search, which
-# is what makes `--tuning` real rather than decorative.
-OPEN_CHORD_SHAPES = {
+# it offers whatever the arithmetic likes. These are the shapes a player
+# already has in their hands, and they are a table for the same reason the
+# whistle's fingerings are a table: they are published fact, not a derivation.
+# Standard tuning only; everything else goes to the search, which is what makes
+# `--tuning` real rather than decorative.
+#
+# The chart is consulted FIRST and the search only after, so a chord with a
+# conventional shape gets it even when the arithmetic would have found
+# something lower. That is not the same rule as "lowest position", and the two
+# disagree about A7 and Dm7: both can be played open, and both are written and
+# played as fifth-fret barres in the turnaround they live in. The conventional
+# shape wins, and the open one is one `--shape "A7=x02020"` away.
+CONVENTIONAL_SHAPES = {
     "C": "x32010", "C7": "x32310", "Cmaj7": "x32000", "C6": "x32210",
     "D": "xx0232", "D7": "xx0212", "Dmaj7": "xx0222", "Dm": "xx0231",
-    "Dm7": "xx0211", "D6": "xx0202",
+    "Dm7": "x57565", "D6": "xx0202",
     "E": "022100", "E7": "020100", "Em": "022000", "Em7": "020000",
     "Emaj7": "021100",
     "F": "133211", "Fmaj7": "xx3210", "Fm": "133111",
     "G": "320003", "G7": "320001", "Gmaj7": "320002", "G6": "320000",
-    "A": "x02220", "A7": "x02020", "Am": "x02210", "Am7": "x02010",
+    "A": "x02220", "A7": "575655", "Am": "x02210", "Am7": "x02010",
     "Amaj7": "x02120", "A6": "x02222",
     "B7": "x21202", "Bm": "x24432", "Bm7": "x20202",
+}
+
+# Which FINGER goes on each dot. A separate table from the shape above, and it
+# has to be: a fingering is a convention, not an arithmetic. Frets and fingers
+# coincide for a C -- x32010 both ways -- and part company for a G, where the
+# frets are 320003 and the hand is 320004, ring and middle low, PINKY on the
+# top E. Nothing in the six fret numbers says that.
+#
+# Keyed by the shape rather than by the chord, because a fingering belongs to
+# the hand and not to the name: the same six numbers are fingered the same way
+# whatever chord they are called. 0 is an open string, x a silent one, 1-4 the
+# fingers from index to little.
+#
+# Only open-position shapes are listed. Every movable shape derives from one of
+# them by the rule every guitar method teaches -- the index bars the fret the
+# nut used to be, and each of the other fingers steps up one -- which is
+# `derived_fingering` below, and is why F, Fm, Bm and every barre the search
+# finds are absent here and still come out right.
+OPEN_FINGERINGS = {
+    "x32010": "x32010",   # C
+    "x32310": "x32410",   # C7    pinky reaches the third fret on the G string
+    "x32000": "x32000",   # Cmaj7
+    "x32210": "x42310",   # C6
+    "xx0232": "xx0132",   # D
+    "xx0212": "xx0213",   # D7
+    "xx0222": "xx0111",   # Dmaj7  one finger across three strings
+    "xx0231": "xx0231",   # Dm
+    "xx0211": "xx0211",   # Dm7 (open)
+    "xx0202": "xx0102",   # D6
+    "022100": "023100",   # E
+    "020100": "020100",   # E7
+    "022000": "023000",   # Em
+    "020000": "020000",   # Em7
+    "021100": "031200",   # Emaj7
+    "xx3210": "xx3210",   # Fmaj7
+    "320003": "320004",   # G     the pinky on the top E
+    "320001": "320001",   # G7
+    "320002": "320001",   # Gmaj7
+    "320000": "320000",   # G6
+    "x02220": "x01230",   # A
+    "x02020": "x02030",   # A7 (open)
+    "x02210": "x02310",   # Am
+    "x02010": "x02010",   # Am7
+    "x02120": "x02130",   # Amaj7
+    "x02222": "x01111",   # A6
+    "x21202": "x21304",   # B7
+    "x20202": "x10203",   # Bm7
 }
 
 
@@ -1441,10 +1502,22 @@ def _shape_from_text(text: str) -> list[int | None]:
     return [None if p.strip().lower() == "x" else int(p) for p in parts]
 
 
-def shape_text(frets: list[int | None]) -> str:
-    """Six frets -> the marker a player can read. Always comma-separated: a
-    tenth fret is two digits and 'x109780' means nothing to anyone."""
-    return "[" + ",".join("x" if f is None else str(f) for f in frets) + "]"
+def shape_text(frets: list[int | None],
+               fingers: list[int | None] | None = None) -> str:
+    """Six frets -> the marker a player can read, and the fingering after it.
+
+    Always comma-separated: a tenth fret is two digits and 'x109780' means
+    nothing to anyone. The fingering is appended in parentheses ONLY when it
+    says something the frets do not -- a G is '[3,2,0,0,0,3](3,2,0,0,0,4)' and
+    a C is just '[x,3,2,0,1,0]', because for a C the two are the same numbers.
+    """
+    def group(values, open_, close):
+        return open_ + ",".join("x" if f is None else str(f) for f in values) + close
+
+    text = group(frets, "[", "]")
+    if fingers is not None and list(fingers) != list(frets):
+        text += group(fingers, "(", ")")
+    return text
 
 
 def parse_shape(text: str) -> list[int | None] | None:
@@ -1452,8 +1525,71 @@ def parse_shape(text: str) -> list[int | None] | None:
     match = CHORD_DIAGRAM_RE.search(text or "")
     if match is None:
         return None
-    frets = _shape_from_text(match.group(0)[1:-1])
+    frets = _shape_from_text(match.group(0).split("]")[0][1:])
     return frets if len(frets) == 6 else None
+
+
+def parse_fingering(text: str) -> list[int | None] | None:
+    """The fingering a marker carries, or None when it carries none.
+
+    None means "the frets are the fingering" -- which is what the renderers
+    fall back to, and what a shape nobody has curated a hand for gets.
+    """
+    match = CHORD_DIAGRAM_RE.search(text or "")
+    if match is None:
+        return None
+    found = CHORD_FINGERING_RE.search(match.group(0))
+    if found is None:
+        return None
+    fingers = _shape_from_text(found.group(0)[1:-1])
+    return fingers if len(fingers) == 6 else None
+
+
+def derived_fingering(frets: list[int | None]) -> list[int | None] | None:
+    """The fingering of a movable shape, from the open shape it is a barre of.
+
+    The rule every guitar method teaches, and the whole reason F, Fm, Bm and
+    the shapes the search finds up the neck need no table of their own: the
+    index bars the fret the nut used to be, and every other finger steps up
+    one. E is 0-2-3-1-0-0; F, the same shape at the first fret, is 1-3-4-2-1-1.
+
+    None when the shape is not a barre of anything curated, or when stepping
+    up would ask for a fifth finger.
+    """
+    stopped = [f for f in frets if f]
+    if not stopped or any(f == 0 for f in frets):
+        return None                      # an open string means it is not barred
+    base = min(stopped)
+    relative = [None if f is None else f - base for f in frets]
+    open_fingers = OPEN_FINGERINGS.get(
+        "".join("x" if f is None else str(f) for f in relative))
+    if open_fingers is None:
+        return None
+    out: list[int | None] = []
+    for fret, finger in zip(relative, _shape_from_text(open_fingers)):
+        if fret is None:
+            out.append(None)
+        elif fret == 0:
+            out.append(1)                # the index, lying across the neck
+        elif finger is None or finger + 1 > GUITAR_MAX_FINGERS:
+            return None
+        else:
+            out.append(finger + 1)
+    return out
+
+
+def chord_fingering(frets: list[int | None]) -> list[int | None] | None:
+    """Which finger goes on each fret of a shape, or None when nobody knows.
+
+    Curated first, derived from the open shape second, and None third -- at
+    which point the renderers show the frets, which is honest: a fret number
+    is a fact about the shape, and inventing a hand for it would not be.
+    """
+    key = "".join("x" if f is None else str(f) for f in frets)
+    curated = OPEN_FINGERINGS.get(key)
+    if curated is not None:
+        return _shape_from_text(curated)
+    return derived_fingering(frets)
 
 
 def diagram_window(frets: list[int | None]) -> tuple[int, bool]:
@@ -1559,14 +1695,42 @@ def guitar_shape(pitch_classes: set[int], root_pc: int,
     return None
 
 
-def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> dict:
+def parse_shape_overrides(pairs: list[str] | None) -> dict[str, list[int | None]]:
+    """`--shape "A7=x02020"` -> {"A7": [None,0,2,0,2,0]}.
+
+    The reader's say over the chart. A conventional shape is the right default
+    and it is still a default: an arranger who wants the open A7 rather than
+    the fifth-fret barre says so once, and the op writes what they asked for.
+    """
+    out: dict[str, list[int | None]] = {}
+    for pair in pairs or []:
+        name, sep, text = pair.partition("=")
+        if not sep or not name.strip():
+            raise ValueError(f"A shape override reads 'A7=x02020', not {pair!r}")
+        try:
+            frets = _shape_from_text(text.strip())
+        except ValueError as bad:
+            raise ValueError(f"{pair!r} is not six frets: {bad}") from bad
+        if len(frets) != 6:
+            raise ValueError(f"{pair!r} names {len(frets)} strings, not 6")
+        out[name.strip()] = frets
+    return out
+
+
+def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False,
+                   shapes: dict[str, list[int | None]] | None = None) -> dict:
     """Engrave a guitar chord diagram over every chord symbol on a part.
 
-    The diagram is written as the shape shorthand at the symbol's own offset;
-    the grid, the nut, the dots, the barre and the position label are drawn
-    from it by the renderers. A chord nobody can play in the tuning asked for
-    is REPORTED, with its measure and its symbol, and left without a diagram —
-    the same way `check-range` reports what an instrument cannot reach.
+    The diagram is written as the shape shorthand at the symbol's own offset,
+    and the fingering after it when the fingering says something the frets do
+    not; the grid, the nut, the dots, the barre and the position label are
+    drawn from those by the renderers. A chord nobody can play in the tuning
+    asked for is REPORTED, with its measure and its symbol, and left without a
+    diagram — the same way `check-range` reports what an instrument cannot
+    reach.
+
+    `shapes` pins named chords to shapes of the reader's choosing, ahead of the
+    chart and the search both.
     """
     from music21 import expressions as m21expressions
     from music21 import harmony as m21harmony
@@ -1594,24 +1758,35 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> 
             name = chord_symbol_text(symbol)
             pcs = {p.pitchClass for p in symbol.pitches}
             root = symbol.root()
-            curated = (OPEN_CHORD_SHAPES.get(name)
-                       if guitar_tuning(tuning) == GUITAR_TUNINGS["EADGBE"] else None)
-            frets = _shape_from_text(curated) if curated else (
-                guitar_shape(pcs, root.pitchClass, opens) if root is not None else None)
+            pinned = (shapes or {}).get(name)
+            standard = guitar_tuning(tuning) == GUITAR_TUNINGS["EADGBE"]
+            curated = CONVENTIONAL_SHAPES.get(name) if standard else None
+            if pinned is not None:
+                frets = list(pinned)
+            elif curated:
+                frets = _shape_from_text(curated)
+            else:
+                frets = (guitar_shape(pcs, root.pitchClass, opens)
+                         if root is not None else None)
             if frets is None:
                 unplayable.append({
                     "measure": measure.number, "symbol": name,
                     "why": f"no shape for {name} in {tuning.upper()} within "
                            f"{GUITAR_MAX_FRET} frets"})
                 continue
-            marker = m21expressions.TextExpression(shape_text(frets))
+            fingers = chord_fingering(frets)
+            text = shape_text(frets, fingers)
+            marker = m21expressions.TextExpression(text)
             marker.placement = "above"
             measure.insert(symbol.offset, marker)
             base, nut = diagram_window(frets)
             drawn.append({"measure": measure.number, "symbol": name,
                           "shape": shape_text(frets), "first_fret": base,
                           "nut": nut, "barre": diagram_barre(frets) is not None,
-                          "from_chart": bool(curated)})
+                          "fingering": (shape_text(fingers)[1:-1]
+                                        if fingers is not None else None),
+                          "from_chart": bool(curated) and pinned is None,
+                          "pinned": pinned is not None})
     return {
         "part": part_label(part),
         "tuning": tuning.upper(),

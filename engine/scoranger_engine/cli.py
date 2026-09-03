@@ -403,9 +403,12 @@ def cmd_guitar_tab(a):
 def cmd_chord_diagrams(a):
     score = _load(a.score, None)
     part = ops.find_parts(score, [a.part])[0]
-    details = ops.chord_diagrams(score, part, a.tuning, clear=a.clear)
+    shapes = ops.parse_shape_overrides(a.shape)
+    details = ops.chord_diagrams(score, part, a.tuning, clear=a.clear,
+                                 shapes=shapes)
     _mutate(a.score, score, "chord-diagrams",
-            {"part": a.part, "tuning": a.tuning, "clear": a.clear}, details)
+            {"part": a.part, "tuning": a.tuning, "clear": a.clear,
+             "shape": a.shape}, details)
 
 
 def cmd_rename_slug(a):
@@ -777,6 +780,9 @@ def main() -> None:
     s.add_argument("--tuning", default="EADGBE",
                    help="EADGBE (standard), DADGAD, DADGBE (drop D)")
     s.add_argument("--clear", action="store_true", help="remove the diagrams instead")
+    s.add_argument("--shape", action="append", metavar="CHORD=FRETS",
+                   help="pin a chord to a shape of your own, ahead of the "
+                        "chart and the search: --shape \"A7=x02020\". Repeatable.")
     s.set_defaults(fn=cmd_chord_diagrams)
 
     s = sub.add_parser("adjust-element",
