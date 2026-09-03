@@ -228,6 +228,11 @@ struct ScoreTopBar: View {
                 // shut when the band is already showing arrangements -- a
                 // control that closes the thing you asked it for is a control
                 // nobody presses twice.
+                // The named complaint: "clicking on the drop-down for
+                // versions can take a second". The flip below returns at once;
+                // what is waited for is the rebuild it triggers, so the FRAME
+                // is what is timed.
+                PerfMetrics.shared.measureUntilPresented(PerfMetrics.Name.versionMenu)
                 titleMenuOpen = (titleMenuMode == .versions) ? !titleMenuOpen : true
                 titleMenuMode = .versions
                 moreOpen = false
@@ -275,6 +280,7 @@ struct ScoreTopBar: View {
 
     private var titleBlock: some View {
         Button {
+            PerfMetrics.shared.measureUntilPresented(PerfMetrics.Name.titleMenu)
             titleMenuOpen = (titleMenuMode == .arrangements) ? !titleMenuOpen : true
             titleMenuMode = .arrangements
             moreOpen = false

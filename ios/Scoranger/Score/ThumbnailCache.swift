@@ -66,7 +66,9 @@ final class ThumbnailCache {
         let key = Self.key(document: document, index: index) as NSString
         if let cached = images.object(forKey: key) { return cached }
         guard let page = document.page(at: index) else { return nil }
+        let span = PerfMetrics.shared.begin(PerfMetrics.Name.thumbnail)
         let drawn = page.thumbnail(of: size, for: .mediaBox)
+        span?.end()
         images.setObject(drawn, forKey: key)
         return drawn
     }

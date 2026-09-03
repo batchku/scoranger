@@ -13,7 +13,11 @@ enum LocalEngineError: Error, LocalizedError {
 
 struct LocalEngine {
     private func result(op: String, args: [String: Any] = [:]) async throws -> [String: Any] {
+        // Every op the app asks of the engine passes through here, so one
+        // measurement covers all of them, named by op.
+        let span = PerfMetrics.shared.begin(PerfMetrics.Name.bridge(op))
         let r = await PythonEngine.shared.call(op: op, args: args)
+        span?.end()
         guard let ok = r["ok"] as? Bool, ok else {
             throw LocalEngineError.engine(r["error"] as? String ?? "engine error")
         }

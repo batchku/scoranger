@@ -1058,7 +1058,9 @@ final class AppState: ObservableObject {
         scanChatInbox()
         #endif
         do {
+            let manifestSpan = PerfMetrics.shared.begin(PerfMetrics.Name.manifest)
             let m = useLocalEngine ? try await local.manifest() : try await client.manifest()
+            manifestSpan?.end()
             // Only publish a manifest that differs. The poll runs every 1.5s,
             // and republishing an identical library rebuilt the whole sidebar
             // — including any open context menu — twice a second, which is why
@@ -1143,6 +1145,8 @@ final class AppState: ObservableObject {
         // that draws but catches nothing looks like.
         var rendered = false
         defer { if !rendered && renderedKey == key { renderedKey = nil } }
+        let renderSpan = PerfMetrics.shared.begin(PerfMetrics.Name.render)
+        defer { renderSpan?.end() }
         do {
             let data: Data
             var model: ScoreGeometry?
