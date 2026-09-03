@@ -2013,6 +2013,12 @@ def _tab_hand_positions() -> range:
     return range(1, TAB_MAX_FRET - TAB_HAND_SPAN + 2)
 
 
+def _tab_height_cost(position: int) -> float:
+    """What sitting the hand at this fret costs, per note. See TAB_HEIGHT_COST
+    for why it is squared."""
+    return TAB_HEIGHT_COST * position * position
+
+
 def _tab_candidates(pitches, opens: list[float], capo: int) -> list[tuple]:
     """(position, layout, cost) for every hand that plays this note or chord.
 
@@ -2034,11 +2040,8 @@ def _tab_candidates(pitches, opens: list[float], capo: int) -> list[tuple]:
         def open_value(position: int, rung: int = rung) -> float:
             return rung * (TAB_OPEN_BONUS - TAB_OPEN_REACH * (position - 1))
 
-        def height(position: int) -> float:
-            return TAB_HEIGHT_COST * position * position
-
         if not stopped:
-            out += [(p, layout, height(p) - open_value(p))
+            out += [(p, layout, _tab_height_cost(p) - open_value(p))
                     for p in _tab_hand_positions()]
             continue
         low, high = min(stopped), max(stopped)
@@ -2050,7 +2053,7 @@ def _tab_candidates(pitches, opens: list[float], capo: int) -> list[tuple]:
                 continue
             stretched = sum(1 for r in reach
                             if r < 0 or r > TAB_HAND_SPAN - 1)
-            out.append((position, layout, height(position)
+            out.append((position, layout, _tab_height_cost(position)
                         + TAB_STRETCH_COST * stretched - open_value(position)))
     return out
 
