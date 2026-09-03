@@ -850,6 +850,9 @@ final class AppState: ObservableObject {
     }
 
     func startPolling() {
+        // A measurement run asks for the readings in the log (-perfDump);
+        // nothing happens without it.
+        PerfMetrics.shared.startConsoleDumpIfRequested()
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

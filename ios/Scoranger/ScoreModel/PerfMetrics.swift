@@ -72,6 +72,7 @@ final class PerfMetrics: @unchecked Sendable {
     nonisolated(unsafe) private static var enabled = false
 
     private let lock = NSLock()
+    private var dumpTimer: Timer?
     private var ledger = PerfLedger()
     private let signposter = OSSignposter(
         subsystem: "com.irllabs.scoranger", category: "performance")
@@ -168,6 +169,23 @@ final class PerfMetrics: @unchecked Sendable {
         lock.lock()
         ledger.clear()
         lock.unlock()
+    }
+
+    /// Print the table every few seconds, for a measurement run.
+    ///
+    /// The panel is for a reader holding an iPad. This is for a sweep: the UI
+    /// test drives the app and the numbers come back in the log, rather than
+    /// being scraped off a scrolling diagnostic view. Behind a launch argument,
+    /// and DEBUG only -- a shipped build has no reason to print anything.
+    func startConsoleDumpIfRequested() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-perfDump"),
+              dumpTimer == nil else { return }
+        dumpTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            let text = PerfReport.text(PerfMetrics.shared.snapshot())
+            print("SCORANGER-PERF\n\(text)\nSCORANGER-PERF-END")
+        }
+        #endif
     }
 
     /// The names used, in one place so the panel and the instrumentation cannot
