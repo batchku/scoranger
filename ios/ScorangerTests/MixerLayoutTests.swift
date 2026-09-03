@@ -4,23 +4,39 @@ import XCTest
 /// The mixer's geometry, asserted against design/PLAYBACK_0.6.md §1.
 final class MixerLayoutTests: XCTestCase {
 
-    /// 24 header + 16 mute + 30 fader + 12 value + 16 label + 8 padding +
-    /// 24 tempo + 24 scrubber. Written out because the panel's height is the
-    /// thing that was wrong with it: the §1 panel was 308pt and covered a third
-    /// of the score.
+    /// 24 header + 16 mute + 30 fader + 12 value + 16 sound + 16 label +
+    /// 8 padding + 24 tempo + 24 scrubber. Written out because the panel's
+    /// height is the thing that was wrong with it: the §1 panel was 308pt and
+    /// covered a third of the score.
     func testThePanelIsAsTallAsTheLayoutSays() {
         XCTAssertEqual(MixerLayout.panelHeight,
-                       24 + 16 + 30 + 12 + 16 + 8 + 24 + 24)
+                       24 + 16 + 30 + 12 + 16 + 16 + 8 + 24 + 24)
+        XCTAssertEqual(MixerLayout.panelHeight, 170)
     }
 
-    /// Half, and the tempo band is INSIDE that half rather than added on top
-    /// of it -- adding a row and calling the result halved is how a panel ends
-    /// up the same size it started.
-    func testThePanelIsHalfTheHeightItWas() {
+    /// It WAS exactly half. The sound row (0.6.5) is 16pt of that half back
+    /// and nothing else changed, so the assertion is not relaxed to "about
+    /// half" -- it names the one row that was added and still holds the panel
+    /// under 60% of what §1 drew.
+    func testThePanelIsOneSoundRowTallerThanTheHalvedOne() {
         XCTAssertEqual(MixerLayout.specPanelHeight, 308, "what §1 drew")
-        XCTAssertEqual(MixerLayout.panelHeight, MixerLayout.specPanelHeight / 2)
+        XCTAssertEqual(MixerLayout.panelHeight,
+                       MixerLayout.specPanelHeight / 2 + MixerLayout.soundHeight)
+        XCTAssertLessThan(MixerLayout.panelHeight,
+                          MixerLayout.specPanelHeight * 0.6)
         XCTAssertGreaterThan(MixerLayout.tempoHeight, 0,
-                             "and the tempo band is counted in it")
+                             "and the tempo band is still counted in it")
+    }
+
+    /// The sound row came out of the panel's height and not out of the fader:
+    /// shaving the control the reader uses most to keep a round number would
+    /// have been a worse panel that measured better.
+    func testTheSoundRowCostTheFaderNothing() {
+        XCTAssertEqual(MixerLayout.faderHeight, 30)
+        XCTAssertEqual(MixerLayout.labelHeight, 16)
+        XCTAssertEqual(MixerLayout.soundHeight, 16)
+        XCTAssertEqual(MixerLayout.rackHeight,
+                       16 + 30 + 12 + 16 + 16 + 8)
     }
 
     /// The widths did NOT halve. A 64pt strip is already the narrowest a staff
@@ -47,6 +63,56 @@ final class MixerLayoutTests: XCTestCase {
         XCTAssertTrue(MixerLayout.scrolls(channels: 7))
         XCTAssertTrue(MixerLayout.scrolls(channels: 5, compact: true),
                       "an iPhone shows four")
+    }
+
+    // MARK: - The sound picker (0.6.5)
+
+    /// The picker is taller than the rack and wider than a narrow panel, so
+    /// the layer that parks the panel has to ask for the size rather than
+    /// compute the closed one -- a panel that grew without its parking knowing
+    /// opens off the bottom of the canvas.
+    func testTheOpenPickerIsTallerAndWiderThanTheClosedPanel() {
+        let closed = MixerLayout.panelSize(channels: 2)
+        let open = MixerLayout.panelSize(channels: 2, picking: true)
+        XCTAssertEqual(closed.height, MixerLayout.panelHeight)
+        XCTAssertEqual(open.height, MixerLayout.pickerPanelHeight)
+        XCTAssertGreaterThan(open.height, closed.height)
+        XCTAssertEqual(open.width, MixerLayout.pickerWidth,
+                       "a two-strip panel is 136pt and the picker needs 300")
+    }
+
+    /// 24 header + 154 lists + 30 footer.
+    func testThePickerPanelIsAsTallAsItsParts() {
+        XCTAssertEqual(MixerLayout.pickerPanelHeight, 24 + 154 + 30)
+        XCTAssertEqual(MixerLayout.pickerPanelHeight, 208)
+    }
+
+    /// A wide rack does not SHRINK to the picker's width: the panel keeps the
+    /// room it had, or the reader watches it jump narrower to choose a sound
+    /// and wider again to see the result.
+    func testAWideRackKeepsItsWidthWhileThePickerIsOpen() {
+        let six = MixerLayout.panelWidth(channels: 6)
+        XCTAssertGreaterThan(six, MixerLayout.pickerWidth)
+        XCTAssertEqual(MixerLayout.panelSize(channels: 6, picking: true).width, six)
+    }
+
+    /// The family column is the narrower half, and both fit inside the panel
+    /// with the divider between them.
+    func testTheTwoColumnsFitThePicker() {
+        XCTAssertLessThan(MixerLayout.pickerFamilyWidth,
+                          MixerLayout.pickerWidth - MixerLayout.pickerFamilyWidth,
+                          "the instrument names are longer than the family names")
+        XCTAssertGreaterThan(MixerLayout.pickerWidth,
+                             MixerLayout.pickerFamilyWidth + MixerLayout.dividerWidth)
+    }
+
+    /// Seven rows of list. The instrument column never needs more than the
+    /// nine a drum-kit family holds, so it is the FAMILY column that scrolls.
+    func testThePickerShowsSevenRowsAtATime() {
+        XCTAssertEqual(MixerLayout.pickerListHeight / MixerLayout.pickerRowHeight, 7)
+        XCTAssertGreaterThan(GeneralMIDI.Family.allCases.count, 7,
+                             "so the family column scrolls")
+        XCTAssertEqual(GeneralMIDI.instruments(in: .piano).count, 8)
     }
 
     /// The fader fills from the BOTTOM: 0 is empty, 10 is full travel.
