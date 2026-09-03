@@ -16,7 +16,18 @@ struct MixerPanel: View {
     var onCycleCorner: () -> Void
     /// Where the panel is parked, for the grip's accessibility value.
     var cornerLabel: String
+    /// Which strip's sound is being chosen, by part index, or nil for the rack.
+    ///
+    /// Bound rather than held here because the PANEL changes size when the
+    /// picker opens and the layer above parks it: two copies of this, one for
+    /// the drawing and one for the geometry, is how a panel ends up drawn
+    /// somewhere other than where it was placed.
+    @Binding var picking: Int?
 
+    /// Which family's sounds the picker is showing. Nil means "the family the
+    /// channel is already in", which is where a reader looking to change a
+    /// sound starts from.
+    @State private var family: GeneralMIDI.Family?
     /// Where the scrubber's handle is while a finger is on it. Nil when the
     /// reader is not scrubbing, so the handle follows the play head instead.
     @State private var scrubbing: Double?
@@ -27,18 +38,38 @@ struct MixerPanel: View {
     private var parts: [PlaybackTimeline.Part] { playback.timeline.parts }
     private var labels: [String] { PlaybackChannels.labels(for: parts) }
 
+    /// The strip whose sound is being chosen. Looked up by INDEX rather than
+    /// held as a `Part`, so a performance reloaded under the open picker
+    /// closes it instead of editing a staff that is no longer there.
+    private var pickingPart: PlaybackTimeline.Part? {
+        guard let picking else { return nil }
+        return parts.first { $0.index == picking }
+    }
+
+    private var size: CGSize {
+        MixerLayout.panelSize(channels: parts.count, compact: compact,
+                              picking: pickingPart != nil)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
-            rack
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
-            tempoBand
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
-            scrubber
+            if let part = pickingPart {
+                pickerHeader(part)
+                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                SoundPicker(playback: playback, part: part,
+                            family: shownFamily(for: part),
+                            onFamily: { family = $0 })
+            } else {
+                header
+                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                rack
+                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                tempoBand
+                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                scrubber
+            }
         }
-        .frame(width: MixerLayout.panelWidth(channels: parts.count, compact: compact),
-               height: MixerLayout.panelHeight)
+        .frame(width: size.width, height: size.height)
         .background(Theme.Surface.panel)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
@@ -91,6 +122,60 @@ struct MixerPanel: View {
         .frame(height: MixerLayout.headerHeight)
     }
 
+    // MARK: - Choosing a sound (0.6.5)
+
+    /// The family the picker opens on: the one the channel's current sound is
+    /// in, until the reader looks somewhere else.
+    private func shownFamily(for part: PlaybackTimeline.Part) -> GeneralMIDI.Family {
+        if let family { return family }
+        let sound = playback.instrument(for: part)
+        return GeneralMIDI.instrument(program: sound.program, bank: sound.bank)?
+            .family ?? .piano
+    }
+
+    /// The same header, saying what it is showing. The grip stays live -- the
+    /// panel is still movable while a sound is being chosen -- and the ✕ goes
+    /// BACK to the strips rather than closing the mixer: a reader who opened a
+    /// list to change one thing did not ask to lose the mixer with it.
+    private func pickerHeader(_ part: PlaybackTimeline.Part) -> some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Button(action: onCycleCorner) {
+                VStack(spacing: 2) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Rectangle().fill(Theme.Ink.ink3).frame(width: 12, height: 2)
+                    }
+                }
+                .frame(width: 28, height: MixerLayout.headerHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("mixer-grip")
+            .accessibilityLabel("Move the mixer")
+            .accessibilityValue(cornerLabel)
+
+            Text("SOUND").typeRole(.meta)
+                .tracking(0.8)
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .fixedSize()
+            Text(part.name).typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink2)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Button { picking = nil } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .frame(width: 28, height: MixerLayout.headerHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("mixer-picker-close")
+            .accessibilityLabel("Back to the mixer")
+        }
+        .padding(.horizontal, MixerLayout.padding)
+        .frame(height: MixerLayout.headerHeight)
+    }
+
     // MARK: - The strips
 
     private var rack: some View {
@@ -107,7 +192,13 @@ struct MixerPanel: View {
                         playback: playback,
                         part: part,
                         label: labels.indices.contains(position)
-                            ? labels[position] : part.name)
+                            ? labels[position] : part.name,
+                        onPickSound: {
+                            // The family resets with the strip: the picker
+                            // opens where THIS channel's sound already is.
+                            family = nil
+                            picking = part.index
+                        })
                 }
             }
             .padding(.horizontal, MixerLayout.padding)
@@ -271,11 +362,12 @@ struct MixerPanel: View {
     }
 }
 
-/// One staff's strip: mute, fader, activity, value, label.
+/// One staff's strip: mute, fader, activity, value, sound, label.
 private struct ChannelStrip: View {
     @ObservedObject var playback: PlaybackEngine
     let part: PlaybackTimeline.Part
     let label: String
+    var onPickSound: () -> Void
 
     private var isOn: Bool { playback.voices.isOn(part.index) }
     private var fader: Int { playback.voices.fader(part.index) }
@@ -296,6 +388,7 @@ private struct ChannelStrip: View {
                 .foregroundStyle(Theme.Ink.ink3)
                 .frame(height: MixerLayout.valueHeight)
                 .accessibilityHidden(true)
+            sound
             Text(label).typeRole(.meta)
                 .foregroundStyle(Theme.Ink.ink)
                 .multilineTextAlignment(.center)
@@ -315,6 +408,55 @@ private struct ChannelStrip: View {
         .opacity(isOn ? 1 : MixerLayout.mutedOpacity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("strip-\(part.index)")
+    }
+
+    /// The sound this channel is played with, and the way to change it.
+    ///
+    /// Under the fader because that is where the reader asked for it, and
+    /// because the two controls answer the same question about one staff: how
+    /// loud, and as what. It is PLAYBACK -- no version is made, no pitch moves
+    /// -- which is why it is here and not in the chat.
+    ///
+    /// A chosen sound is tinted and a guessed one is not, so a glance across
+    /// the rack says which channels the reader has an opinion about. Without
+    /// it "Piano" on a staff called Voice is indistinguishable from "Piano"
+    /// the reader asked for, and there is no way to tell what "back to the
+    /// guess" would undo.
+    private var sound: some View {
+        let patch = playback.instrument(for: part)
+        let chosen = playback.hasChosenInstrument(for: part)
+        return Button(action: onPickSound) {
+            HStack(spacing: 1) {
+                Text(GeneralMIDI.short(program: patch.program, bank: patch.bank))
+                    .typeRole(.meta)
+                    .foregroundStyle(chosen ? Theme.Accent.clayStrong : Theme.Ink.ink2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    // The short names are cut for a 64pt strip, but Dynamic
+                    // Type can still overrun one; shrinking a little beats
+                    // "Nyl…" on every strip.
+                    .minimumScaleFactor(0.75)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink3)
+            }
+            .padding(.horizontal, 3)
+            .frame(width: MixerLayout.soundWidth, height: MixerLayout.soundHeight)
+            .background(chosen ? Theme.Accent.clayTint : Theme.Surface.well)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                    .stroke(chosen ? Theme.Accent.clayBorder : Theme.Line.line2,
+                            lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("strip-sound-\(part.index)")
+        .accessibilityLabel("\(part.name), sound")
+        .accessibilityValue(GeneralMIDI.name(program: patch.program, bank: patch.bank)
+                            + (chosen ? ", chosen" : ", from the staff name"))
+        .accessibilityHint("Opens the list of sounds")
     }
 
     private var mute: some View {
@@ -420,6 +562,171 @@ private struct ChannelStrip: View {
     }
 }
 
+/// The list of sounds one channel can be played with.
+///
+/// The product ask was "expose all of the standard instruments available with
+/// the macOS / iOS AudioUnit sampler", and there are 128 of them plus nine drum
+/// kits. A flat list of 137 rows in a floating panel is a list nobody finds
+/// anything in, so it is TWO columns: General MIDI's own sixteen families on
+/// the left -- which are the blocks of eight the programs are already numbered
+/// in, not a taxonomy invented here -- and the sounds of the chosen family on
+/// the right.
+///
+/// Rendered as this app's dropdown and not as a `Picker`: rows with a clay
+/// tint and a check, the same as the versions band behind the title. A stock
+/// wheel would be the only one of its kind left in the app.
+///
+/// A tap takes effect AT ONCE, on the running graph, and the list stays open:
+/// choosing a sound is done by ear, and a picker that closed on the first tap
+/// would make the reader reopen it for every comparison.
+private struct SoundPicker: View {
+    @ObservedObject var playback: PlaybackEngine
+    let part: PlaybackTimeline.Part
+    let family: GeneralMIDI.Family
+    var onFamily: (GeneralMIDI.Family) -> Void
+
+    private var current: (program: UInt8, bank: GeneralMIDI.Bank) {
+        playback.instrument(for: part)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                families
+                Rectangle().fill(Theme.Line.line).frame(width: 1)
+                instruments
+            }
+            .frame(height: MixerLayout.pickerListHeight)
+            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            footer
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mixer-picker")
+    }
+
+    /// Sixteen families and the kits. This is the column that scrolls -- a
+    /// family is eight sounds and fits, seventeen families do not.
+    private var families: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(GeneralMIDI.Family.allCases) { item in
+                    row(title: item.name, selected: item == family,
+                        check: false,
+                        id: "picker-family-\(item.rawValue)") { onFamily(item) }
+                }
+            }
+        }
+        .frame(width: MixerLayout.pickerFamilyWidth)
+        .background(Theme.Surface.well)
+    }
+
+    /// The sounds in the shown family. The check marks the one the channel is
+    /// playing WITH, chosen or guessed -- the strip's tint is what says which
+    /// of the two it was.
+    private var instruments: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(GeneralMIDI.instruments(in: family)) { item in
+                    row(title: item.name,
+                        selected: item.program == current.program
+                            && item.bank == current.bank,
+                        check: true,
+                        id: "picker-instrument-\(item.id)") {
+                        // Straight at the sampler: no rebuild, no restart, and
+                        // the play head does not move.
+                        playback.setInstrument(program: item.program,
+                                               bank: item.bank, for: part)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.Surface.panel)
+    }
+
+    private func row(title: String, selected: Bool, check: Bool, id: String,
+                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Metric.s4) {
+                Text(title).typeRole(.meta)
+                    .foregroundStyle(Theme.Ink.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 2)
+                if selected && check {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                }
+            }
+            .padding(.horizontal, Theme.Metric.s8)
+            .frame(height: MixerLayout.pickerRowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? Theme.Accent.clayTint : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// What it is playing now, and the two things a reader does with a whole
+    /// mixer at once.
+    ///
+    /// "All staves" is the ask this feature came from, in the arranger's own
+    /// words: *"it's common for an arranger to for instance just want to hear
+    /// every voice on a piano sound."* Doing that a strip at a time is one tap
+    /// per staff and the reason they asked.
+    private var footer: some View {
+        HStack(spacing: Theme.Metric.s6) {
+            Text(GeneralMIDI.name(program: current.program, bank: current.bank))
+                .typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink3)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityHidden(true)
+            Spacer(minLength: 2)
+            action("GUESS", id: "picker-guess",
+                   label: "Back to the sound the staff name suggests") {
+                playback.clearInstrument(for: part)
+            }
+            action("ALL STAVES", id: "picker-all-staves",
+                   label: "Play every staff with this sound") {
+                let sound = playback.instrument(for: part)
+                playback.setInstrumentEverywhere(program: sound.program,
+                                                 bank: sound.bank)
+            }
+        }
+        .padding(.horizontal, MixerLayout.padding * 2)
+        .frame(height: MixerLayout.pickerFooterHeight)
+        .background(Theme.Surface.band)
+    }
+
+    private func action(_ title: String, id: String, label: String,
+                        perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(Theme.Ink.ink2)
+                .padding(.horizontal, Theme.Metric.s6)
+                .frame(height: 20)
+                .background(Theme.Surface.panel)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(Theme.Line.line2, lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                .contentShape(Rectangle())
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+        .accessibilityLabel(label)
+    }
+}
+
 /// The mixer's layer on the score screen: parking, dragging, and the lanes it
 /// must stay clear of (§4).
 ///
@@ -432,12 +739,17 @@ struct MixerLayer: View {
 
     @State private var drag: CGSize = .zero
     @State private var parked: CGPoint?
+    /// Which strip's sound is being chosen. It lives HERE, above the panel,
+    /// because the panel changes size when the picker opens and this is what
+    /// parks it -- the geometry and the drawing read one value.
+    @State private var picking: Int?
 
     var body: some View {
         GeometryReader { geo in
-            let size = CGSize(
-                width: MixerLayout.panelWidth(channels: playback.timeline.parts.count),
-                height: MixerLayout.panelHeight)
+            let size = MixerLayout.panelSize(
+                channels: playback.timeline.parts.count,
+                compact: geo.size.width < 700,
+                picking: picking != nil)
             let home = MixerLayout.origin(for: state.mixerCorner, panel: size,
                                           in: geo.size, lanesInset: lanesInset)
             let origin = MixerLayout.clamp(
@@ -453,7 +765,8 @@ struct MixerLayer: View {
                     drag = .zero
                     state.mixerCorner = state.mixerCorner.next
                 },
-                cornerLabel: state.mixerCorner.label)
+                cornerLabel: state.mixerCorner.label,
+                picking: $picking)
                 .position(x: origin.x + size.width / 2,
                           y: origin.y + size.height / 2)
                 .gesture(
