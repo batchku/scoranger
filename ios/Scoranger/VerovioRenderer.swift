@@ -64,44 +64,25 @@ actor VerovioRenderer {
     /// Paper does not do that. White at the bottom of a partial page is
     /// correct; pages of different heights never are.
     ///
-    /// Verovio lays out in TENTHS OF A MILLIMETRE -- its own A4 default,
-    /// 2100 x 2970, is 210 x 297mm -- so US Letter is 2159 x 2794. Mirrors
-    /// render.py's PAGE_WIDTH_TENTHS_MM / PAGE_HEIGHT_TENTHS_MM; keep the two
-    /// in step.
-    ///
     /// These were 816 x 1056 for one build, from measuring an exported PDF and
     /// reading 96 units to the inch off it. That is the arithmetic for the
     /// PDF's physical size, which is applied separately, and it told Verovio
     /// the paper was 82 x 106mm. The engraving was laid out for a postcard:
     /// this quartet paginated to 131 pages of enormous notes.
-    static let pageWidthTenthsMM = 2159
-    static let pageHeightTenthsMM = 2794
+    ///
+    /// The numbers themselves live in `EngravingOptions`, which is pure and so
+    /// can be read by the suite; these two names are kept because callers and
+    /// `render.py`'s comments refer to them.
+    static let pageWidthTenthsMM = EngravingOptions.pageWidthTenthsMM
+    static let pageHeightTenthsMM = EngravingOptions.pageHeightTenthsMM
 
-    /// The full option set every time: passing a partial one risks the rest
-    /// reverting to Verovio's defaults, which would quietly bring back the
-    /// trimmed, uneven pages.
-    private static func options(lyricSize: Double, continuous: Bool = false) -> String {
-        // `breaks: none` puts every system on one line. Verovio then sizes the
-        // page to the content itself -- an eleven-page score comes back as one
-        // page about 21000px wide -- so `pageWidth` is not a ceiling to raise
-        // here; it is ignored. `adjustPageHeight` trims the height to the one
-        // system, which is what makes the surface a strip rather than a sheet.
-        let breaks = continuous ? #""breaks": "none", "adjustPageHeight": true,"#
-                                : #""adjustPageHeight": false,"#
-        // A page's top and bottom margins are paper: they keep a printed page
-        // readable. The continuous strip is not paper -- it is trimmed to its
-        // one system by `adjustPageHeight`, and those margins then become 20%
-        // of the strip's height, which is 20% of the music's size on screen
-        // for nothing. The left/right margins stay: they are the run-in before
-        // the first clef and the run-out after the last bar.
-        let vertical = continuous ? 10 : 100
-        return """
-        {"scale": 45, "footer": "none", \(breaks)
-         "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
-         "pageMarginTop": \(vertical), "pageMarginBottom": \(vertical),
-         "pageMarginLeft": 120, "pageMarginRight": 120,
-         "lyricSize": \(lyricSize)}
-        """
+    /// The option set for a layout. See `EngravingOptions` for why every
+    /// layout-dependent option is named in BOTH sets: Verovio's `setOptions`
+    /// merges, so an option one layout names and the other omits is a value
+    /// left behind for the other to find -- which is how one visit to
+    /// continuous mode took pagination away from every paged engrave after it.
+    static func options(lyricSize: Double, continuous: Bool = false) -> String {
+        EngravingOptions.json(lyricSize: lyricSize, continuous: continuous)
     }
 
     /// One engrave: the pages to draw, and the model to hit-test against.
