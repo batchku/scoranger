@@ -88,6 +88,7 @@ os.environ["SCORANGER_WORKSPACE"] = {workspace!r}
 import bridge
 out = []
 for op, args in [("import-book", {{"path": {pdf!r}, "name": "The Real Book"}}),
+                 ("book-file", {{"book": "the-real-book"}}),
                  ("book-extract", {{"book": "the-real-book", "from_page": 11,
                                     "to_page": 13, "name": "Misty"}})]:
     out.append(json.loads(bridge.handle(json.dumps({{"op": op, "args": args}}))))
@@ -113,9 +114,18 @@ def on_the_device_path(root: Path) -> list[tuple[str, bool, str]]:
                  (proc.stderr or proc.stdout).strip()[-300:])]
     results = json.loads(line[len("RESULT"):])
     out = []
-    for label, r in zip(("a book imports", "and an arrangement comes out of it"),
+    for label, r in zip(("a book imports",
+                         "the app can reach its pages to show them",
+                         "and an arrangement comes out of it"),
                         results):
         out.append((label, bool(r.get("ok")), str(r.get("error") or "")[:200]))
+    # The path has to be a file the app can open, not merely a string: the
+    # screen that shows the pages has nothing to show without one.
+    page_file = (results[1].get("result") or {}).get("path") if len(results) > 1 else None
+    out.append(("the path it hands back is a readable PDF",
+                bool(page_file) and os.path.exists(page_file)
+                and open(page_file, "rb").read(4) == b"%PDF",
+                str(page_file)))
     return out
 
 
@@ -156,6 +166,17 @@ def main() -> int:
               for p in manifest["pieces"]),
           "filed under the piece it was named for")
     check(entry["id"] == "v001", "with its own first version")
+
+    print("the reader can look through the book before naming a range")
+    # The screen used to ask for two page numbers and show nothing, which in a
+    # 400-page fake book is a guessing game. It can only show the pages if it
+    # can find them, so the path is part of the contract.
+    found = workspace.book_path(slug)
+    check(found.exists() and found.read_bytes()[:4] == b"%PDF",
+          f"the book's own PDF is where the app is told it is: {found.name}")
+    check(page_count(found) == (doc["pages"] or 0),
+          "and it is as long as the manifest says, so a page number means "
+          "the same thing on both sides")
 
     print("the book is unchanged by the extraction")
     check(page_count(workspace.book_path(slug)) == 40,

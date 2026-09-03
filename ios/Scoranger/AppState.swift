@@ -1334,6 +1334,36 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Books opened for browsing, by slug. Not published: nothing redraws
+    /// because a document was cached, and BookScreen holds its own.
+    private var openBooks: [String: PDFDocument] = [:]
+
+    /// The book itself, so it can be looked through.
+    ///
+    /// Held open while the screen showing it is: PDFKit reads pages lazily, so
+    /// a four-hundred-page fake book costs a file handle rather than four
+    /// hundred rasters, and `ThumbnailCache` bounds what is drawn from it.
+    /// Keyed by slug because a reader flipping between two books should not
+    /// pay to reopen either.
+    ///
+    /// nil where the file cannot be reached, which the screen says rather than
+    /// showing an empty frame: the range fields still work, and a book you
+    /// cannot see is exactly the state this feature exists to fix.
+    func bookDocument(_ book: String) async -> PDFDocument? {
+        if let open = openBooks[book] { return open }
+        guard useLocalEngine else { return nil }
+        do {
+            let path = try await local.bookFilePath(book)
+            guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else {
+                return nil
+            }
+            openBooks[book] = document
+            return document
+        } catch {
+            return nil
+        }
+    }
+
     /// Take a page range out of a book as a new arrangement.
     ///
     /// Returns the slug so the caller can open what it just made. The book is
