@@ -186,7 +186,9 @@ final class PerfMetrics: @unchecked Sendable {
         // unified log, where `log show` can fetch it after the run.
         let logger = Logger(subsystem: "com.irllabs.scoranger", category: "performance")
         dumpTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-            let text = PerfReport.text(PerfMetrics.shared.snapshot())
+            let ledger = PerfMetrics.shared.snapshot()
+            let text = PerfReport.text(ledger) + "\n\n"
+                + PerfReport.attribution(ledger, name: Name.versionMenu)
             logger.log("SCORANGER-PERF\n\(text, privacy: .public)\nSCORANGER-PERF-END")
         }
         #endif

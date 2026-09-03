@@ -179,3 +179,41 @@ final class PerfReportTests: XCTestCase {
         XCTAssertTrue(lines[1].hasPrefix("dear"), lines[1])
     }
 }
+
+/// Attribution, as the dump prints it.
+final class PerfAttributionReportTests: XCTestCase {
+
+    func testAWaitNothingExplainsSaysSo() {
+        var l = PerfLedger()
+        l.record("menu.versions open", start: 10.0, duration: 0.6)
+        let text = PerfReport.attribution(l, name: "menu.versions open")
+        XCTAssertTrue(text.contains("nothing else measured was running"), text)
+        XCTAssertTrue(text.contains("unaccounted: 600 ms"), text)
+    }
+
+    func testWorkInsideTheWaitIsNamedAndTheRemainderIsLeftOver() {
+        var l = PerfLedger()
+        l.record("menu.versions open", start: 10.0, duration: 1.0)
+        l.record("bridge.manifest", start: 10.2, duration: 0.1)
+        let text = PerfReport.attribution(l, name: "menu.versions open")
+        // The name and its count, not an exact duration: 10.3 - 10.2 is
+        // 99.99999... in binary floating point, and asserting "100 ms" would
+        // be asserting that arithmetic is exact rather than that the report is
+        // right.
+        XCTAssertTrue(text.contains("bridge.manifest ×1:"), text)
+        XCTAssertTrue(text.contains("unaccounted: 900 ms"), text)
+    }
+
+    func testTheSpanItselfIsNotListedAsItsOwnCause() {
+        var l = PerfLedger()
+        l.record("menu.versions open", start: 10.0, duration: 0.6)
+        let lines = PerfReport.attribution(l, name: "menu.versions open")
+            .split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.filter { $0.contains("menu.versions open") }.count, 1, lines.joined())
+    }
+
+    func testAnUnmeasuredNameSaysSoRatherThanReportingZero() {
+        XCTAssertTrue(PerfReport.attribution(PerfLedger(), name: "nope")
+                        .contains("never measured"))
+    }
+}

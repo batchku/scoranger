@@ -189,6 +189,34 @@ enum PerfReport {
         return out.joined(separator: "\n")
     }
 
+    /// What else the app was doing during the last `name`, and how much of the
+    /// wait nothing accounts for.
+    ///
+    /// This is the line that turns "the dropdown is slow" into a direction: if
+    /// the engine and the engraver explain none of it, no amount of making
+    /// them faster will be felt, and the cost is the view rebuild.
+    static func attribution(_ ledger: PerfLedger, name: String) -> String {
+        guard let last = ledger.latest(name) else {
+            return "\(name): never measured"
+        }
+        var out = ["last \(name): \(PerfLedger.ms(last.duration))"]
+        let others = ledger.accounted(from: last.start, to: last.end)
+            .filter { $0.name != name }
+        if others.isEmpty {
+            out.append("  nothing else measured was running")
+        } else {
+            for a in others {
+                out.append("  \(a.name) ×\(a.count): \(PerfLedger.ms(a.total))")
+            }
+        }
+        // The wait itself is the WINDOW, not work inside it: charging it
+        // against its own duration would report every wait as fully explained.
+        let explained = others.reduce(0) { $0 + $1.total }
+        out.append("  unaccounted: "
+                   + PerfLedger.ms(Swift.max(0, last.duration - explained)))
+        return out.joined(separator: "\n")
+    }
+
     private static func pad(_ s: String, _ width: Int) -> String {
         s.count >= width ? " " + s
                          : String(repeating: " ", count: width - s.count) + s
