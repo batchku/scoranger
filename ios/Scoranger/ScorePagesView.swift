@@ -30,6 +30,10 @@ struct ScorePagesView: View {
     /// The laid-out width of the continuous strip, so a tap knows where the
     /// end of the music is.
     @State private var surfaceWidth: CGFloat = 0
+    /// Surface points per engraved point on the strip, kept here so the chip
+    /// and the tap zones -- which live outside the GeometryReader that computes
+    /// it -- measure against the same strip the canvas drew.
+    @State private var engravedScale: CGFloat = 1
     /// Pencil markup: the shared controller, driven from the top bar.
     private var annotation: AnnotationController { state.annotation }
     /// What the Pencil means right now (§6). Selection is OFF in performance
@@ -153,6 +157,9 @@ struct ScorePagesView: View {
             .onChange(of: surface.width, initial: true) { _, new in
                 surfaceWidth = new
             }
+            .onChange(of: stripScale, initial: true) { _, new in
+                engravedScale = new
+            }
             .id(continuous ? -1 : state.pageIndex)
             .transition(.asymmetric(insertion: .move(edge: .trailing),
                                     removal: .move(edge: .leading)))
@@ -170,6 +177,7 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .top) { selectionChip }
+        .overlay(alignment: .bottom) { continuousSyncChip }
         .overlay(alignment: .topLeading) {
             TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)
         }
@@ -363,6 +371,68 @@ struct ScorePagesView: View {
         // and waits to be asked.
         state.readerTurnedPage()
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
+    }
+
+    /// "Take me back", for the strip.
+    ///
+    /// The paged chip is `SyncChipLayer`, and its visibility predicate is the
+    /// page one: in continuous mode there is a single page and it is always on
+    /// screen, so that chip can never appear here however far the reader has
+    /// scrolled. This is the same control, the same label, the same state and
+    /// the same identifier, decided by the horizontal rule instead -- the two
+    /// cannot both be on screen. It belongs in `SyncChipLayer` beside its twin
+    /// as soon as that file can be edited.
+    @ViewBuilder
+    private var continuousSyncChip: some View {
+        let shows = state.layout.isContinuous
+            && PageFollow.showsSync(isPlaying: playback.isPlaying,
+                                        isFollowing: state.pageFollow.isFollowing,
+                                        playheadX: playheadSurfaceX,
+                                        visible: visibleRect,
+                                        isPerformanceMode: mode == .performance)
+        if shows {
+            Button {
+                state.pageFollow.syncTapped()
+                scroller.forget()
+                // Move now rather than on the next beat: the reader asked, and
+                // a paused transport ticks nothing.
+                if let x = playheadSurfaceX {
+                    scrollTargetX = Playhead.stripOffset(playheadX: x,
+                                                         viewportWidth: visibleRect.width,
+                                                         surfaceWidth: surfaceWidth)
+                    scrollToken += 1
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(PageFollow.syncLabel(bar: playback.soundingBar))
+                        .typeRole(.label)
+                }
+                .foregroundStyle(Theme.Surface.panel)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Theme.Accent.clayPress)
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, Self.bottomChrome)
+            .accessibilityIdentifier("sync-to-playback")
+            .accessibilityLabel(PageFollow.syncLabel(bar: playback.soundingBar))
+            .transition(.opacity)
+        }
+    }
+
+    /// The line's place on the strip, in surface points.
+    private var playheadSurfaceX: CGFloat? {
+        guard state.layout.isContinuous, let page = state.geometry?.page(0),
+              let progress = playback.timeline.progress(atBeat: playback.beat),
+              let position = Playhead.position(measure: progress.measure,
+                                               fraction: CGFloat(progress.fraction),
+                                               bars: BarPosition.bars(onPage: page))
+        else { return nil }
+        return position.x * engravedScale
     }
 
     /// A hand on the score during playback.
