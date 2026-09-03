@@ -2,11 +2,17 @@ import Foundation
 
 /// Guitar chord diagrams, drawn on device.
 ///
-/// The notation carries the shape and nothing else: `[x,3,2,0,1,0]`, one entry
-/// per string from the low E up, `x` for a string that is not sounded. The
-/// window of the neck, the nut, the barre and the "5 fr." label all follow from
-/// those six numbers by the rules below, so the page cannot say something the
-/// notation does not.
+/// The notation carries the shape: `[x,3,2,0,1,0]`, one entry per string from
+/// the low E up, `x` for a string that is not sounded. The window of the neck,
+/// the nut, the barre and the "5 fr." label all follow from those six numbers
+/// by the rules below, so the page cannot say something the notation does not.
+///
+/// And after them, in parentheses, the FINGERING — when there is one to say.
+/// `[3,2,0,0,0,3](3,2,0,0,0,4)` is a G: three fingers where the dots are, and
+/// the pinky on the top E. A fingering is a convention rather than an
+/// arithmetic, so it comes from the notation and is never worked out here;
+/// where the notation carries none, the row above the grid shows the frets,
+/// which is what it always showed.
 ///
 /// GLYPHS ARE NOT AN OPTION for the grid, the dots or the bar. That is the
 /// lesson the whistle's circles taught: the font the rasteriser falls back to
@@ -40,6 +46,7 @@ enum ChordDiagrams {
     static let gridFrets = 5
 
     /// `[x,3,2,0,1,0]` -> six frets, nil for a string that is not sounded.
+    /// A trailing `(...)` is the fingering and is not part of the shape.
     static func parseShape(_ text: String) -> [Int?]? {
         guard let re = try? NSRegularExpression(pattern: "\\[(?:[x\\d]{1,2},){5}[x\\d]{1,2}\\]"),
               let m = re.firstMatch(in: text,
@@ -50,6 +57,20 @@ enum ChordDiagrams {
             part == "x" ? nil : Int(part)
         }
         return shape.count == strings ? shape : nil
+    }
+
+    /// `[3,2,0,0,0,3](3,2,0,0,0,4)` -> the six fingers, nil for a string that
+    /// is not stopped. nil for a marker that names no fingering at all, which
+    /// is what makes the marks row fall back to the frets.
+    static func parseFingering(_ text: String) -> [Int?]? {
+        guard let re = try? NSRegularExpression(
+                pattern: "\\[(?:[x\\d]{1,2},){5}[x\\d]{1,2}\\]\\(((?:[x\\d],){5}[x\\d])\\)"),
+              let m = re.firstMatch(in: text,
+                                    range: NSRange(location: 0, length: (text as NSString).length))
+        else { return nil }
+        let fingers = (text as NSString).substring(with: m.range(at: 1))
+            .split(separator: ",").map { part -> Int? in part == "x" ? nil : Int(part) }
+        return fingers.count == strings ? fingers : nil
     }
 
     /// (first fret drawn, is the top line the nut?)
@@ -130,7 +151,8 @@ enum ChordDiagrams {
     /// One diagram, drawn. Byte-for-byte what render.py's
     /// `chord_diagram_svg` produces for the same arguments.
     static func diagramSVG(shape: [Int?], x: Double, topY: Double,
-                           rowPitch: Double, scale: Double = 1) -> String {
+                           rowPitch: Double, scale: Double = 1,
+                           fingers: [Int?]? = nil) -> String {
         let geo = geometry(x: x, topY: topY, rowPitch: rowPitch, scale: scale)
         let (base, nut) = window(shape)
         let bar = barre(shape)
@@ -150,9 +172,11 @@ enum ChordDiagrams {
             line(geo.left, fy, geo.left + geo.width, fy, (f == 0 && nut) ? geo.nut : geo.line)
         }
 
-        // the marks row: what each string does, low to high, as the notation
-        // writes it — x for silent, 0 for open, the fret otherwise
-        for (s, fret) in shape.enumerated() {
+        // the marks row: what each HAND does, low to high — x for a string
+        // that is not sounded, 0 for one left open, and otherwise the finger
+        // that stops it, falling back to the fret when the notation names no
+        // fingering
+        for (s, fret) in (fingers ?? shape).enumerated() {
             let mark = fret.map(String.init) ?? "x"
             parts += "<text text-anchor=\"middle\" font-style=\"normal\" "
                 + "x=\"\(g(geo.left + Double(s) * geo.gap))\" y=\"\(g(geo.marksY))\">"
@@ -238,7 +262,7 @@ enum ChordDiagrams {
     static func meiWithDiagrams(_ mei: String,
                                 adjustments: [Adjustment] = []) -> String? {
         guard let re = try? NSRegularExpression(
-            pattern: "<dir\\b([^>]*)>\\s*(\\[[x\\d,]+\\])\\s*</dir>",
+            pattern: "<dir\\b([^>]*)>\\s*(\\[[x\\d,]+\\](?:\\([x\\d,]+\\))?)\\s*</dir>",
             options: [.dotMatchesLineSeparators]) else { return nil }
         let ns = mei as NSString
         let matches = re.matches(in: mei, range: NSRange(location: 0, length: ns.length))
@@ -281,6 +305,7 @@ enum ChordDiagrams {
     struct Block {
         let range: NSRange
         let shape: [Int?]
+        let fingers: [Int?]?
         let scale: Double
         let x: Double
         let top: Double
@@ -296,7 +321,7 @@ enum ChordDiagrams {
                 pattern: "<g[^>]*class=\"dir\">.*?</g>",
                 options: [.dotMatchesLineSeparators]),
               let labelRE = try? NSRegularExpression(
-                pattern: "<title class=\"labelAttr\">(\\[[x\\d,]+\\])(?:@([\\d.]+))?</title>"),
+                pattern: "<title class=\"labelAttr\">(\\[[x\\d,]+\\](?:\\([x\\d,]+\\))?)(?:@([\\d.]+))?</title>"),
               let rowRE = try? NSRegularExpression(
                 pattern: "<t(?:ext|span)[^>]*\\bx=\"([-\\d.]+)\"[^>]*\\by=\"([-\\d.]+)\"")
         else { return [] }
@@ -310,6 +335,7 @@ enum ChordDiagrams {
             guard let label = labelRE.firstMatch(in: group, range: groupRange),
                   let shape = parseShape(groupNS.substring(with: label.range(at: 1)))
             else { continue }
+            let fingers = parseFingering(groupNS.substring(with: label.range(at: 1)))
             let scale = label.range(at: 2).location == NSNotFound
                 ? 1.0 : Double(groupNS.substring(with: label.range(at: 2))) ?? 1.0
             let rows = rowRE.matches(in: group, range: groupRange).map {
@@ -320,8 +346,8 @@ enum ChordDiagrams {
             let ys = rows.map(\.1)
             let gaps = zip(ys, ys.dropFirst()).map { $1 - $0 }.filter { $0 > 0 }
             guard let pitch = gaps.min() else { continue }
-            out.append(Block(range: m.range, shape: shape, scale: scale,
-                             x: rows[0].0, top: ys[0], pitch: pitch))
+            out.append(Block(range: m.range, shape: shape, fingers: fingers,
+                             scale: scale, x: rows[0].0, top: ys[0], pitch: pitch))
         }
         return out
     }
@@ -338,7 +364,8 @@ enum ChordDiagrams {
                                               length: block.range.location - cursor))
             out += "<g class=\"dir chord-diagram\">"
                 + diagramSVG(shape: block.shape, x: block.x, topY: block.top,
-                             rowPitch: block.pitch, scale: block.scale)
+                             rowPitch: block.pitch, scale: block.scale,
+                             fingers: block.fingers)
                 + "</g>"
             cursor = block.range.location + block.range.length
         }

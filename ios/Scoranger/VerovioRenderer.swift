@@ -118,9 +118,13 @@ actor VerovioRenderer {
         // here, the very first continuous engrave is already continuous.
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
                                       continuous: continuous))
-        guard t.loadFile(musicXMLPath) else {
+        let loaded = PerfMetrics.shared.measure(PerfMetrics.Name.engraveLoad) {
+            t.loadFile(musicXMLPath)
+        }
+        guard loaded else {
             throw RenderError.loadFailed(musicXMLPath)
         }
+        let meiSpan = PerfMetrics.shared.begin(PerfMetrics.Name.engraveMEI)
         // Whistle fingerings belong above their staff. Verovio ignores
         // MusicXML's lyric placement, so the move is made on the MEI and the
         // document reloaded before anything is drawn.
@@ -174,6 +178,7 @@ actor VerovioRenderer {
         if reload {
             guard t.loadData(mei) else { throw RenderError.loadFailed(musicXMLPath) }
         }
+        meiSpan?.end()
         let document = PDFDocument()
         var rawPages: [String] = []
         /// Pages that could not be drawn, kept so the caller can say which.
@@ -181,9 +186,13 @@ actor VerovioRenderer {
         for page in 1...max(t.getPageCount(), 1) {
             // size is applied to the drawn glyph, because Verovio has no
             // per-element text size to ask for
-            let svg = ChordAdjustments.applySizes(t.renderToSVG(page, true),
-                                                  adjustments: adjustments)
+            let svg = PerfMetrics.shared.measure(PerfMetrics.Name.engraveSVG) {
+                ChordAdjustments.applySizes(t.renderToSVG(page, true),
+                                            adjustments: adjustments)
+            }
             rawPages.append(svg)
+            let pdfSpan = PerfMetrics.shared.begin(PerfMetrics.Name.engravePDF)
+            defer { pdfSpan?.end() }
             // A page that cannot be drawn is SKIPPED, not fatal. Throwing here
             // meant one unconvertible page threw away every good page with it:
             // a reader whose page 1 failed got no score at all rather than
@@ -207,7 +216,9 @@ actor VerovioRenderer {
             throw failures.first ?? RenderError.nothingDrawn
         }
         // the same MEI the pages were drawn from, so addresses line up
-        let geometry = try? ScoreModelBuilder.build(svgPages: rawPages, mei: mei)
+        let geometry = PerfMetrics.shared.measure(PerfMetrics.Name.engraveModel) {
+            try? ScoreModelBuilder.build(svgPages: rawPages, mei: mei)
+        }
         return Engraving(pdf: data,
                          failedPages: failures.compactMap(\.pageNumber),
                          geometry: geometry,

@@ -625,6 +625,60 @@ final class AppState: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var renderedKey: String?
 
+    /// Which engraving `pdfDocument` currently holds, as a string the canvas
+    /// can key its rasters by.
+    ///
+    /// NOT the `PDFPage`'s object identity, which is what a raster cache would
+    /// otherwise reach for: a page freed when the version changes can be
+    /// replaced at the same address, and the canvas would then draw the
+    /// previous score's music. NOT `renderedKey` either -- a forced re-render
+    /// keeps that string and changes the pages under it -- so a stamp is
+    /// added, allocated where the ENGRAVING is made. It therefore changes
+    /// exactly when the pages change, and stays put when a held engraving is
+    /// shown again, which is what keeps that engraving's rasters valid.
+    ///
+    /// Deliberately not `@Published`: it is set immediately before
+    /// `pdfDocument`, whose publish is what rebuilds the canvas, so the canvas
+    /// always reads the value belonging to the document it was handed. A second
+    /// publish here would only invalidate the views this exists to spare.
+    private(set) var engravingKey: String = ""
+    private var engravingCount = 0
+
+    /// An engraving and the stamp that names it.
+    ///
+    /// The stamp is allocated ONCE, when the engraving is made, and travels
+    /// with it. That is what lets the two caches compose: coming back to an
+    /// engraving already held gives back the same `engravingKey`, so the
+    /// canvas rasters drawn from it are still valid. Stamping on every render
+    /// instead -- which is what a plain counter did -- made returning to a
+    /// held engraving free of Verovio and then redrew every one of its tiles,
+    /// 101 rasters over six layout switches that should have needed none.
+    struct HeldEngraving {
+        let engraving: VerovioRenderer.Engraving
+        let stamp: Int
+    }
+
+    /// Engravings already made, by "<slug>/<version>/<layout>".
+    ///
+    /// A version is IMMUTABLE -- every op writes a new one -- so an engraving
+    /// of it can never go stale, and the only reason to throw one away is the
+    /// memory it holds. Which is little: an eleven-page quartet's PDF is a
+    /// couple of megabytes, against 3.1 s of Verovio and SwiftDraw to make it
+    /// again.
+    ///
+    /// Four of them, roughly, at 24MB. Enough to hold both layouts of the
+    /// version being read and both of the one before it, which is the pattern
+    /// a reader comparing two versions actually makes.
+    static let engravings = MemoCache<String, HeldEngraving>(budget: 24 << 20)
+
+    /// What an engraving costs to hold. The PDF is nearly all of it; the
+    /// geometry is a few thousand small structs, charged at a flat rate rather
+    /// than walked, because walking it to size it would cost more than the
+    /// entry is worth.
+    static func engravingBytes(_ held: HeldEngraving) -> Int {
+        held.engraving.pdf.count + 64 * 1024
+    }
+
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
     /// Pencil markup state. Lives here because the pill drives it and the score
@@ -840,6 +894,12 @@ final class AppState: ObservableObject {
         // A measurement run asks for the readings in the log (-perfDump);
         // nothing happens without it.
         PerfMetrics.shared.startConsoleDumpIfRequested()
+        // The rasters the canvas holds are the first thing worth giving back
+        // under pressure: every one of them can be drawn again, and being
+        // killed cannot be undone. The engravings go with them -- 24MB is
+        // worth handing back even at 3 s to make one again, when the
+        // alternative is the app disappearing under the reader.
+        CanvasRasters.observeMemoryWarnings { Self.engravings.clear() }
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -1101,6 +1161,9 @@ final class AppState: ObservableObject {
         // rather than blanking the canvas (#44).
         let key = "\(score.slug)/\(vid)/\(layout.rawValue)"
         guard force || key != renderedKey else { return }
+        // A forced render is asked for when the FILE behind the key changed
+        // under it, which is the one thing the cache cannot see.
+        if force { Self.engravings.forget(key) }
         // Nothing, rather than the wrong thing -- but only when the thing has
         // actually changed.
         //
@@ -1141,6 +1204,9 @@ final class AppState: ObservableObject {
             let data: Data
             var model: ScoreGeometry?
             var engravedAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+            /// Which engraving this is, for the canvas's raster keys. Bumped
+            /// only where a new one is actually made.
+            var stamp = 0
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
                 if ScoreArtifact.kind(ofFile: path) == .scan {
@@ -1155,17 +1221,37 @@ final class AppState: ObservableObject {
                     // one engrave: the pages drawn and the model hit-tested are
                     // the same Verovio load, or a lasso would select from a
                     // stale page
-                    let engraving = try await VerovioRenderer.shared.engrave(
-                        musicXMLPath: path, layout: layout)
-                    data = engraving.pdf
-                    model = engraving.geometry
-                    engravedAdjustments = engraving.chordAdjustments
+                    //
+                    // ...and the same engrave twice is one engrave. `key`
+                    // names the slug, the version AND the layout, so a reader
+                    // toggling page / continuous / page paid three full
+                    // engraves for two pictures -- and an engrave is the
+                    // largest single cost in the app, 3.1 s median in a
+                    // RELEASE build. Held here rather than inside the renderer
+                    // because the actor is a toolkit, not a memory.
+                    let held = try await Self.engravings.asyncValue(
+                        for: key, cost: Self.engravingBytes,
+                        make: {
+                            let made = try await VerovioRenderer.shared.engrave(
+                                musicXMLPath: path, layout: layout)
+                            engravingCount += 1
+                            return HeldEngraving(engraving: made,
+                                                 stamp: engravingCount)
+                        })
+                    data = held.engraving.pdf
+                    model = held.engraving.geometry
+                    engravedAdjustments = held.engraving.chordAdjustments
+                    stamp = held.stamp
                 }
             } else {
                 data = try await client.exportPDF(score: score.slug, version: vid)
             }
             if renderedKey == key {  // selection may have moved while fetching
                 rendered = true
+                // Before the document, so the canvas the publish rebuilds
+                // reads the key belonging to the pages it is handed.
+                if stamp == 0 { engravingCount += 1; stamp = engravingCount }
+                engravingKey = "\(key)#\(stamp)"
                 pdfDocument = PDFDocument(data: data)
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no
@@ -1331,6 +1417,36 @@ final class AppState: ObservableObject {
                 notice = "That scan could not be opened for transcription: "
                        + OperationReport.reason(error)
             }
+        }
+    }
+
+    /// Books opened for browsing, by slug. Not published: nothing redraws
+    /// because a document was cached, and BookScreen holds its own.
+    private var openBooks: [String: PDFDocument] = [:]
+
+    /// The book itself, so it can be looked through.
+    ///
+    /// Held open while the screen showing it is: PDFKit reads pages lazily, so
+    /// a four-hundred-page fake book costs a file handle rather than four
+    /// hundred rasters, and `ThumbnailCache` bounds what is drawn from it.
+    /// Keyed by slug because a reader flipping between two books should not
+    /// pay to reopen either.
+    ///
+    /// nil where the file cannot be reached, which the screen says rather than
+    /// showing an empty frame: the range fields still work, and a book you
+    /// cannot see is exactly the state this feature exists to fix.
+    func bookDocument(_ book: String) async -> PDFDocument? {
+        if let open = openBooks[book] { return open }
+        guard useLocalEngine else { return nil }
+        do {
+            let path = try await local.bookFilePath(book)
+            guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else {
+                return nil
+            }
+            openBooks[book] = document
+            return document
+        } catch {
+            return nil
         }
     }
 

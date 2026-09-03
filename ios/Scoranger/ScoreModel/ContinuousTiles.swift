@@ -59,6 +59,42 @@ enum ContinuousTiles {
         return max(min(byHeight, ceiling), 0.01)
     }
 
+    /// The viewport the strip is FITTED to, which is not always the viewport
+    /// it currently HAS.
+    ///
+    /// The strip is fitted by HEIGHT, so anything that takes height off the
+    /// canvas re-scales the whole score -- and a re-scaled strip is a new
+    /// picture for every one of its tiles, twenty-odd `drawPDFPage` calls over
+    /// an engraving seventeen thousand points wide. That is what opening the
+    /// version band cost: measured at 511 ms of `canvas tile raster` inside a
+    /// 575 ms tap, with the raster cache already in place and missing on every
+    /// tile because every tile's scale had changed.
+    ///
+    /// The band is not the only thing that does it. The ink bar, the transport
+    /// and the mixer all take height, and each would re-scale the music the
+    /// same way. So the rule is stated about height rather than about the band:
+    ///
+    /// **A viewport that only got SHORTER does not re-fit the strip.** The
+    /// music keeps the size it had and the shorter canvas shows less of it,
+    /// which is what a panel opening over a score should do. A viewport that
+    /// got TALLER re-fits -- so closing the band puts the strip back, at a
+    /// scale the cache is still holding every tile for.
+    ///
+    /// A change of WIDTH always re-fits: that is a rotation or a window
+    /// resize, and there is no sense in which the old fit still applies.
+    ///
+    /// - Parameters:
+    ///   - now: the viewport this frame.
+    ///   - latched: the viewport last fitted to, or `.zero` if none.
+    ///   - sameDocument: false when a different engraving is on screen, which
+    ///     makes any previous fit meaningless.
+    static func fittingViewport(now: CGSize, latched: CGSize,
+                                sameDocument: Bool) -> CGSize {
+        guard sameDocument, latched.width > 0, latched.height > 0 else { return now }
+        guard abs(now.width - latched.width) < 0.5 else { return now }
+        return now.height > latched.height ? now : latched
+    }
+
     /// How much bigger than a fitted page the strip may be drawn.
     ///
     /// Two, so a four-staff system still fills most of a portrait iPad -- which
@@ -169,7 +205,19 @@ enum ContinuousTiles {
     /// music should be reads as a broken score, and a cheap raster does not.
     static func raster(page: PDFPage, tile: CGRect, scale: CGFloat,
                        atDepth: Bool) -> UIImage {
-        let detail: CGFloat = atDepth ? 2 : 0.35
+        PerfMetrics.shared.measure(PerfMetrics.Name.canvasTile) {
+            draw(page: page, tile: tile, scale: scale, atDepth: atDepth)
+        }
+    }
+
+    /// Pixels per surface point. Named rather than inlined because it is half
+    /// of what identifies a tile's picture, and the raster cache's key has to
+    /// say the same thing the drawing does.
+    static func detail(atDepth: Bool) -> CGFloat { atDepth ? 2 : 0.35 }
+
+    private static func draw(page: PDFPage, tile: CGRect, scale: CGFloat,
+                             atDepth: Bool) -> UIImage {
+        let detail = detail(atDepth: atDepth)
         let pixel = CGSize(width: max(tile.width * detail, 1),
                            height: max(tile.height * detail, 1))
         let box = page.bounds(for: .mediaBox)

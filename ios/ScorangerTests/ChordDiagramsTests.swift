@@ -35,7 +35,8 @@ final class ChordDiagramsTests: XCTestCase {
         for (shapeText, x, top, pitch, scale, expected) in cases {
             let shape = try XCTUnwrap(ChordDiagrams.parseShape(shapeText))
             let drawn = ChordDiagrams.diagramSVG(shape: shape, x: x, topY: top,
-                                                 rowPitch: pitch, scale: scale)
+                                                 rowPitch: pitch, scale: scale,
+                                                 fingers: ChordDiagrams.parseFingering(shapeText))
             XCTAssertEqual(drawn, expected, "\(shapeText) is drawn differently here")
         }
     }
@@ -47,6 +48,37 @@ final class ChordDiagramsTests: XCTestCase {
                        [nil, 10, 12, 12, 12, 10])
         XCTAssertNil(ChordDiagrams.parseShape("a tempo"))
         XCTAssertNil(ChordDiagrams.parseShape("[x,3,2]"))
+    }
+
+    func testFingeringReadsTheNotationAndNothingElse() {
+        // a G: the frets are 320003 and the hand is 320004 — ring and middle
+        // low, PINKY on the top E. Nothing in the six frets says that, so it
+        // is carried in the notation and never worked out here.
+        XCTAssertEqual(ChordDiagrams.parseShape("[3,2,0,0,0,3](3,2,0,0,0,4)"),
+                       [3, 2, 0, 0, 0, 3])
+        XCTAssertEqual(ChordDiagrams.parseFingering("[3,2,0,0,0,3](3,2,0,0,0,4)"),
+                       [3, 2, 0, 0, 0, 4])
+        XCTAssertEqual(ChordDiagrams.parseFingering("[x,5,7,5,6,5](x,1,3,1,2,1)"),
+                       [nil, 1, 3, 1, 2, 1])
+        // a marker with no fingering names none, and the row shows the frets
+        XCTAssertNil(ChordDiagrams.parseFingering("[x,3,2,0,1,0]"))
+        XCTAssertNil(ChordDiagrams.parseFingering("a tempo"))
+    }
+
+    func testTheMarksRowShowsTheHand() {
+        func row(_ svg: String) -> [String] {
+            let re = try! NSRegularExpression(pattern: "<tspan font-size=\"[\\d.]+px\">([x\\d]+)</tspan>")
+            let ns = svg as NSString
+            return re.matches(in: svg, range: NSRange(location: 0, length: ns.length))
+                .map { ns.substring(with: $0.range(at: 1)) }
+        }
+        let g: [Int?] = [3, 2, 0, 0, 0, 3]
+        XCTAssertEqual(row(ChordDiagrams.diagramSVG(shape: g, x: 0, topY: 0, rowPitch: 100,
+                                                    scale: 1, fingers: [3, 2, 0, 0, 0, 4])),
+                       ["3", "2", "0", "0", "0", "4"])
+        // and with no fingering the frets stand, which is what the row always was
+        XCTAssertEqual(row(ChordDiagrams.diagramSVG(shape: g, x: 0, topY: 0, rowPitch: 100)),
+                       ["3", "2", "0", "0", "0", "3"])
     }
 
     func testTheNutIsTheWindow() {

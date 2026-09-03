@@ -148,3 +148,60 @@ height and tempo). Four of these are already committed.
 Bug 4's blur and bug 10's thumbnails, if they turn out not to share A's cause.
 Bug 5's slowness, which has no diagnosis yet. Bug 3's verification, which needs
 the reader's own 52MB file rather than a fixture.
+
+---
+
+# What happened: all of it shipped as 0.6.3 (build 162), overnight
+
+Written 2026-09-03, after the fact. The plan above was drawn up expecting several
+days and two or three builds. Nine branches landed in one night and went out as a
+single release, so the C+F / A / B+D / E sequencing below describes the *reasoning*
+rather than what the calendar ended up looking like.
+
+**Every group A-F is in build 162 except E's optimisation**, which was deliberately
+held: the instrumentation shipped, the optimising did not, because a renderer that
+had just been rebuilt is the wrong thing to tune against guesses.
+
+## Verified by looking, not by a green suite
+
+Nine reported items were checked against the running app before anyone was told
+they were fixed. The evidence is in `design/screenshots/`.
+
+- **Bugs 2, 4, 10** -- the paged view is now byte-identical before and after a
+  visit to continuous; before the fix those two screenshots differed. Plus the
+  obvious: `p. 1 / 9`, three systems, crisp, nine good thumbnails.
+- **Bug 6** -- photographed mid-playback after a manual scroll: still playing,
+  following yielded, "Back to bar 12" offered. The line parks at 30% and the
+  score moves past it.
+- **Bug 8** -- measured, not eyeballed: 2px at 1x and 7px at 3.55x before; 2px
+  and 2px after.
+- **Bug 7** -- the lasso selects on the strip and the chip names what it caught.
+- **Bug 9** -- the fix is deeper than a smaller opening view. `minimumZoomScale`
+  IS the fitted scale, so when a single staff fitted at 13x there was nothing
+  below it to zoom out to. Capping the fit lowers the floor itself.
+- **Features 1, 3, 4, 5** -- the stamp at top centre, PDF / MUSICXML / UNFILED
+  tags across the lists, and `PDF not editable` in the score view.
+
+## The three causes worth remembering
+
+1. **Verovio's `setOptions` MERGES.** The paged option set never named `breaks`,
+   so one visit to continuous set `breaks: none` on the shared toolkit and
+   nothing set it back. One fault, three reported bugs, and it only appeared
+   after you had looked at the strip -- which is why it read as intermittent.
+2. **`pypdf` was never vendored.** Every book operation raised
+   `ModuleNotFoundError` inside the on-device engine, so Import Book had never
+   once worked. Every check passed, because the host had pypdf in its venv.
+3. **`lastError` was written 59 times and read almost nowhere.** 57 failures
+   were invisible, which is exactly why a `ModuleNotFoundError` looked to a
+   reader like nothing happening at all.
+
+Each was invisible to a green test suite, and each was found by running the
+thing and looking at it.
+
+## What the plan got wrong
+
+The through-line was right -- bugs 2, 4, 9 and 10 really were one family. The
+*cause* guessed at here (continuous options leaking into the paged render) was
+half right: not leakage, an omission. Same symptom, different fix. The check
+written to confirm the theory is what refuted it, which is the argument for
+writing the check before the fix rather than after.

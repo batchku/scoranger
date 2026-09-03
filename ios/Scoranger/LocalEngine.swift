@@ -111,6 +111,15 @@ struct LocalEngine {
         return (try await result(op: "book-extract", args: args)["score"] as? String) ?? ""
     }
 
+    /// Where a book's own PDF is, so the reader can look through it.
+    func bookFilePath(_ book: String) async throws -> String {
+        let r = try await result(op: "book-file", args: ["book": book])
+        guard let path = r["path"] as? String else {
+            throw LocalEngineError.engine("no path in book-file result")
+        }
+        return path
+    }
+
     func deleteBook(_ slug: String) async throws {
         _ = try await result(op: "delete-book", args: ["book": slug])
     }

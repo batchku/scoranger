@@ -184,6 +184,39 @@ final class RenderShot: XCTestCase {
         }
     }
 
+    /// What the strip looks like with the version band open over it.
+    ///
+    /// The band takes height off the canvas, and the strip is fitted BY height
+    /// -- so opening a dropdown used to re-scale the whole score and redraw
+    /// every tile of it, which was 511 ms of a 575 ms tap. The strip keeps its
+    /// size now and the shorter canvas shows less of it. That is a judgement a
+    /// person has to make by looking, so these are photographs: the strip
+    /// before, with the band open, and after it closes, which must match the
+    /// first.
+    func testTheStripKeepsItsSizeWhenTheVersionBandOpens() {
+        app = XCUIApplication()
+        app.launchArguments = ["-seedTestLibrary"]
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
+        openFirstScore()
+
+        tap("layout-continuous")
+        settle(12)
+        snap("20-strip-band-closed")
+
+        guard app.buttons["score-versions"].waitForExistence(timeout: 10) else {
+            return XCTFail("no versions control on the bar")
+        }
+        app.buttons["score-versions"].tap()
+        settle(2)
+        snap("21-strip-band-open")
+
+        app.buttons["score-versions"].tap()
+        settle(2)
+        snap("22-strip-band-closed-again")
+    }
+
     /// Bug 6: the line stands still and the score scrolls past it, a hand on
     /// the score hands following over, and Sync hands it back.
     ///
