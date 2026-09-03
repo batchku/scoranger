@@ -334,6 +334,16 @@ final class LassoAnchorView: UIView {
         didSet { if isSubtracting != oldValue { applyColours() } }
     }
 
+    /// The scroll view's settled zoom.
+    ///
+    /// The anchor lives INSIDE the zoom transform, so a line width written here
+    /// is multiplied by it: a 0.75pt hairline is a 9pt orange band at the 12x
+    /// the render overhaul raised the ceiling to. The weight is divided by the
+    /// zoom for the same reason the playhead's is (`SelectionInk`).
+    var zoom: CGFloat = 1 {
+        didSet { if zoom != oldValue { applyWeight() } }
+    }
+
     private let shape = CAShapeLayer()
     /// Unit (0…1) points, live or committed.
     private var path: [CGPoint] = []
@@ -342,14 +352,20 @@ final class LassoAnchorView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
-        // Fine rather than crude: at 1.5pt with 6pt dashes the outline read as
-        // a marquee drawn over the music. A hairline with short dashes sits
-        // with the engraving instead of on top of it.
-        shape.lineWidth = 0.75
-        shape.lineDashPattern = [2.5, 2.5]
         shape.lineJoin = .round
+        applyWeight()
         applyColours()
         layer.addSublayer(shape)
+    }
+
+    /// Fine rather than crude: at 1.5pt with 6pt dashes the outline read as a
+    /// marquee drawn over the music. A hairline with short dashes sits with the
+    /// engraving instead of on top of it -- at every zoom, which is the part
+    /// that was missing.
+    private func applyWeight() {
+        shape.lineWidth = SelectionInk.onScreen(SelectionInk.lassoWeight, zoom: zoom)
+        shape.lineDashPattern = SelectionInk.lassoDashes(zoom: zoom)
+            .map { NSNumber(value: Double($0)) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -392,14 +408,19 @@ struct LassoAnchor: UIViewRepresentable {
     let pageIndex: Int
     /// The committed lasso for this page, if any.
     let committed: [CGPoint]
+    /// The scroll view's settled zoom, so the outline stays a hairline.
+    var zoom: CGFloat = 1
+
     func makeUIView(context: Context) -> LassoAnchorView {
         let view = LassoAnchorView()
         view.pageIndex = pageIndex
+        view.zoom = zoom
         return view
     }
 
     func updateUIView(_ view: LassoAnchorView, context: Context) {
         view.pageIndex = pageIndex
+        view.zoom = zoom
         view.show(committed)
     }
 }

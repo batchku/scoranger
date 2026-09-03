@@ -550,6 +550,32 @@ struct ScorePagesView: View {
                                    atDepth: deep.contains(index))
             }
         }
+        // The strip's lasso anchor. Its absence WAS bug 7: the recognizer picks
+        // the `LassoAnchorView` whose frame contains the touch, and continuous
+        // mode had none in the tree at all -- so `beginLasso` returned before it
+        // began and the Pencil did nothing whatever the reader drew. The same
+        // lookup serves the tap that drops an element, so taps were dead here
+        // too.
+        //
+        // It goes on the TILE ROW, which is the surface exactly, and not on the
+        // padded container around it: the anchor reports unit (0…1) points of
+        // its own bounds, and `LassoPath.onPage` multiplies those by the
+        // engraving's own size. Twelve points of margin inside the anchor would
+        // shift every selection down the staff.
+        .overlay(alignment: .topLeading) {
+            SelectionHighlight(frames: selectedFrames(onPage: 0),
+                               pageSize: state.geometry?.page(0)?.size ?? .zero,
+                               zoom: rasterZoom)
+                .frame(width: surface.width, height: surface.height)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .topLeading) {
+            LassoAnchor(pageIndex: 0,
+                        committed: state.selectionPaths[0] ?? [],
+                        zoom: rasterZoom)
+                .frame(width: surface.width, height: surface.height)
+                .allowsHitTesting(false)
+        }
         .overlay(alignment: .topLeading) {
             ContinuousPlayheadLayer(playback: playback,
                                     page: state.geometry?.page(0),
@@ -583,12 +609,14 @@ struct ScorePagesView: View {
                 // selection looked like nothing had happened: the only signs
                 // were the lasso outline, a chip at the top, and chat opening.
                 SelectionHighlight(frames: selectedFrames(onPage: index),
-                                   pageSize: state.geometry?.page(index)?.size ?? .zero)
+                                   pageSize: state.geometry?.page(index)?.size ?? .zero,
+                                   zoom: rasterZoom)
                     .allowsHitTesting(false)
             }
             .overlay {
                 LassoAnchor(pageIndex: index,
-                            committed: state.selectionPaths[index] ?? [])
+                            committed: state.selectionPaths[index] ?? [],
+                            zoom: rasterZoom)
                     .allowsHitTesting(false)
             }
             .overlay {
@@ -702,10 +730,13 @@ struct ScorePagesView: View {
             state.selectionPaths = [index: path]
             return
         }
-        // unit coordinates -> page (SVG user) coordinates
-        let polygon = path.map { CGPoint(x: $0.x * page.size.width,
-                                         y: $0.y * page.size.height) }
-        let caught = page.elements(caughtBy: polygon)
+        // Unit coordinates -> page (SVG user) coordinates, by the page's OWN
+        // size. In continuous mode that page is the whole strip, and this is
+        // the only place the two spaces meet: the surface is in PDF points and
+        // the geometry in SVG viewBox units, twenty-two times apart, and
+        // neither number appears here.
+        let caught = page.elements(
+            caughtBy: LassoPath.onPage(unit: path, pageSize: page.size))
         state.commitSelection(caught, path: path, page: index, adding: adding)
     }
 
@@ -722,8 +753,6 @@ struct ScorePagesView: View {
 /// "here is an instant", and what a player glancing up needs is "here is the
 /// bar you are in". Behind the music and unfilled at the edges, so it never
 /// competes with a notehead for the eye.
-/// Boxes over the selected elements, scaled from page coordinates to the size
-/// the page is drawn at.
 /// The playhead: where the sound has got to, on the engraved page.
 ///
 /// OBSERVES the engine rather than being handed a value. The play head moves
@@ -880,26 +909,41 @@ private struct ContinuousPlayheadLayer: View {
     }
 }
 
+/// Boxes over the selected elements, scaled from page coordinates to the size
+/// the page is drawn at.
+///
+/// The BOX tracks the notehead and so scales with the zoom; its outline, its
+/// padding, its corner and its minimum size are sizes ON SCREEN and so are
+/// divided by it (`SelectionInk`). Undivided they are what Ali photographed:
+/// at 12x a 1pt outline is a 12pt band and a 3pt overhang is 36, so a selected
+/// chord came back as one orange blob with no music visible inside it.
 private struct SelectionHighlight: View {
     let frames: [CGRect]
     let pageSize: CGSize
+    /// The scroll view's settled zoom. Same source as the playhead's.
+    let zoom: CGFloat
 
     var body: some View {
         GeometryReader { geo in
             if !frames.isEmpty, pageSize.width > 0, pageSize.height > 0 {
                 let sx = geo.size.width / pageSize.width
                 let sy = geo.size.height / pageSize.height
+                let corner = SelectionInk.onScreen(SelectionInk.highlightCorner,
+                                                   zoom: zoom)
+                let weight = SelectionInk.onScreen(SelectionInk.highlightWeight,
+                                                   zoom: zoom)
                 ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
-                    RoundedRectangle(cornerRadius: 2)
+                    RoundedRectangle(cornerRadius: corner)
                         .fill(Theme.Accent.clay.opacity(0.22))
                         .overlay {
-                            RoundedRectangle(cornerRadius: 2)
-                                .stroke(Theme.Accent.clayStrong.opacity(0.65), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: corner)
+                                .stroke(Theme.Accent.clayStrong.opacity(0.65),
+                                        lineWidth: weight)
                         }
-                        // a hair of padding so a notehead's box reads as a
-                        // highlight rather than a tight outline
-                        .frame(width: max(frame.width * sx, 6) + 3,
-                               height: max(frame.height * sy, 6) + 3)
+                        .frame(width: SelectionInk.highlightExtent(
+                                    engraved: frame.width, scale: sx, zoom: zoom),
+                               height: SelectionInk.highlightExtent(
+                                    engraved: frame.height, scale: sy, zoom: zoom))
                         .position(x: frame.midX * sx, y: frame.midY * sy)
                 }
             }
