@@ -1419,10 +1419,18 @@ def guitar_tuning(name: str) -> tuple[str, ...]:
 
 
 def chord_symbol_text(cs) -> str:
-    """The chord symbol as a player writes it: 'C', 'Am7', 'B-7'."""
+    """The chord symbol as a player writes it: 'C', 'Am7', 'B-7'.
+
+    music21's own `figure` first, because it carries the extensions a rebuilt
+    name loses -- a C13 read back from the kind alone is a C, and a report that
+    says "no shape for C" about a chord nobody can play is a wrong report.
+    """
+    figure = (cs.figure or "").strip()
+    if figure:
+        return figure
     root = cs.root()
     quality = {v: k for k, v in QUALITY_KINDS.items()}.get(cs.chordKind or "major", "")
-    return f"{root.name}{quality}" if root is not None else str(cs.figure)
+    return f"{root.name}{quality}" if root is not None else ""
 
 
 def _shape_from_text(text: str) -> list[int | None]:
