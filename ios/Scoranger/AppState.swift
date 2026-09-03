@@ -498,6 +498,9 @@ final class AppState: ObservableObject {
         /// The piece it is going into, so the library can show that piece
         /// filling up rather than the import vanishing (0.4.1 item 9).
         var piece: String?
+        /// Which list this row belongs in. A book is not an arrangement and
+        /// its progress must not appear under Pieces (ImportProgress).
+        var target: ImportTarget = .arrangement
         var stage: String = "uploading…"
         /// nil = indeterminate (spinner); 0…1 = determinate bar
         var fraction: Double? = nil
@@ -1301,8 +1304,19 @@ final class AppState: ObservableObject {
     }
 
     /// Import a PDF as a BOOK: a collection to take arrangements out of.
+    ///
+    /// It says so on screen while it runs and says so when it fails. Both were
+    /// missing: a fake book is a big file and the copy alone takes a while, so
+    /// a silent Task looked exactly like a broken one -- and the failure it
+    /// was actually hitting (pypdf was not vendored into the app) landed in
+    /// `lastError`, which the library does not display.
     func importBook(at url: URL) {
+        let name = url.deletingPathExtension().lastPathComponent
+        let pending = PendingImport(name: name, target: .book,
+                                    stage: BookImportStage.copying)
+        pendingImports.append(pending)
         Task {
+            defer { pendingImports.removeAll { $0.id == pending.id } }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -1310,12 +1324,14 @@ final class AppState: ObservableObject {
                     .appending(path: url.lastPathComponent)
                 try? FileManager.default.removeItem(at: tmp)
                 try FileManager.default.copyItem(at: url, to: tmp)
-                _ = try await local.importBook(
-                    fileURL: tmp, name: url.deletingPathExtension().lastPathComponent)
+                updatePending(pending.id, stage: BookImportStage.reading, fraction: nil)
+                _ = try await local.importBook(fileURL: tmp, name: name)
                 try? FileManager.default.removeItem(at: tmp)
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                let reason = (error as? EngineError)?.error ?? error.localizedDescription
+                lastError = reason
+                notice = BookImportStage.failure(name: name, reason: reason)
             }
         }
     }

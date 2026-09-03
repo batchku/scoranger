@@ -361,15 +361,15 @@ struct LibraryView: View {
                 // overlay, which the redesign retired -- so an import showed a
                 // badge on a Home icon that was not tappable and then could
                 // not be found at all (0.4.1 item 9).
-                if segment == .pieces {
-                    ForEach(state.pendingImports) { pending in importingRow(pending) }
-                }
+                // ...and each in the list it is making something FOR: a book
+                // being read is not an arrangement arriving (ImportProgress).
+                ForEach(pendingHere) { pending in importingRow(pending) }
                 // Loading is not emptiness (#42): the manifest is nil until the
                 // engine answers, and claiming "No music yet" in that window
                 // flashed the empty state on every launch of a full library.
                 switch LibraryModel.listState(loaded: state.libraryLoaded,
                                               rows: rows.count,
-                                              pendingImports: state.pendingImports.count,
+                                              pendingImports: pendingHere.count,
                                               isFiltered: !search.isEmpty || !filters.isEmpty) {
                 case .rows:      grouped
                 case .loading:   loading
@@ -578,6 +578,11 @@ struct LibraryView: View {
     // the de-duplication rather than a second way in.
 
     // MARK: - Data
+
+    /// The imports in flight that belong to the segment on screen.
+    private var pendingHere: [AppState.PendingImport] {
+        state.pendingImports.filter { $0.target.segment == segment }
+    }
 
     private var rows: [LibraryRow] {
         guard let manifest = state.manifest else { return [] }
