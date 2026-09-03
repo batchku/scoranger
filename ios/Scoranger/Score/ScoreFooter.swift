@@ -117,12 +117,18 @@ struct Transport: View {
     /// play head moves, and AppState publishes nothing when the engine's own
     /// state changes. The same fix the ink bar needed.
     @ObservedObject var playback: PlaybackEngine
-    /// Why playback cannot happen, when it cannot. Non-nil replaces the
-    /// controls with the reason -- a button that plainly is not live beats one
-    /// that looks live and does nothing (§9.2).
-    var unavailable: String?
+    /// Why playback cannot happen, when it cannot. Anything but `.available`
+    /// replaces the controls with the reason -- a button that plainly is not
+    /// live beats one that looks live and does nothing (§9.2).
+    ///
+    /// The reason now carries its REMEDY. It used to be a bare string, and a
+    /// reader whose library is all imported PDFs read "Run OMR to play this
+    /// arrangement" on every score with nothing to tap.
+    var unavailable: PlaybackAvailability = .available
     var preparing: Bool
     var onPlay: () -> Void
+    /// Perform whatever `unavailable` is offering.
+    var onResolve: () -> Void = {}
     /// Whether the mixer is on screen. The voice list BELOW stays exactly
     /// where it was: the mixer is a richer way to reach the same mutes, and
     /// the rule is that an access path survives the build that replaces it.
@@ -166,10 +172,8 @@ struct Transport: View {
             // OBJECT so the row redraws when it lands. Reading it through
             // AppState would leave the reason on screen only by luck of some
             // other publish.
-            if let unavailable = unavailable ?? playback.unavailable {
-                Text(unavailable).typeRole(.meta)
-                    .foregroundStyle(Theme.Ink.ink3)
-                    .accessibilityIdentifier("transport-unavailable")
+            if !unavailable.canPlay || playback.unavailable != nil {
+                unavailableRow
                 Spacer(minLength: 0)
             } else {
                 playControls
@@ -179,6 +183,45 @@ struct Transport: View {
         }
         .padding(.horizontal, Theme.Metric.s12)
         .frame(height: Theme.Metric.transportHeight)
+    }
+
+    /// The reason, and the button that answers it.
+    ///
+    /// The audio engine's own failure has no remedy here, so it stays a
+    /// sentence; a scan and the remote engine both have one, so they get a
+    /// button. The draft warning rides with the offer rather than only with
+    /// the spinner: telling someone their notation is a draft after they have
+    /// waited for it is telling them too late.
+    @ViewBuilder
+    private var unavailableRow: some View {
+        let engineFailure = playback.unavailable
+        HStack(spacing: Theme.Metric.s8) {
+            Text(engineFailure ?? unavailable.message)
+                .typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink3)
+                .accessibilityIdentifier("transport-unavailable")
+            if engineFailure == nil, let title = unavailable.actionTitle {
+                Button(action: onResolve) {
+                    Text(title).typeRole(.meta)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                        .padding(.horizontal, Theme.Metric.s8)
+                        .frame(height: 24)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                .stroke(Theme.Line.line2, lineWidth: 1)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("transport-resolve")
+            }
+            if engineFailure == nil, unavailable.warnsItIsADraft {
+                Text("draft").typeRole(.data)
+                    .foregroundStyle(Theme.Ink.ink3)
+                    .accessibilityIdentifier("transport-draft-warning")
+            }
+        }
+        .accessibilityIdentifier(unavailable.identifier)
     }
 
     @ViewBuilder

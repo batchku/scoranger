@@ -1178,10 +1178,23 @@ final class AppState: ObservableObject {
     /// The remote engine cannot either -- `playback` is a bridge op, and
     /// `scor serve` has no route for it -- and the transport says so rather
     /// than offering a button that does nothing.
-    var playbackAvailability: String? {
-        if displayedArtifact == .scan { return "Run OMR to play this arrangement" }
-        if !useLocalEngine { return "Playback needs the on-device engine" }
-        return nil
+    var playbackAvailability: PlaybackAvailability {
+        .of(artifact: displayedArtifact, omrBusy: omrBusy, localEngine: useLocalEngine)
+    }
+
+    /// The remedy the transport is offering, performed.
+    ///
+    /// The transport is a second way in, not a replacement: "Make editable" in
+    /// the More screen still does the same thing, and keeping it is the rule --
+    /// never remove the current access path in the build that adds a new one.
+    func resolvePlaybackAvailability() {
+        switch playbackAvailability {
+        case .needsTranscription: makeEditable()
+        // Settings belongs to the view that owns the screen stack; ContentView
+        // handles that case before calling this.
+        case .needsLocalEngine:   break
+        case .available, .transcribing: break
+        }
     }
 
     /// Build the performance for the version on screen, unless it is already
@@ -1192,7 +1205,7 @@ final class AppState: ObservableObject {
     /// reader shows the transport or presses play, which is the first moment
     /// anyone wants the sound.
     func preparePlayback() async {
-        guard playbackAvailability == nil, let key = playbackKey,
+        guard playbackAvailability.canPlay, let key = playbackKey,
               let score = selectedScore else { return }
         guard playback.loadedKey != key, !playbackPreparing else { return }
         playbackPreparing = true

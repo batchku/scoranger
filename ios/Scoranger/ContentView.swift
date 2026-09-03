@@ -232,6 +232,16 @@ struct ContentView: View {
                           unavailable: state.playbackAvailability,
                           preparing: state.playbackPreparing,
                           onPlay: { state.togglePlayback() },
+                          onResolve: {
+                              // The remote-engine case is fixed in Settings,
+                              // which this view owns; the scan case is the
+                              // engine's business.
+                              if state.playbackAvailability == .needsLocalEngine {
+                                  scoreScreen = .settings
+                              } else {
+                                  state.resolvePlaybackAvailability()
+                              }
+                          },
                           mixerOpen: state.mixerOpen,
                           onMixer: { state.mixerOpen.toggle() })
                     // Built when the transport appears, never when the score
