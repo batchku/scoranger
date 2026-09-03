@@ -36,9 +36,17 @@ enum BookImportStage {
     /// missing module and an unreadable PDF are not the same problem, and the
     /// only report that ever reaches us is what the reader can see.
     static func failure(name: String, reason: String) -> String {
+        say("\(name) could not be imported as a book", reason)
+    }
+
+    /// ...and the same for taking pages out of one, which reported nothing at
+    /// all: the screen showed a note on success and stayed silent on failure.
+    static func extractionFailure(name: String, reason: String) -> String {
+        say("\(name) could not be taken out of the book", reason)
+    }
+
+    private static func say(_ what: String, _ reason: String) -> String {
         let detail = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        return detail.isEmpty
-            ? "\(name) could not be imported as a book."
-            : "\(name) could not be imported as a book: \(detail)"
+        return detail.isEmpty ? "\(what)." : "\(what): \(detail)"
     }
 }

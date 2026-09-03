@@ -1314,7 +1314,12 @@ final class AppState: ObservableObject {
             await refresh()
             return slug
         } catch {
-            lastError = error.localizedDescription
+            // Said out loud, like the import above it. BookScreen shows a note
+            // when it works and showed NOTHING when it did not -- lastError,
+            // which the redesigned library does not display.
+            let reason = (error as? EngineError)?.error ?? error.localizedDescription
+            lastError = reason
+            notice = BookImportStage.extractionFailure(name: name, reason: reason)
             return nil
         }
     }

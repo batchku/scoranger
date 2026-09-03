@@ -31,6 +31,17 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertFalse(message.hasSuffix(": "))
     }
 
+    func testTakingPagesOutReportsItsOwnFailure() {
+        let message = BookImportStage.extractionFailure(name: "Misty",
+                                                        reason: "pages 0-3 are not in it")
+        XCTAssertTrue(message.contains("Misty"))
+        XCTAssertTrue(message.contains("pages 0-3"))
+        XCTAssertNotEqual(message,
+                          BookImportStage.failure(name: "Misty",
+                                                  reason: "pages 0-3 are not in it"),
+                          "importing a book and cutting one up are different failures")
+    }
+
     func testTheStagesAreDistinctAndReadable() {
         XCTAssertNotEqual(BookImportStage.copying, BookImportStage.reading)
         for stage in [BookImportStage.copying, BookImportStage.reading] {
