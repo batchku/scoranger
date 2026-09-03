@@ -108,6 +108,62 @@ final class ReorgShot: XCTestCase {
         }
     }
 
+    /// The mixer with the sound list open, for the 0.6.5 dropdown.
+    ///
+    /// Photographed rather than asserted: what the owner is judging is whether
+    /// a two-column list of General MIDI families sits inside a 300pt panel
+    /// without looking like a wheel bolted to a mixer. The behaviour is
+    /// asserted in `testTheMixerChoosesTheSoundAChannelIsPlayedWith`.
+    func testTheMixerSoundPicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-seedTestLibrary"]
+        app.launch()
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
+        guard openFirstScore(app, named: "Sous le ciel") else {
+            return XCTFail("the score never engraved")
+        }
+        _ = engravedPage(app).waitForExistence(timeout: 180)
+        settle(engravedPage(app), still: 0.6)
+
+        if app.otherElements["transport"].exists == false,
+           app.buttons["score-transport-toggle"].exists {
+            app.buttons["score-transport-toggle"].tap()
+            _ = app.otherElements["transport"].waitForExistence(timeout: 20)
+        }
+        guard app.buttons["transport-mixer"].waitForExistence(timeout: 120) else {
+            snap("no-mixer-button")
+            return XCTFail("no mixer button: playback is unavailable for this score")
+        }
+        app.buttons["transport-mixer"].tap()
+        let panel = app.otherElements["mixer"].firstMatch
+        _ = panel.waitForExistence(timeout: 30)
+        settle(panel)
+        print("MIXER frame closed: \(panel.frame)")
+        snap("mixer-with-the-sound-row")
+
+        let chip = app.descendants(matching: .any)["strip-sound-0"].firstMatch
+        guard chip.waitForExistence(timeout: 20) else {
+            snap("no-sound-chip")
+            return XCTFail("the strip has no sound control")
+        }
+        print("SOUND chip: \(chip.frame), value: \(chip.value as? String ?? "-")")
+        chip.tap()
+        let picker = app.descendants(matching: .any)["mixer-picker"].firstMatch
+        _ = picker.waitForExistence(timeout: 20)
+        settle(panel, still: 0.5)
+        print("MIXER frame open: \(app.otherElements["mixer"].firstMatch.frame)")
+        snap("mixer-sound-picker-open")
+
+        // A family further down the list, so the shot shows the two columns
+        // doing what they are for rather than the one the channel opened on.
+        let brass = app.descendants(matching: .any)["picker-family-7"].firstMatch
+        if brass.exists {
+            brass.tap()
+            settle(panel, still: 0.4)
+            snap("mixer-sound-picker-brass")
+        }
+    }
+
     /// The Options screen, flattened: no "Score display", no "Versions",
     /// chord symbols one level up.
     func testTheOptionsScreen() {

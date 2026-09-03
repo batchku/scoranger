@@ -3322,6 +3322,92 @@ extension ScorangerUITests {
                        "the transport still says the mixer is open")
     }
 
+    /// The sound each channel is played with: guessed, changed, heard at once,
+    /// and put back.
+    ///
+    /// The product ask this proves, in the arranger's words: a dropdown under
+    /// each volume slider, auto-set from the staff name, changeable, and *"it's
+    /// common for an arranger to for instance just want to hear every voice on
+    /// a piano sound."*
+    ///
+    /// It is PLAYBACK. Nothing here makes a version, and the assertion at the
+    /// end says so: `change-instrument` in the engine is the other thing.
+    func testTheMixerChoosesTheSoundAChannelIsPlayedWith() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
+                      "the score never finished engraving")
+        sleep(12)
+        let versionsBefore = app.buttons["score-versions"].label
+        revealTransport()
+        startPlaying()
+
+        let mixerButton = app.buttons["transport-mixer"]
+        XCTAssertTrue(mixerButton.waitForExistence(timeout: 20), "no way to the mixer")
+        mixerButton.tap()
+
+        func chip(_ index: Int) -> XCUIElement {
+            app.descendants(matching: .any)["strip-sound-\(index)"].firstMatch
+        }
+        XCTAssertTrue(chip(0).waitForExistence(timeout: 20),
+                      "no sound control under the first fader")
+
+        // Auto-set, and SAYING it is auto-set: a reader who has never touched
+        // a channel has to be able to tell that from one they have.
+        let guessed = chip(0).value as? String ?? ""
+        XCTAssertTrue(guessed.hasSuffix(", automatic"),
+                      "an untouched channel should read as automatic: \(guessed)")
+
+        chip(0).tap()
+        let picker = app.descendants(matching: .any)["mixer-picker"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 10), "the sound list did not open")
+        // The strips are behind it, not gone with it: the way back is the ✕.
+        XCTAssertTrue(app.descendants(matching: .any)["mixer-picker-close"]
+                        .firstMatch.exists, "no way back to the strips")
+
+        // Families, not 128 rows. The piano family, then the plain piano.
+        let family = app.descendants(matching: .any)["picker-family-0"].firstMatch
+        XCTAssertTrue(family.waitForExistence(timeout: 10), "no family column")
+        family.tap()
+        let grand = app.descendants(matching: .any)["picker-instrument-melodic-0"]
+            .firstMatch
+        XCTAssertTrue(grand.waitForExistence(timeout: 10),
+                      "the piano family does not list the plain piano")
+        shot("mixer-sound-picker-open")
+        grand.tap()
+
+        // Live: the transport did not restart to change a sound.
+        XCTAssertEqual(app.buttons["transport-play"].label, "Stop",
+                       "choosing a sound stopped the music")
+
+        // Every voice on a piano, which is the ask this feature came from.
+        app.descendants(matching: .any)["picker-all-staves"].firstMatch.tap()
+        app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
+        XCTAssertTrue(chip(0).waitForExistence(timeout: 10), "the strips did not come back")
+        for index in 0..<4 {
+            let value = chip(index).value as? String ?? ""
+            XCTAssertTrue(value.hasPrefix("Acoustic Grand Piano"),
+                          "strip \(index) is not on the piano: \(value)")
+            XCTAssertTrue(value.hasSuffix(", chosen"),
+                          "strip \(index) does not read as chosen: \(value)")
+        }
+        shot("mixer-every-voice-on-a-piano")
+
+        // And back to the guess, which is a state and not a stored copy of one.
+        chip(0).tap()
+        XCTAssertTrue(app.descendants(matching: .any)["picker-guess"]
+                        .firstMatch.waitForExistence(timeout: 10), "no way back")
+        app.descendants(matching: .any)["picker-guess"].firstMatch.tap()
+        app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
+        XCTAssertTrue(chip(0).waitForExistence(timeout: 10))
+        XCTAssertTrue((chip(0).value as? String ?? "").hasSuffix(", automatic"),
+                      "the first strip did not go back to its guess")
+
+        // None of it was notation. The engine's change-instrument rewrites a
+        // part and leaves a version behind; this is the speaker, not the page.
+        XCTAssertEqual(app.buttons["score-versions"].label, versionsBefore,
+                       "choosing a playback sound made a version")
+    }
+
     /// Paging away from the music during playback, and the way back.
     ///
     /// The chip is invisible whenever the playhead is on the page being

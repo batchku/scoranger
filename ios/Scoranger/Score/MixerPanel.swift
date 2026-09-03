@@ -454,8 +454,13 @@ private struct ChannelStrip: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("strip-sound-\(part.index)")
         .accessibilityLabel("\(part.name), sound")
+        // "automatic" and not "from the staff name": the sound under a channel
+        // nobody has touched comes from the notation's own program where there
+        // was one and from the staff name only where there was not, and a
+        // value that named the wrong one of those would be a lie in the place
+        // a non-visual reader has to trust.
         .accessibilityValue(GeneralMIDI.name(program: patch.program, bank: patch.bank)
-                            + (chosen ? ", chosen" : ", from the staff name"))
+                            + (chosen ? ", chosen" : ", automatic"))
         .accessibilityHint("Opens the list of sounds")
     }
 
