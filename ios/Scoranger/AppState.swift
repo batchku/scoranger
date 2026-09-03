@@ -642,6 +642,28 @@ final class AppState: ObservableObject {
     private(set) var engravingKey: String = ""
     private var engravingCount = 0
 
+    /// Engravings already made, by "<slug>/<version>/<layout>".
+    ///
+    /// A version is IMMUTABLE -- every op writes a new one -- so an engraving
+    /// of it can never go stale, and the only reason to throw one away is the
+    /// memory it holds. Which is little: an eleven-page quartet's PDF is a
+    /// couple of megabytes, against 3.1 s of Verovio and SwiftDraw to make it
+    /// again.
+    ///
+    /// Four of them, roughly, at 24MB. Enough to hold both layouts of the
+    /// version being read and both of the one before it, which is the pattern
+    /// a reader comparing two versions actually makes.
+    static let engravings = MemoCache<String, VerovioRenderer.Engraving>(
+        budget: 24 << 20)
+
+    /// What an engraving costs to hold. The PDF is nearly all of it; the
+    /// geometry is a few thousand small structs, charged at a flat rate rather
+    /// than walked, because walking it to size it would cost more than the
+    /// entry is worth.
+    static func engravingBytes(_ e: VerovioRenderer.Engraving) -> Int {
+        e.pdf.count + 64 * 1024
+    }
+
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
     /// Pencil markup state. Lives here because the pill drives it and the score
@@ -1122,6 +1144,9 @@ final class AppState: ObservableObject {
         // rather than blanking the canvas (#44).
         let key = "\(score.slug)/\(vid)/\(layout.rawValue)"
         guard force || key != renderedKey else { return }
+        // A forced render is asked for when the FILE behind the key changed
+        // under it, which is the one thing the cache cannot see.
+        if force { Self.engravings.forget(key) }
         // Nothing, rather than the wrong thing -- but only when the thing has
         // actually changed.
         //
@@ -1176,8 +1201,18 @@ final class AppState: ObservableObject {
                     // one engrave: the pages drawn and the model hit-tested are
                     // the same Verovio load, or a lasso would select from a
                     // stale page
-                    let engraving = try await VerovioRenderer.shared.engrave(
-                        musicXMLPath: path, layout: layout)
+                    //
+                    // ...and the same engrave twice is one engrave. `key`
+                    // names the slug, the version AND the layout, so a reader
+                    // toggling page / continuous / page paid three full
+                    // engraves for two pictures -- and an engrave is the
+                    // largest single cost in the app, 3.1 s median in a
+                    // RELEASE build. Held here rather than inside the renderer
+                    // because the actor is a toolkit, not a memory.
+                    let engraving = try await Self.engravings.asyncValue(
+                        for: key, cost: Self.engravingBytes,
+                        make: { try await VerovioRenderer.shared.engrave(
+                            musicXMLPath: path, layout: layout) })
                     data = engraving.pdf
                     model = engraving.geometry
                     engravedAdjustments = engraving.chordAdjustments

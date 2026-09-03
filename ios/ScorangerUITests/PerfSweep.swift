@@ -133,6 +133,25 @@ final class PerfSweep: XCTestCase {
         readReadings("version-switch")
     }
 
+    /// Toggling between the two layouts, which is the repeat of the app's
+    /// single most expensive operation.
+    ///
+    /// A version is immutable, so page and continuous are two engravings of
+    /// one unchanging thing -- and going back to a layout already looked at
+    /// was paying the whole cost again. Six switches; the reading to look at
+    /// is the COUNT of `render (engrave + rasterise)`, which should be two.
+    func testSwitchingLayoutBackAndForth() {
+        launch()
+        openFirstScore()
+        choose(layout: "page")
+
+        for _ in 0..<3 {
+            choose(layout: "continuous")
+            choose(layout: "page")
+        }
+        readReadings("layout-switching")
+    }
+
     /// The same tap, in CONTINUOUS layout.
     ///
     /// The hypothesis worth testing, and the one that matches the words: "since

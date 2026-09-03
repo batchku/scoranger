@@ -123,6 +123,77 @@ final class RasterCacheTests: XCTestCase {
         XCTAssertEqual(cache.misses, 0)
     }
 
+    // MARK: - Work that has to be awaited
+
+    /// The engraving store. Keyed by a string, and asked for work that is
+    /// `async throws` -- a Verovio engrave.
+    func testAnAwaitedValueIsMadeOnceAndThenRemembered() async throws {
+        let cache = MemoCache<String, String>(budget: 1000)
+        var made = 0
+        func engrave() async throws -> String { made += 1; return "pdf" }
+
+        let first = try await cache.asyncValue(for: "waltz/v003/page",
+                                               cost: { $0.count }, make: engrave)
+        let second = try await cache.asyncValue(for: "waltz/v003/page",
+                                                cost: { $0.count }, make: engrave)
+        XCTAssertEqual(first, "pdf")
+        XCTAssertEqual(second, "pdf")
+        XCTAssertEqual(made, 1)
+    }
+
+    /// The layout is part of the key, which is the whole point: page and
+    /// continuous are two engravings of one version, and toggling between them
+    /// paid for a fresh one every time.
+    func testTheLayoutIsPartOfTheKey() async throws {
+        let cache = MemoCache<String, String>(budget: 1000)
+        var made: [String] = []
+        func engrave(_ what: String) async throws -> String {
+            made.append(what); return what
+        }
+        _ = try await cache.asyncValue(for: "w/v003/page", cost: { $0.count }) {
+            try await engrave("paged")
+        }
+        _ = try await cache.asyncValue(for: "w/v003/continuous", cost: { $0.count }) {
+            try await engrave("strip")
+        }
+        _ = try await cache.asyncValue(for: "w/v003/page", cost: { $0.count }) {
+            try await engrave("paged again")
+        }
+        XCTAssertEqual(made, ["paged", "strip"],
+                       "going back to paged should not have engraved anything")
+    }
+
+    /// A failed engrave must not be remembered as the answer, or one bad
+    /// render would make a version permanently unopenable.
+    func testAFailureIsNotHeld() async {
+        struct Boom: Error {}
+        let cache = MemoCache<String, String>(budget: 1000)
+        var attempts = 0
+        for _ in 0..<2 {
+            _ = try? await cache.asyncValue(for: "k", cost: { $0.count }) {
+                attempts += 1
+                throw Boom()
+            }
+        }
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(cache.count, 0)
+    }
+
+    /// A forced re-render is asked for when the file behind the key changed
+    /// under it -- the one thing a key naming slug, version and layout cannot
+    /// see.
+    func testForgettingOneKeyLeavesTheRest() {
+        let cache = RasterCache<Int>(budget: 1000)
+        _ = cache.value(for: key("a"), cost: { _ in 30 }) { 1 }
+        _ = cache.value(for: key("b"), cost: { _ in 30 }) { 2 }
+        cache.forget(key("a"))
+        XCTAssertEqual(cache.count, 1)
+        XCTAssertEqual(cache.bytes, 30)
+        var redrew = false
+        _ = cache.value(for: key("a"), cost: { _ in 30 }) { redrew = true; return 9 }
+        XCTAssertTrue(redrew)
+    }
+
     /// The canvas draws from more than one thread over its life (a tile from a
     /// scroll, a page from a settle), so the store has to survive being asked
     /// from several at once without losing its accounting.
