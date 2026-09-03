@@ -118,7 +118,13 @@ scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # tag: render.py::_fingering_diagrams and ios/Scoranger/FingeringDiagrams.swift,
   # which must stay in step. Circle GLYPHS are not an option: the rasterizers'
   # fallback font has none and engraves empty boxes.
-  # Chart: engine/scripts/check_whistle.py asserts it against the published one.
+  # Chart: engine/scripts/check_whistle.py asserts it against the published one,
+  # and asserts where the fingerings LAND: not on chord symbols (a ChordSymbol
+  # is a Chord in music21, so `recurse().notes` hands the op the chart along
+  # with the music), and not silently over a guitar tab -- a whistle owns
+  # verses 1-7 and a tab owns 1-6, so one note cannot carry both. Whichever op
+  # runs last takes those verses and says how many notes it took them from;
+  # CLEARING one leaves the other alone.
 scor guitar-tab <score> --part X [--tuning EADGBE] [--capo N] [--position N] [--clear]
   # guitar tablature under a part: a fret number per note on a six-line tab
   # staff, chosen for the LINE rather than one note at a time. The hand covers

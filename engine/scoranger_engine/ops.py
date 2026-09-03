@@ -1235,6 +1235,8 @@ COVERED, OPEN, HALF = "X", "O", "/"
 # letters stay in the notation as the meaning (and as what a plain MusicXML
 # export carries); the diagram is how they are drawn.
 WHISTLE_LYRIC_TAG = "wf"
+# Six holes and the overblown mark: the verses a fingering occupies.
+WHISTLE_VERSES = 7
 
 # pitch class (as a sounding name) -> the six holes, top to bottom.
 # The cross-fingerings for C natural and F natural are the standard ones;
@@ -1273,13 +1275,46 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     Notes the whistle cannot play are left without a diagram and reported, the
     same way `check-range` reports what an instrument cannot reach.
     """
-    from music21 import note as m21note
+    from music21 import harmony as m21harmony
+
+    def playable_notes(container):
+        """The notes a whistle plays.
+
+        `recurse().notes` includes the chord SYMBOLS: a ChordSymbol is a Chord
+        in music21, so a part carrying a chart had six holes and an octave mark
+        hung on every symbol on it -- a fingering for a chord, on an element
+        that is not on the staff at all. `guitar_tab` was written knowing this;
+        this was written before it was known.
+        """
+        return [n for n in container.recurse().notes
+                if not isinstance(n, m21harmony.Harmony)]
+
+    def without_fingerings(n):
+        """The note's other verses. A whistle's are taken and everything else
+        is left, or clearing the fingerings takes the guitar tab under the same
+        notes with them -- two features on one part, one of them eating the
+        other."""
+        return [ly for ly in n.lyrics
+                if str(ly.identifier or "") != WHISTLE_LYRIC_TAG]
+
+    def make_room(n):
+        """Everything on this note that is not about to be written over.
+
+        A whistle's fingerings are verses 1-7 and the guitar tab's frets are
+        verses 1-6, so one note cannot carry both -- and music21's `addLyric`
+        writes the TEXT of the verse at that number and leaves its NAME alone,
+        which put fret numbers under a `wf` label and drew "3" as a row of
+        circles. Whichever op runs last takes those verses outright, and the
+        report says how many notes it took them from.
+        """
+        return [ly for ly in n.lyrics if (ly.number or 0) > WHISTLE_VERSES]
 
     if clear:
         cleared = 0
-        for n in part.recurse().notes:
-            if n.lyrics:
-                n.lyrics = []
+        for n in playable_notes(part):
+            kept = without_fingerings(n)
+            if len(kept) != len(n.lyrics):
+                n.lyrics = kept
                 cleared += 1
         return {"part": part_label(part), "cleared": cleared}
 
@@ -1292,8 +1327,9 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     shift = m21interval.Interval(noteStart=m21pitch.Pitch("D4"), noteEnd=lowest)
 
     written = 0
+    displaced = 0
     unplayable: list[dict] = []
-    for n in part.recurse().notes:
+    for n in playable_notes(part):
         pitches = n.pitches if isinstance(n, m21chord.Chord) else [n.pitch]
         # a whistle plays one note at a time; the top of a chord is the tune
         sounding = max(pitches)
@@ -1313,9 +1349,12 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
                 "why": "outside the whistle's two octaves" if pattern
                        else f"no standard fingering for {as_d.name}",
             })
-            n.lyrics = []
+            n.lyrics = make_room(n)
             continue
-        n.lyrics = []
+        if any(parse_tab_label(str(ly.identifier or "")) is not None
+               for ly in n.lyrics):
+            displaced += 1
+        n.lyrics = make_room(n)
         # WHISTLE_LYRIC_TAG marks these as fingerings rather than words. It
         # rides through MusicXML as <lyric name="wf"> and out the far side as a
         # title on Verovio's verse group, which is what lets the renderer swap
@@ -1331,6 +1370,7 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         "part": part_label(part),
         "whistle": key,
         "notes_fingered": written,
+        "guitar_tab_replaced": displaced,
         "unplayable": unplayable[:20],
         "unplayable_count": len(unplayable),
     }
@@ -2132,9 +2172,21 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
                          f"{_tab_hand_positions()[-1]}, not {position}")
 
     notes = list(playable_notes(part))
+    # A tab's frets are verses 1-6 and a whistle's fingerings are verses 1-7,
+    # so one note cannot carry both -- and music21's `addLyric` writes the TEXT
+    # of the verse at that number and leaves its NAME alone, which put fret
+    # numbers under a `wf` label and drew "3" as a row of circles. This op runs
+    # last, so it takes those verses outright and the report says how many
+    # notes it took them from.
+    displaced = sum(1 for n in notes
+                    if any(str(ly.identifier or "") == WHISTLE_LYRIC_TAG
+                           for ly in n.lyrics))
     for n in notes:
+        # verses 1-6, and the whistle's seventh: the overblown mark would
+        # otherwise be left hanging under a tab that has no octave to mark
         n.lyrics = [ly for ly in n.lyrics
-                    if parse_tab_label(str(ly.identifier or "")) is None]
+                    if (ly.number or 0) > len(opens)
+                    and str(ly.identifier or "") != WHISTLE_LYRIC_TAG]
     voiced = [sorted(n.pitches, key=lambda p: p.ps) for n in notes]
     # more notes than strings is not a hand the planner should be asked about
     events = [pitches if len(pitches) <= len(opens) else [] for pitches in voiced]
@@ -2203,6 +2255,7 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
         "tuning": tuning.upper(),
         "capo": capo,
         "notes_tabbed": written,
+        "whistle_fingerings_replaced": displaced,
         "position": played[0][0] if played else None,
         "highest_fret": max((f for s in plan if s is not None
                              for _, f in s[1]), default=0),
