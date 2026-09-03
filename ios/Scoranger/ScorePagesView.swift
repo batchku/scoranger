@@ -112,9 +112,15 @@ struct ScorePagesView: View {
                            bottomChrome: Self.bottomChrome,
                            onVisibleRectChange: { rect, content in
                                visibleRect = rect
-                               publishVisibleBars(contentRect: rect,
-                                                  contentSize: content,
-                                                  unit: unit, width: width)
+                               if continuous {
+                                   publishVisibleStrip(contentRect: rect,
+                                                       scale: stripScale,
+                                                       pageSize: stripBox)
+                               } else {
+                                   publishVisibleBars(contentRect: rect,
+                                                      contentSize: content,
+                                                      unit: unit, width: width)
+                               }
                                // The unit IS what is visible now: no bands, no
                                // boundary arithmetic, no mapping a scroll
                                // offset back to a page.
@@ -172,6 +178,22 @@ struct ScorePagesView: View {
         // the page canvas, which stops above the thumbnail strip -- so the bar
         // could not be moved over the strip or the transport, which is the
         // clamp Ali ran into (#46). It hangs off the whole score screen now.
+    }
+
+    /// The same question for the continuous strip, which has no pages.
+    ///
+    /// It used to be answered by `publishVisibleBars` -- the paged arithmetic,
+    /// run over a page frame that does not exist here and a content size that
+    /// is the whole score. The badge read "bar 68" on a score whose transport
+    /// read bar 1. The strip is ONE engraving, so the slice is the viewport
+    /// divided by the scale it was laid out at, and nothing else.
+    private func publishVisibleStrip(contentRect: CGRect, scale: CGFloat,
+                                     pageSize: CGSize) {
+        guard let slice = ContinuousTiles.visibleSlice(contentRect: contentRect,
+                                                      scale: scale,
+                                                      pageSize: pageSize) else { return }
+        let out = [0: slice]
+        if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
     /// Turn the scroll view's visible rect into "which slice of each page is on

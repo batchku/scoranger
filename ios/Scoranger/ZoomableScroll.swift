@@ -256,10 +256,19 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
             // where the viewport sits in the content, so the same music is
             // still in view after the resize
+            //
+            // With NO old content there is no "same music" to keep, and the
+            // proportional default was 0.5 -- the middle. On a page that is
+            // invisible: the page is the width of the viewport, so the centred
+            // offset clamps straight back to the left edge. On the continuous
+            // strip, which is the whole score laid end to end, the middle is
+            // the middle of the PIECE: opening a score in continuous mode
+            // landed the reader at bar 68, on a staff running off both edges
+            // with no clef in sight. A first layout starts at the beginning.
             let old = scroll.contentSize
             let anchor = CGPoint(
                 x: old.width > 0
-                    ? (scroll.contentOffset.x + scroll.bounds.width / 2) / old.width : 0.5,
+                    ? (scroll.contentOffset.x + scroll.bounds.width / 2) / old.width : 0,
                 y: old.height > 0
                     ? (scroll.contentOffset.y + scroll.bounds.height / 2) / old.height : 0)
 
