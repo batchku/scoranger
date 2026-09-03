@@ -6,10 +6,18 @@ against the published fact, the way check_whistle.py checks the whistle's
 fingerings. Beyond the arithmetic, four things that are easy to get plausibly
 wrong:
 
-  - THE POSITION. The lowest one that plays the note, which is what a player
-    reaches for first. A chord is laid out as a whole -- one string per note,
-    inside four frets -- so it can force the hand higher than any of its notes
-    would alone, and the report has to SAY SO rather than leave a reader
+  - THE HAND. Not the lowest fret that plays each note, which is the one on
+    the thinnest string and writes a melody as a single line climbing the top
+    string to the twelfth fret. A hand covers four frets, stretches one more,
+    crosses strings freely and SHIFTS only where the line leaves its reach, so
+    the choice is made for the whole line at once. The cases here are tabs a
+    guitarist reads without thinking -- a C scale in fifth position, Twinkle in
+    first with the pinky stretch, open strings at the nut and none reached back
+    for from the eighth fret -- and the lowest-fret rule got every one of them
+    wrong. Every shift is in the report with the bar it lands in.
+  - THE CHORD THAT CLIMBED. A chord is laid out as a whole -- one string per
+    note, inside four frets -- so it can force the hand higher than any of its
+    notes would alone, and the report has to SAY SO rather than leave a reader
     wondering why bar 12 climbed the neck.
   - THE CAPO. It shortens every string by its own number of frets, so a note
     keeps its pitch and loses that many fret numbers, and nothing below the
@@ -49,7 +57,8 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         FAILURES.append(f"{label}{': ' + detail if detail else ''}")
 
 
-def tabbed(pitches, tuning: str = "EADGBE", capo: int = 0, chords: list | None = None):
+def tabbed(pitches, tuning: str = "EADGBE", capo: int = 0, chords: list | None = None,
+           position: int | None = None):
     """(report, [column]) for a bar of notes. A column is six strings, high
     first, as the verses under that note read."""
     score = m21stream.Score()
@@ -64,7 +73,7 @@ def tabbed(pitches, tuning: str = "EADGBE", capo: int = 0, chords: list | None =
                        else m21note.Note(entry, quarterLength=1))
     part.append(measure)
     score.append(part)
-    report = ops.guitar_tab(score, part, tuning, capo=capo)
+    report = ops.guitar_tab(score, part, tuning, capo=capo, position=position)
     columns = []
     for n in part.recurse().notes:
         if isinstance(n, m21harmony.Harmony):
@@ -96,10 +105,92 @@ for expected, got, name in zip([
 ], cols, ["E4", "F4", "G4", "B3", "G3", "D3", "A2", "E2"]):
     check(f"{name} is where the tuning puts it", expected == got, str(got))
 
-# the lowest position, which is the one a player reaches for: C5 is the eighth
-# fret of the first string, not the thirteenth of the second
+# one note on its own goes where an unconstrained hand goes: as low on the neck
+# as it can. C5 is the eighth fret of the first string, not the thirteenth of
+# the second
 _, cols = tabbed(["C5"])
-check("the lowest fret wins", cols[0] == column("8", "-", "-", "-", "-", "-"), str(cols[0]))
+check("a note on its own sits low", cols[0] == column("8", "-", "-", "-", "-", "-"),
+      str(cols[0]))
+
+# --- the hand stays where it is ---------------------------------------------
+#
+# The one thing a fret number per note does not say. Every note has three or
+# four frets that play it, and taking the lowest of them every time -- the one
+# on the THINNEST string -- writes a melody as a single line climbing the top
+# string to the eighth and twelfth frets, on a neck where a player would have
+# spread it over two strings and never moved. Each case below is a tab a
+# guitarist reads without thinking, and the old rule got every one of them
+# wrong.
+
+
+def frets(cols):
+    """The tab as a player reads it: (string, fret) per note, string 1 on top."""
+    out = []
+    for c in cols:
+        out.append(next(((i + 1, int(t)) for i, t in enumerate(c) if t != "-"), None))
+    return out
+
+
+# A C major scale is played in fifth position, three strings, no shift -- and
+# it was played on one string from fret 0 to fret 8.
+report, cols = tabbed(["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"])
+check("a C scale is the fifth-position fingering",
+      frets(cols) == [(3, 5), (3, 7), (2, 5), (2, 6), (2, 8), (1, 5), (1, 7), (1, 8)],
+      str(frets(cols)))
+check("...with the hand never moving", report["shift_count"] == 0, str(report["shifts"]))
+check("...and the report says where it sat", report["position"] == 5, str(report))
+
+# Twinkle in C is first position, and it is the case a hand held to exactly
+# four frets cannot play there at all: the A is the fifth fret, reached by
+# stretching the little finger rather than by moving the whole hand.
+report, cols = tabbed(["C4", "C4", "G4", "G4", "A4", "A4", "G4",
+                       "F4", "F4", "E4", "E4", "D4", "D4", "C4"])
+check("Twinkle is first position, with the stretch to the A",
+      frets(cols) == [(2, 1), (2, 1), (1, 3), (1, 3), (1, 5), (1, 5), (1, 3),
+                      (1, 1), (1, 1), (1, 0), (1, 0), (2, 3), (2, 3), (2, 1)],
+      str(frets(cols)))
+check("...and no shift is claimed for a stretch", report["shift_count"] == 0,
+      str(report["shifts"]))
+
+# A line that genuinely leaves the hand shifts, and the report says which bar
+# it lands in -- the one thing a player has to see coming.
+report, _ = tabbed(["E4", "F4", "G4", "A5"])
+check("a line that leaves the hand shifts", report["shift_count"] >= 1, str(report))
+check("...and the report gives the bar and both positions",
+      bool(report["shifts"]) and report["shifts"][0]["measure"] == 1
+      and report["shifts"][0]["from"] != report["shifts"][0]["to"],
+      str(report["shifts"]))
+
+# An open string is what a player takes at the nut and a reach back to it from
+# the eighth fret, so it is preferred in one place and not in the other.
+_, cols = tabbed(["E4", "F4", "G4", "B3", "G3", "D3", "A2", "E2"])
+check("at the nut the open strings win",
+      frets(cols) == [(1, 0), (1, 1), (1, 3), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0)],
+      str(frets(cols)))
+high_report, high = tabbed(["E4", "G4", "C5", "G4", "A4", "C5", "E5", "C5"])
+check("up the neck a lone open string is not reached back for",
+      all(fret > 0 for _, fret in frets(high)), str(frets(high)))
+# The bar the owner's own reference page opens with, and the one the lowest
+# fret rule wrote as 0-3-8-3-5-8-12-8, every note on the top string, jumping
+# nine frets between two of them. It is two strings and one shift.
+check("the reference line is spread over the strings, not stacked on one",
+      len({string for string, _ in frets(high)}) > 1, str(frets(high)))
+check("...and the hand moves at most once",
+      high_report["shift_count"] <= 1, str(high_report["shifts"]))
+check("...by a fret or two, not by nine",
+      all(abs(s["to"] - s["from"]) <= ops.TAB_HAND_SPAN
+          for s in high_report["shifts"]), str(high_report["shifts"]))
+
+# The arranger's own say over where it is read.
+pinned, pinned_cols = tabbed(["C4", "D4", "E4", "F4"], position=7)
+check("--position pins the hand", pinned["position"] == 7, str(pinned))
+check("...and the frets follow it",
+      all(fret >= 6 for _, fret in frets(pinned_cols)), str(frets(pinned_cols)))
+try:
+    tabbed(["C4"], position=40)
+    check("a position off the neck is refused", False)
+except ValueError:
+    check("a position off the neck is refused", True)
 
 # --- a chord is laid out whole, and says when it climbed ---------------------
 report, cols = tabbed([["E3", "B3", "E4"]])

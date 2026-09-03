@@ -394,9 +394,11 @@ def cmd_whistle_fingerings(a):
 def cmd_guitar_tab(a):
     score = _load(a.score, None)
     part = ops.find_parts(score, [a.part])[0]
-    details = ops.guitar_tab(score, part, a.tuning, capo=a.capo, clear=a.clear)
+    details = ops.guitar_tab(score, part, a.tuning, capo=a.capo, clear=a.clear,
+                             position=a.position)
     _mutate(a.score, score, "guitar-tab",
-            {"part": a.part, "tuning": a.tuning, "capo": a.capo, "clear": a.clear},
+            {"part": a.part, "tuning": a.tuning, "capo": a.capo,
+             "clear": a.clear, "position": a.position},
             details)
 
 
@@ -770,6 +772,9 @@ def main() -> None:
     s.add_argument("--tuning", default="EADGBE",
                    help="EADGBE (standard), DADGAD, DADGBE (drop D)")
     s.add_argument("--capo", type=int, default=0, help="fret the capo sits on")
+    s.add_argument("--position", type=int,
+                   help="fret the hand starts at; left alone the line settles "
+                        "as low on the neck as the music allows")
     s.add_argument("--clear", action="store_true", help="remove the tab instead")
     s.set_defaults(fn=cmd_guitar_tab)
 

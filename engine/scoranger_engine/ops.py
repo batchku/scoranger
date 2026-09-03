@@ -1879,19 +1879,20 @@ def _tab_string_frets(pitch_ps: float, opens: list[float], capo: int) -> list[in
     return sorted(out, key=lambda pair: pair[1])
 
 
-def _tab_chord_layout(pitches, opens: list[float], capo: int):
-    """Strings and frets for a chord, or None when no hand can hold it.
+def _tab_layouts(pitches, opens: list[float], capo: int) -> list[tuple]:
+    """Every way a hand could hold this note or chord, unranked.
 
     One string per note, in pitch order -- a guitar cannot play two notes on
-    one string -- inside four frets. The lowest position that works is chosen,
-    which is what makes the arithmetic match how a player thinks.
+    one string -- inside four frets. Unranked because the ranking is not a
+    property of one note: which of these a player uses depends on where the
+    hand already is, and that is `_tab_plan`'s question, not this one's.
     """
     import itertools
 
     options = [_tab_string_frets(p.ps, opens, capo) for p in pitches]
     if any(not o for o in options):
-        return None
-    best = None
+        return []
+    out = []
     for combo in itertools.product(*options):
         strings = [s for s, _ in combo]
         if len(set(strings)) != len(strings) or strings != sorted(strings):
@@ -1900,21 +1901,201 @@ def _tab_chord_layout(pitches, opens: list[float], capo: int):
         stopped = [f for f in frets if f > 0]
         if stopped and max(stopped) - min(stopped) >= TAB_CHORD_SPAN:
             continue
-        rank = (max(frets), max(frets) - min(frets))
-        if best is None or rank < best[0]:
-            best = (rank, combo)
-    return best[1] if best else None
+        out.append(combo)
+    return out
+
+
+# ---------------------------------------------------------- hand position
+#
+# A fret number on its own is not a tab. Every note has three or four frets
+# that play it, one on each string that reaches it, and taking the lowest of
+# them every time -- which is the one on the THINNEST string -- writes a melody
+# as a single line climbing to the eighth and twelfth frets of the top string,
+# on a neck where a player would have spread it over two strings and never left
+# fifth position. That tab is arithmetically correct and nobody can read it.
+#
+# What a hand does instead is stay: it covers four frets, plays everything
+# inside them, crosses strings freely, and SHIFTS only when the line leaves
+# what it can reach. So the choice is made for the whole line at once, by the
+# cheapest path through it -- which is a small dynamic program over (position,
+# layout), one column per note.
+#
+# The costs below are a ranking, not a measurement. What they have to get right
+# is the order: staying beats shifting, shifting a little beats shifting a lot,
+# crossing a string is nearly free, and where nothing else decides it the line
+# sits low on the neck and takes open strings when they are there.
+
+# How many frets one hand covers without moving: index to little finger.
+TAB_HAND_SPAN = 4
+# And one more at either end, reached by stretching rather than by moving. This
+# is not a refinement: Twinkle in C is played in first position with the pinky
+# stretching to the fifth fret for the A, and a hand held to exactly four frets
+# cannot play it there at all -- it has to shift, and shifting is worse.
+TAB_STRETCH = 1
+TAB_STRETCH_COST = 1.0
+# What moving the hand costs. Most of it is FIXED, because most of what a shift
+# costs is that it happens at all -- a hand that has to leave fifth position
+# has left it whether it goes to the sixth fret or the fourteenth. A purely
+# per-fret cost made a long shift so expensive that three notes at the nut
+# were written at the fifteenth fret to avoid one.
+TAB_SHIFT_COST = 2.0
+TAB_SHIFT_PER_FRET = 0.2
+# Crossing strings is what a hand in one position does all day.
+TAB_CROSS_COST = 0.25
+# What sitting up the neck costs, per note, and it is the SQUARE of the
+# position -- the one number here that is not linear, and it has to be. A
+# linear cost cannot hold both ends of the same rule: at the ratio that keeps
+# a C scale in fifth position rather than shifting out of the nut to finish
+# it, three notes at the nut get written at the fifteenth fret to save one
+# shift up to a high note. Being fourteen frets up is not three and a half
+# times worse than being four frets up. It is much worse, and squaring says
+# so, which leaves both cases decided by a wide margin instead of a hair.
+TAB_HEIGHT_COST = 0.015
+# An open string rings, costs no finger and leaves the hand free, so where two
+# layouts are otherwise equal the open one is the one a player takes -- at the
+# nut. Up the neck the same open string is a reach back to a nut the hand left
+# behind, and the second number takes the first one away again: an open E is
+# worth having in first position and is an odd lone 0 in a line sitting at the
+# eighth fret, which is where a flat bonus put one.
+TAB_OPEN_BONUS = 0.1
+TAB_OPEN_REACH = 0.05
+
+
+def _tab_shift_cost(was: int, now: int) -> float:
+    """What it costs the hand to move from one position to another."""
+    if was == now:
+        return 0.0
+    return TAB_SHIFT_COST + TAB_SHIFT_PER_FRET * abs(now - was)
+
+
+def _tab_hand_positions() -> range:
+    """Every fret the index finger can sit at and still have a neck under it."""
+    return range(1, TAB_MAX_FRET - TAB_HAND_SPAN + 2)
+
+
+def _tab_candidates(pitches, opens: list[float], capo: int) -> list[tuple]:
+    """(position, layout, cost) for every hand that plays this note or chord.
+
+    A layout with nothing stopped -- all open strings -- is offered at EVERY
+    position, because an open string asks nothing of the hand: whatever
+    position the line is in carries straight through it.
+
+    It is not offered any cheaper, though. The cost of being at the eighth
+    fret is the cost of being there, and it belongs to the position rather
+    than to the notes that happen to be fretted: an open string that came for
+    free had the hand leaving fifth position to reach across for an open E it
+    could have played on the B string under its own finger.
+    """
+    out = []
+    for layout in _tab_layouts(pitches, opens, capo):
+        stopped = [f for _, f in layout if f > 0]
+        rung = sum(1 for _, f in layout if f == 0)
+
+        def open_value(position: int, rung: int = rung) -> float:
+            return rung * (TAB_OPEN_BONUS - TAB_OPEN_REACH * (position - 1))
+
+        def height(position: int) -> float:
+            return TAB_HEIGHT_COST * position * position
+
+        if not stopped:
+            out += [(p, layout, height(p) - open_value(p))
+                    for p in _tab_hand_positions()]
+            continue
+        low, high = min(stopped), max(stopped)
+        if high - low > TAB_HAND_SPAN - 1 + 2 * TAB_STRETCH:
+            continue
+        for position in _tab_hand_positions():
+            reach = [f - position for f in stopped]
+            if min(reach) < -TAB_STRETCH or max(reach) > TAB_HAND_SPAN - 1 + TAB_STRETCH:
+                continue
+            stretched = sum(1 for r in reach
+                            if r < 0 or r > TAB_HAND_SPAN - 1)
+            out.append((position, layout, height(position)
+                        + TAB_STRETCH_COST * stretched - open_value(position)))
+    return out
+
+
+def _tab_plan(events: list, opens: list[float], capo: int,
+              start: int | None = None) -> list[tuple | None]:
+    """The layout for each event, chosen for the whole line rather than one
+    note at a time. None where nothing plays it.
+
+    A shortest path: each column is the hands that could play that note, each
+    edge is what it costs to get there from the hand before it, and the answer
+    is the cheapest way through. Events nothing can play are holes -- the line
+    joins across them, because a note the guitar cannot reach does not move the
+    hand anywhere.
+
+    `start` PINS the first hand rather than nudging it: an arranger who asks
+    for the line in seventh position is not making a suggestion. It is dropped
+    only where nothing at all can be played there, since refusing to write a
+    tab is worse than writing one somewhere else and saying so.
+    """
+    columns: list[list[tuple]] = []
+    costs: list[list[float]] = []
+    backs: list[list[int]] = []
+    previous = -1                       # index of the last column with any hand
+
+    for pitches in events:
+        states = _tab_candidates(pitches, opens, capo) if pitches else []
+        if start is not None and previous < 0 and states:
+            pinned = [s for s in states if s[0] == start]
+            states = pinned or states
+        columns.append(states)
+        if not states:
+            costs.append([])
+            backs.append([])
+            continue
+        here_costs, here_backs = [], []
+        for position, layout, own in states:
+            string = min(s for s, _ in layout)
+            if previous < 0:
+                here_costs.append(own)
+                here_backs.append(-1)
+                continue
+            best, best_back = None, -1
+            for j, (was, was_layout, _) in enumerate(columns[previous]):
+                total = (costs[previous][j]
+                         + _tab_shift_cost(was, position)
+                         + TAB_CROSS_COST
+                         * abs(string - min(s for s, _ in was_layout)))
+                if best is None or total < best:
+                    best, best_back = total, j
+            here_costs.append(own + best)
+            here_backs.append(best_back)
+        costs.append(here_costs)
+        backs.append(here_backs)
+        previous = len(columns) - 1
+
+    chosen: list[tuple | None] = [None] * len(events)
+    if previous < 0:
+        return chosen
+    index = min(range(len(costs[previous])), key=lambda i: costs[previous][i])
+    while previous >= 0:
+        chosen[previous] = columns[previous][index]
+        index = backs[previous][index]
+        if index < 0:
+            break
+        previous = max((i for i in range(previous) if columns[i]), default=-1)
+    return chosen
 
 
 def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
-               clear: bool = False) -> dict:
+               clear: bool = False, position: int | None = None) -> dict:
     """Write guitar tablature under a part, as six stacked lyric verses.
 
-    The lowest position that plays the note, which is the one a player reaches
-    for first. A chord is laid out as a whole -- one string per note, inside
-    four frets -- so it can force a position higher than any of its notes would
-    have taken alone, and the report SAYS SO, bar by bar, rather than leaving
-    the reader to wonder why bar 12 climbed the neck.
+    Chosen for the LINE, not for one note at a time: the hand covers four
+    frets, plays what is inside them across the strings, and shifts only where
+    the music leaves its reach. Every shift is in the report, with the bar it
+    happens in, because a shift is the one thing a player has to see coming.
+
+    `position` pins the fret the hand starts at, for an arranger who wants the
+    line read in a particular position; left alone, the tab settles as low on
+    the neck as the music allows.
+
+    A chord is laid out as a whole -- one string per note, inside four frets --
+    so it can force a position higher than any of its notes would have taken
+    alone, and the report says so, bar by bar.
 
     Notes the tuning cannot play are reported and left without a fret. Nothing
     is transposed to make it fit: a note an octave below the bottom string is
@@ -1946,44 +2127,65 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
     opens = [m21pitch.Pitch(p).ps for p in guitar_tuning(tuning)]
     if capo < 0 or capo > TAB_MAX_FRET:
         raise ValueError(f"A capo goes on frets 0-{TAB_MAX_FRET}, not {capo}")
+    if position is not None and position not in _tab_hand_positions():
+        raise ValueError(f"A hand sits at frets {_tab_hand_positions()[0]}-"
+                         f"{_tab_hand_positions()[-1]}, not {position}")
+
+    notes = list(playable_notes(part))
+    for n in notes:
+        n.lyrics = [ly for ly in n.lyrics
+                    if parse_tab_label(str(ly.identifier or "")) is None]
+    voiced = [sorted(n.pitches, key=lambda p: p.ps) for n in notes]
+    # more notes than strings is not a hand the planner should be asked about
+    events = [pitches if len(pitches) <= len(opens) else [] for pitches in voiced]
+    plan = _tab_plan(events, opens, capo, start=position)
 
     written = 0
     unplayable: list[dict] = []
     raised: list[dict] = []
-    for n in playable_notes(part):
-        pitches = sorted(n.pitches, key=lambda p: p.ps)
-        n.lyrics = [ly for ly in n.lyrics
-                    if parse_tab_label(str(ly.identifier or "")) is None]
-        if len(pitches) > len(opens):
-            unplayable.append({"measure": n.measureNumber,
-                               "pitch": ", ".join(p.nameWithOctave for p in pitches),
-                               "why": f"{len(pitches)} notes on {len(opens)} strings"})
-            continue
-        layout = _tab_chord_layout(pitches, opens, capo)
-        if layout is None:
-            reasons = []
-            for p in pitches:
-                if not _tab_string_frets(p.ps, opens, capo):
-                    low = min(opens) + capo
-                    if p.ps >= low:
-                        why = f"above the {TAB_MAX_FRET}th fret"
-                    elif capo:
-                        why = f"below the capo at fret {capo}"
-                    else:
-                        why = "below the lowest string"
-                    reasons.append(f"{p.nameWithOctave} is {why}")
+    shifts: list[dict] = []
+    at: int | None = position
+    for n, pitches, state in zip(notes, voiced, plan):
+        if state is None:
+            if len(pitches) > len(opens):
+                why = f"{len(pitches)} notes on {len(opens)} strings"
+            else:
+                reasons = []
+                for p in pitches:
+                    if not _tab_string_frets(p.ps, opens, capo):
+                        low = min(opens) + capo
+                        if p.ps >= low:
+                            reason = f"above the {TAB_MAX_FRET}th fret"
+                        elif capo:
+                            reason = f"below the capo at fret {capo}"
+                        else:
+                            reason = "below the lowest string"
+                        reasons.append(f"{p.nameWithOctave} is {reason}")
+                why = "; ".join(reasons) or "no hand shape inside four frets"
             unplayable.append({
                 "measure": n.measureNumber,
                 "pitch": ", ".join(p.nameWithOctave for p in pitches),
-                "why": "; ".join(reasons) or "no hand shape inside four frets"})
+                "why": why})
             continue
-        # what each note would have cost on its own, so a chord that pushed the
-        # hand up the neck can say so
-        alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
-        highest = max(f for _, f in layout)
-        if highest > alone:
-            raised.append({"measure": n.measureNumber, "to_fret": highest,
-                           "lowest_alone": alone})
+        where, layout, _ = state
+        # A shift is the one thing a player has to see coming, so every one of
+        # them is in the report with the bar it lands in. Nothing is reported
+        # for a note played entirely on open strings: the hand did not move,
+        # it was not asked for.
+        if any(f for _, f in layout) and at is not None and where != at:
+            shifts.append({"measure": n.measureNumber, "from": at, "to": where})
+        if any(f for _, f in layout):
+            at = where
+        elif at is None:
+            at = where
+        # what a CHORD's notes would have cost one at a time, so a chord that
+        # pushed the hand up on its own account can say so
+        if len(pitches) > 1:
+            alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
+            highest = max(f for _, f in layout)
+            if highest > alone:
+                raised.append({"measure": n.measureNumber, "to_fret": highest,
+                               "lowest_alone": alone})
         frets = {string: fret for string, fret in layout}
         # verse 1 is the HIGHEST string: a tab staff's top line is the string
         # nearest the floor
@@ -1995,11 +2197,17 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
                        lyricIdentifier=tab_label())
         written += 1
 
+    played = [s for s in plan if s is not None and any(f for _, f in s[1])]
     return {
         "part": part_label(part),
         "tuning": tuning.upper(),
         "capo": capo,
         "notes_tabbed": written,
+        "position": played[0][0] if played else None,
+        "highest_fret": max((f for s in plan if s is not None
+                             for _, f in s[1]), default=0),
+        "shifts": shifts[:20],
+        "shift_count": len(shifts),
         "positions_raised": raised[:20],
         "positions_raised_count": len(raised),
         "unplayable": unplayable[:20],

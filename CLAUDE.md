@@ -119,12 +119,19 @@ scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # which must stay in step. Circle GLYPHS are not an option: the rasterizers'
   # fallback font has none and engraves empty boxes.
   # Chart: engine/scripts/check_whistle.py asserts it against the published one.
-scor guitar-tab <score> --part X [--tuning EADGBE] [--capo N] [--clear]
+scor guitar-tab <score> --part X [--tuning EADGBE] [--capo N] [--position N] [--clear]
   # guitar tablature under a part: a fret number per note on a six-line tab
-  # staff, at the LOWEST position that plays it -- the one a player reaches for
-  # first. A chord is laid out whole (one string per note, inside four frets),
-  # so it can force the hand higher than any of its notes would alone, and the
-  # report says which bar that happened in. Notes the tuning cannot play are
+  # staff, chosen for the LINE rather than one note at a time. The hand covers
+  # four frets, stretches one more, crosses strings freely and SHIFTS only
+  # where the music leaves its reach -- a small shortest path over (position,
+  # layout), because the lowest fret for every note is always the one on the
+  # thinnest string, and that writes a melody as one line climbing the top
+  # string to the twelfth fret when a player would never have moved. Every
+  # shift is in the report with the bar it lands in; --position pins the fret
+  # the hand starts at, and left alone the line settles as low as it can.
+  # A chord is laid out whole (one string per note, inside four frets), so it
+  # can force the hand higher than any of its notes would alone, and the report
+  # says which bar that happened in. Notes the tuning cannot play are
   # reported, never transposed into range and never dropped.
   # Engraved the way the whistle's fingerings are: six lyric verses per note,
   # tagged `gt`, verse 1 the HIGHEST string, because a tab staff's top line is

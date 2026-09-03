@@ -384,16 +384,23 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
 
 
 def guitar_tablature(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
-                     capo: int = 0, clear: bool = False) -> dict:
+                     capo: int = 0, clear: bool = False,
+                     position: int | None = None) -> dict:
     """Write guitar tablature under a part: a fret number per note on a
-    six-line tab staff, at the lowest position that plays it. `tuning` is
-    EADGBE (standard), DADGAD or DADGBE (drop D); `capo` is the fret the capo
-    sits on. Notes the tuning cannot play are reported, and so is any bar where
-    a chord forced the hand higher up the neck. `clear` removes the tab."""
+    six-line tab staff. The hand covers four frets, plays what is inside them
+    across the strings, and shifts only where the line leaves its reach --
+    every shift is in the report with the bar it lands in. `tuning` is EADGBE
+    (standard), DADGAD or DADGBE (drop D); `capo` is the fret the capo sits on;
+    `position` pins the fret the hand starts at, and left alone the line
+    settles as low on the neck as the music allows. Notes the tuning cannot
+    play are reported, and so is any bar where a chord forced the hand higher
+    up the neck than its own notes needed. `clear` removes the tab."""
     def fn(s):
-        return ops.guitar_tab(s, _part(s, part), tuning, capo=capo, clear=clear)
+        return ops.guitar_tab(s, _part(s, part), tuning, capo=capo, clear=clear,
+                              position=position)
     return _apply(ctx.deps, "guitar-tab",
-                  {"part": part, "tuning": tuning, "capo": capo, "clear": clear}, fn)
+                  {"part": part, "tuning": tuning, "capo": capo,
+                   "clear": clear, "position": position}, fn)
 
 
 def guitar_chord_diagrams(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
