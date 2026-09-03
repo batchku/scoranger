@@ -46,19 +46,27 @@ final class ScorangerUITests: XCTestCase {
                       "the app never showed My Library")
         // ...and then wait for the SEED to finish, which is not the same thing.
         //
-        // seedLibraryIfEmpty imports the sample scores and only afterwards
-        // assigns them to a set list, while the Pieces band appears as soon as
-        // the FIRST import lands. Tests that started there were racing the rest
-        // of the fixture: two builds running, a different early-alphabetical
-        // test failed each time -- one could not find the arrangement it had
-        // just made, the next could not find the set list the seed had not
-        // reached yet. Waiting for the arrangement every test goes on to use
-        // waits for the imports; nothing here retries an assertion.
+        // seedLibraryIfEmpty imports the sample scores ONE AT A TIME and only
+        // afterwards files them into a set list, while the piece row appears
+        // the moment the first import lands. Waiting for the row was therefore
+        // waiting for half the fixture, and the half that was missing changed
+        // what the app DOES: a piece holding one arrangement opens straight
+        // into the score instead of listing its arrangements, so every test
+        // that terminates and relaunches the app -- the Pencil stand-in, the
+        // lasso tests, the undo tests -- froze the library at one arrangement
+        // and then could not find the arrangement it went on to open. Five
+        // failed that way on the first parallel run and one on a serial one.
+        //
+        // The row says in words how many arrangements the piece holds, and
+        // "arrangements" is plural, so this waits for the second one.
         let anyRow = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
                         "row-", piece)).firstMatch
         XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
-                      "the seeded library never finished importing")
+                      "the seeded library never started importing")
+        XCTAssertTrue(waitUntil("the seed to import every arrangement", timeout: 240) {
+            anyRow.exists && anyRow.label.contains("arrangements")
+        }, "the seeded library stopped at \(anyRow.label)")
     }
 
     /// Relaunch with the Pencil stand-in, so a finger can drive the selection
@@ -93,6 +101,11 @@ final class ScorangerUITests: XCTestCase {
         // An arrangement is not a top-level row: a PIECE is, and a piece is not
         // openable (§2). Opening one means opening one of its arrangements, so
         // this goes the way a person does -- the piece row, then the choice.
+        // Start from the library, wherever the test has got to. The app
+        // reopens the last arrangement at launch, and a score covers the
+        // library completely -- the row is still THERE to a query, so the tap
+        // lands on the score and nothing happens.
+        resetToLibraryRoot()
         let direct = app.buttons["row-\(slug)"]
         if direct.waitForExistence(timeout: 5) { direct.tap(); return }
 
@@ -142,24 +155,32 @@ final class ScorangerUITests: XCTestCase {
                       "the piece screen did not open")
     }
 
-    /// Open the title band on its versions column, and check that it opened.
+    /// Open the title band on its VERSIONS column, and check that it opened.
     ///
-    /// Tapping `score-title` while the ink bar is still sliding away lands on
-    /// nothing, and the test that followed reported "the title band never
-    /// opened" -- which was true, and was not what was wrong. Leaving markup
-    /// mode is a state to wait for; one tap on a control is a fact to check.
-    private func openTitleBand() {
-        expect("markup mode to close before the title bar is used", timeout: 20) {
+    /// Which column the band shows depends on which control opened it (0.6.3
+    /// #8): the title block names the arrangement and opens the piece's
+    /// arrangements, the "N versions" trigger opens the versions. It used to
+    /// show both at once, so three tests reached the versions by tapping the
+    /// TITLE and reported "the title band never opened" when the band opened
+    /// perfectly and showed the other list.
+    ///
+    /// The wait before the tap is the other half: tapping the bar while the
+    /// ink bar is still sliding away lands on nothing.
+    private func openVersionsBand() {
+        expect("markup mode to close before the bar is used", timeout: 20) {
             !app.buttons["Draw"].exists
         }
+        let trigger = app.buttons["score-versions"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 20),
+                      "no version control in the bar, so the versions cannot be reached")
         let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         for _ in 0..<3 where !rows.firstMatch.exists {
-            app.buttons["score-title"].tap()
+            trigger.tap()
             if rows.firstMatch.waitForExistence(timeout: 15) { break }
         }
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 20),
-                      "the title band never opened")
+                      "the versions band never opened")
     }
 
     /// A row's ☰. Pushes to the item's screen.
@@ -752,33 +773,41 @@ final class ScorangerUITests: XCTestCase {
             "✕ left the score but landed nowhere")
     }
 
-    /// #62: on a narrow bar the version COUNT yields (ScoreBarLayout), so the
-    /// title block is the only route to the version dropdown. That route has to
-    /// actually work, or version switching is dead on a phone.
+    /// #62: switching version while reading has to be reachable FROM THE BAR,
+    /// and switching has to move the canvas.
     ///
-    /// Runs at whatever width the destination gives it: pointed at an iPhone it
-    /// guards the compact case, and on an iPad it guards the wide one.
+    /// The property #62 was written for was "the title block is the only route
+    /// on a narrow bar". 0.6.3 #8 changed which control leads where: the title
+    /// opens the piece's arrangements and the "N versions" trigger opens the
+    /// versions. The route this asserts is therefore the trigger's, and it
+    /// says so when the trigger is not on the bar rather than reaching for a
+    /// control that would open the other list.
+    ///
+    /// Runs at whatever width the destination gives it. On a bar too narrow to
+    /// seat the version count (ScoreBarLayout.showsVersions) there is now no
+    /// route to the versions at all -- so on a phone this fails, and it is
+    /// meant to: that is the gap, not a test that needs relaxing.
     func testTheTitleOpensTheVersionsAndJumps() {
         // opened by launch argument rather than by tapping a library row: the
         // row-tap path is unreliable on a phone-sized simulator, and what is
-        // under test here is the title block, not navigation
+        // under test here is the bar, not navigation
         app.terminate()
         app.launchArguments = ["-seedTestLibrary", "-openFirstScoreSpread"]
         app.launch()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 240),
                       "the score never finished engraving")
 
-        let title = app.buttons["score-title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 20), "no title block")
-        XCTAssertTrue(title.isHittable,
-                      "the title is the only way to versions at this width and "
-                      + "cannot be tapped: \(title.frame)")
-        title.tap()
+        let trigger = app.buttons["score-versions"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 20),
+                      "no version control on this bar, so nothing reaches the versions")
+        XCTAssertTrue(trigger.isHittable,
+                      "the version control is on the bar and cannot be tapped: "
+                      + "\(trigger.frame)")
+        trigger.tap()
 
         let first = app.buttons["menu-version-v001"]
-        XCTAssertTrue(first.waitForExistence(timeout: 10),
-                      "the title did not open the version dropdown — with the "
-                      + "version count yielded, nothing else reaches it")
+        XCTAssertTrue(first.waitForExistence(timeout: 20),
+                      "the version count did not open the version dropdown")
         first.tap()
         XCTAssertTrue(waitForLabel(app.buttons["score-title"], contains: "v001",
                                    timeout: 60),
@@ -1577,9 +1606,15 @@ final class ScorangerUITests: XCTestCase {
     // check_adjust_journey.py. The gap is the gesture, and it is recorded in
     // BACKLOG.md rather than papered over.
 
-    /// The part-wide half: a default every symbol inherits, and the way out of
-    /// every override.
-    func testTheChordSymbolsScreenCarriesTheDefaultAndTheResetAll() {
+    /// The part-wide half: a default every symbol inherits, and which part it
+    /// lands on.
+    ///
+    /// "Reset all adjustments" was on this screen and went in 0.6.3 #7 -- a
+    /// destructive part-wide op sitting beside a size stepper. Per-element
+    /// reset is unaffected: it is on the element's own adjust bar, where the
+    /// thing being reset is on screen. So this asserts it is GONE, rather than
+    /// still looking for it.
+    func testTheChordSymbolsScreenCarriesTheDefaultAndSaysWhichPart() {
         openScoreWithChords()
         app.buttons["score-more"].tap()
         // "Score display" is gone (0.6.3 #6): its page/spread/continuous rows
@@ -1595,14 +1630,17 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["chords-bigger"].exists)
         XCTAssertTrue(app.buttons["chords-smaller"].exists)
 
-        // reset-all is two-step and inline, never a dialog
-        let resetAll = menuRow("chords-reset-all")
-        XCTAssertTrue(resetAll.exists, "no reset-all")
-        resetAll.tap()
-        XCTAssertTrue(app.buttons["chords-confirm-reset"].waitForExistence(timeout: 10),
-                      "reset-all should ask first, inline")
-        XCTAssertTrue(app.buttons["chords-confirm-reset-keep"].exists,
-                      "and offer a way out")
+        // the ladder: every rung a button, so a size can be reached by tapping
+        // it rather than only by stepping to it
+        XCTAssertTrue(app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "chords-size-")).count > 1,
+                      "the size ladder is not tappable")
+        // and the screen names the part it would act on: a part-wide op that
+        // names no part is indistinguishable from one that never ran
+        XCTAssertTrue(app.descendants(matching: .any)["chords-part"].exists,
+                      "the screen does not say which part the default applies to")
+        XCTAssertFalse(menuRow("chords-reset-all").exists,
+                       "reset all adjustments came back to this screen (0.6.3 #7)")
         shot("chords-screen")
     }
 
@@ -1713,33 +1751,54 @@ final class ScorangerUITests: XCTestCase {
         }
     }
 
-    /// The title in the score bar opens a band listing the piece's other
-    /// arrangements and this arrangement's recent versions -- the one place
-    /// switching happens while you are reading (§6.3).
+    /// The bar opens a band listing the piece's other arrangements and this
+    /// arrangement's recent versions -- the one place switching happens while
+    /// you are reading (§6.3).
+    ///
+    /// ONE list at a time, and which one is decided by which control opened it
+    /// (0.6.3 #8): tapping "3 versions" used to put a list of other pieces on
+    /// screen beside the versions, and the reader had to find the right half
+    /// of a dropdown they had asked a specific question of. So both routes are
+    /// exercised here, and each is checked for the list it promises AND for
+    /// the absence of the other.
     func testTheTitleBandOpensFromTheScoreTitle() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180),
                       "the score never engraved")
         let title = app.buttons["score-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 20), "no title in the score bar")
+        let arrangements = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-arrangement-"))
+        let versions = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
+
+        // the title names the ARRANGEMENT, so it opens the piece's arrangements
         title.tap()
         XCTAssertTrue(title.isSelected, "the title does not show that it is open")
-        // both columns, by their rows: an identifier on the band itself would
-        // be inherited by the columns and swallow every row in them
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-arrangement-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "the band lists no arrangements")
-        XCTAssertTrue(app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch.waitForExistence(timeout: 20),
-                      "tapping the title did not open the band")
+        // by its rows: an identifier on the band itself would be inherited by
+        // the column and swallow every row in it
+        XCTAssertTrue(arrangements.firstMatch.waitForExistence(timeout: 20),
+                      "tapping the title did not open the arrangements")
+        XCTAssertFalse(versions.firstMatch.exists,
+                       "the versions are back beside the arrangements (0.6.3 #8)")
         shot("title-band")
         title.tap()
-        XCTAssertTrue(waitForDisappearance(of: app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
-                        .firstMatch, timeout: 10),
+        XCTAssertTrue(waitForDisappearance(of: arrangements.firstMatch, timeout: 10),
                       "the band did not close again")
+
+        // ...and the version count, which counts VERSIONS, opens those
+        let trigger = app.buttons["score-versions"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 20),
+                      "no version control in the bar")
+        trigger.tap()
+        XCTAssertTrue(versions.firstMatch.waitForExistence(timeout: 20),
+                      "the version count did not open the versions")
+        XCTAssertFalse(arrangements.firstMatch.exists,
+                       "the arrangements are back beside the versions (0.6.3 #8)")
+        shot("versions-band")
+        trigger.tap()
+        XCTAssertTrue(waitForDisappearance(of: versions.firstMatch, timeout: 10),
+                      "the versions band did not close again")
     }
 
     /// The old yellow-band highlight is gone, replaced by a real selection.
@@ -2129,7 +2188,7 @@ final class ScorangerUITests: XCTestCase {
 
         // switch to an earlier version, from the title dropdown -- which is
         // where switching version lives now, and where a reader would do it
-        openTitleBand()
+        openVersionsBand()
         let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else {
@@ -2256,7 +2315,7 @@ final class ScorangerUITests: XCTestCase {
 
         // wait for the band, then count: counting a query the instant after a
         // tap counts an empty screen
-        openTitleBand()
+        openVersionsBand()
         let rows = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "menu-version-"))
         guard rows.count > 1 else { return XCTFail("need two versions in the dropdown") }
