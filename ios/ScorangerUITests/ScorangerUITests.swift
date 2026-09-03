@@ -84,6 +84,20 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["library-search"]
                         .waitForExistence(timeout: 90),
                       "the app never came back after the relaunch")
+        // and wait for the LIBRARY, not just the chrome around it.
+        //
+        // This waited on the search field alone, which exists on the first
+        // frame. The seed is still importing behind it — and `seedLibraryIfEmpty`
+        // is all-or-nothing on a relaunch (`guard m.scores.isEmpty`), so the
+        // library this relaunch inherits is whatever the previous launch had
+        // finished writing, and nothing will add to it. Importing a sample
+        // holds the engine for tens of seconds, during which the library takes
+        // no taps at all: that is what "opened nothing" was.
+        let anyRow = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                        "row-", piece)).firstMatch
+        XCTAssertTrue(anyRow.waitForExistence(timeout: 180),
+                      "the library never came back after the pencil relaunch")
     }
 
     /// Open an arrangement the way a person now does: the library is already
@@ -112,12 +126,23 @@ final class ScorangerUITests: XCTestCase {
         // failed here, and the other passed, which is what made it look like a
         // flake rather than a race.
         //
-        // One retry, and only while the row is still there to tap: the
-        // assertion below is unchanged, so the piece screen must still list
-        // its arrangements.
+        // The retry that was here was ONE attempt guarded by `isHittable`, and
+        // that guard is why it never fired: an import holds the engine, the
+        // library stops hit-testing, and `isHittable` is false for exactly as
+        // long as the tap is being swallowed. So the retry sat out the whole
+        // window it existed for.
+        //
+        // Three attempts, no hittability guard, and a coordinate tap -- which
+        // goes to the row's own frame and does not care, the same reason
+        // `tapAnyway` uses one. `pieceRow.exists` still gates it, so once the
+        // piece screen IS pushed this stops tapping and only waits. The
+        // assertion below is unchanged: the piece screen must still list its
+        // arrangements.
         let choice = app.buttons["arrangement-choice-\(slug)"]
-        if !choice.waitForExistence(timeout: 10), pieceRow.exists, pieceRow.isHittable {
-            pieceRow.tap()
+        for _ in 0..<3 {
+            if choice.waitForExistence(timeout: 20) { break }
+            guard pieceRow.exists else { continue }
+            pieceRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         XCTAssertTrue(choice.waitForExistence(timeout: 30),
                       "the piece screen did not list its arrangements")
