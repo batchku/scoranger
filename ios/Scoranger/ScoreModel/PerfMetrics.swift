@@ -207,6 +207,10 @@ final class PerfMetrics: @unchecked Sendable {
         static let manifest = "manifest refresh"
         /// One page thumbnail.
         static let thumbnail = "thumbnail"
+        /// One tile of the continuous strip, drawn from the PDF.
+        static let canvasTile = "canvas tile raster"
+        /// One page of the paged canvas, drawn from the PDF.
+        static let canvasPage = "canvas page raster"
         /// An engine round trip, suffixed with the op: `bridge.set-metadata`.
         static func bridge(_ op: String) -> String { "bridge.\(op)" }
     }

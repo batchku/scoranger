@@ -169,6 +169,13 @@ enum ContinuousTiles {
     /// music should be reads as a broken score, and a cheap raster does not.
     static func raster(page: PDFPage, tile: CGRect, scale: CGFloat,
                        atDepth: Bool) -> UIImage {
+        PerfMetrics.shared.measure(PerfMetrics.Name.canvasTile) {
+            draw(page: page, tile: tile, scale: scale, atDepth: atDepth)
+        }
+    }
+
+    private static func draw(page: PDFPage, tile: CGRect, scale: CGFloat,
+                             atDepth: Bool) -> UIImage {
         let detail: CGFloat = atDepth ? 2 : 0.35
         let pixel = CGSize(width: max(tile.width * detail, 1),
                            height: max(tile.height * detail, 1))

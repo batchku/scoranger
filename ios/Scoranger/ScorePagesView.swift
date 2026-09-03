@@ -1012,10 +1012,13 @@ private struct PDFPageImage: View {
     private static let maxRasterWidth: CGFloat = 5200
 
     private func render() -> UIImage {
-        // 2x for crispness, scaled up with the settled zoom, still bounded.
-        let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
-        return page.thumbnail(of: CGSize(width: size.width * scale, height: size.height * scale),
-                              for: .mediaBox)
+        PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
+            // 2x for crispness, scaled up with the settled zoom, still bounded.
+            let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
+            return page.thumbnail(
+                of: CGSize(width: size.width * scale, height: size.height * scale),
+                for: .mediaBox)
+        }
     }
 }
 
