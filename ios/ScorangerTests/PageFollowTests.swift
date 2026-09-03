@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 
 /// Turning a page during playback hands control over, and a button hands it
@@ -95,5 +96,52 @@ final class PageFollowTests: XCTestCase {
     func testTheChipNamesTheBarItWillTakeYouTo() {
         XCTAssertEqual(PageFollow.syncLabel(bar: 34), "Back to bar 34")
         XCTAssertEqual(PageFollow.syncLabel(bar: nil), "Back to playback")
+    }
+}
+
+/// The same handover on the continuous strip, where "off screen" is horizontal
+/// and there are no pages at all (bug 6c).
+final class ContinuousFollowTests: XCTestCase {
+    private let visible = CGRect(x: 1000, y: 0, width: 800, height: 400)
+
+    private func shows(playing: Bool = true, following: Bool = false,
+                       x: CGFloat? = 5000, performance: Bool = false) -> Bool {
+        PageFollow.showsSync(isPlaying: playing, isFollowing: following,
+                             playheadX: x, visible: visible,
+                             isPerformanceMode: performance)
+    }
+
+    /// The reader scrolled away and the music played on past the edge.
+    func testTheChipAppearsWhenTheLineHasRunOffTheScreen() {
+        XCTAssertTrue(shows(x: 5000), "the line is far to the right of the viewport")
+        XCTAssertTrue(shows(x: 10), "and to the left of it, if they scrolled forward")
+    }
+
+    /// While the line is still in view there is nothing to go back to.
+    func testNoChipWhileTheLineIsStillOnScreen() {
+        XCTAssertFalse(shows(x: 1400))
+        XCTAssertFalse(shows(x: visible.minX))
+        XCTAssertFalse(shows(x: visible.maxX))
+    }
+
+    /// While the app is doing the scrolling there is nothing to sync -- the
+    /// same inversion the paged rule exists to avoid.
+    func testNoChipWhileTheAppIsStillFollowing() {
+        XCTAssertFalse(shows(following: true))
+    }
+
+    func testNoChipWhenNothingIsPlaying() {
+        XCTAssertFalse(shows(playing: false))
+    }
+
+    /// Performance mode exists to remove exactly this.
+    func testNoChipInPerformanceMode() {
+        XCTAssertFalse(shows(performance: true))
+    }
+
+    /// No geometry, no position: every remote-engine render. Nothing is offered
+    /// rather than a jump to a guess.
+    func testNoChipWithoutAPositionToGoBackTo() {
+        XCTAssertFalse(shows(x: nil))
     }
 }

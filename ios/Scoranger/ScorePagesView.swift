@@ -30,6 +30,10 @@ struct ScorePagesView: View {
     /// The laid-out width of the continuous strip, so a tap knows where the
     /// end of the music is.
     @State private var surfaceWidth: CGFloat = 0
+    /// Surface points per unit of the ENGRAVING's own coordinates, kept here so
+    /// the sync chip -- which lives outside the GeometryReader that computes it
+    /// -- measures against the same strip the canvas drew.
+    @State private var engravedScale: CGFloat = 1
     /// Pencil markup: the shared controller, driven from the top bar.
     private var annotation: AnnotationController { state.annotation }
     /// What the Pencil means right now (§6). Selection is OFF in performance
@@ -41,6 +45,10 @@ struct ScorePagesView: View {
     @ObservedObject var playback: PlaybackEngine
     /// Where a page turn is scrolling to, if one is in flight.
     @State private var scrollTarget: CGFloat?
+    /// The channel the play head moves the strip through. Not SwiftUI state:
+    /// following the music must not invalidate this view twenty times a second
+    /// (see CanvasScroller).
+    @State private var scroller = CanvasScroller()
 
     /// Fit to twelve.
     ///
@@ -74,6 +82,14 @@ struct ScorePagesView: View {
                 pageSize: stripBox, viewport: geo.size, bottomChrome: Self.bottomChrome)
             let surface = CGSize(width: stripBox.width * stripScale,
                                  height: stripBox.height * stripScale)
+            // The geometry is in the SVG's viewBox units, not the PDF's points
+            // -- 383690 wide against 16970 for the same strip. Everything that
+            // meets the geometry (the play head, the bar readout) converts
+            // through THIS, and everything that meets the PDF (the tiles) uses
+            // stripScale. Mixing them put the play head 22 times too far into
+            // the piece: it left the screen in the first bar.
+            let strip = state.geometry?.page(0)
+            let engraved = surface.width / max(strip?.size.width ?? 0, 1)
             let spread = state.twoPageSpread
             let unit = PagedCanvas.unit(at: state.pageIndex,
                                         pageCount: document.pageCount, spread: spread)
@@ -106,15 +122,21 @@ struct ScorePagesView: View {
                            // offering it
                            selectionEnabled: mode != .performance
                                && state.displayedArtifact == .notation,
-                           resetPanToken: state.pageIndex,
+                           resetPanToken: panToken,
                            annotationActive: annotation.isOn,
                            scrollTarget: (scrollToken, scrollTargetX),
                            bottomChrome: Self.bottomChrome,
                            onVisibleRectChange: { rect, content in
                                visibleRect = rect
-                               publishVisibleBars(contentRect: rect,
-                                                  contentSize: content,
-                                                  unit: unit, width: width)
+                               if continuous {
+                                   publishVisibleStrip(contentRect: rect,
+                                                       scale: engraved,
+                                                       pageSize: strip?.size ?? .zero)
+                               } else {
+                                   publishVisibleBars(contentRect: rect,
+                                                      contentSize: content,
+                                                      unit: unit, width: width)
+                               }
                                // The unit IS what is visible now: no bands, no
                                // boundary arithmetic, no mapping a scroll
                                // offset back to a page.
@@ -122,6 +144,8 @@ struct ScorePagesView: View {
                                    state.visiblePageIndices = unit
                                }
                            },
+                           scroller: scroller,
+                           onUserScroll: { readerScrolled() },
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
                 // finer steps than before: at 12x, half-scale rounding threw
@@ -130,7 +154,8 @@ struct ScorePagesView: View {
                 if stepped != rasterZoom { rasterZoom = stepped }
             } content: {
                 if continuous, let stripPage {
-                    continuousStrip(stripPage, surface: surface, scale: stripScale)
+                    continuousStrip(stripPage, surface: surface, scale: stripScale,
+                                    engraved: engraved)
                 } else {
                     pageUnit(unit, width: width)
                 }
@@ -140,6 +165,9 @@ struct ScorePagesView: View {
             // a scroll to an offset, which is why there is no offset to keep.
             .onChange(of: surface.width, initial: true) { _, new in
                 surfaceWidth = new
+            }
+            .onChange(of: engraved, initial: true) { _, new in
+                engravedScale = new
             }
             .id(continuous ? -1 : state.pageIndex)
             .transition(.asymmetric(insertion: .move(edge: .trailing),
@@ -158,6 +186,7 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .top) { selectionChip }
+        .overlay(alignment: .bottom) { continuousSyncChip }
         .overlay(alignment: .topLeading) {
             TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)
         }
@@ -172,6 +201,22 @@ struct ScorePagesView: View {
         // the page canvas, which stops above the thumbnail strip -- so the bar
         // could not be moved over the strip or the transport, which is the
         // clamp Ali ran into (#46). It hangs off the whole score screen now.
+    }
+
+    /// The same question for the continuous strip, which has no pages.
+    ///
+    /// It used to be answered by `publishVisibleBars` -- the paged arithmetic,
+    /// run over a page frame that does not exist here and a content size that
+    /// is the whole score. The badge read "bar 68" on a score whose transport
+    /// read bar 1. The strip is ONE engraving, so the slice is the viewport
+    /// divided by the scale it was laid out at, and nothing else.
+    private func publishVisibleStrip(contentRect: CGRect, scale: CGFloat,
+                                     pageSize: CGSize) {
+        guard let slice = ContinuousTiles.visibleSlice(contentRect: contentRect,
+                                                      scale: scale,
+                                                      pageSize: pageSize) else { return }
+        let out = [0: slice]
+        if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
     /// Turn the scroll view's visible rect into "which slice of each page is on
@@ -337,20 +382,78 @@ struct ScorePagesView: View {
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
     }
 
-    /// Where the sounding bar sits on the strip, in surface points.
+    /// "Take me back", for the strip.
     ///
-    /// Nil where there is no geometry, which is EVERY remote-engine render:
-    /// that path fetches a finished PDF and builds no index, so there is
-    /// nothing to look a bar up in. Playback still works there; it simply does
-    /// not follow. A guessed position would be worse than none -- the reader
-    /// would trust it and look away from the music.
-    private func soundingBarFrame(scale: CGFloat) -> CGRect? {
-        guard state.layout.isContinuous, let bar = playback.soundingBar,
-              let page = state.geometry?.page(0) else { return nil }
-        guard let frame = BarPosition.frame(ofBar: bar,
-                                            among: BarPosition.bars(onPage: page))
+    /// The paged chip is `SyncChipLayer`, and its visibility predicate is the
+    /// page one: in continuous mode there is a single page and it is always on
+    /// screen, so that chip can never appear here however far the reader has
+    /// scrolled. This is the same control, the same label, the same state and
+    /// the same identifier, decided by the horizontal rule instead -- the two
+    /// cannot both be on screen. It belongs in `SyncChipLayer` beside its twin
+    /// as soon as that file can be edited.
+    @ViewBuilder
+    private var continuousSyncChip: some View {
+        let shows = state.layout.isContinuous
+            && PageFollow.showsSync(isPlaying: playback.isPlaying,
+                                        isFollowing: state.pageFollow.isFollowing,
+                                        playheadX: playheadSurfaceX,
+                                        visible: visibleRect,
+                                        isPerformanceMode: mode == .performance)
+        if shows {
+            Button {
+                state.pageFollow.syncTapped()
+                scroller.forget()
+                // Move now rather than on the next beat: the reader asked, and
+                // a paused transport ticks nothing.
+                if let x = playheadSurfaceX {
+                    scrollTargetX = Playhead.stripOffset(playheadX: x,
+                                                         viewportWidth: visibleRect.width,
+                                                         surfaceWidth: surfaceWidth)
+                    scrollToken += 1
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(PageFollow.syncLabel(bar: playback.soundingBar))
+                        .typeRole(.label)
+                }
+                .foregroundStyle(Theme.Surface.panel)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Theme.Accent.clayPress)
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, Self.bottomChrome)
+            .accessibilityIdentifier("sync-to-playback")
+            .accessibilityLabel(PageFollow.syncLabel(bar: playback.soundingBar))
+            .transition(.opacity)
+        }
+    }
+
+    /// The line's place on the strip, in surface points.
+    private var playheadSurfaceX: CGFloat? {
+        guard state.layout.isContinuous, let page = state.geometry?.page(0),
+              let progress = playback.timeline.progress(atBeat: playback.beat),
+              let position = Playhead.position(measure: progress.measure,
+                                               fraction: CGFloat(progress.fraction),
+                                               bars: BarPosition.bars(onPage: page))
         else { return nil }
-        return PlaybackFollow.surfaceFrame(pageFrame: frame, scale: scale)
+        return position.x * engravedScale
+    }
+
+    /// A hand on the score during playback.
+    ///
+    /// The music does NOT stop -- this cannot stop it -- and the score is not
+    /// taken back. Following yields, and the Sync chip appears and waits to be
+    /// asked. The same rule as a page turned by the reader in paged mode, and
+    /// deliberately the same state, so there is one answer to "who is driving".
+    private func readerScrolled() {
+        guard state.layout.isContinuous else { return }
+        scroller.forget()
+        state.readerTurnedPage()
     }
 
     /// Keep the sounding bar readable, without taking the score away from a
@@ -362,15 +465,12 @@ struct ScorePagesView: View {
     /// edge.
     private func follow(bar: Int?, stripScale: CGFloat, surface: CGSize) {
         guard bar != nil else { return }
-        if state.layout.isContinuous {
-            guard let frame = soundingBarFrame(scale: stripScale),
-                  let x = PlaybackFollow.target(bar: frame, visible: visibleRect,
-                                                surfaceWidth: surface.width)
-            else { return }
-            scrollTargetX = x
-            scrollToken += 1
-            return
-        }
+        // Continuous is not driven from here any more. A bar change is twice a
+        // second at best and the strip has to move with the BEAT, or the line
+        // jumps ahead and re-jumps -- which is what it did.
+        // `ContinuousPlayheadLayer` follows the sound itself, off the same
+        // clock that draws the line.
+        if state.layout.isContinuous { return }
         // Paged: there is nothing to scroll, so the unit turns -- and only
         // when the bar is on a page that is not already showing.
         //
@@ -391,6 +491,22 @@ struct ScorePagesView: View {
                                              spread: state.twoPageSpread)
         else { return }
         state.pageIndex = unit
+    }
+
+    /// What sends the canvas back to the beginning.
+    ///
+    /// A page turn, a change of layout, and a document with a different number
+    /// of pages -- which is how a re-engrave for a NEW layout announces itself.
+    /// Switching to continuous keeps the pages up until the strip arrives, so
+    /// the content grows from one page wide to the whole score in one step;
+    /// without this the scroll view kept the reader's proportional place across
+    /// that step and opened the strip in the middle of the piece.
+    ///
+    /// An op that re-engraves the same music to the same number of pages does
+    /// NOT reset: the reader keeps their place, which is #44.
+    private var panToken: Int {
+        let layoutIndex = ScoreLayout.allCases.firstIndex(of: state.layout) ?? 0
+        return (state.pageIndex &* 31 &+ layoutIndex) &* 31 &+ document.pageCount
     }
 
     private func aspect(of page: Int?) -> CGFloat {
@@ -425,7 +541,7 @@ struct ScorePagesView: View {
     /// happens when this app asks for that much bitmap.
     @ViewBuilder
     private func continuousStrip(_ page: PDFPage, surface: CGSize,
-                                 scale: CGFloat) -> some View {
+                                 scale: CGFloat, engraved: CGFloat) -> some View {
         let tiles = ContinuousTiles.tiles(surface: surface)
         let deep = ContinuousTiles.atDepth(tiles: tiles, visible: visibleRect)
         HStack(spacing: 0) {
@@ -435,9 +551,14 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let sounding = soundingBarFrame(scale: scale) {
-                PlayHead(frame: sounding).allowsHitTesting(false)
-            }
+            ContinuousPlayheadLayer(playback: playback,
+                                    page: state.geometry?.page(0),
+                                    scale: engraved,
+                                    surfaceWidth: surface.width,
+                                    viewportWidth: visibleRect.width,
+                                    isFollowing: state.pageFollow.isFollowing,
+                                    scroller: scroller,
+                                    showsHandle: mode != .performance)
         }
         .padding(.vertical, ContinuousTiles.margin)
         // NO page shadow. A page is a sheet lying on a surface and its shadow
@@ -601,21 +722,6 @@ struct ScorePagesView: View {
 /// "here is an instant", and what a player glancing up needs is "here is the
 /// bar you are in". Behind the music and unfilled at the edges, so it never
 /// competes with a notehead for the eye.
-private struct PlayHead: View {
-    let frame: CGRect
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(Theme.Accent.clay.opacity(0.16))
-            .overlay(alignment: .leading) {
-                Rectangle().fill(Theme.Accent.clayStrong.opacity(0.75)).frame(width: 2)
-            }
-            .frame(width: max(frame.width, 4), height: frame.height)
-            .offset(x: frame.minX, y: frame.minY)
-            .accessibilityHidden(true)
-    }
-}
-
 /// Boxes over the selected elements, scaled from page coordinates to the size
 /// the page is drawn at.
 /// The playhead: where the sound has got to, on the engraved page.
@@ -677,6 +783,100 @@ private struct PlayheadLayer: View {
         else { return nil }
         return Playhead.position(measure: progress.measure,
                                  fraction: CGFloat(progress.fraction), bars: bars)
+    }
+}
+
+
+/// The play head on the continuous strip: the line, the note under it, and the
+/// scroll that keeps the line still (design/PLAYBACK_0.6.md 2, bug 6).
+///
+/// OBSERVES the engine, like `PlayheadLayer` and for the same reason: the beat
+/// arrives twenty times a second and a position handed down from the canvas
+/// would redraw the rasterised strip, the selection boxes and the tiles at that
+/// rate. Only this view redraws, and the scroll it asks for goes through
+/// `CanvasScroller`, which is not SwiftUI state at all.
+///
+/// The line is drawn where the music is, in the strip's own coordinates, and
+/// the SCORE is moved so that place sits a third of the way across the screen.
+/// Drawing a line fixed to the viewport instead would need the two to agree
+/// about the scroll offset every frame, and they would not.
+private struct ContinuousPlayheadLayer: View {
+    @ObservedObject var playback: PlaybackEngine
+    /// The strip's engraving: one page, the whole score.
+    let page: ScorePage?
+    /// Surface points per unit of the engraving's own coordinates.
+    let scale: CGFloat
+    let surfaceWidth: CGFloat
+    let viewportWidth: CGFloat
+    /// False once the reader has scrolled: the line keeps moving, the score
+    /// stops being taken away from them.
+    let isFollowing: Bool
+    let scroller: CanvasScroller
+    let showsHandle: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let position {
+                // The notes the line is crossing, under it rather than over it,
+                // so a notehead is tinted and never covered.
+                ForEach(Array(lit.enumerated()), id: \.offset) { _, frame in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Theme.Accent.clay.opacity(0.28))
+                        .frame(width: max(frame.width * scale, 6) + 4,
+                               height: max(frame.height * scale, 6) + 4)
+                        .position(x: frame.midX * scale, y: frame.midY * scale)
+                }
+                let x = position.x * scale
+                let top = position.top * scale - Playhead.overshoot
+                let height = position.height * scale + Playhead.overshoot * 2
+                Rectangle()
+                    .fill(Theme.Accent.clay)
+                    .frame(width: Playhead.weight, height: height)
+                    .position(x: x, y: top + height / 2)
+                if showsHandle {
+                    RoundedRectangle(cornerRadius: Playhead.handleRadius)
+                        .fill(Theme.Accent.clay)
+                        .frame(width: Playhead.handle, height: Playhead.handle)
+                        .position(x: x, y: top)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        // Following happens on the same tick that draws the line, off the same
+        // position, so the two can never disagree about where the music is.
+        .onChange(of: playback.beat, initial: true) { _, _ in follow() }
+    }
+
+    private var progress: (measure: Int, fraction: Double)? {
+        guard playback.isPlaying || playback.soundingBar != nil else { return nil }
+        return playback.timeline.progress(atBeat: playback.beat)
+    }
+
+    private var position: Playhead.Position? {
+        guard let page, let progress else { return nil }
+        return Playhead.position(measure: progress.measure,
+                                 fraction: CGFloat(progress.fraction),
+                                 bars: BarPosition.bars(onPage: page))
+    }
+
+    /// The noteheads sounding right now, in ENGRAVED coordinates.
+    private var lit: [CGRect] {
+        guard let page, let progress, let position else { return [] }
+        let notes: [(staff: Int, frame: CGRect)] = page.elements.compactMap { element in
+            guard let address = element.address,
+                  address.measure == progress.measure,
+                  address.kind == .note || address.kind == .chord else { return nil }
+            return (address.staff, element.frame)
+        }
+        return Playhead.sounding(notes: notes, x: position.x)
+    }
+
+    private func follow() {
+        guard isFollowing, playback.isPlaying, let position else { return }
+        scroller.follow(to: Playhead.stripOffset(playheadX: position.x * scale,
+                                                 viewportWidth: viewportWidth,
+                                                 surfaceWidth: surfaceWidth))
     }
 }
 

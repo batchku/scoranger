@@ -134,6 +134,27 @@ struct PageFollow: Equatable {
         return !visiblePages.contains(playheadPage)
     }
 
+    /// The same question on the continuous strip, where there are no pages and
+    /// "off screen" is horizontal.
+    ///
+    /// One rule, two geometries, and the same state behind both: the reader
+    /// scrolled, the music kept playing, and the line has since run out of
+    /// view. The gate on `isFollowing` matters here for the same reason it does
+    /// in paged mode -- while the app is doing the scrolling there is nothing
+    /// to sync.
+    ///
+    /// - Parameters:
+    ///   - playheadX: the line in SURFACE points, or nil where there is no
+    ///     geometry to place it -- every remote-engine render.
+    ///   - visible: the viewport in the same points.
+    static func showsSync(isPlaying: Bool, isFollowing: Bool,
+                          playheadX: CGFloat?, visible: CGRect,
+                          isPerformanceMode: Bool) -> Bool {
+        guard isPlaying, !isFollowing, !isPerformanceMode,
+              let playheadX, visible.width > 0 else { return false }
+        return playheadX < visible.minX || playheadX > visible.maxX
+    }
+
     /// What the chip says. The bar, because a reader navigates by bar and
     /// "Back to playback" tells them nothing about where they are going.
     static func syncLabel(bar: Int?) -> String {

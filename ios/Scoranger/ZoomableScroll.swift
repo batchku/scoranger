@@ -78,6 +78,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
     /// What it is for: deciding which pages are worth rastering at depth.
     var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+    /// Moves the canvas without going through SwiftUI, for the play head --
+    /// which reports twenty times a second and must not invalidate the canvas
+    /// that often. See `CanvasScroller`.
+    var scroller: CanvasScroller?
+    /// A DRAG by the reader, as opposed to any of the moves this view makes on
+    /// their behalf. Following the music hands over to whoever pushes the
+    /// score, and only a hand can push it.
+    var onUserScroll: (() -> Void)?
     let zoomRange: ClosedRange<CGFloat>
     /// Called with the absolute zoom scale once a pinch settles.
     let onZoomSettled: (CGFloat) -> Void
@@ -174,6 +182,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addSubview(host.view)
         context.coordinator.host = host
         context.coordinator.scroll = scroll
+        context.coordinator.installScroller(scroller)
         context.coordinator.applyLayout(width: contentWidth)
         return scroll
     }
@@ -194,6 +203,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.resetPan(token: resetPanToken)
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.onVisibleRectChange = onVisibleRectChange
+        context.coordinator.onUserScroll = onUserScroll
+        context.coordinator.installScroller(scroller)
         context.coordinator.bottomChrome = bottomChrome
         if let target = scrollTarget {
             context.coordinator.scrollHorizontally(to: target.x, token: target.token)
@@ -256,11 +267,30 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
             // where the viewport sits in the content, so the same music is
             // still in view after the resize
+            //
+            // With NO old content there is no "same music" to keep, and the
+            // proportional default was 0.5 -- the middle. On a page that is
+            // invisible: the page is the width of the viewport, so the centred
+            // offset clamps straight back to the left edge. On the continuous
+            // strip, which is the whole score laid end to end, the middle is
+            // the middle of the PIECE: opening a score in continuous mode
+            // landed the reader at bar 68, on a staff running off both edges
+            // with no clef in sight. A first layout starts at the beginning.
+            //
+            // `goToOrigin` is the same fault one step later. Switching to
+            // continuous keeps the PAGES up until the strip is engraved -- so
+            // this runs a second time, with a real old content size (one page
+            // wide) and a new one forty times it, and a proportional anchor
+            // then means the middle of the piece all over again. The caller
+            // says when the content is different music rather than the same
+            // music re-drawn; see `resetPan`.
             let old = scroll.contentSize
+            let keepPlace = !goToOrigin
+            goToOrigin = false
             let anchor = CGPoint(
-                x: old.width > 0
-                    ? (scroll.contentOffset.x + scroll.bounds.width / 2) / old.width : 0.5,
-                y: old.height > 0
+                x: keepPlace && old.width > 0
+                    ? (scroll.contentOffset.x + scroll.bounds.width / 2) / old.width : 0,
+                y: keepPlace && old.height > 0
                     ? (scroll.contentOffset.y + scroll.bounds.height / 2) / old.height : 0)
 
             // Geometry can only be written at zoom 1: under a zoom transform the
@@ -308,6 +338,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
         var onSwipeTurn: ((Int) -> Void)?
         private var lastResetToken: Int = -1
+        /// Set by `resetPan`, consumed by the next `commit`: the content about
+        /// to be laid out is different music, so there is no place to keep.
+        private var goToOrigin = false
 
         private var lastScrollToken = -1
 
@@ -326,12 +359,19 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
                                     animated: true)
         }
 
-        /// A turn landed: go to the top-left of the new unit, keeping the zoom.
+        /// A turn landed, or the canvas is showing different music: go to the
+        /// top-left, keeping the zoom.
+        ///
+        /// The offset is moved now AND the next layout is told not to restore
+        /// a proportional place. Both are needed: a turn changes only the
+        /// offset, but a change of layout changes the content SIZE as well, and
+        /// the new size arrives one engrave later.
         func resetPan(token: Int) {
             guard token != lastResetToken else { return }
             let first = lastResetToken == -1
             lastResetToken = token
             guard let scroll, !first else { return }
+            goToOrigin = true
             scroll.setContentOffset(CGPoint(x: -scroll.contentInset.left,
                                             y: -scroll.contentInset.top),
                                     animated: false)
@@ -391,6 +431,37 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             }
             guard recognizer.state == .ended else { return }
             onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
+        }
+
+        var onUserScroll: (() -> Void)?
+        private weak var scroller: CanvasScroller?
+
+        /// Hand the play head a way in. Weak on the way back, so a scroll view
+        /// that has gone cannot be moved by a sound that is still playing.
+        func installScroller(_ scroller: CanvasScroller?) {
+            guard scroller !== self.scroller else { return }
+            self.scroller?.move = nil
+            self.scroller = scroller
+            scroller?.move = { [weak self] x in
+                guard let scroll = self?.scroll else { return }
+                let zoomed = x * scroll.zoomScale
+                let furthest = max(scroll.contentSize.width - scroll.bounds.width, 0)
+                let clamped = min(max(zoomed, -scroll.contentInset.left), furthest)
+                guard abs(clamped - scroll.contentOffset.x) > 0.5 else { return }
+                // NOT animated, and NOT setContentOffset(animated:): at twenty
+                // a second each animation is overtaken by the next and the
+                // score lurches. Small steps, every step, is what smooth is.
+                scroll.contentOffset = CGPoint(x: clamped, y: scroll.contentOffset.y)
+            }
+        }
+
+        deinit { scroller?.move = nil }
+
+        /// A hand on the score. UIScrollView calls this only for a real drag,
+        /// which is exactly the distinction the follow gate needs -- every move
+        /// this view makes itself goes through `contentOffset` and is silent.
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            onUserScroll?()
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }

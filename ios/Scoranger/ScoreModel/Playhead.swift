@@ -86,4 +86,64 @@ enum Playhead {
     static func shouldTurnPage(x: CGFloat, pageWidth: CGFloat) -> Bool {
         pageWidth > 0 && x >= pageWidth * turnThreshold
     }
+
+    // MARK: - The continuous strip: the line stands still and the score moves
+
+    /// Where the line parks, as a fraction of the viewport from its left edge
+    /// (design/PLAYBACK_0.6.md §2).
+    ///
+    /// A third of the way in leaves two thirds of the screen as music the
+    /// player has not reached yet, which is what reading ahead means.
+    static let parkFraction: CGFloat = 0.30
+
+    /// Where the strip must sit for the line to stand still under the music.
+    ///
+    /// The DAW rule, and the reason it is stated as a scroll offset rather than
+    /// as a moving line: the line is drawn at the sounding moment's own place
+    /// in the engraving, and the SCORE is moved so that place lands at the park
+    /// point. Everything else falls out of the clamp:
+    ///
+    /// - at the start of the piece the offset clamps to 0, so the score holds
+    ///   still and the line travels in from the first bar to the park point;
+    /// - in the body of the piece the offset tracks the line exactly, so the
+    ///   line is motionless and the music streams past it;
+    /// - at the end the offset clamps to the last screenful and the line
+    ///   travels on to the final bar.
+    ///
+    /// Both arguments are in SURFACE points (the strip as laid out on screen),
+    /// which is the space the scroll view's content offset lives in.
+    static func stripOffset(playheadX: CGFloat, viewportWidth: CGFloat,
+                            surfaceWidth: CGFloat,
+                            park: CGFloat = parkFraction) -> CGFloat {
+        guard viewportWidth > 0, surfaceWidth > 0 else { return 0 }
+        let furthest = max(surfaceWidth - viewportWidth, 0)
+        return min(max(playheadX - viewportWidth * park, 0), furthest)
+    }
+
+    /// The notes the line is crossing: at most one per staff.
+    ///
+    /// The geometry carries no onset time -- it is a picture of the page, and
+    /// the map from beats to elements the designer's spec asks for does not
+    /// exist yet. But an engraving IS a time axis: within a bar, a note's x
+    /// position is its onset. So the note under the line on each staff is the
+    /// last one the line has reached, and it stays lit until the line reaches
+    /// the next -- which is exactly "highlighted for the note's duration".
+    ///
+    /// One per STAFF, because every part sounds at once and highlighting only
+    /// the top one would say the others are silent.
+    ///
+    /// - Parameters:
+    ///   - notes: the note-like elements of the measure being played, with the
+    ///     staff each belongs to. Page (SVG user) coordinates.
+    ///   - x: the line, in the same coordinates.
+    static func sounding(notes: [(staff: Int, frame: CGRect)],
+                         x: CGFloat) -> [CGRect] {
+        var best: [Int: CGRect] = [:]
+        for note in notes where note.frame.minX <= x {
+            // the rightmost note the line has already reached, per staff
+            if let held = best[note.staff], held.minX >= note.frame.minX { continue }
+            best[note.staff] = note.frame
+        }
+        return best.keys.sorted().compactMap { best[$0] }
+    }
 }

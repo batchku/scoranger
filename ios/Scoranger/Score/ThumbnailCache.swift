@@ -22,6 +22,23 @@ final class ThumbnailCache {
 
     private let images = NSCache<NSString, UIImage>()
 
+    /// One token per document, minted on first sight and dropped when the
+    /// document is.
+    ///
+    /// The key used to be the document's ADDRESS. An address is only unique
+    /// among documents that are alive at the same time, and these are not: a
+    /// new engraving is made on every render and the previous one is released,
+    /// so the next `PDFDocument` can land on the address the last one had --
+    /// and inherit a whole score's worth of its thumbnails. The strip is what
+    /// made the pictures unreadable; this is what could make them the wrong
+    /// score's.
+    ///
+    /// Weak keys, so a document that goes away takes its token with it and the
+    /// table cannot grow without bound.
+    private let tokens = NSMapTable<PDFDocument, NSString>.weakToStrongObjects()
+    private var nextToken = 0
+    private let lock = NSLock()
+
     private init() {
         // A page thumb is about 30KB. Two hundred of them is a long score's
         // worth and still small; past that the system decides.
@@ -29,9 +46,20 @@ final class ThumbnailCache {
     }
 
     /// A key that cannot collide between documents: two scores both have a
-    /// page 1, and they do not look alike.
+    /// page 1, and they do not look alike. Nor can a document inherit the key
+    /// of one that has been released.
     static func key(document: PDFDocument, index: Int) -> String {
-        "\(UInt(bitPattern: ObjectIdentifier(document).hashValue))#\(index)"
+        "\(shared.token(for: document))#\(index)"
+    }
+
+    private func token(for document: PDFDocument) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = tokens.object(forKey: document) { return existing as String }
+        nextToken += 1
+        let minted = "d\(nextToken)" as NSString
+        tokens.setObject(minted, forKey: document)
+        return minted as String
     }
 
     func image(document: PDFDocument, index: Int, size: CGSize) -> UIImage? {
