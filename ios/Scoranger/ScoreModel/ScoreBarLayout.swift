@@ -101,8 +101,12 @@ enum ScoreBarLayout {
         if barWidth >= withoutChip {
             return Fit(showsVersions: true, showsModeChip: false, layoutCells: 3)
         }
-        // Then the version count. The title block opens the same dropdown, so
-        // versions stay REACHABLE -- this drops a shortcut, never a feature.
+        // Then the version count. The title block opens VERSIONS when this
+        // has gone, so versions stay REACHABLE -- this drops a shortcut, never
+        // a feature. That invariant was briefly untrue: 0.6.3 #8 split the band
+        // so the title opened arrangements only, and a phone at reading width
+        // had no route to versions at all. Whoever changes what the title opens
+        // must keep this true (ScoreTopBar.titleBlock).
         let withoutVersions = withoutChip - versionsWidth
         if barWidth >= withoutVersions {
             return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3)

@@ -281,8 +281,16 @@ struct ScoreTopBar: View {
     private var titleBlock: some View {
         Button {
             PerfMetrics.shared.measureUntilPresented(PerfMetrics.Name.titleMenu)
-            titleMenuOpen = (titleMenuMode == .arrangements) ? !titleMenuOpen : true
-            titleMenuMode = .arrangements
+            // On a bar too narrow to seat the version count, the title block
+            // opens VERSIONS instead -- restoring the invariant ScoreBarLayout
+            // still states: dropping the count "drops a shortcut, never a
+            // feature". 0.6.3 #8 split the band into two columns and ended that
+            // guarantee without noticing, leaving a phone with no route to
+            // versions at reading width at all. Arrangements stay reachable
+            // from the library; versions are reachable from nowhere else.
+            let wanted: TitleBandLayout.Mode = fit.showsVersions ? .arrangements : .versions
+            titleMenuOpen = (titleMenuMode == wanted) ? !titleMenuOpen : true
+            titleMenuMode = wanted
             moreOpen = false
         } label: {
             HStack(spacing: Theme.Metric.s8) {

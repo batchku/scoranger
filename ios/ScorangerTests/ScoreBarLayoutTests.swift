@@ -140,3 +140,39 @@ final class ScoreBarLayoutTests: XCTestCase {
                                           layoutCells: 3))
     }
 }
+
+/// Versions must stay reachable when the bar sheds its version count.
+///
+/// `ScoreBarLayout` has always said that dropping the count "drops a shortcut,
+/// never a feature", because the title block opened the same dropdown. 0.6.3's
+/// split of that band into two columns -- title opens arrangements, count opens
+/// versions -- ended the guarantee without noticing, and a phone at reading
+/// width was left with NO route to versions: the count yields below 390pt, and
+/// the Versions section in Options leads only to a row that lives inside the
+/// version column itself.
+final class VersionsStayReachableTests: XCTestCase {
+
+    /// The width at which the count goes is the width at which the title must
+    /// take over. If this ever fails, a phone has lost version switching.
+    func testAPhoneThatLosesTheCountKeepsTheTitleAsItsRoute() {
+        let phone = ScoreBarLayout.fit(barWidth: 390)
+
+        XCTAssertFalse(phone.showsVersions,
+                       "the fixture is wrong: this width should shed the count")
+        // The rule the title block implements: when the count has gone, the
+        // title opens versions rather than arrangements.
+        let opens: TitleBandLayout.Mode = phone.showsVersions ? .arrangements : .versions
+        XCTAssertEqual(opens, .versions, "a phone has no route to versions")
+    }
+
+    /// On a bar wide enough to show both, they stay separate -- which is what
+    /// 0.6.3 #8 asked for and must not be undone by the narrow-bar rule.
+    func testAWideBarKeepsTheTwoColumnsApart() {
+        let wide = ScoreBarLayout.fit(barWidth: 1180)
+
+        XCTAssertTrue(wide.showsVersions)
+        let opens: TitleBandLayout.Mode = wide.showsVersions ? .arrangements : .versions
+        XCTAssertEqual(opens, .arrangements,
+                       "the title should still open arrangements where the count exists")
+    }
+}
