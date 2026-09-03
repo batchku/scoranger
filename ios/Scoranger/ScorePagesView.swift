@@ -41,6 +41,10 @@ struct ScorePagesView: View {
     @ObservedObject var playback: PlaybackEngine
     /// Where a page turn is scrolling to, if one is in flight.
     @State private var scrollTarget: CGFloat?
+    /// The channel the play head moves the strip through. Not SwiftUI state:
+    /// following the music must not invalidate this view twenty times a second
+    /// (see CanvasScroller).
+    @State private var scroller = CanvasScroller()
 
     /// Fit to twelve.
     ///
@@ -128,6 +132,8 @@ struct ScorePagesView: View {
                                    state.visiblePageIndices = unit
                                }
                            },
+                           scroller: scroller,
+                           onUserScroll: { readerScrolled() },
                            zoomRange: Self.zoomRange) { settled in
                 // round so small wobbles don't re-raster every gesture
                 // finer steps than before: at 12x, half-scale rounding threw
@@ -359,6 +365,18 @@ struct ScorePagesView: View {
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
     }
 
+    /// A hand on the score during playback.
+    ///
+    /// The music does NOT stop -- this cannot stop it -- and the score is not
+    /// taken back. Following yields, and the Sync chip appears and waits to be
+    /// asked. The same rule as a page turned by the reader in paged mode, and
+    /// deliberately the same state, so there is one answer to "who is driving".
+    private func readerScrolled() {
+        guard state.layout.isContinuous else { return }
+        scroller.forget()
+        state.readerTurnedPage()
+    }
+
     /// Where the sounding bar sits on the strip, in surface points.
     ///
     /// Nil where there is no geometry, which is EVERY remote-engine render:
@@ -384,15 +402,12 @@ struct ScorePagesView: View {
     /// edge.
     private func follow(bar: Int?, stripScale: CGFloat, surface: CGSize) {
         guard bar != nil else { return }
-        if state.layout.isContinuous {
-            guard let frame = soundingBarFrame(scale: stripScale),
-                  let x = PlaybackFollow.target(bar: frame, visible: visibleRect,
-                                                surfaceWidth: surface.width)
-            else { return }
-            scrollTargetX = x
-            scrollToken += 1
-            return
-        }
+        // Continuous is not driven from here any more. A bar change is twice a
+        // second at best and the strip has to move with the BEAT, or the line
+        // jumps ahead and re-jumps -- which is what it did.
+        // `ContinuousPlayheadLayer` follows the sound itself, off the same
+        // clock that draws the line.
+        if state.layout.isContinuous { return }
         // Paged: there is nothing to scroll, so the unit turns -- and only
         // when the bar is on a page that is not already showing.
         //
@@ -473,9 +488,14 @@ struct ScorePagesView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let sounding = soundingBarFrame(scale: scale) {
-                PlayHead(frame: sounding).allowsHitTesting(false)
-            }
+            ContinuousPlayheadLayer(playback: playback,
+                                    page: state.geometry?.page(0),
+                                    scale: scale,
+                                    surfaceWidth: surface.width,
+                                    viewportWidth: visibleRect.width,
+                                    isFollowing: state.pageFollow.isFollowing,
+                                    scroller: scroller,
+                                    showsHandle: mode != .performance)
         }
         .padding(.vertical, ContinuousTiles.margin)
         // NO page shadow. A page is a sheet lying on a surface and its shadow
@@ -715,6 +735,100 @@ private struct PlayheadLayer: View {
         else { return nil }
         return Playhead.position(measure: progress.measure,
                                  fraction: CGFloat(progress.fraction), bars: bars)
+    }
+}
+
+
+/// The play head on the continuous strip: the line, the note under it, and the
+/// scroll that keeps the line still (design/PLAYBACK_0.6.md 2, bug 6).
+///
+/// OBSERVES the engine, like `PlayheadLayer` and for the same reason: the beat
+/// arrives twenty times a second and a position handed down from the canvas
+/// would redraw the rasterised strip, the selection boxes and the tiles at that
+/// rate. Only this view redraws, and the scroll it asks for goes through
+/// `CanvasScroller`, which is not SwiftUI state at all.
+///
+/// The line is drawn where the music is, in the strip's own coordinates, and
+/// the SCORE is moved so that place sits a third of the way across the screen.
+/// Drawing a line fixed to the viewport instead would need the two to agree
+/// about the scroll offset every frame, and they would not.
+private struct ContinuousPlayheadLayer: View {
+    @ObservedObject var playback: PlaybackEngine
+    /// The strip's engraving: one page, the whole score.
+    let page: ScorePage?
+    /// Surface points per engraved point.
+    let scale: CGFloat
+    let surfaceWidth: CGFloat
+    let viewportWidth: CGFloat
+    /// False once the reader has scrolled: the line keeps moving, the score
+    /// stops being taken away from them.
+    let isFollowing: Bool
+    let scroller: CanvasScroller
+    let showsHandle: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let position {
+                // The notes the line is crossing, under it rather than over it,
+                // so a notehead is tinted and never covered.
+                ForEach(Array(lit.enumerated()), id: \.offset) { _, frame in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Theme.Accent.clay.opacity(0.28))
+                        .frame(width: max(frame.width * scale, 6) + 4,
+                               height: max(frame.height * scale, 6) + 4)
+                        .position(x: frame.midX * scale, y: frame.midY * scale)
+                }
+                let x = position.x * scale
+                let top = position.top * scale - Playhead.overshoot
+                let height = position.height * scale + Playhead.overshoot * 2
+                Rectangle()
+                    .fill(Theme.Accent.clay)
+                    .frame(width: Playhead.weight, height: height)
+                    .position(x: x, y: top + height / 2)
+                if showsHandle {
+                    RoundedRectangle(cornerRadius: Playhead.handleRadius)
+                        .fill(Theme.Accent.clay)
+                        .frame(width: Playhead.handle, height: Playhead.handle)
+                        .position(x: x, y: top)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        // Following happens on the same tick that draws the line, off the same
+        // position, so the two can never disagree about where the music is.
+        .onChange(of: playback.beat, initial: true) { _, _ in follow() }
+    }
+
+    private var progress: (measure: Int, fraction: Double)? {
+        guard playback.isPlaying || playback.soundingBar != nil else { return nil }
+        return playback.timeline.progress(atBeat: playback.beat)
+    }
+
+    private var position: Playhead.Position? {
+        guard let page, let progress else { return nil }
+        return Playhead.position(measure: progress.measure,
+                                 fraction: CGFloat(progress.fraction),
+                                 bars: BarPosition.bars(onPage: page))
+    }
+
+    /// The noteheads sounding right now, in ENGRAVED coordinates.
+    private var lit: [CGRect] {
+        guard let page, let progress, let position else { return [] }
+        let notes: [(staff: Int, frame: CGRect)] = page.elements.compactMap { element in
+            guard let address = element.address,
+                  address.measure == progress.measure,
+                  address.kind == .note || address.kind == .chord else { return nil }
+            return (address.staff, element.frame)
+        }
+        return Playhead.sounding(notes: notes, x: position.x)
+    }
+
+    private func follow() {
+        guard isFollowing, playback.isPlaying, let position else { return }
+        scroller.follow(to: Playhead.stripOffset(playheadX: position.x * scale,
+                                                 viewportWidth: viewportWidth,
+                                                 surfaceWidth: surfaceWidth))
     }
 }
 

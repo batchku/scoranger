@@ -78,6 +78,14 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
     /// What it is for: deciding which pages are worth rastering at depth.
     var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+    /// Moves the canvas without going through SwiftUI, for the play head --
+    /// which reports twenty times a second and must not invalidate the canvas
+    /// that often. See `CanvasScroller`.
+    var scroller: CanvasScroller?
+    /// A DRAG by the reader, as opposed to any of the moves this view makes on
+    /// their behalf. Following the music hands over to whoever pushes the
+    /// score, and only a hand can push it.
+    var onUserScroll: (() -> Void)?
     let zoomRange: ClosedRange<CGFloat>
     /// Called with the absolute zoom scale once a pinch settles.
     let onZoomSettled: (CGFloat) -> Void
@@ -174,6 +182,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addSubview(host.view)
         context.coordinator.host = host
         context.coordinator.scroll = scroll
+        context.coordinator.installScroller(scroller)
         context.coordinator.applyLayout(width: contentWidth)
         return scroll
     }
@@ -194,6 +203,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.resetPan(token: resetPanToken)
         context.coordinator.onZoomSettled = onZoomSettled
         context.coordinator.onVisibleRectChange = onVisibleRectChange
+        context.coordinator.onUserScroll = onUserScroll
+        context.coordinator.installScroller(scroller)
         context.coordinator.bottomChrome = bottomChrome
         if let target = scrollTarget {
             context.coordinator.scrollHorizontally(to: target.x, token: target.token)
@@ -420,6 +431,37 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             }
             guard recognizer.state == .ended else { return }
             onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
+        }
+
+        var onUserScroll: (() -> Void)?
+        private weak var scroller: CanvasScroller?
+
+        /// Hand the play head a way in. Weak on the way back, so a scroll view
+        /// that has gone cannot be moved by a sound that is still playing.
+        func installScroller(_ scroller: CanvasScroller?) {
+            guard scroller !== self.scroller else { return }
+            self.scroller?.move = nil
+            self.scroller = scroller
+            scroller?.move = { [weak self] x in
+                guard let scroll = self?.scroll else { return }
+                let zoomed = x * scroll.zoomScale
+                let furthest = max(scroll.contentSize.width - scroll.bounds.width, 0)
+                let clamped = min(max(zoomed, -scroll.contentInset.left), furthest)
+                guard abs(clamped - scroll.contentOffset.x) > 0.5 else { return }
+                // NOT animated, and NOT setContentOffset(animated:): at twenty
+                // a second each animation is overtaken by the next and the
+                // score lurches. Small steps, every step, is what smooth is.
+                scroll.contentOffset = CGPoint(x: clamped, y: scroll.contentOffset.y)
+            }
+        }
+
+        deinit { scroller?.move = nil }
+
+        /// A hand on the score. UIScrollView calls this only for a real drag,
+        /// which is exactly the distinction the follow gate needs -- every move
+        /// this view makes itself goes through `contentOffset` and is silent.
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            onUserScroll?()
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { host?.view }
