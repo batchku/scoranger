@@ -167,13 +167,6 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         }
     }
 
-    /// Freeze the canvas while a Pencil is selecting, thaw it after.
-    ///
-    /// This is the palm rejection. Outside markup mode PencilKit is not taking
-    /// touches, so it is not rejecting anything either, and the hand resting
-    /// beside the Pencil reaches the scroll view as an ordinary finger. Turning
-    /// scrolling off also cancels a pan already in flight, so a palm that
-    /// landed first cannot keep dragging the page once the Pencil arrives.
     /// What "a Pencil is down" means for the FREEZE.
     ///
     /// A real Pencil counts the moment it lands, which is the rule: a palm that
@@ -188,6 +181,13 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         return drawing
     }
 
+    /// Freeze the canvas while a Pencil is selecting, thaw it after.
+    ///
+    /// This is the palm rejection. Outside markup mode PencilKit is not taking
+    /// touches, so it is not rejecting anything either, and the hand resting
+    /// beside the Pencil reaches the scroll view as an ordinary finger. Turning
+    /// scrolling off also cancels a pan already in flight, so a palm that
+    /// landed first cannot keep dragging the page once the Pencil arrives.
     private func syncCanvasFreeze() {
         let frozen = !LassoGate.canvasMayMove(pencilDown: freezingTouch != nil,
                                               markupActive: annotationActive)
