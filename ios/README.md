@@ -59,3 +59,25 @@ human.
   engine.
 - OMR (PDF → MusicXML) stays off-device — run Audiveris on a Mac and import
   the resulting `.mxl` via the Files picker.
+
+## The gate
+
+```
+scripts/gate.sh              # 4 simulators, ~13 minutes
+scripts/gate.sh -j 6         # more workers
+scripts/gate.sh --serial     # one simulator, the old behaviour
+```
+
+It builds once, enumerates the test METHODS, deals them across simulators it
+owns by name (`scoranger-gate-1`…), and runs one `xcodebuild` per simulator.
+Two runs against the SAME simulator collide and execute zero tests while
+reporting success, so the run fails unless the number of tests that executed
+equals the number enumerated.
+
+The split is longest-processing-time greedy over `scripts/gate-durations.tsv`,
+which the gate rewrites after every run. A test with no recorded duration is
+assumed median, so a new test never unbalances the run.
+
+Sharding is done here rather than with `-parallel-testing-enabled` because
+xcodebuild's own parallel testing distributes test CLASSES, and most of this
+suite is in one class.
