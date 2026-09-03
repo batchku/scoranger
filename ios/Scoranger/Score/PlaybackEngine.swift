@@ -86,6 +86,10 @@ final class PlaybackEngine: ObservableObject {
         loadedKey = key
         unavailable = nil
         applyMutes()
+        // A new graph means a new sequencer at rate 1. The reader's tempo has
+        // to be put back on it, or every arrangement they open snaps to the
+        // written tempo while the slider still says 60.
+        applyTempo()
     }
 
     /// .playback, so a practice aid still sounds with the ring switch
@@ -175,6 +179,41 @@ final class PlaybackEngine: ObservableObject {
     /// Move one channel's fader, 0-10.
     func setFader(_ value: Int, channel: Int) {
         voices.setFader(value, channel: channel)   // didSet re-applies the mixer
+    }
+
+    // MARK: - Tempo
+
+    /// The tempo the reader chose, or nil to play the arrangement's own.
+    ///
+    /// Kept across scores, like the mutes and for the same reason: someone
+    /// practising at 60 is practising at 60, and re-setting it on every
+    /// arrangement they open is work the app is making for them.
+    @Published private(set) var tempoOverride: Double?
+
+    /// The tempo in force. The mixer's slider sits here and the transport
+    /// prints it -- ONE value, so they cannot disagree.
+    var tempoBPM: Double {
+        PlaybackTempo.effective(override: tempoOverride,
+                                opening: timeline.openingTempo)
+    }
+
+    /// `AVAudioSequencer` has no tempo of its own: it plays the file's tempo
+    /// map scaled by `rate`, so a mid-score accelerando survives being slowed
+    /// down for practice.
+    func setTempo(_ bpm: Double) {
+        tempoOverride = PlaybackTempo.clamp(bpm)
+        applyTempo()
+    }
+
+    /// Back to whatever the arrangement says.
+    func clearTempo() {
+        tempoOverride = nil
+        applyTempo()
+    }
+
+    private func applyTempo() {
+        sequencer?.rate = Float(PlaybackTempo.rate(target: tempoBPM,
+                                                   opening: timeline.openingTempo))
     }
 
     /// The channel captions, which are the staff labels with a display-only

@@ -20,6 +20,9 @@ struct MixerPanel: View {
     /// Where the scrubber's handle is while a finger is on it. Nil when the
     /// reader is not scrubbing, so the handle follows the play head instead.
     @State private var scrubbing: Double?
+    /// The same for the tempo slider: the bpm under the finger, so the number
+    /// beside it moves with the drag rather than after it.
+    @State private var draggingTempo: Double?
 
     private var parts: [PlaybackTimeline.Part] { playback.timeline.parts }
     private var labels: [String] { PlaybackChannels.labels(for: parts) }
@@ -29,6 +32,8 @@ struct MixerPanel: View {
             header
             Rectangle().fill(Theme.Line.line).frame(height: 1)
             rack
+            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            tempoBand
             Rectangle().fill(Theme.Line.line).frame(height: 1)
             scrubber
         }
@@ -107,9 +112,85 @@ struct MixerPanel: View {
             }
             .padding(.horizontal, MixerLayout.padding)
         }
-        .frame(height: MixerLayout.muteHeight + MixerLayout.faderHeight
-               + MixerLayout.valueHeight + MixerLayout.labelHeight
-               + MixerLayout.padding * 2)
+        .frame(height: MixerLayout.rackHeight)
+    }
+
+    // MARK: - Tempo
+
+    /// The tempo, 1 to 300 bpm.
+    ///
+    /// Deliberately NOT a channel strip, and drawn so nobody could mistake it
+    /// for one: horizontal where the faders are vertical, graphite where they
+    /// are clay, on the band fill rather than the panel's, with a rule above
+    /// and below it. Tempo belongs to the whole performance, like the
+    /// scrubber under it -- a strip would say it belonged to a staff.
+    ///
+    /// It drives the SAME number the transport prints (`PlaybackTempo`), so
+    /// moving it here changes the readout there. Two controls, one value.
+    private var tempoBand: some View {
+        let bpm = draggingTempo ?? playback.tempoBPM
+        return HStack(spacing: Theme.Metric.s8) {
+            Text("TEMPO").typeRole(.meta)
+                .tracking(0.8)
+                .foregroundStyle(Theme.Ink.ink2)
+                .fixedSize()
+            GeometryReader { geo in
+                let fraction = PlaybackTempo.fraction(forBPM: bpm)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.Surface.well)
+                        .overlay { Capsule().stroke(Theme.Line.line2, lineWidth: 1) }
+                        .frame(height: MixerLayout.tempoTrackHeight)
+                    Capsule().fill(Theme.Ink.ink2)
+                        .frame(width: geo.size.width * fraction,
+                               height: MixerLayout.tempoTrackHeight)
+                    // The same flat cap as the faders and the seek handle: the
+                    // colour says which family this control is in, the SHAPE
+                    // says it is the same kind of thing to grab.
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .fill(Theme.Surface.panel)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                                .stroke(Theme.Ink.ink2, lineWidth: 1)
+                        }
+                        .frame(width: MixerLayout.capSize.height,
+                               height: MixerLayout.capSize.width * 0.6)
+                        .offset(x: geo.size.width * fraction
+                                - MixerLayout.capSize.height / 2)
+                }
+                .frame(height: MixerLayout.tempoHeight)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            draggingTempo = PlaybackTempo.bpm(
+                                forFraction: value.location.x / max(geo.size.width, 1))
+                            // live, not on release: a practice tempo is found
+                            // by ear while the music is playing
+                            playback.setTempo(draggingTempo ?? bpm)
+                        }
+                        .onEnded { _ in draggingTempo = nil })
+            }
+            .frame(height: MixerLayout.tempoHeight)
+            .accessibilityElement()
+            .accessibilityIdentifier("mixer-tempo")
+            .accessibilityLabel("Tempo")
+            .accessibilityValue("\(Int(bpm.rounded())) beats per minute")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: playback.setTempo(playback.tempoBPM + 1)
+                case .decrement: playback.setTempo(playback.tempoBPM - 1)
+                @unknown default: break
+                }
+            }
+            Text("\(Int(bpm.rounded()))").typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink)
+                .frame(width: 26, alignment: .trailing)
+                .accessibilityHidden(true)
+                .accessibilityIdentifier("mixer-tempo-value")
+        }
+        .padding(.horizontal, MixerLayout.padding * 2)
+        .frame(height: MixerLayout.tempoHeight)
+        .background(Theme.Surface.band)
     }
 
     // MARK: - The scrubber (§1, and seek's access path)
@@ -218,7 +299,10 @@ private struct ChannelStrip: View {
             Text(label).typeRole(.meta)
                 .foregroundStyle(Theme.Ink.ink)
                 .multilineTextAlignment(.center)
-                .lineLimit(2)
+                // One line since the panel halved: 16pt does not hold two.
+                // The full staff name is still on the strip's accessibility
+                // label, which is where a truncated caption survives.
+                .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: MixerLayout.stripWidth - 8,
                        height: MixerLayout.labelHeight, alignment: .top)

@@ -4,17 +4,37 @@ import XCTest
 /// The mixer's geometry, asserted against design/PLAYBACK_0.6.md §1.
 final class MixerLayoutTests: XCTestCase {
 
-    /// 32 header + 24 mute + 150 fader + 18 value + 28 label + padding + the
-    /// 40pt scrubber footer. Written out because the spec writes it out.
-    func testThePanelIsAsTallAsTheSpecSays() {
+    /// 24 header + 16 mute + 30 fader + 12 value + 16 label + 8 padding +
+    /// 24 tempo + 24 scrubber. Written out because the panel's height is the
+    /// thing that was wrong with it: the §1 panel was 308pt and covered a third
+    /// of the score.
+    func testThePanelIsAsTallAsTheLayoutSays() {
         XCTAssertEqual(MixerLayout.panelHeight,
-                       32 + 24 + 150 + 18 + 28 + 16 + 40)
+                       24 + 16 + 30 + 12 + 16 + 8 + 24 + 24)
     }
 
-    /// 8pt padding + n x 64 + 1pt dividers.
+    /// Half, and the tempo band is INSIDE that half rather than added on top
+    /// of it -- adding a row and calling the result halved is how a panel ends
+    /// up the same size it started.
+    func testThePanelIsHalfTheHeightItWas() {
+        XCTAssertEqual(MixerLayout.specPanelHeight, 308, "what §1 drew")
+        XCTAssertEqual(MixerLayout.panelHeight, MixerLayout.specPanelHeight / 2)
+        XCTAssertGreaterThan(MixerLayout.tempoHeight, 0,
+                             "and the tempo band is counted in it")
+    }
+
+    /// The widths did NOT halve. A 64pt strip is already the narrowest a staff
+    /// label reads at, and squeezing it would trade a panel that is too tall
+    /// for one that says "Vio…" four times.
+    func testTheStripsKeptTheirWidth() {
+        XCTAssertEqual(MixerLayout.stripWidth, 64)
+    }
+
+    /// padding either side + n x 64 + 1pt dividers.
     func testThePanelIsAsWideAsItsStrips() {
-        XCTAssertEqual(MixerLayout.panelWidth(channels: 1), 16 + 64)
-        XCTAssertEqual(MixerLayout.panelWidth(channels: 4), 16 + 4 * 64 + 3)
+        let pad = MixerLayout.padding * 2
+        XCTAssertEqual(MixerLayout.panelWidth(channels: 1), pad + 64)
+        XCTAssertEqual(MixerLayout.panelWidth(channels: 4), pad + 4 * 64 + 3)
     }
 
     /// Six strips visible, and beyond that the rack scrolls rather than the
@@ -75,7 +95,7 @@ final class MixerLayoutTests: XCTestCase {
                                        in: bounds, lanesInset: 0)
         let crowded = MixerLayout.origin(for: .bottomTrailing, panel: panel,
                                          in: bounds, lanesInset: 120)
-        XCTAssertEqual(clear.x, 1000 - 400 - 8)
+        XCTAssertEqual(clear.x, 1000 - 400 - MixerLayout.padding)
         XCTAssertEqual(crowded.y, clear.y - 120, "it lifts by exactly the lanes")
         XCTAssertLessThan(crowded.y, clear.y)
     }
@@ -83,13 +103,14 @@ final class MixerLayoutTests: XCTestCase {
     func testTheOtherCornersGoWhereTheySay() {
         let bounds = CGSize(width: 1000, height: 800)
         let panel = CGSize(width: 400, height: 268)
+        let pad = MixerLayout.padding
         XCTAssertEqual(MixerLayout.origin(for: .topLeading, panel: panel,
                                           in: bounds, lanesInset: 0),
-                       CGPoint(x: 8, y: 8))
+                       CGPoint(x: pad, y: pad))
         XCTAssertEqual(MixerLayout.origin(for: .topTrailing, panel: panel,
-                                          in: bounds, lanesInset: 0).x, 592)
+                                          in: bounds, lanesInset: 0).x, 1000 - 400 - pad)
         XCTAssertEqual(MixerLayout.origin(for: .bottomLeading, panel: panel,
-                                          in: bounds, lanesInset: 0).x, 8)
+                                          in: bounds, lanesInset: 0).x, pad)
     }
 
     /// A panel dragged at an edge stays reachable, by the ink bar's own rule

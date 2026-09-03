@@ -97,6 +97,17 @@ struct PieceScreen: View {
         }
     }
 
+    /// Spelled out rather than built inline: as one `+` chain in the modifier
+    /// the type checker gave up on the whole row.
+    private func arrangementLabel(_ score: ScoreDoc, number: Int) -> String {
+        let name = score.title ?? score.name
+        let count = score.versions.count
+        let versions = "\(count) version" + (count == 1 ? "" : "s")
+        let format = ArtifactTag.holding(of: score).map { ArtifactTag.label($0) }
+        return (["Arrangement number \(number)", name, versions] + (format.map { [$0] } ?? []))
+            .joined(separator: ", ")
+    }
+
     private func arrangementRow(_ score: ScoreDoc, number: Int) -> some View {
         HStack(spacing: Theme.Metric.s12) {
             Button { onOpen(score.slug) } label: {
@@ -105,9 +116,19 @@ struct PieceScreen: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(score.title ?? score.name).typeRole(.titleS)
                             .foregroundStyle(Theme.Ink.ink)
-                        Text("\(score.versions.count) version"
-                             + (score.versions.count == 1 ? "" : "s"))
-                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        HStack(spacing: Theme.Metric.s4) {
+                            Text("\(score.versions.count) version"
+                                 + (score.versions.count == 1 ? "" : "s"))
+                                .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                            // The same tag the library row carries (0.6.3 #3):
+                            // one treatment everywhere an arrangement is
+                            // listed, so it is learnt once.
+                            ForEach(Array(ArtifactTag.chips(
+                                            files: score.versions.map(\.file))
+                                            .enumerated()), id: \.offset) { _, chip in
+                                DerivedChip(chip: chip)
+                            }
+                        }
                     }
                     Spacer()
                 }
@@ -120,10 +141,7 @@ struct PieceScreen: View {
             .accessibilityElement(children: .ignore)
             // "Arrangement number N" is the phrase the numeral badge used, and
             // the chat context hands the model the same number
-            .accessibilityLabel("Arrangement number \(number), "
-                                + "\(score.title ?? score.name), "
-                                + "\(score.versions.count) version"
-                                + (score.versions.count == 1 ? "" : "s"))
+            .accessibilityLabel(arrangementLabel(score, number: number))
             .accessibilityAddTraits(state.selectedSlug == score.slug
                                     ? [.isButton, .isSelected] : [.isButton])
             .accessibilityIdentifier("arrangement-choice-\(score.slug)")

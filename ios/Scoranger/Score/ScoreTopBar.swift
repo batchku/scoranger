@@ -18,6 +18,15 @@ struct ScoreTopBar: View {
     let subtitle: String
     @Binding var mode: ScoreMode
     @Binding var titleMenuOpen: Bool
+    /// Which column the title band is showing. The versions dropdown opens the
+    /// VERSIONS; the title block opens the arrangements of the piece. They used
+    /// to open one two-column band, so "N versions" put a list of other pieces
+    /// on screen beside the thing that was asked for (0.6.3 #8).
+    @Binding var titleMenuMode: TitleBandLayout.Mode
+    /// Whether the transport is on screen. Moved here from Options -> Score
+    /// display (0.6.3 #6): it is a property of what you are looking at, and it
+    /// belongs beside the layout cells that are the other one.
+    @Binding var showTransport: Bool
     /// Measured, so the bar can say what it can seat (#60).
     @State private var barWidth: CGFloat = 0
     @Binding var moreOpen: Bool
@@ -61,6 +70,7 @@ struct ScoreTopBar: View {
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             layoutControl
+            if fit.showsTransportToggle { transportToggle }
             barButton("ellipsis", label: "More", identifier: "score-more",
                       active: moreOpen) { moreOpen.toggle(); titleMenuOpen = false }
         }
@@ -108,6 +118,22 @@ struct ScoreTopBar: View {
         // reason.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("performance-bar")
+    }
+
+    /// The transport, on or off, beside the layout cells.
+    ///
+    /// It was in Options -> Score display, two screens from the music, which is
+    /// where the whole of 0.6's playback hid until `TransportReveal` started
+    /// putting it on screen unasked. That reveal is untouched: this is the
+    /// switch a reader uses to put the chrome AWAY and get it back, and it is
+    /// now beside the other "what am I looking at" control.
+    private var transportToggle: some View {
+        barButton("waveform", label: "Show transport",
+                  identifier: "score-transport-toggle",
+                  active: showTransport) {
+            showTransport.toggle()
+        }
+        .accessibilityValue(showTransport ? "on" : "off")
     }
 
     /// Page / spread / continuous, as one segmented control.
@@ -198,22 +224,27 @@ struct ScoreTopBar: View {
     private var versionsTrigger: some View {
         if let label = ScoreTitle.versionsLabel(count: versionCount) {
             Button {
-                titleMenuOpen.toggle()
+                // Always the VERSIONS column, and OPENED rather than toggled
+                // shut when the band is already showing arrangements -- a
+                // control that closes the thing you asked it for is a control
+                // nobody presses twice.
+                titleMenuOpen = (titleMenuMode == .versions) ? !titleMenuOpen : true
+                titleMenuMode = .versions
                 moreOpen = false
             } label: {
                 HStack(spacing: 4) {
                     Text(label).typeRole(.data)
-                        .foregroundStyle(titleMenuOpen ? Theme.Accent.clayStrong
-                                                       : Theme.Ink.ink3)
+                        .foregroundStyle(versionsOpen ? Theme.Accent.clayStrong
+                                                      : Theme.Ink.ink3)
                         .lineLimit(1).fixedSize()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(titleMenuOpen ? Theme.Accent.clayStrong
-                                                       : Theme.Ink.ink3)
+                        .foregroundStyle(versionsOpen ? Theme.Accent.clayStrong
+                                                      : Theme.Ink.ink3)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(titleMenuOpen ? Theme.Surface.well : Color.clear)
+                .background(versionsOpen ? Theme.Surface.well : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .contentShape(Rectangle())
             }
@@ -221,10 +252,16 @@ struct ScoreTopBar: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(label)
             .accessibilityHint("Switch to another version")
-            .accessibilityAddTraits(titleMenuOpen ? [.isButton, .isSelected] : [.isButton])
+            .accessibilityAddTraits(versionsOpen ? [.isButton, .isSelected] : [.isButton])
             .accessibilityIdentifier("score-versions")
         }
     }
+
+    /// The band is open AND showing versions. Two facts now, because the band
+    /// has two things it can be showing and only one of them lights this
+    /// control.
+    private var versionsOpen: Bool { titleMenuOpen && titleMenuMode == .versions }
+    private var arrangementsOpen: Bool { titleMenuOpen && titleMenuMode == .arrangements }
 
     private var versionCount: Int { state.selectedScore?.versions.count ?? 0 }
 
@@ -238,7 +275,8 @@ struct ScoreTopBar: View {
 
     private var titleBlock: some View {
         Button {
-            titleMenuOpen.toggle()
+            titleMenuOpen = (titleMenuMode == .arrangements) ? !titleMenuOpen : true
+            titleMenuMode = .arrangements
             moreOpen = false
         } label: {
             HStack(spacing: Theme.Metric.s8) {
@@ -273,9 +311,9 @@ struct ScoreTopBar: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(titleMenuOpen ? Theme.Surface.well : Color.clear)
+            .background(arrangementsOpen ? Theme.Surface.well : Color.clear)
             .overlay {
-                if titleMenuOpen {
+                if arrangementsOpen {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                         .stroke(Theme.Line.line2, lineWidth: 1)
                 }
@@ -290,8 +328,8 @@ struct ScoreTopBar: View {
         // reads the parts separately for the same reason.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(title), \(subtitle)")
-        .accessibilityHint("Switch arrangement or version")
-        .accessibilityAddTraits(titleMenuOpen ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityHint("Switch to another arrangement of this piece")
+        .accessibilityAddTraits(arrangementsOpen ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier("score-title")
     }
 
@@ -315,6 +353,49 @@ struct ScoreTopBar: View {
         .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+}
+
+/// What the arrangement on screen IS: a PDF, or engraved notation (0.6.3 #5).
+///
+/// Top left of the canvas, opposite the page and bar counters, because it is
+/// the same kind of fact -- something about what you are looking at rather
+/// than a control. It is the fact that explains the rest of the screen: why
+/// the pencil selects nothing, why continuous is greyed out, why the transport
+/// says there is nothing to play. Every one of those was discoverable only by
+/// trying it and failing.
+///
+/// It says the CONSEQUENCE as well as the format. "PDF" alone answers a
+/// question nobody asked; "PDF · not editable" answers the one they have.
+struct ArtifactMarker: View {
+    let kind: ScoreArtifact.Kind
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: kind == .notation ? "music.note.list" : "doc.text")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(kind == .notation ? Theme.Accent.clayStrong
+                                                   : Theme.Ink.ink3)
+            Text(ArtifactTag.label(kind))
+                .typeRole(.data)
+                .foregroundStyle(kind == .notation ? Theme.Accent.clayStrong
+                                                   : Theme.Ink.ink2)
+            Text(ArtifactTag.markerDetail(kind))
+                .typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink3)
+        }
+        .padding(.horizontal, Theme.Metric.s8)
+        .padding(.vertical, 4)
+        .background(kind == .notation ? Theme.Accent.clayTint : Theme.Surface.panel)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                .stroke(kind == .notation ? Theme.Accent.clayBorder : Theme.Line.line2,
+                        lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(ArtifactTag.label(kind)), \(ArtifactTag.markerDetail(kind))")
+        .accessibilityIdentifier("artifact-marker")
     }
 }
 

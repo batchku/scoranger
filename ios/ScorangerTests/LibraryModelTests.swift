@@ -267,10 +267,12 @@ final class LibraryTagTests: XCTestCase {
                  setlists: [], books: nil)
     }
 
-    /// The origin is the most useful thing on the row after the name.
+    /// The origin is the most useful thing on the row after the name -- after
+    /// the FORMAT tag, which took the lead in 0.6.3: whether the row is a PDF
+    /// decides whether anything on it can be worked on at all.
     func testATagBecomesAChipOnTheRow() {
         let rows = LibraryModel.pieceRows(manifest: manifest(tags: ["Bulgaria"]))
-        XCTAssertEqual(rows.first?.chips.first?.text, "Bulgaria")
+        XCTAssertTrue(rows.first?.chips.contains { $0.text == "Bulgaria" } ?? false)
     }
 
     /// Searching by origin needs no filter control to discover.

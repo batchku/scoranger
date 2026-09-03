@@ -35,6 +35,9 @@ struct ContentView: View {
     /// lane appears or disappears -- never per frame, or the panel drifts
     /// under the reader's hand.
     private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
+    /// Which list the title band is showing. The versions dropdown and the
+    /// title block open the same band on two different columns (0.6.3 #8).
+    @State private var titleMenuMode: TitleBandLayout.Mode = .versions
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
@@ -149,6 +152,8 @@ struct ContentView: View {
                         subtitle: scoreSubtitle,
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
+                        titleMenuMode: $titleMenuMode,
+                        showTransport: $showTransport,
                         moreOpen: Binding(get: { scoreScreen != nil },
                                           set: { on in
                                               scoreScreen = on ? .options : nil
@@ -163,6 +168,7 @@ struct ContentView: View {
                         })
             if state.titleMenuOpen, let score = state.selectedScore {
                 TitleSwitcherBand(score: score,
+                                  mode: titleMenuMode,
                                   onPickArrangement: { slug in
                                       state.titleMenuOpen = false
                                       state.select(slug: slug)
@@ -188,6 +194,15 @@ struct ContentView: View {
                 // overlay they did not materialise at all, and a menu that
                 // cannot be opened is worse than one that is in the wrong place.
 
+            }
+            // What this arrangement IS, opposite the counters (0.6.3 #5).
+            .overlay(alignment: .topLeading) {
+                if state.selectedScore != nil, state.pdfDocument != nil {
+                    ArtifactMarker(kind: state.displayedArtifact)
+                        .padding(.top, Theme.Metric.s8)
+                        .padding(.leading, Theme.Metric.s12)
+                        .allowsHitTesting(false)
+                }
             }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {

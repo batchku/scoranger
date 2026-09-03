@@ -146,6 +146,11 @@ struct Transport: View {
             if voicesOpen { voiceList }
         }
         .background(Theme.Surface.band)
+        // The spacebar, as in every DAW (0.6.3 #9). It lives HERE and not on
+        // the score screen, so it exists exactly while the transport does --
+        // a shortcut for a control that is not on screen does something
+        // invisible.
+        .background(alignment: .leading) { spaceKey }
         .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
         // Named on the container AND told to contain its children, or the
         // identifier is inherited by every button inside it and the buttons
@@ -153,6 +158,32 @@ struct Transport: View {
         // unusable.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("transport")
+    }
+
+    /// The spacebar shortcut, and nothing to look at.
+    ///
+    /// A button of its own rather than the shortcut hung on Play: the shortcut
+    /// has to refuse while a text field has focus, and Play's TAP must not --
+    /// tapping Play with the chat input focused is a perfectly ordinary thing
+    /// to do. One control, two triggers, two different rules is how the tap
+    /// would have been broken to fix the key.
+    ///
+    /// `.opacity(0)` and not `.hidden()`: a hidden view leaves the responder
+    /// chain and takes its key command with it.
+    private var spaceKey: some View {
+        Button("Play or stop") {
+            guard TransportKeys.spaceToggles(
+                    isEditingText: KeyboardFocus.isEditingText,
+                    isTransportShowing: true,
+                    canPlay: unavailable.canPlay && playback.unavailable == nil
+                            && !preparing) else { return }
+            onPlay()
+        }
+        .keyboardShortcut(.space, modifiers: [])
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .accessibilityHidden(true)
+        .accessibilityIdentifier("transport-space-key")
     }
 
     private var row: some View {
@@ -319,9 +350,13 @@ struct Transport: View {
         }
     }
 
+    /// The SAME number the mixer's tempo slider sits on. It was the timeline's
+    /// opening tempo, which the slider could not change -- a readout and a
+    /// control claiming one value while reading two.
     private var tempoLabel: String {
-        let bpm = Int(playback.timeline.openingTempo.rounded())
-        return playback.timeline.tempoFromScore ? "\(bpm) bpm" : "\(bpm) (default)"
+        PlaybackTempo.label(bpm: playback.tempoBPM,
+                            fromScore: playback.timeline.tempoFromScore,
+                            overridden: playback.tempoOverride != nil)
     }
 
     /// One row per part, each a switch. Muting every one of them is how the

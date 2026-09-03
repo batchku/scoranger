@@ -13,11 +13,13 @@ import CoreGraphics
 ///
 ///   1. ✕ close          FIXED. Never yields. Without it the score is a trap.
 ///   2. Edit, Ask, …     the actions the score view exists for
-///   3. layout control   three cells, then two
-///   4. the title        flexible: it truncates, it does not disappear
-///   5. version count    optional -- the title block opens the same band, so
+///   3. transport toggle optional -- the Options screen carries the same
+///                       switch, so nothing becomes unreachable when it goes
+///   4. layout control   three cells, then two
+///   5. the title        flexible: it truncates, it does not disappear
+///   6. version count    optional -- the title block opens the same band, so
 ///                       nothing becomes unreachable when it goes
-///   6. the mode chip    optional, and the first to go -- the Edit button's
+///   7. the mode chip    optional, and the first to go -- the Edit button's
 ///                       own active state still states the mode
 ///
 /// Nothing above the line an item sits on is ever sacrificed for it.
@@ -30,6 +32,13 @@ enum ScoreBarLayout {
         /// Cells in the layout control: 3 (page/spread/continuous) or 2
         /// (page/continuous -- a spread across a phone is two thumbnails).
         var layoutCells: Int
+        /// The "Show transport" toggle, beside the layout cells (0.6.3 #6).
+        ///
+        /// Optional, and the Options screen keeps the same switch: a bar too
+        /// narrow to seat it must not be a bar with no way to turn playback's
+        /// chrome back on. Dropping a SHORTCUT is allowed here; dropping a
+        /// feature is not.
+        var showsTransportToggle: Bool = true
         /// The "#N" badge: which arrangement of the piece this is.
         var showsNumeral: Bool = true
         /// The second line under the title: piece name and version.
@@ -60,6 +69,8 @@ enum ScoreBarLayout {
     static let threeCells: CGFloat = 40 * 3 + 2   // cells plus their dividers
     static let twoCells: CGFloat = 40 * 2 + 1
     static let versionsWidth: CGFloat = 110
+    /// The transport toggle and the gap before it.
+    static let transportWidth: CGFloat = 34 + 8
     static let modeChipWidth: CGFloat = 90
     static let numeralWidth: CGFloat = 40
     /// Less than this and the title is not a title any more.
@@ -81,7 +92,8 @@ enum ScoreBarLayout {
         // the first frame and filling it in afterwards.
         guard barWidth > 0 else { return everything }
 
-        let forAll = essentials + threeCells + versionsWidth + modeChipWidth + titleMinimum
+        let forAll = essentials + threeCells + versionsWidth + modeChipWidth
+            + transportWidth + titleMinimum
         if barWidth >= forAll { return everything }
 
         // The chip goes first: the Edit button already states the mode.
@@ -95,8 +107,17 @@ enum ScoreBarLayout {
         if barWidth >= withoutVersions {
             return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3)
         }
+        // Then the transport toggle. Its switch is still in Options, and the
+        // transport reveals itself on the first playable arrangement anyway
+        // (TransportReveal) -- so a phone loses a shortcut and nothing else.
+        let withoutTransport = withoutVersions - transportWidth
+        if barWidth >= withoutTransport {
+            return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3,
+                       showsTransportToggle: false)
+        }
         // Then the spread cell, which is the one a narrow screen cannot use.
-        let twoCellFit = Fit(showsVersions: false, showsModeChip: false, layoutCells: 2)
+        let twoCellFit = Fit(showsVersions: false, showsModeChip: false, layoutCells: 2,
+                             showsTransportToggle: false)
         if fits(twoCellFit, in: barWidth) { return twoCellFit }
 
         // Then the title's COMPANIONS, so the title itself can stay readable.
@@ -109,9 +130,11 @@ enum ScoreBarLayout {
         // They yield rather than the title being given a hard minimum: forcing
         // a width here pushed the ✕ off the bar entirely, which is #60.
         let withoutSubtitle = Fit(showsVersions: false, showsModeChip: false,
-                                  layoutCells: 2, showsSubtitle: false)
+                                  layoutCells: 2, showsTransportToggle: false,
+                                  showsSubtitle: false)
         if fits(withoutSubtitle, in: barWidth) { return withoutSubtitle }
         return Fit(showsVersions: false, showsModeChip: false, layoutCells: 2,
+                   showsTransportToggle: false,
                    showsNumeral: false, showsSubtitle: false)
     }
 
@@ -121,6 +144,7 @@ enum ScoreBarLayout {
         var needed = essentials + titleMinimum
         needed += fit.layoutCells >= 3 ? threeCells : twoCells
         if fit.showsVersions { needed += versionsWidth }
+        if fit.showsTransportToggle { needed += transportWidth }
         if fit.showsModeChip { needed += modeChipWidth }
         if fit.showsNumeral { needed += numeralWidth }
         return needed <= width

@@ -68,9 +68,18 @@ struct SetlistPickerView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(score.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
                         .lineLimit(1)
-                    if let placement = state.placement(of: score.slug) {
-                        Text(placement.piece.name).typeRole(.meta)
-                            .foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                    HStack(spacing: Theme.Metric.s4) {
+                        if let placement = state.placement(of: score.slug) {
+                            Text(placement.piece.name).typeRole(.meta)
+                                .foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                        }
+                        // Building a running order is exactly when knowing a
+                        // tune is still a PDF matters (0.6.3 #3, #4).
+                        ForEach(Array(ArtifactTag.chips(
+                                        files: score.versions.map(\.file))
+                                        .enumerated()), id: \.offset) { _, chip in
+                            DerivedChip(chip: chip)
+                        }
                     }
                 }
                 Spacer(minLength: Theme.Metric.s8)
