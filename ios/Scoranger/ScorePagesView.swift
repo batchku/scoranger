@@ -198,13 +198,18 @@ struct ScorePagesView: View {
                     now: size, latched: fittedTo,
                     sameDocument: fittedDocument == state.engravingKey)
                 if next != fittedTo { fittedTo = next }
-                fittedDocument = state.engravingKey
+                // Only when it differs. Assigning the same value to @State
+                // still invalidates the view, and this view being invalidated
+                // is the thing the whole pass is about.
+                if fittedDocument != state.engravingKey {
+                    fittedDocument = state.engravingKey
+                }
             }
             // A different engraving is a different score on the canvas, and
             // whatever the last one was fitted to says nothing about it.
             .onChange(of: state.engravingKey) { _, key in
                 fittedDocument = key
-                fittedTo = geo.size
+                if fittedTo != geo.size { fittedTo = geo.size }
             }
             // Follow the sound. Only on a CHANGE of bar: the engine publishes
             // a beat twenty times a second and re-deciding the scroll that
