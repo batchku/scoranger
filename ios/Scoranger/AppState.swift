@@ -642,6 +642,20 @@ final class AppState: ObservableObject {
     private(set) var engravingKey: String = ""
     private var engravingCount = 0
 
+    /// An engraving and the stamp that names it.
+    ///
+    /// The stamp is allocated ONCE, when the engraving is made, and travels
+    /// with it. That is what lets the two caches compose: coming back to an
+    /// engraving already held gives back the same `engravingKey`, so the
+    /// canvas rasters drawn from it are still valid. Stamping on every render
+    /// instead -- which is what a plain counter did -- made returning to a
+    /// held engraving free of Verovio and then redrew every one of its tiles,
+    /// 101 rasters over six layout switches that should have needed none.
+    struct HeldEngraving {
+        let engraving: VerovioRenderer.Engraving
+        let stamp: Int
+    }
+
     /// Engravings already made, by "<slug>/<version>/<layout>".
     ///
     /// A version is IMMUTABLE -- every op writes a new one -- so an engraving
@@ -653,15 +667,14 @@ final class AppState: ObservableObject {
     /// Four of them, roughly, at 24MB. Enough to hold both layouts of the
     /// version being read and both of the one before it, which is the pattern
     /// a reader comparing two versions actually makes.
-    static let engravings = MemoCache<String, VerovioRenderer.Engraving>(
-        budget: 24 << 20)
+    static let engravings = MemoCache<String, HeldEngraving>(budget: 24 << 20)
 
     /// What an engraving costs to hold. The PDF is nearly all of it; the
     /// geometry is a few thousand small structs, charged at a flat rate rather
     /// than walked, because walking it to size it would cost more than the
     /// entry is worth.
-    static func engravingBytes(_ e: VerovioRenderer.Engraving) -> Int {
-        e.pdf.count + 64 * 1024
+    static func engravingBytes(_ held: HeldEngraving) -> Int {
+        held.engraving.pdf.count + 64 * 1024
     }
 
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
@@ -1187,6 +1200,9 @@ final class AppState: ObservableObject {
             let data: Data
             var model: ScoreGeometry?
             var engravedAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+            /// Which engraving this is, for the canvas's raster keys. Bumped
+            /// only where a new one is actually made.
+            var stamp = 0
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
                 if ScoreArtifact.kind(ofFile: path) == .scan {
@@ -1209,13 +1225,19 @@ final class AppState: ObservableObject {
                     // largest single cost in the app, 3.1 s median in a
                     // RELEASE build. Held here rather than inside the renderer
                     // because the actor is a toolkit, not a memory.
-                    let engraving = try await Self.engravings.asyncValue(
+                    let held = try await Self.engravings.asyncValue(
                         for: key, cost: Self.engravingBytes,
-                        make: { try await VerovioRenderer.shared.engrave(
-                            musicXMLPath: path, layout: layout) })
-                    data = engraving.pdf
-                    model = engraving.geometry
-                    engravedAdjustments = engraving.chordAdjustments
+                        make: {
+                            let made = try await VerovioRenderer.shared.engrave(
+                                musicXMLPath: path, layout: layout)
+                            engravingCount += 1
+                            return HeldEngraving(engraving: made,
+                                                 stamp: engravingCount)
+                        })
+                    data = held.engraving.pdf
+                    model = held.engraving.geometry
+                    engravedAdjustments = held.engraving.chordAdjustments
+                    stamp = held.stamp
                 }
             } else {
                 data = try await client.exportPDF(score: score.slug, version: vid)
@@ -1224,8 +1246,8 @@ final class AppState: ObservableObject {
                 rendered = true
                 // Before the document, so the canvas the publish rebuilds
                 // reads the key belonging to the pages it is handed.
-                engravingCount += 1
-                engravingKey = "\(key)#\(engravingCount)"
+                if stamp == 0 { engravingCount += 1; stamp = engravingCount }
+                engravingKey = "\(key)#\(stamp)"
                 pdfDocument = PDFDocument(data: data)
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no
