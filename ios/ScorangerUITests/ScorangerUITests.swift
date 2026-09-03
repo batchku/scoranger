@@ -3315,9 +3315,20 @@ extension ScorangerUITests {
             let mute = app.descendants(matching: .any)["strip-mute-\(lit)"].firstMatch
             mute.tap()
             XCTAssertEqual(mute.value as? String, "on", "the strip did not mute")
-            XCTAssertEqual(app.descendants(matching: .any)["strip-led-\(lit)"]
-                            .firstMatch.value as? String, "yes",
-                           "muting a channel put its activity lamp out")
+            // The lamp follows the MUSIC, and the music keeps moving: reading
+            // it one instant after the tap can catch a rest that arrived on
+            // its own, and the failure then reads as "muting put the lamp
+            // out". Under four simulators it did, once in three runs -- twice
+            // now, across two attempts at this branch.
+            //
+            // The property is that muting does not darken the lamp FOR GOOD,
+            // so this waits for the muted staff to light again -- which is a
+            // stronger claim than the instant it replaces, not a weaker one.
+            let led = app.descendants(matching: .any)["strip-led-\(lit)"].firstMatch
+            XCTAssertTrue(waitUntil("the muted staff's lamp to light again",
+                                    timeout: 25) {
+                (led.value as? String) == "yes"
+            }, "muting a channel put its activity lamp out for good")
             shot("mixer-muted-still-lit")
             mute.tap()
         }
