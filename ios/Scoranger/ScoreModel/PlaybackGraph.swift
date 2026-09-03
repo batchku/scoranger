@@ -51,14 +51,16 @@ final class PlaybackGraph {
     static let silencedForTesting: Bool =
         ProcessInfo.processInfo.arguments.contains("-seedTestLibrary")
 
-    func load(midi: URL, timeline: PlaybackTimeline) throws {
+    func load(midi: URL, timeline: PlaybackTimeline,
+              instruments: PlaybackInstruments = PlaybackInstruments()) throws {
         teardown()
         for part in timeline.parts {
             let sampler = AVAudioUnitSampler()
             engine.attach(sampler)
             engine.connect(sampler, to: engine.mainMixerNode, format: nil)
-            if !loadInstrument(sampler, program: PlaybackSound.program(for: part),
-                               bankMSB: PlaybackSound.melodicBankMSB) {
+            let sound = instruments.resolved(for: part)
+            if !loadInstrument(sampler, program: sound.program,
+                               bankMSB: sound.bank.msb) {
                 bankFailures.append(part.index)
             }
             samplers.append(sampler)
@@ -103,6 +105,43 @@ final class PlaybackGraph {
         }
         clickTrack = metronome
         sequencer = loaded
+    }
+
+    /// Put a different sound on ONE channel, while the transport runs.
+    ///
+    /// No rebuild and no restart: `loadSoundBankInstrument` is per-node, each
+    /// part already has its own sampler, and the sequencer's tracks point at
+    /// those samplers rather than at a patch. So the graph, the clock and the
+    /// play head are all untouched -- the reader hears the next note in the
+    /// new sound and nothing skips.
+    ///
+    /// The one audible caveat, stated because it is a property of the sampler
+    /// and not of this code: notes already ringing were rendered by the old
+    /// patch and finish in it. Changing instrument under a held whole note is
+    /// heard on the note after it.
+    @discardableResult
+    func setInstrument(program: UInt8, bank: GeneralMIDI.Bank,
+                       channel: Int) -> Bool {
+        guard samplers.indices.contains(channel) else { return false }
+        let loaded = loadInstrument(samplers[channel], program: program,
+                                    bankMSB: bank.msb)
+        // The failure list is a live fact about the graph, not a log of what
+        // happened during load: a channel that has just been given a sound
+        // that works is no longer a channel with no sound.
+        if loaded { bankFailures.removeAll { $0 == channel } }
+        else if !bankFailures.contains(channel) { bankFailures.append(channel) }
+        return loaded
+    }
+
+    /// Re-seat every channel's sound. Used when the whole mixer changes at
+    /// once -- "every voice on a piano" -- so one pass replaces n rebuilds.
+    func applyInstruments(_ instruments: PlaybackInstruments,
+                          parts: [PlaybackTimeline.Part]) {
+        for part in parts where part.index < samplers.count {
+            let sound = instruments.resolved(for: part)
+            setInstrument(program: sound.program, bank: sound.bank,
+                          channel: part.index)
+        }
     }
 
     @discardableResult

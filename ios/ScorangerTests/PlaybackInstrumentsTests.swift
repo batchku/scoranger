@@ -120,16 +120,6 @@ final class PlaybackInstrumentsTests: XCTestCase {
         XCTAssertNil(instruments.choice(for: part(1, "Cello")))
     }
 
-    /// The same predicate the mutes and faders use, not a second one.
-    func testChoicesCarryOnlyWhereTheStavesDidNotMove() {
-        let before = [part(0, "Violin I"), part(1, "Viola")]
-        let renamed = [part(0, "Violin I"), part(1, "Violin II")]
-        let shorter = [part(0, "Violin I")]
-        XCTAssertTrue(PlaybackInstruments.canCarry(from: before, to: before))
-        XCTAssertFalse(PlaybackInstruments.canCarry(from: before, to: renamed))
-        XCTAssertFalse(PlaybackInstruments.canCarry(from: before, to: shorter))
-    }
-
     // MARK: - Across a relaunch
 
     private func store() throws -> (PlaybackInstrumentStore, URL) {

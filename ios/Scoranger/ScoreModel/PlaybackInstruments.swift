@@ -29,12 +29,15 @@ struct PlaybackInstruments: Equatable, Codable {
     /// The name is stored ALONGSIDE the index, and this is the whole reason
     /// the type is not just `[Int: UInt8]`. Channels are keyed on index --
     /// `PlaybackVoices` explains why -- and an op that removes a part
-    /// renumbers every part after it. Within a session `PlaybackChannels
-    /// .canCarry` catches that. Across a relaunch there is no previous part
-    /// list to compare with, only what was written to disk, so the choice
-    /// carries the name it was made against and is ignored when the staff at
-    /// that index is no longer that staff. A trumpet patch that quietly moved
-    /// onto the cello is worse than a guess.
+    /// renumbers every part after it, so a trumpet patch put on the viola
+    /// would come back on the cello.
+    ///
+    /// The mutes handle that by refusing to carry across a changed part list
+    /// (`PlaybackChannels.canCarry`). These cannot use the same rule, because
+    /// they are read back off disk on a relaunch where there is no previous
+    /// part list to compare with. So each choice carries the name it was made
+    /// against and is ignored when the staff at that index is no longer that
+    /// staff -- which covers the relaunch and the renumbering with one fact.
     struct Choice: Equatable, Codable {
         let part: String
         let program: UInt8
@@ -125,16 +128,6 @@ struct PlaybackInstruments: Equatable, Codable {
             return guess
         }
         return InstrumentGuess.program(for: part.name) ?? PlaybackSound.fallbackProgram
-    }
-
-    /// Whether choices may be carried from one performance to the next.
-    ///
-    /// Deliberately the same predicate the mutes and faders use rather than a
-    /// second one: three kinds of channel state with three different rules
-    /// about when they survive is three things to get wrong.
-    static func canCarry(from previous: [PlaybackTimeline.Part],
-                         to next: [PlaybackTimeline.Part]) -> Bool {
-        PlaybackChannels.canCarry(from: previous, to: next)
     }
 }
 
