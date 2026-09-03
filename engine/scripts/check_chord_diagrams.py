@@ -1,13 +1,26 @@
 """Regression check for guitar chord diagrams.
 
-Four things are asserted, and each one is a way the feature has an obvious
+Six things are asserted, and each one is a way the feature has an obvious
 wrong-but-plausible form:
 
-  - THE SHAPES. The open-position chart is published fact, so it is checked
-    against the published fact, chord by chord, the way check_whistle.py checks
-    the whistle's fingerings. A chord the search has to work out is checked for
-    the things that make a voicing real: every chord tone sounding, the root in
-    the bass, a hand that can reach it.
+  - THE SHAPES. The chart of conventional shapes is published fact, so it is
+    checked against the published fact, chord by chord, the way
+    check_whistle.py checks the whistle's fingerings. A chord the search has to
+    work out is checked for the things that make a voicing real: every chord
+    tone sounding, the root in the bass, a hand that can reach it. And the
+    chart is not the same rule as "the lowest voicing": A7 and Dm7 can both be
+    played open and are both written as fifth-fret barres, which is what the
+    chart says and what the op draws.
+  - THE HAND. Which finger goes on each dot, which is a second published fact
+    and not a restatement of the first. Frets and fingers coincide for a C --
+    x32010 both ways -- and part company for a G, 320003 under the fingers and
+    320004 in them. Movable shapes are derived from the open shape they are a
+    barre of and are asserted from that derivation, not from a table.
+  - THE REFERENCE CHART, engraved: C, G, A7 and Dm7 taken the whole way
+    through music21, Verovio and both rendering passes, with the four marks
+    rows, the two barres, the two fret labels and the two nuts read back off
+    the page. Everything else here is arithmetic over lists; this is the
+    picture.
   - WHAT A BARRE IS. One finger across the neck is drawn as one bar, not as a
     row of separate dots — and it stops every string it crosses, so a shape
     with an open string inside the span is not a barre and is not playable.
