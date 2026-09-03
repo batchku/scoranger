@@ -9,22 +9,44 @@ import Foundation
 /// screenshot shows and a test pins.
 enum MixerLayout {
 
-    // MARK: - One strip (§1)
+    // MARK: - One strip (§1, halved in 0.6.3)
+
+    /// The panel the spec drew was 308pt tall and it covered a third of an
+    /// iPad's score. The reader asked for half. Every vertical number below is
+    /// cut to roughly half its §1 value; the WIDTHS are untouched, because a
+    /// 64pt strip is already the narrowest a two-line staff label reads at.
+    ///
+    /// What the halving costs, stated so it is a decision and not an accident:
+    /// the fader keeps 20pt of travel for eleven notches, so a DRAG is coarse.
+    /// Precision did not go with it -- a tap anywhere on the track jumps to
+    /// that notch, the `.adjustable` VoiceOver action steps one at a time, and
+    /// the value is printed under the cap. The fader can still be set exactly;
+    /// it just cannot be set exactly by dragging.
+    static let specPanelHeight: CGFloat = 308
 
     static let stripWidth: CGFloat = 64
-    static let muteHeight: CGFloat = 24
-    static let muteSize = CGSize(width: 28, height: 24)
-    static let faderHeight: CGFloat = 150
+    static let muteHeight: CGFloat = 16
+    static let muteSize = CGSize(width: 26, height: 16)
+    static let faderHeight: CGFloat = 30
     static let faderTrackWidth: CGFloat = 6
-    static let capSize = CGSize(width: 20, height: 12)
+    static let capSize = CGSize(width: 20, height: 10)
     static let ledWidth: CGFloat = 8
     static let ledInset: CGFloat = 6
-    static let valueHeight: CGFloat = 18
-    static let labelHeight: CGFloat = 28
-    static let headerHeight: CGFloat = 32
-    static let footerHeight: CGFloat = 40
+    static let valueHeight: CGFloat = 12
+    /// One line now, not two. At 16pt a second line does not fit; the full
+    /// staff name stays in the strip's accessibility label, which is where a
+    /// truncated caption is supposed to survive.
+    static let labelHeight: CGFloat = 16
+    static let headerHeight: CGFloat = 24
+    static let footerHeight: CGFloat = 24
+    /// The tempo band: one horizontal slider in a row of its own, between the
+    /// strips and the scrubber, with a rule above and below it. It is NOT a
+    /// channel -- it belongs to the whole performance, like the scrubber --
+    /// so it is separated from the rack and drawn in a different colour.
+    static let tempoHeight: CGFloat = 24
+    static let tempoTrackHeight: CGFloat = 4
     static let dividerWidth: CGFloat = 1
-    static let padding: CGFloat = 8
+    static let padding: CGFloat = 4
 
     /// A muted strip does not vanish -- it dims. The LED keeps lighting at this
     /// opacity, because the staff IS playing and the reader simply cannot hear
@@ -38,10 +60,16 @@ enum MixerLayout {
     static let visibleStrips = 6
     static let visibleStripsCompact = 4
 
-    /// 32 header + 24 mute + 150 fader + 18 value + 28 label + padding.
+    /// The rack: what one strip occupies, top to bottom, plus its padding.
+    static var rackHeight: CGFloat {
+        muteHeight + faderHeight + valueHeight + labelHeight + padding * 2
+    }
+
+    /// 24 header + 16 mute + 30 fader + 12 value + 16 label + 8 padding
+    /// + 24 tempo + 24 scrubber = 154, which is exactly half of the 308 the
+    /// panel used to be -- the tempo band included, not on top of it.
     static var panelHeight: CGFloat {
-        headerHeight + muteHeight + faderHeight + valueHeight + labelHeight
-            + padding * 2 + footerHeight
+        headerHeight + rackHeight + tempoHeight + footerHeight
     }
 
     /// 8pt padding + n x 64 + 1pt dividers, capped at what fits.
