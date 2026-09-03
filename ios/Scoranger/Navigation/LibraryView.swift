@@ -547,15 +547,20 @@ struct LibraryView: View {
     @ViewBuilder
     private var empty: some View {
         if search.isEmpty && filters.isEmpty {
-            StateView(systemImage: segment == .pieces ? "music.note.list" : "list.bullet",
-                      title: segment == .pieces ? "No music yet" : "No set lists yet",
-                      message: segment == .pieces
-                          ? "Import a score, or make a blank arrangement and ask."
-                          : "A set list is a gig's running order of arrangements.",
-                      actionTitle: segment == .pieces ? "Import" : "New set list",
+            let empty = LibraryModel.emptyState(segment: segment)
+            StateView(systemImage: empty.systemImage,
+                      title: empty.title,
+                      message: empty.message,
+                      actionTitle: empty.actionTitle,
                       actionKind: .primary,
                       identifier: "library-empty",
-                      action: { if segment == .pieces { onImport() } else { creatingName = "" } })
+                      action: {
+                          switch segment {
+                          case .pieces:   onImport()
+                          case .books:    onImportBook()
+                          case .setlists: creatingName = ""
+                          }
+                      })
                 .frame(maxWidth: .infinity)
                 .padding(.top, Theme.Metric.s32)
         } else {
