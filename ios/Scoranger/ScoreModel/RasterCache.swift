@@ -177,7 +177,15 @@ enum CanvasRasters {
 
     /// A memory warning empties it. The pictures can all be drawn again; being
     /// killed cannot be undone.
-    static func observeMemoryWarnings() {
+    ///
+    /// Once, however many times it is asked: the caller is `startPolling`,
+    /// which runs again whenever the engine is reconfigured, and a stack of
+    /// identical observers would clear the cache once per call.
+    @MainActor private static var observing = false
+
+    @MainActor static func observeMemoryWarnings() {
+        guard !observing else { return }
+        observing = true
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: nil) { _ in shared.clear() }

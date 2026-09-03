@@ -857,6 +857,10 @@ final class AppState: ObservableObject {
         // A measurement run asks for the readings in the log (-perfDump);
         // nothing happens without it.
         PerfMetrics.shared.startConsoleDumpIfRequested()
+        // The rasters the canvas holds are the first thing worth giving back
+        // under pressure: every one of them can be drawn again, and being
+        // killed cannot be undone.
+        CanvasRasters.observeMemoryWarnings()
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

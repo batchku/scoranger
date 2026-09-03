@@ -49,6 +49,12 @@ struct ScorePagesView: View {
     /// following the music must not invalidate this view twenty times a second
     /// (see CanvasScroller).
     @State private var scroller = CanvasScroller()
+    /// The viewport the continuous strip is FITTED to, which is not always the
+    /// viewport it has -- see `ContinuousTiles.fittingViewport`. A panel that
+    /// takes height off the canvas must not re-scale the music, because a
+    /// re-scaled strip is a fresh raster for every tile of it.
+    @State private var fittedTo: CGSize = .zero
+    @State private var fittedDocument: String = ""
 
     /// Fit to twelve.
     ///
@@ -78,8 +84,13 @@ struct ScorePagesView: View {
             // the whole score.
             let stripPage = continuous ? document.page(at: 0) : nil
             let stripBox = stripPage?.bounds(for: .mediaBox).size ?? .zero
+            // NOT geo.size. The strip is fitted by height, so a band or a bar
+            // opening over the canvas would otherwise re-scale the whole score
+            // and redraw every tile of it.
+            let fitViewport = fittedTo == .zero ? geo.size : fittedTo
             let stripScale = ContinuousTiles.fittedScale(
-                pageSize: stripBox, viewport: geo.size, bottomChrome: Self.bottomChrome)
+                pageSize: stripBox, viewport: fitViewport,
+                bottomChrome: Self.bottomChrome)
             let surface = CGSize(width: stripBox.width * stripScale,
                                  height: stripBox.height * stripScale)
             // The geometry is in the SVG's viewBox units, not the PDF's points
@@ -177,6 +188,23 @@ struct ScorePagesView: View {
                 if visibleRect == .zero {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
                 }
+            }
+            // The latch. Kept here rather than computed in the body, because a
+            // view's body may not write its own state -- and one frame drawn
+            // at the previous fit is exactly what is wanted anyway: the frame
+            // a panel opens on is the frame that must NOT re-scale.
+            .onChange(of: geo.size, initial: true) { _, size in
+                let next = ContinuousTiles.fittingViewport(
+                    now: size, latched: fittedTo,
+                    sameDocument: fittedDocument == state.engravingKey)
+                if next != fittedTo { fittedTo = next }
+                fittedDocument = state.engravingKey
+            }
+            // A different engraving is a different score on the canvas, and
+            // whatever the last one was fitted to says nothing about it.
+            .onChange(of: state.engravingKey) { _, key in
+                fittedDocument = key
+                fittedTo = geo.size
             }
             // Follow the sound. Only on a CHANGE of bar: the engine publishes
             // a beat twenty times a second and re-deciding the scroll that

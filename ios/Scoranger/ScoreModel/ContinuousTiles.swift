@@ -59,6 +59,42 @@ enum ContinuousTiles {
         return max(min(byHeight, ceiling), 0.01)
     }
 
+    /// The viewport the strip is FITTED to, which is not always the viewport
+    /// it currently HAS.
+    ///
+    /// The strip is fitted by HEIGHT, so anything that takes height off the
+    /// canvas re-scales the whole score -- and a re-scaled strip is a new
+    /// picture for every one of its tiles, twenty-odd `drawPDFPage` calls over
+    /// an engraving seventeen thousand points wide. That is what opening the
+    /// version band cost: measured at 511 ms of `canvas tile raster` inside a
+    /// 575 ms tap, with the raster cache already in place and missing on every
+    /// tile because every tile's scale had changed.
+    ///
+    /// The band is not the only thing that does it. The ink bar, the transport
+    /// and the mixer all take height, and each would re-scale the music the
+    /// same way. So the rule is stated about height rather than about the band:
+    ///
+    /// **A viewport that only got SHORTER does not re-fit the strip.** The
+    /// music keeps the size it had and the shorter canvas shows less of it,
+    /// which is what a panel opening over a score should do. A viewport that
+    /// got TALLER re-fits -- so closing the band puts the strip back, at a
+    /// scale the cache is still holding every tile for.
+    ///
+    /// A change of WIDTH always re-fits: that is a rotation or a window
+    /// resize, and there is no sense in which the old fit still applies.
+    ///
+    /// - Parameters:
+    ///   - now: the viewport this frame.
+    ///   - latched: the viewport last fitted to, or `.zero` if none.
+    ///   - sameDocument: false when a different engraving is on screen, which
+    ///     makes any previous fit meaningless.
+    static func fittingViewport(now: CGSize, latched: CGSize,
+                                sameDocument: Bool) -> CGSize {
+        guard sameDocument, latched.width > 0, latched.height > 0 else { return now }
+        guard abs(now.width - latched.width) < 0.5 else { return now }
+        return now.height > latched.height ? now : latched
+    }
+
     /// How much bigger than a fitted page the strip may be drawn.
     ///
     /// Two, so a four-staff system still fills most of a portrait iPad -- which
