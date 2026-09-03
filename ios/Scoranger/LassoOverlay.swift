@@ -44,7 +44,20 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         ProcessInfo.processInfo.arguments.contains("-uiTestPencil")
 
     private func isPencil(_ touch: UITouch) -> Bool {
-        touch.type == .pencil || (Self.fingerStandsInForPencil && touch.type == .direct)
+        if touch.type == .pencil { return true }
+        guard Self.fingerStandsInForPencil, touch.type == .direct else { return false }
+        // The stroke in flight stays the Pencil however many fingers join it.
+        // That is the held-finger "add", and it must keep working.
+        if drawing == touch { return true }
+        // Otherwise ONE finger stands in for the Pencil and two are not one. A
+        // Pencil is never two touches, and while the stand-in claimed both, a
+        // pinch's first finger arrived as a Pencil touchdown: it cleared the
+        // selection, claimed the stroke, and froze the canvas, so the score
+        // could not be zoomed at all under the stand-in. Reverting this and
+        // the two below put the zoom back at 1.00 through eight pinches, with
+        // the selection wiped -- which is how it is known to be load-bearing
+        // rather than defensive.
+        return down.count <= 1
     }
 
     /// The touch drawing the lasso, once one has been chosen.
@@ -161,8 +174,22 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// beside the Pencil reaches the scroll view as an ordinary finger. Turning
     /// scrolling off also cancels a pan already in flight, so a palm that
     /// landed first cannot keep dragging the page once the Pencil arrives.
+    /// What "a Pencil is down" means for the FREEZE.
+    ///
+    /// A real Pencil counts the moment it lands, which is the rule: a palm that
+    /// arrived first must stop dragging the page as soon as the Pencil joins
+    /// it. The test stand-in counts only once a lasso is actually in flight,
+    /// because a finger about to pinch and a finger about to select are the
+    /// same touch to it -- and freezing at touchdown switches the pinch
+    /// recogniser off before its second finger has landed.
+    private var freezingTouch: UITouch? {
+        if let pencil = down.keys.first(where: { $0.type == .pencil }) { return pencil }
+        guard Self.fingerStandsInForPencil else { return nil }
+        return drawing
+    }
+
     private func syncCanvasFreeze() {
-        let frozen = !LassoGate.canvasMayMove(pencilDown: pencilTouch != nil,
+        let frozen = !LassoGate.canvasMayMove(pencilDown: freezingTouch != nil,
                                               markupActive: annotationActive)
         guard frozen != canvasFrozen else { return }
         canvasFrozen = frozen
@@ -217,10 +244,17 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
         // glass, and whatever they are doing.
         guard selectionEnabled, drawing == nil,
               let touch = pencilTouch, touches.contains(touch),
-              LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive)
+              LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive),
+              // a real Pencil waits for nothing; the stand-in waits a tenth of
+              // a second so a pinch's first finger is not read as a stroke
+              !Self.fingerStandsInForPencil
+                  || LassoGate.standInMayDraw(heldFor: elapsed(touch))
         else { return }
         report(touch, phase: "moved", began: true)
         beginLasso(with: touch)
+        // Under the stand-in the freeze waits for this moment rather than for
+        // the touchdown, so it has to be asked for here.
+        syncCanvasFreeze()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {

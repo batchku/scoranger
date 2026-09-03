@@ -1926,6 +1926,76 @@ final class ScorangerUITests: XCTestCase {
         shot("selection-chip-redesigned")
     }
 
+    /// A lasso must select in BOTH layouts.
+    ///
+    /// Bug 7: it worked on a page and did nothing at all on the strip. The
+    /// recognizer finds the page a stroke landed on by looking for a
+    /// `LassoAnchorView` whose frame contains the touch, and continuous mode
+    /// put none in the tree -- so the gesture returned before it began, and no
+    /// outline was drawn, nothing was caught and no chip appeared, whatever the
+    /// reader did with the Pencil.
+    ///
+    /// Both halves are in one test on purpose. The paged half is the control:
+    /// a failure there says the harness or the fixture broke, and a failure in
+    /// the continuous half alone is the bug itself. Testing continuous on its
+    /// own could not tell those apart, and they cost one three-minute setup
+    /// between them.
+    func testTheLassoSelectsOnTheStripAsWellAsThePage() {
+        withPencilStandIn()
+        openArrangement(firstArrangement)
+        let canvas = app.scrollViews["score-canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180), "the score never engraved")
+        sleep(12)
+
+        let chip = app.staticTexts["selection-chip"]
+
+        // The control: paged, which is where it always worked.
+        XCTAssertTrue(lasso(on: canvas, chip: chip),
+                      "nothing was selected in PAGED mode -- the fixture or the "
+                      + "harness is broken, not the strip")
+        shot("lasso-in-paged")
+
+        // Put the page back the way it was found, so the chip that turns up
+        // after the next stroke can only be the STRIP's.
+        app.buttons["Clear selection"].firstMatch.tap()
+        XCTAssertTrue(waitForDisappearance(of: chip, timeout: 10),
+                      "the selection would not clear")
+
+        // The strip. Switching layout re-engraves the whole score and the
+        // PREVIOUS pages stay up until the new ones land (#44), so a stroke
+        // taken too early is a stroke on the old canvas.
+        app.buttons["layout-continuous"].tap()
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["counter-pages"],
+                                           timeout: 120),
+                      "the layout never changed: the page counter is still there")
+        XCTAssertTrue(canvas.waitForExistence(timeout: 180),
+                      "the continuous engraving never arrived")
+        sleep(14)
+
+        XCTAssertTrue(lasso(on: canvas, chip: chip),
+                      "a lasso on the continuous strip caught nothing: the strip "
+                      + "has no anchor for the gesture to land on")
+        shot("lasso-in-continuous")
+        XCTAssertTrue(app.staticTexts["selection-place"].exists,
+                      "the strip's selection has no place line, so the stroke "
+                      + "resolved to no bar at all")
+    }
+
+    /// Drag a band across the canvas until something is caught. Which y holds
+    /// notes depends on where the music sits, and on the strip that is a
+    /// different band from a page's, so this tries several rather than pinning
+    /// one number.
+    private func lasso(on canvas: XCUIElement, chip: XCUIElement) -> Bool {
+        for dy in [0.45, 0.35, 0.55, 0.28, 0.62] {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.32, dy: dy))
+                .press(forDuration: 0.6,
+                       thenDragTo: canvas.coordinate(
+                        withNormalizedOffset: CGVector(dx: 0.64, dy: dy)))
+            if chip.waitForExistence(timeout: 8) { return true }
+        }
+        return false
+    }
+
     func testANewArrangementCanBeAddedToASetList() {
 
         // The seed assigns set lists only after every import, so this waits for

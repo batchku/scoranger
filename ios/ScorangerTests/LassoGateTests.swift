@@ -277,4 +277,23 @@ final class LassoGateTests: XCTestCase {
         XCTAssertFalse(LassoGate.isDeliberateModifierFinger(
             radius: 11, distanceFromPencil: 40))
     }
+
+    // MARK: - The test stand-in's own condition
+
+    /// A finger standing in for the Pencil must wait a tenth of a second.
+    ///
+    /// Not a rule about the app -- a real Pencil waits for nothing -- but a
+    /// rule about the STAND-IN, and it earns a test because the number is what
+    /// separates a lasso from a pinch in every UI test that drives selection.
+    /// A synthesised pinch's first finger moves within a frame or two of
+    /// landing; every lasso in the suite presses for 0.6s first.
+    func testTheStandInWaitsLongEnoughToTellALassoFromAPinch() {
+        XCTAssertFalse(LassoGate.standInMayDraw(heldFor: 0),
+                       "a touch that has only just landed is a pinch as often "
+                       + "as it is a stroke")
+        XCTAssertFalse(LassoGate.standInMayDraw(heldFor: 0.03),
+                       "a pinch's fingers are moving by now")
+        XCTAssertTrue(LassoGate.standInMayDraw(heldFor: 0.6),
+                      "every lasso in the suite presses this long before it drags")
+    }
 }
