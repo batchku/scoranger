@@ -106,7 +106,7 @@ struct ScorePagesView: View {
                            // offering it
                            selectionEnabled: mode != .performance
                                && state.displayedArtifact == .notation,
-                           resetPanToken: state.pageIndex,
+                           resetPanToken: panToken,
                            annotationActive: annotation.isOn,
                            scrollTarget: (scrollToken, scrollTargetX),
                            bottomChrome: Self.bottomChrome,
@@ -413,6 +413,22 @@ struct ScorePagesView: View {
                                              spread: state.twoPageSpread)
         else { return }
         state.pageIndex = unit
+    }
+
+    /// What sends the canvas back to the beginning.
+    ///
+    /// A page turn, a change of layout, and a document with a different number
+    /// of pages -- which is how a re-engrave for a NEW layout announces itself.
+    /// Switching to continuous keeps the pages up until the strip arrives, so
+    /// the content grows from one page wide to the whole score in one step;
+    /// without this the scroll view kept the reader's proportional place across
+    /// that step and opened the strip in the middle of the piece.
+    ///
+    /// An op that re-engraves the same music to the same number of pages does
+    /// NOT reset: the reader keeps their place, which is #44.
+    private var panToken: Int {
+        let layoutIndex = ScoreLayout.allCases.firstIndex(of: state.layout) ?? 0
+        return (state.pageIndex &* 31 &+ layoutIndex) &* 31 &+ document.pageCount
     }
 
     private func aspect(of page: Int?) -> CGFloat {
