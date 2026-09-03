@@ -1,13 +1,26 @@
 """Regression check for guitar chord diagrams.
 
-Four things are asserted, and each one is a way the feature has an obvious
+Six things are asserted, and each one is a way the feature has an obvious
 wrong-but-plausible form:
 
-  - THE SHAPES. The open-position chart is published fact, so it is checked
-    against the published fact, chord by chord, the way check_whistle.py checks
-    the whistle's fingerings. A chord the search has to work out is checked for
-    the things that make a voicing real: every chord tone sounding, the root in
-    the bass, a hand that can reach it.
+  - THE SHAPES. The chart of conventional shapes is published fact, so it is
+    checked against the published fact, chord by chord, the way
+    check_whistle.py checks the whistle's fingerings. A chord the search has to
+    work out is checked for the things that make a voicing real: every chord
+    tone sounding, the root in the bass, a hand that can reach it. And the
+    chart is not the same rule as "the lowest voicing": A7 and Dm7 can both be
+    played open and are both written as fifth-fret barres, which is what the
+    chart says and what the op draws.
+  - THE HAND. Which finger goes on each dot, which is a second published fact
+    and not a restatement of the first. Frets and fingers coincide for a C --
+    x32010 both ways -- and part company for a G, 320003 under the fingers and
+    320004 in them. Movable shapes are derived from the open shape they are a
+    barre of and are asserted from that derivation, not from a table.
+  - THE REFERENCE CHART, engraved: C, G, A7 and Dm7 taken the whole way
+    through music21, Verovio and both rendering passes, with the four marks
+    rows, the two barres, the two fret labels and the two nuts read back off
+    the page. Everything else here is arithmetic over lists; this is the
+    picture.
   - WHAT A BARRE IS. One finger across the neck is drawn as one bar, not as a
     row of separate dots — and it stops every string it crosses, so a shape
     with an open string inside the span is not a barre and is not playable.
@@ -26,6 +39,7 @@ Run: engine/.venv/bin/python engine/scripts/check_chord_diagrams.py
      ... --write   to re-cut the golden fragment after a deliberate change
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -45,8 +59,9 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         FAILURES.append(f"{label}{': ' + detail if detail else ''}")
 
 
-def shape_of(symbol: str, tuning: str = "EADGBE") -> str | None:
-    """The shape the op would engrave for one chord symbol, as its shorthand."""
+def drawn_for(symbol: str, tuning: str = "EADGBE",
+              shapes: list[str] | None = None) -> dict | None:
+    """What the op would engrave for one chord symbol."""
     from music21 import harmony, meter, note, stream
 
     score = stream.Score()
@@ -57,26 +72,104 @@ def shape_of(symbol: str, tuning: str = "EADGBE") -> str | None:
     measure.append(note.Note("C4", quarterLength=4))
     part.append(measure)
     score.append(part)
-    report = ops.chord_diagrams(score, part, tuning)
+    report = ops.chord_diagrams(score, part, tuning,
+                                shapes=ops.parse_shape_overrides(shapes))
     if report["unplayable_count"]:
         return None
-    return report["shapes"][0]["shape"]
+    return report["shapes"][0]
+
+
+def shape_of(symbol: str, tuning: str = "EADGBE") -> str | None:
+    """The shape the op would engrave for one chord symbol, as its shorthand."""
+    drawn = drawn_for(symbol, tuning)
+    return drawn["shape"] if drawn else None
 
 
 # --- the published chart ----------------------------------------------------
 #
 # The shapes a player already has in their hands. Written the way a chord book
-# writes them, low string to high.
-for symbol, expected in [
-    ("C", "x32010"), ("G", "320003"), ("D", "xx0232"), ("A", "x02220"),
-    ("E", "022100"), ("F", "133211"), ("Am", "x02210"), ("Em", "022000"),
-    ("Dm", "xx0231"), ("A7", "x02020"), ("D7", "xx0212"), ("E7", "020100"),
-    ("G7", "320001"), ("Dm7", "xx0211"), ("Am7", "x02010"), ("Cmaj7", "x32000"),
-    ("Bm", "x24432"),
+# writes them, low string to high — and beside each one the HAND that plays it,
+# which is a second published fact and not a restatement of the first. C is
+# x32010 both ways; G is 320003 under the fingers and 320004 in them, ring and
+# middle low and the PINKY on the top E, and no arithmetic over six fret
+# numbers produces that.
+for symbol, frets, fingers in [
+    ("C", "x32010", "x32010"), ("G", "320003", "320004"),
+    ("D", "xx0232", "xx0132"), ("A", "x02220", "x01230"),
+    ("E", "022100", "023100"), ("Am", "x02210", "x02310"),
+    ("Em", "022000", "023000"), ("Dm", "xx0231", "xx0231"),
+    ("D7", "xx0212", "xx0213"), ("E7", "020100", "020100"),
+    ("G7", "320001", "320001"), ("Am7", "x02010", "x02010"),
+    ("Cmaj7", "x32000", "x32000"),
+    # movable shapes: nothing below is in the fingering table. Each one is
+    # derived by the rule a method book teaches — the index bars the fret the
+    # nut used to be, every other finger steps up one — so F is the E shape
+    # with 2,3,1 become 3,4,2, and Bm is the Am shape the same way.
+    ("F", "133211", "134211"), ("Fm", "133111", "134111"),
+    ("Bm", "x24432", "x13421"),
 ]:
-    got = shape_of(symbol)
-    want = ops.shape_text(ops._shape_from_text(expected))
-    check(f"{symbol} is {expected}", got == want, f"got {got}")
+    got = drawn_for(symbol)
+    want = ops.shape_text(ops._shape_from_text(frets))
+    check(f"{symbol} is {frets}", got and got["shape"] == want, str(got))
+    want_fingers = ",".join("x" if f is None else str(f)
+                            for f in ops._shape_from_text(fingers))
+    check(f"{symbol} is played {fingers}", got and got["fingering"] == want_fingers,
+          str(got))
+
+# --- the conventional shape, not the lowest one -----------------------------
+#
+# The search would find both of these open, because open is lowest and lowest
+# is what the search is for. The chart is consulted first for exactly this
+# reason: an A7 in a turnaround is a fifth-fret barre, and so is the Dm7 it
+# resolves to. The open shapes are still there, one --shape away.
+for symbol, frets, fingers in [("A7", "575655", "131211"),
+                               ("Dm7", "x57565", "x13121")]:
+    got = drawn_for(symbol)
+    check(f"{symbol} is the fifth-fret barre {frets}",
+          got and got["shape"] == ops.shape_text(ops._shape_from_text(frets)),
+          str(got))
+    check(f"{symbol} is fingered {fingers}",
+          got and got["fingering"] == ",".join(
+              "x" if f is None else str(f) for f in ops._shape_from_text(fingers)),
+          str(got))
+    check(f"{symbol} says it is a barre at the fifth fret",
+          got and got["barre"] and got["first_fret"] == 5 and not got["nut"],
+          str(got))
+
+for symbol, open_shape in [("A7", "x02020"), ("Dm7", "xx0211")]:
+    pinned = drawn_for(symbol, shapes=[f"{symbol}={open_shape}"])
+    check(f"--shape reaches the open {symbol}",
+          pinned and pinned["shape"] == ops.shape_text(
+              ops._shape_from_text(open_shape)) and pinned["pinned"],
+          str(pinned))
+for bad in ["A7", "A7=x0202", "=x02020"]:
+    try:
+        ops.parse_shape_overrides([bad])
+        check(f"--shape {bad!r} is refused", False)
+    except ValueError:
+        check(f"--shape {bad!r} is refused", True)
+
+# --- a fingering nobody curated is not invented ------------------------------
+#
+# The marks row falls back to the frets, which is honest: a fret number is a
+# fact about the shape. A made-up hand would not be.
+check("an uncurated, underivable shape has no fingering",
+      ops.chord_fingering(ops.parse_shape("[x,x,0,7,9,8]")) is None)
+check("...and its marker carries none",
+      ops.shape_text(ops.parse_shape("[x,x,0,7,9,8]"), None) == "[x,x,0,7,9,8]")
+check("a fingering that repeats the frets is not written either",
+      ops.shape_text(ops.parse_shape("[x,3,2,0,1,0]"),
+                     ops.chord_fingering(ops.parse_shape("[x,3,2,0,1,0]")))
+      == "[x,3,2,0,1,0]")
+check("one that does not is",
+      ops.shape_text(ops.parse_shape("[3,2,0,0,0,3]"),
+                     ops.chord_fingering(ops.parse_shape("[3,2,0,0,0,3]")))
+      == "[3,2,0,0,0,3](3,2,0,0,0,4)")
+check("and it reads back", ops.parse_fingering("[3,2,0,0,0,3](3,2,0,0,0,4)")
+      == [3, 2, 0, 0, 0, 4]
+      and ops.parse_shape("[3,2,0,0,0,3](3,2,0,0,0,4)") == [3, 2, 0, 0, 0, 3])
+check("a marker with no fingering reads back as none",
+      ops.parse_fingering("[x,3,2,0,1,0]") is None)
 
 # --- shapes the search has to work out --------------------------------------
 #
@@ -258,16 +351,84 @@ check("an enlarged diagram reserves more rows than a plain one",
       f'{blocks[1].count("<lb/>")} vs {blocks[0].count("<lb/>")}')
 check("...and says how much bigger it is", '@1.5"' in blocks[1])
 
+# --- the reference chart, engraved ------------------------------------------
+#
+# Four chords, and the page the owner drew them on. Everything above this is
+# arithmetic over lists; this is the picture, taken the whole way through
+# music21, Verovio, the MEI pass and the SVG pass, and read back off the page.
+#
+# It is here because each of the four is a different way the feature was wrong:
+# C is where the frets and the hand agree and nothing should change; G is where
+# they part company and the row must read the hand; A7 and Dm7 are where the
+# lowest shape is not the played one, and they carry the barre and the "5 fr."
+# the shape implies.
+REFERENCE = [
+    ("C",   "x,3,2,0,1,0", "x32010", 1, False),
+    ("G",   "3,2,0,0,0,4", "320004", 1, False),
+    ("A7",  "1,3,1,2,1,1", "131211", 5, True),
+    ("Dm7", "x,1,3,1,2,1", "x13121", 5, True),
+]
+
+score = m21stream.Score()
+part = m21stream.Part()
+part.partName = "Guitar"
+for index, (symbol, _marks, _flat, _fret, _barre) in enumerate(REFERENCE):
+    measure = m21stream.Measure(number=index + 1)
+    if index == 0:
+        measure.append(m21meter.TimeSignature("4/4"))
+    measure.insert(0.0, m21harmony.ChordSymbol(symbol))
+    measure.append(m21note.Note("C4", quarterLength=4))
+    part.append(measure)
+score.append(part)
+reference = ops.chord_diagrams(score, part, "EADGBE")
+check("the reference chart draws four diagrams", reference["diagrams"] == 4,
+      str(reference))
+
+reference_dir = Path(_tempfile.mkdtemp(prefix="scoranger-reference-"))
+reference_xml = reference_dir / "reference.musicxml"
+score.write("musicxml", fp=str(reference_xml))
+_tk = _verovio.toolkit()
+_tk.loadFile(str(reference_xml))
+_mei = render.mei_with_chord_diagrams(_tk.getMEI(), reference_xml)
+check("the reference chart survives the round trip into MEI", _mei is not None)
+if _mei is not None and _tk.loadData(_mei):
+    page = render._chord_diagrams(render._sanitize_svg(_tk.renderToSVG(1)))
+    drawn = re.findall(r'<g class="dir chord-diagram">(.*?)</g>', page, re.S)
+    check("four diagrams reach the page", len(drawn) == 4, f"{len(drawn)}")
+    for (symbol, marks, _flat, fret, barre), svg in zip(REFERENCE, drawn):
+        row = re.findall(r'<tspan font-size="[\d.]+px">([x\d]+)</tspan>', svg)
+        # the marks row is the six leading single characters; a "5 fr." label
+        # is matched by the same pattern and is not part of the row
+        check(f"the row over {symbol} reads {marks}",
+              ",".join(row[:6]) == marks, f"read {row[:6]}")
+        # a bar is a filled rectangle: 'H ... V ... H ... Z'. A dot is arcs.
+        check(f"{symbol} {'is' if barre else 'is not'} drawn with a barre",
+              (" V " in svg) == barre)
+        check(f"{symbol} {'carries' if fret > 1 else 'carries no'} fret label",
+              (f"{fret} fr." in svg) == (fret > 1), svg[-260:])
+        # the nut is the one line drawn thicker than the rest, so a diagram
+        # that has one is drawn with two stroke widths and one that has not
+        # with a single width
+        widths = set(re.findall(r'stroke-width="([\d.]+)"', svg))
+        check(f"{symbol} {'has no' if fret > 1 else 'has a'} nut",
+              (len(widths) == 2) == (fret == 1), str(sorted(widths)))
+else:
+    check("the reference chart engraves", False, "Verovio would not reload it")
+
 # --- the two renderers draw the same picture --------------------------------
 CASES = [
     ("[x,3,2,0,1,0]", 638.0, 1443.0, 390.0, 1.0),      # open, at the nut
-    ("[1,3,3,2,1,1]", 2421.0, 1443.0, 390.0, 1.0),     # a barre at the nut
-    ("[4,6,4,4,4,4]", 4204.0, 1443.0, 390.0, 1.0),     # a window, with a label
-    ("[3,2,0,0,0,3]", 638.0, 990.5, 402.5, 1.5),       # enlarged by adjust-element
+    ("[1,3,3,2,1,1](1,3,4,2,1,1)", 2421.0, 1443.0, 390.0, 1.0),   # a barre at the nut
+    ("[4,6,4,4,4,4](1,3,1,1,1,1)", 4204.0, 1443.0, 390.0, 1.0),   # a window, labelled
+    ("[3,2,0,0,0,3](3,2,0,0,0,4)", 638.0, 990.5, 402.5, 1.5),     # enlarged, and the
+                                                       # one shape where the hand and
+                                                       # the frets part company
+    ("[x,x,0,7,9,8]", 4204.0, 990.5, 402.5, 1.0),      # no fingering: the frets stand
 ]
 lines = []
 for shape_text, x, top, pitch, scale in CASES:
-    drawn = render.chord_diagram_svg(ops.parse_shape(shape_text), x, top, pitch, scale)
+    drawn = render.chord_diagram_svg(ops.parse_shape(shape_text), x, top, pitch, scale,
+                                     ops.parse_fingering(shape_text))
     lines.append(f"{shape_text}|{x:g}|{top:g}|{pitch:g}|{scale:g}\t{drawn}")
 golden = "\n".join(lines) + "\n"
 

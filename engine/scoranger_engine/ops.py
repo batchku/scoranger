@@ -1235,6 +1235,8 @@ COVERED, OPEN, HALF = "X", "O", "/"
 # letters stay in the notation as the meaning (and as what a plain MusicXML
 # export carries); the diagram is how they are drawn.
 WHISTLE_LYRIC_TAG = "wf"
+# Six holes and the overblown mark: the verses a fingering occupies.
+WHISTLE_VERSES = 7
 
 # pitch class (as a sounding name) -> the six holes, top to bottom.
 # The cross-fingerings for C natural and F natural are the standard ones;
@@ -1273,13 +1275,46 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     Notes the whistle cannot play are left without a diagram and reported, the
     same way `check-range` reports what an instrument cannot reach.
     """
-    from music21 import note as m21note
+    from music21 import harmony as m21harmony
+
+    def playable_notes(container):
+        """The notes a whistle plays.
+
+        `recurse().notes` includes the chord SYMBOLS: a ChordSymbol is a Chord
+        in music21, so a part carrying a chart had six holes and an octave mark
+        hung on every symbol on it -- a fingering for a chord, on an element
+        that is not on the staff at all. `guitar_tab` was written knowing this;
+        this was written before it was known.
+        """
+        return [n for n in container.recurse().notes
+                if not isinstance(n, m21harmony.Harmony)]
+
+    def without_fingerings(n):
+        """The note's other verses. A whistle's are taken and everything else
+        is left, or clearing the fingerings takes the guitar tab under the same
+        notes with them -- two features on one part, one of them eating the
+        other."""
+        return [ly for ly in n.lyrics
+                if str(ly.identifier or "") != WHISTLE_LYRIC_TAG]
+
+    def make_room(n):
+        """Everything on this note that is not about to be written over.
+
+        A whistle's fingerings are verses 1-7 and the guitar tab's frets are
+        verses 1-6, so one note cannot carry both -- and music21's `addLyric`
+        writes the TEXT of the verse at that number and leaves its NAME alone,
+        which put fret numbers under a `wf` label and drew "3" as a row of
+        circles. Whichever op runs last takes those verses outright, and the
+        report says how many notes it took them from.
+        """
+        return [ly for ly in n.lyrics if (ly.number or 0) > WHISTLE_VERSES]
 
     if clear:
         cleared = 0
-        for n in part.recurse().notes:
-            if n.lyrics:
-                n.lyrics = []
+        for n in playable_notes(part):
+            kept = without_fingerings(n)
+            if len(kept) != len(n.lyrics):
+                n.lyrics = kept
                 cleared += 1
         return {"part": part_label(part), "cleared": cleared}
 
@@ -1292,8 +1327,9 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
     shift = m21interval.Interval(noteStart=m21pitch.Pitch("D4"), noteEnd=lowest)
 
     written = 0
+    displaced = 0
     unplayable: list[dict] = []
-    for n in part.recurse().notes:
+    for n in playable_notes(part):
         pitches = n.pitches if isinstance(n, m21chord.Chord) else [n.pitch]
         # a whistle plays one note at a time; the top of a chord is the tune
         sounding = max(pitches)
@@ -1313,9 +1349,12 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
                 "why": "outside the whistle's two octaves" if pattern
                        else f"no standard fingering for {as_d.name}",
             })
-            n.lyrics = []
+            n.lyrics = make_room(n)
             continue
-        n.lyrics = []
+        if any(parse_tab_label(str(ly.identifier or "")) is not None
+               for ly in n.lyrics):
+            displaced += 1
+        n.lyrics = make_room(n)
         # WHISTLE_LYRIC_TAG marks these as fingerings rather than words. It
         # rides through MusicXML as <lyric name="wf"> and out the far side as a
         # title on Verovio's verse group, which is what lets the renderer swap
@@ -1331,6 +1370,7 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         "part": part_label(part),
         "whistle": key,
         "notes_fingered": written,
+        "guitar_tab_replaced": displaced,
         "unplayable": unplayable[:20],
         "unplayable_count": len(unplayable),
     }
@@ -1361,7 +1401,14 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
 
 # The marker text, and the pattern that finds it again. Mirrored in
 # render.py::CHORD_DIAGRAM_RE and ios/Scoranger/ScoreModel/ChordDiagrams.swift.
-CHORD_DIAGRAM_RE = re.compile(r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\]")
+#
+# Two groups, and the second is optional: [frets] is where the dots go, and
+# (fingers) is which finger goes on each one. The fingering is written ONLY
+# when it differs from the frets -- which for an open C it does not, so the
+# marker for a C stays the [x,3,2,0,1,0] it always was.
+CHORD_DIAGRAM_RE = re.compile(
+    r"\[(?:[x\d]{1,2},){5}[x\d]{1,2}\](?:\((?:[x\d],){5}[x\d]\))?")
+CHORD_FINGERING_RE = re.compile(r"\((?:[x\d],){5}[x\d]\)")
 
 # Sounding pitches of the open strings, low to high. Only their pitch classes
 # decide a shape; the octaves are here so "the root is the lowest string that
@@ -1390,22 +1437,76 @@ GUITAR_GRID_FRETS = 5
 
 # The published chart. The search below can find a shape for anything, but it
 # does not know that x32010 is *the* C — asked for the lowest playable voicing
-# it offers whatever the arithmetic likes. These are the open-position shapes a
-# player already has in their hands, and they are a table for the same reason
-# the whistle's fingerings are a table: they are published fact, not a
-# derivation. Standard tuning only; everything else goes to the search, which
-# is what makes `--tuning` real rather than decorative.
-OPEN_CHORD_SHAPES = {
+# it offers whatever the arithmetic likes. These are the shapes a player
+# already has in their hands, and they are a table for the same reason the
+# whistle's fingerings are a table: they are published fact, not a derivation.
+# Standard tuning only; everything else goes to the search, which is what makes
+# `--tuning` real rather than decorative.
+#
+# The chart is consulted FIRST and the search only after, so a chord with a
+# conventional shape gets it even when the arithmetic would have found
+# something lower. That is not the same rule as "lowest position", and the two
+# disagree about A7 and Dm7: both can be played open, and both are written and
+# played as fifth-fret barres in the turnaround they live in. The conventional
+# shape wins, and the open one is one `--shape "A7=x02020"` away.
+CONVENTIONAL_SHAPES = {
     "C": "x32010", "C7": "x32310", "Cmaj7": "x32000", "C6": "x32210",
     "D": "xx0232", "D7": "xx0212", "Dmaj7": "xx0222", "Dm": "xx0231",
-    "Dm7": "xx0211", "D6": "xx0202",
+    "Dm7": "x57565", "D6": "xx0202",
     "E": "022100", "E7": "020100", "Em": "022000", "Em7": "020000",
     "Emaj7": "021100",
     "F": "133211", "Fmaj7": "xx3210", "Fm": "133111",
     "G": "320003", "G7": "320001", "Gmaj7": "320002", "G6": "320000",
-    "A": "x02220", "A7": "x02020", "Am": "x02210", "Am7": "x02010",
+    "A": "x02220", "A7": "575655", "Am": "x02210", "Am7": "x02010",
     "Amaj7": "x02120", "A6": "x02222",
     "B7": "x21202", "Bm": "x24432", "Bm7": "x20202",
+}
+
+# Which FINGER goes on each dot. A separate table from the shape above, and it
+# has to be: a fingering is a convention, not an arithmetic. Frets and fingers
+# coincide for a C -- x32010 both ways -- and part company for a G, where the
+# frets are 320003 and the hand is 320004, ring and middle low, PINKY on the
+# top E. Nothing in the six fret numbers says that.
+#
+# Keyed by the shape rather than by the chord, because a fingering belongs to
+# the hand and not to the name: the same six numbers are fingered the same way
+# whatever chord they are called. 0 is an open string, x a silent one, 1-4 the
+# fingers from index to little.
+#
+# Only open-position shapes are listed. Every movable shape derives from one of
+# them by the rule every guitar method teaches -- the index bars the fret the
+# nut used to be, and each of the other fingers steps up one -- which is
+# `derived_fingering` below, and is why F, Fm, Bm and every barre the search
+# finds are absent here and still come out right.
+OPEN_FINGERINGS = {
+    "x32010": "x32010",   # C
+    "x32310": "x32410",   # C7    pinky reaches the third fret on the G string
+    "x32000": "x32000",   # Cmaj7
+    "x32210": "x42310",   # C6
+    "xx0232": "xx0132",   # D
+    "xx0212": "xx0213",   # D7
+    "xx0222": "xx0111",   # Dmaj7  one finger across three strings
+    "xx0231": "xx0231",   # Dm
+    "xx0211": "xx0211",   # Dm7 (open)
+    "xx0202": "xx0102",   # D6
+    "022100": "023100",   # E
+    "020100": "020100",   # E7
+    "022000": "023000",   # Em
+    "020000": "020000",   # Em7
+    "021100": "031200",   # Emaj7
+    "xx3210": "xx3210",   # Fmaj7
+    "320003": "320004",   # G     the pinky on the top E
+    "320001": "320001",   # G7
+    "320002": "320001",   # Gmaj7
+    "320000": "320000",   # G6
+    "x02220": "x01230",   # A
+    "x02020": "x02030",   # A7 (open)
+    "x02210": "x02310",   # Am
+    "x02010": "x02010",   # Am7
+    "x02120": "x02130",   # Amaj7
+    "x02222": "x01111",   # A6
+    "x21202": "x21304",   # B7
+    "x20202": "x10203",   # Bm7
 }
 
 
@@ -1441,10 +1542,22 @@ def _shape_from_text(text: str) -> list[int | None]:
     return [None if p.strip().lower() == "x" else int(p) for p in parts]
 
 
-def shape_text(frets: list[int | None]) -> str:
-    """Six frets -> the marker a player can read. Always comma-separated: a
-    tenth fret is two digits and 'x109780' means nothing to anyone."""
-    return "[" + ",".join("x" if f is None else str(f) for f in frets) + "]"
+def shape_text(frets: list[int | None],
+               fingers: list[int | None] | None = None) -> str:
+    """Six frets -> the marker a player can read, and the fingering after it.
+
+    Always comma-separated: a tenth fret is two digits and 'x109780' means
+    nothing to anyone. The fingering is appended in parentheses ONLY when it
+    says something the frets do not -- a G is '[3,2,0,0,0,3](3,2,0,0,0,4)' and
+    a C is just '[x,3,2,0,1,0]', because for a C the two are the same numbers.
+    """
+    def group(values, open_, close):
+        return open_ + ",".join("x" if f is None else str(f) for f in values) + close
+
+    text = group(frets, "[", "]")
+    if fingers is not None and list(fingers) != list(frets):
+        text += group(fingers, "(", ")")
+    return text
 
 
 def parse_shape(text: str) -> list[int | None] | None:
@@ -1452,8 +1565,71 @@ def parse_shape(text: str) -> list[int | None] | None:
     match = CHORD_DIAGRAM_RE.search(text or "")
     if match is None:
         return None
-    frets = _shape_from_text(match.group(0)[1:-1])
+    frets = _shape_from_text(match.group(0).split("]")[0][1:])
     return frets if len(frets) == 6 else None
+
+
+def parse_fingering(text: str) -> list[int | None] | None:
+    """The fingering a marker carries, or None when it carries none.
+
+    None means "the frets are the fingering" -- which is what the renderers
+    fall back to, and what a shape nobody has curated a hand for gets.
+    """
+    match = CHORD_DIAGRAM_RE.search(text or "")
+    if match is None:
+        return None
+    found = CHORD_FINGERING_RE.search(match.group(0))
+    if found is None:
+        return None
+    fingers = _shape_from_text(found.group(0)[1:-1])
+    return fingers if len(fingers) == 6 else None
+
+
+def derived_fingering(frets: list[int | None]) -> list[int | None] | None:
+    """The fingering of a movable shape, from the open shape it is a barre of.
+
+    The rule every guitar method teaches, and the whole reason F, Fm, Bm and
+    the shapes the search finds up the neck need no table of their own: the
+    index bars the fret the nut used to be, and every other finger steps up
+    one. E is 0-2-3-1-0-0; F, the same shape at the first fret, is 1-3-4-2-1-1.
+
+    None when the shape is not a barre of anything curated, or when stepping
+    up would ask for a fifth finger.
+    """
+    stopped = [f for f in frets if f]
+    if not stopped or any(f == 0 for f in frets):
+        return None                      # an open string means it is not barred
+    base = min(stopped)
+    relative = [None if f is None else f - base for f in frets]
+    open_fingers = OPEN_FINGERINGS.get(
+        "".join("x" if f is None else str(f) for f in relative))
+    if open_fingers is None:
+        return None
+    out: list[int | None] = []
+    for fret, finger in zip(relative, _shape_from_text(open_fingers)):
+        if fret is None:
+            out.append(None)
+        elif fret == 0:
+            out.append(1)                # the index, lying across the neck
+        elif finger is None or finger + 1 > GUITAR_MAX_FINGERS:
+            return None
+        else:
+            out.append(finger + 1)
+    return out
+
+
+def chord_fingering(frets: list[int | None]) -> list[int | None] | None:
+    """Which finger goes on each fret of a shape, or None when nobody knows.
+
+    Curated first, derived from the open shape second, and None third -- at
+    which point the renderers show the frets, which is honest: a fret number
+    is a fact about the shape, and inventing a hand for it would not be.
+    """
+    key = "".join("x" if f is None else str(f) for f in frets)
+    curated = OPEN_FINGERINGS.get(key)
+    if curated is not None:
+        return _shape_from_text(curated)
+    return derived_fingering(frets)
 
 
 def diagram_window(frets: list[int | None]) -> tuple[int, bool]:
@@ -1559,14 +1735,42 @@ def guitar_shape(pitch_classes: set[int], root_pc: int,
     return None
 
 
-def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> dict:
+def parse_shape_overrides(pairs: list[str] | None) -> dict[str, list[int | None]]:
+    """`--shape "A7=x02020"` -> {"A7": [None,0,2,0,2,0]}.
+
+    The reader's say over the chart. A conventional shape is the right default
+    and it is still a default: an arranger who wants the open A7 rather than
+    the fifth-fret barre says so once, and the op writes what they asked for.
+    """
+    out: dict[str, list[int | None]] = {}
+    for pair in pairs or []:
+        name, sep, text = pair.partition("=")
+        if not sep or not name.strip():
+            raise ValueError(f"A shape override reads 'A7=x02020', not {pair!r}")
+        try:
+            frets = _shape_from_text(text.strip())
+        except ValueError as bad:
+            raise ValueError(f"{pair!r} is not six frets: {bad}") from bad
+        if len(frets) != 6:
+            raise ValueError(f"{pair!r} names {len(frets)} strings, not 6")
+        out[name.strip()] = frets
+    return out
+
+
+def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False,
+                   shapes: dict[str, list[int | None]] | None = None) -> dict:
     """Engrave a guitar chord diagram over every chord symbol on a part.
 
-    The diagram is written as the shape shorthand at the symbol's own offset;
-    the grid, the nut, the dots, the barre and the position label are drawn
-    from it by the renderers. A chord nobody can play in the tuning asked for
-    is REPORTED, with its measure and its symbol, and left without a diagram —
-    the same way `check-range` reports what an instrument cannot reach.
+    The diagram is written as the shape shorthand at the symbol's own offset,
+    and the fingering after it when the fingering says something the frets do
+    not; the grid, the nut, the dots, the barre and the position label are
+    drawn from those by the renderers. A chord nobody can play in the tuning
+    asked for is REPORTED, with its measure and its symbol, and left without a
+    diagram — the same way `check-range` reports what an instrument cannot
+    reach.
+
+    `shapes` pins named chords to shapes of the reader's choosing, ahead of the
+    chart and the search both.
     """
     from music21 import expressions as m21expressions
     from music21 import harmony as m21harmony
@@ -1594,24 +1798,35 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False) -> 
             name = chord_symbol_text(symbol)
             pcs = {p.pitchClass for p in symbol.pitches}
             root = symbol.root()
-            curated = (OPEN_CHORD_SHAPES.get(name)
-                       if guitar_tuning(tuning) == GUITAR_TUNINGS["EADGBE"] else None)
-            frets = _shape_from_text(curated) if curated else (
-                guitar_shape(pcs, root.pitchClass, opens) if root is not None else None)
+            pinned = (shapes or {}).get(name)
+            standard = guitar_tuning(tuning) == GUITAR_TUNINGS["EADGBE"]
+            curated = CONVENTIONAL_SHAPES.get(name) if standard else None
+            if pinned is not None:
+                frets = list(pinned)
+            elif curated:
+                frets = _shape_from_text(curated)
+            else:
+                frets = (guitar_shape(pcs, root.pitchClass, opens)
+                         if root is not None else None)
             if frets is None:
                 unplayable.append({
                     "measure": measure.number, "symbol": name,
                     "why": f"no shape for {name} in {tuning.upper()} within "
                            f"{GUITAR_MAX_FRET} frets"})
                 continue
-            marker = m21expressions.TextExpression(shape_text(frets))
+            fingers = chord_fingering(frets)
+            text = shape_text(frets, fingers)
+            marker = m21expressions.TextExpression(text)
             marker.placement = "above"
             measure.insert(symbol.offset, marker)
             base, nut = diagram_window(frets)
             drawn.append({"measure": measure.number, "symbol": name,
                           "shape": shape_text(frets), "first_fret": base,
                           "nut": nut, "barre": diagram_barre(frets) is not None,
-                          "from_chart": bool(curated)})
+                          "fingering": (shape_text(fingers)[1:-1]
+                                        if fingers is not None else None),
+                          "from_chart": bool(curated) and pinned is None,
+                          "pinned": pinned is not None})
     return {
         "part": part_label(part),
         "tuning": tuning.upper(),
@@ -1704,19 +1919,20 @@ def _tab_string_frets(pitch_ps: float, opens: list[float], capo: int) -> list[in
     return sorted(out, key=lambda pair: pair[1])
 
 
-def _tab_chord_layout(pitches, opens: list[float], capo: int):
-    """Strings and frets for a chord, or None when no hand can hold it.
+def _tab_layouts(pitches, opens: list[float], capo: int) -> list[tuple]:
+    """Every way a hand could hold this note or chord, unranked.
 
     One string per note, in pitch order -- a guitar cannot play two notes on
-    one string -- inside four frets. The lowest position that works is chosen,
-    which is what makes the arithmetic match how a player thinks.
+    one string -- inside four frets. Unranked because the ranking is not a
+    property of one note: which of these a player uses depends on where the
+    hand already is, and that is `_tab_plan`'s question, not this one's.
     """
     import itertools
 
     options = [_tab_string_frets(p.ps, opens, capo) for p in pitches]
     if any(not o for o in options):
-        return None
-    best = None
+        return []
+    out = []
     for combo in itertools.product(*options):
         strings = [s for s, _ in combo]
         if len(set(strings)) != len(strings) or strings != sorted(strings):
@@ -1725,21 +1941,204 @@ def _tab_chord_layout(pitches, opens: list[float], capo: int):
         stopped = [f for f in frets if f > 0]
         if stopped and max(stopped) - min(stopped) >= TAB_CHORD_SPAN:
             continue
-        rank = (max(frets), max(frets) - min(frets))
-        if best is None or rank < best[0]:
-            best = (rank, combo)
-    return best[1] if best else None
+        out.append(combo)
+    return out
+
+
+# ---------------------------------------------------------- hand position
+#
+# A fret number on its own is not a tab. Every note has three or four frets
+# that play it, one on each string that reaches it, and taking the lowest of
+# them every time -- which is the one on the THINNEST string -- writes a melody
+# as a single line climbing to the eighth and twelfth frets of the top string,
+# on a neck where a player would have spread it over two strings and never left
+# fifth position. That tab is arithmetically correct and nobody can read it.
+#
+# What a hand does instead is stay: it covers four frets, plays everything
+# inside them, crosses strings freely, and SHIFTS only when the line leaves
+# what it can reach. So the choice is made for the whole line at once, by the
+# cheapest path through it -- which is a small dynamic program over (position,
+# layout), one column per note.
+#
+# The costs below are a ranking, not a measurement. What they have to get right
+# is the order: staying beats shifting, shifting a little beats shifting a lot,
+# crossing a string is nearly free, and where nothing else decides it the line
+# sits low on the neck and takes open strings when they are there.
+
+# How many frets one hand covers without moving: index to little finger.
+TAB_HAND_SPAN = 4
+# And one more at either end, reached by stretching rather than by moving. This
+# is not a refinement: Twinkle in C is played in first position with the pinky
+# stretching to the fifth fret for the A, and a hand held to exactly four frets
+# cannot play it there at all -- it has to shift, and shifting is worse.
+TAB_STRETCH = 1
+TAB_STRETCH_COST = 1.0
+# What moving the hand costs. Most of it is FIXED, because most of what a shift
+# costs is that it happens at all -- a hand that has to leave fifth position
+# has left it whether it goes to the sixth fret or the fourteenth. A purely
+# per-fret cost made a long shift so expensive that three notes at the nut
+# were written at the fifteenth fret to avoid one.
+TAB_SHIFT_COST = 2.0
+TAB_SHIFT_PER_FRET = 0.2
+# Crossing strings is what a hand in one position does all day.
+TAB_CROSS_COST = 0.25
+# What sitting up the neck costs, per note, and it is the SQUARE of the
+# position -- the one number here that is not linear, and it has to be. A
+# linear cost cannot hold both ends of the same rule: at the ratio that keeps
+# a C scale in fifth position rather than shifting out of the nut to finish
+# it, three notes at the nut get written at the fifteenth fret to save one
+# shift up to a high note. Being fourteen frets up is not three and a half
+# times worse than being four frets up. It is much worse, and squaring says
+# so, which leaves both cases decided by a wide margin instead of a hair.
+TAB_HEIGHT_COST = 0.015
+# An open string rings, costs no finger and leaves the hand free, so where two
+# layouts are otherwise equal the open one is the one a player takes -- at the
+# nut. Up the neck the same open string is a reach back to a nut the hand left
+# behind, and the second number takes the first one away again: an open E is
+# worth having in first position and is an odd lone 0 in a line sitting at the
+# eighth fret, which is where a flat bonus put one.
+TAB_OPEN_BONUS = 0.1
+TAB_OPEN_REACH = 0.05
+
+
+def _tab_shift_cost(was: int, now: int) -> float:
+    """What it costs the hand to move from one position to another."""
+    if was == now:
+        return 0.0
+    return TAB_SHIFT_COST + TAB_SHIFT_PER_FRET * abs(now - was)
+
+
+def _tab_hand_positions() -> range:
+    """Every fret the index finger can sit at and still have a neck under it."""
+    return range(1, TAB_MAX_FRET - TAB_HAND_SPAN + 2)
+
+
+def _tab_height_cost(position: int) -> float:
+    """What sitting the hand at this fret costs, per note. See TAB_HEIGHT_COST
+    for why it is squared."""
+    return TAB_HEIGHT_COST * position * position
+
+
+def _tab_candidates(pitches, opens: list[float], capo: int) -> list[tuple]:
+    """(position, layout, cost) for every hand that plays this note or chord.
+
+    A layout with nothing stopped -- all open strings -- is offered at EVERY
+    position, because an open string asks nothing of the hand: whatever
+    position the line is in carries straight through it.
+
+    It is not offered any cheaper, though. The cost of being at the eighth
+    fret is the cost of being there, and it belongs to the position rather
+    than to the notes that happen to be fretted: an open string that came for
+    free had the hand leaving fifth position to reach across for an open E it
+    could have played on the B string under its own finger.
+    """
+    out = []
+    for layout in _tab_layouts(pitches, opens, capo):
+        stopped = [f for _, f in layout if f > 0]
+        rung = sum(1 for _, f in layout if f == 0)
+
+        def open_value(position: int, rung: int = rung) -> float:
+            return rung * (TAB_OPEN_BONUS - TAB_OPEN_REACH * (position - 1))
+
+        if not stopped:
+            out += [(p, layout, _tab_height_cost(p) - open_value(p))
+                    for p in _tab_hand_positions()]
+            continue
+        low, high = min(stopped), max(stopped)
+        if high - low > TAB_HAND_SPAN - 1 + 2 * TAB_STRETCH:
+            continue
+        for position in _tab_hand_positions():
+            reach = [f - position for f in stopped]
+            if min(reach) < -TAB_STRETCH or max(reach) > TAB_HAND_SPAN - 1 + TAB_STRETCH:
+                continue
+            stretched = sum(1 for r in reach
+                            if r < 0 or r > TAB_HAND_SPAN - 1)
+            out.append((position, layout, _tab_height_cost(position)
+                        + TAB_STRETCH_COST * stretched - open_value(position)))
+    return out
+
+
+def _tab_plan(events: list, opens: list[float], capo: int,
+              start: int | None = None) -> list[tuple | None]:
+    """The layout for each event, chosen for the whole line rather than one
+    note at a time. None where nothing plays it.
+
+    A shortest path: each column is the hands that could play that note, each
+    edge is what it costs to get there from the hand before it, and the answer
+    is the cheapest way through. Events nothing can play are holes -- the line
+    joins across them, because a note the guitar cannot reach does not move the
+    hand anywhere.
+
+    `start` PINS the first hand rather than nudging it: an arranger who asks
+    for the line in seventh position is not making a suggestion. It is dropped
+    only where nothing at all can be played there, since refusing to write a
+    tab is worse than writing one somewhere else and saying so.
+    """
+    columns: list[list[tuple]] = []
+    costs: list[list[float]] = []
+    backs: list[list[int]] = []
+    previous = -1                       # index of the last column with any hand
+
+    for pitches in events:
+        states = _tab_candidates(pitches, opens, capo) if pitches else []
+        if start is not None and previous < 0 and states:
+            pinned = [s for s in states if s[0] == start]
+            states = pinned or states
+        columns.append(states)
+        if not states:
+            costs.append([])
+            backs.append([])
+            continue
+        here_costs, here_backs = [], []
+        for position, layout, own in states:
+            string = min(s for s, _ in layout)
+            if previous < 0:
+                here_costs.append(own)
+                here_backs.append(-1)
+                continue
+            best, best_back = None, -1
+            for j, (was, was_layout, _) in enumerate(columns[previous]):
+                total = (costs[previous][j]
+                         + _tab_shift_cost(was, position)
+                         + TAB_CROSS_COST
+                         * abs(string - min(s for s, _ in was_layout)))
+                if best is None or total < best:
+                    best, best_back = total, j
+            here_costs.append(own + best)
+            here_backs.append(best_back)
+        costs.append(here_costs)
+        backs.append(here_backs)
+        previous = len(columns) - 1
+
+    chosen: list[tuple | None] = [None] * len(events)
+    if previous < 0:
+        return chosen
+    index = min(range(len(costs[previous])), key=lambda i: costs[previous][i])
+    while previous >= 0:
+        chosen[previous] = columns[previous][index]
+        index = backs[previous][index]
+        if index < 0:
+            break
+        previous = max((i for i in range(previous) if columns[i]), default=-1)
+    return chosen
 
 
 def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
-               clear: bool = False) -> dict:
+               clear: bool = False, position: int | None = None) -> dict:
     """Write guitar tablature under a part, as six stacked lyric verses.
 
-    The lowest position that plays the note, which is the one a player reaches
-    for first. A chord is laid out as a whole -- one string per note, inside
-    four frets -- so it can force a position higher than any of its notes would
-    have taken alone, and the report SAYS SO, bar by bar, rather than leaving
-    the reader to wonder why bar 12 climbed the neck.
+    Chosen for the LINE, not for one note at a time: the hand covers four
+    frets, plays what is inside them across the strings, and shifts only where
+    the music leaves its reach. Every shift is in the report, with the bar it
+    happens in, because a shift is the one thing a player has to see coming.
+
+    `position` pins the fret the hand starts at, for an arranger who wants the
+    line read in a particular position; left alone, the tab settles as low on
+    the neck as the music allows.
+
+    A chord is laid out as a whole -- one string per note, inside four frets --
+    so it can force a position higher than any of its notes would have taken
+    alone, and the report says so, bar by bar.
 
     Notes the tuning cannot play are reported and left without a fret. Nothing
     is transposed to make it fit: a note an octave below the bottom string is
@@ -1771,44 +2170,77 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
     opens = [m21pitch.Pitch(p).ps for p in guitar_tuning(tuning)]
     if capo < 0 or capo > TAB_MAX_FRET:
         raise ValueError(f"A capo goes on frets 0-{TAB_MAX_FRET}, not {capo}")
+    if position is not None and position not in _tab_hand_positions():
+        raise ValueError(f"A hand sits at frets {_tab_hand_positions()[0]}-"
+                         f"{_tab_hand_positions()[-1]}, not {position}")
+
+    notes = list(playable_notes(part))
+    # A tab's frets are verses 1-6 and a whistle's fingerings are verses 1-7,
+    # so one note cannot carry both -- and music21's `addLyric` writes the TEXT
+    # of the verse at that number and leaves its NAME alone, which put fret
+    # numbers under a `wf` label and drew "3" as a row of circles. This op runs
+    # last, so it takes those verses outright and the report says how many
+    # notes it took them from.
+    displaced = sum(1 for n in notes
+                    if any(str(ly.identifier or "") == WHISTLE_LYRIC_TAG
+                           for ly in n.lyrics))
+    for n in notes:
+        # verses 1-6, and the whistle's seventh: the overblown mark would
+        # otherwise be left hanging under a tab that has no octave to mark
+        n.lyrics = [ly for ly in n.lyrics
+                    if (ly.number or 0) > len(opens)
+                    and str(ly.identifier or "") != WHISTLE_LYRIC_TAG]
+    voiced = [sorted(n.pitches, key=lambda p: p.ps) for n in notes]
+    # more notes than strings is not a hand the planner should be asked about
+    events = [pitches if len(pitches) <= len(opens) else [] for pitches in voiced]
+    plan = _tab_plan(events, opens, capo, start=position)
 
     written = 0
     unplayable: list[dict] = []
     raised: list[dict] = []
-    for n in playable_notes(part):
-        pitches = sorted(n.pitches, key=lambda p: p.ps)
-        n.lyrics = [ly for ly in n.lyrics
-                    if parse_tab_label(str(ly.identifier or "")) is None]
-        if len(pitches) > len(opens):
-            unplayable.append({"measure": n.measureNumber,
-                               "pitch": ", ".join(p.nameWithOctave for p in pitches),
-                               "why": f"{len(pitches)} notes on {len(opens)} strings"})
-            continue
-        layout = _tab_chord_layout(pitches, opens, capo)
-        if layout is None:
-            reasons = []
-            for p in pitches:
-                if not _tab_string_frets(p.ps, opens, capo):
-                    low = min(opens) + capo
-                    if p.ps >= low:
-                        why = f"above the {TAB_MAX_FRET}th fret"
-                    elif capo:
-                        why = f"below the capo at fret {capo}"
-                    else:
-                        why = "below the lowest string"
-                    reasons.append(f"{p.nameWithOctave} is {why}")
+    shifts: list[dict] = []
+    at: int | None = position
+    for n, pitches, state in zip(notes, voiced, plan):
+        if state is None:
+            if len(pitches) > len(opens):
+                why = f"{len(pitches)} notes on {len(opens)} strings"
+            else:
+                reasons = []
+                for p in pitches:
+                    if not _tab_string_frets(p.ps, opens, capo):
+                        low = min(opens) + capo
+                        if p.ps >= low:
+                            reason = f"above the {TAB_MAX_FRET}th fret"
+                        elif capo:
+                            reason = f"below the capo at fret {capo}"
+                        else:
+                            reason = "below the lowest string"
+                        reasons.append(f"{p.nameWithOctave} is {reason}")
+                why = "; ".join(reasons) or "no hand shape inside four frets"
             unplayable.append({
                 "measure": n.measureNumber,
                 "pitch": ", ".join(p.nameWithOctave for p in pitches),
-                "why": "; ".join(reasons) or "no hand shape inside four frets"})
+                "why": why})
             continue
-        # what each note would have cost on its own, so a chord that pushed the
-        # hand up the neck can say so
-        alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
-        highest = max(f for _, f in layout)
-        if highest > alone:
-            raised.append({"measure": n.measureNumber, "to_fret": highest,
-                           "lowest_alone": alone})
+        where, layout, _ = state
+        # A shift is the one thing a player has to see coming, so every one of
+        # them is in the report with the bar it lands in. Nothing is reported
+        # for a note played entirely on open strings: the hand did not move,
+        # it was not asked for.
+        if any(f for _, f in layout) and at is not None and where != at:
+            shifts.append({"measure": n.measureNumber, "from": at, "to": where})
+        if any(f for _, f in layout):
+            at = where
+        elif at is None:
+            at = where
+        # what a CHORD's notes would have cost one at a time, so a chord that
+        # pushed the hand up on its own account can say so
+        if len(pitches) > 1:
+            alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
+            highest = max(f for _, f in layout)
+            if highest > alone:
+                raised.append({"measure": n.measureNumber, "to_fret": highest,
+                               "lowest_alone": alone})
         frets = {string: fret for string, fret in layout}
         # verse 1 is the HIGHEST string: a tab staff's top line is the string
         # nearest the floor
@@ -1820,11 +2252,18 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
                        lyricIdentifier=tab_label())
         written += 1
 
+    played = [s for s in plan if s is not None and any(f for _, f in s[1])]
     return {
         "part": part_label(part),
         "tuning": tuning.upper(),
         "capo": capo,
         "notes_tabbed": written,
+        "whistle_fingerings_replaced": displaced,
+        "position": played[0][0] if played else None,
+        "highest_fret": max((f for s in plan if s is not None
+                             for _, f in s[1]), default=0),
+        "shifts": shifts[:20],
+        "shift_count": len(shifts),
         "positions_raised": raised[:20],
         "positions_raised_count": len(raised),
         "unplayable": unplayable[:20],

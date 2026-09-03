@@ -48,8 +48,16 @@ final class ThumbnailCache {
     /// A key that cannot collide between documents: two scores both have a
     /// page 1, and they do not look alike. Nor can a document inherit the key
     /// of one that has been released.
-    static func key(document: PDFDocument, index: Int) -> String {
+    ///
+    /// The SIZE is part of it, because the same page is now drawn at two of
+    /// them: the book browser shows page 137 as a thumbnail in its strip and
+    /// as a page big enough to read a tune's title off, and a key that named
+    /// only the page handed whichever asked second the other one's raster --
+    /// a 104-point thumbnail stretched over a 420-point page.
+    static func key(document: PDFDocument, index: Int,
+                    size: CGSize = .zero) -> String {
         "\(shared.token(for: document))#\(index)"
+            + (size == .zero ? "" : "@\(Int(size.width))x\(Int(size.height))")
     }
 
     private func token(for document: PDFDocument) -> String {
@@ -63,7 +71,7 @@ final class ThumbnailCache {
     }
 
     func image(document: PDFDocument, index: Int, size: CGSize) -> UIImage? {
-        let key = Self.key(document: document, index: index) as NSString
+        let key = Self.key(document: document, index: index, size: size) as NSString
         if let cached = images.object(forKey: key) { return cached }
         guard let page = document.page(at: index) else { return nil }
         let span = PerfMetrics.shared.begin(PerfMetrics.Name.thumbnail)

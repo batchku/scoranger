@@ -94,6 +94,18 @@ def _dispatch(op, a):
             a["book"], int(a["from_page"]), int(a["to_page"]),
             a["name"], a.get("piece"))
         return {"score": slug, "version": entry["id"], "piece": a.get("piece")}
+    if op == "book-file":
+        # Where the book's own PDF is, so the reader can LOOK through it before
+        # naming a page range. Asking someone for pages 137-139 of a fake book
+        # they cannot see is asking them to guess.
+        doc = workspace._repo().get_book(a["book"])
+        if doc is None:
+            have = [b["slug"] for b in workspace.list_books()]
+            raise FileNotFoundError(f"No book '{a['book']}'. Have: {have}")
+        path = workspace.book_path(a["book"])
+        if not path.exists():
+            raise FileNotFoundError(f"'{doc['name']}' has no file at {path}")
+        return {"path": str(path), "pages": doc.get("pages")}
     if op == "delete-book":
         workspace.delete_book(a["book"])
         return {"deleted": a["book"]}
