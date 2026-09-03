@@ -36,7 +36,7 @@ So:
 - **Material arriving from outside is accepted as it is.** OMR is imperfect by
   nature and the user brings a score in *so they can fix it*.
 - **Proof belongs in the checks, which run before a release, not in front of a
-  user.** Eight of them, and every fix in them was reverted in turn to confirm
+  user.** Ten of them, and every fix in them was reverted in turn to confirm
   the check fails without it: `check_rhythm.py` (ops preserve rhythm; structural
   marks move no note), `check_import.py` (release gate: every source imports to
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
