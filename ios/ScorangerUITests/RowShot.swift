@@ -175,7 +175,9 @@ extension RowShot {
         snap(app, "score-subtitle")
         app.buttons["score-more"].tap()
         sleep(2)
-        let display = app.descendants(matching: .any)["more-display"].firstMatch
+        // "Score display" is gone (0.6.3 #6); the transport switch it held
+        // sits on the options root now, so that is the row this photographs.
+        let display = app.descendants(matching: .any)["more-transport"].firstMatch
         print("OPTIONS row frame: \(display.exists ? "\(display.frame)" : "absent")")
         snap(app, "score-options")
     }
