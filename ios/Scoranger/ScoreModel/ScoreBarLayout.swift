@@ -105,9 +105,16 @@ enum ScoreBarLayout {
     static let performanceWidth: CGFloat = 34 + 8
     /// Both switches, which yield as one step.
     static var switchesWidth: CGFloat { transportWidth + performanceWidth }
-    /// The transcription chip and the gap before it: a determinate ring and
-    /// one short line of words ("reading page 3 of 8").
-    static let omrWidth: CGFloat = 122 + 8
+    /// The transcription chip and the gap before it: a determinate ring and one
+    /// line of words.
+    ///
+    /// Wide enough for the longest thing it says -- "waiting (1 ahead)…", and
+    /// "page 12 of 12" once Audiveris starts. It was 122 and compressed both to
+    /// an ellipsis, which is a readout that has stopped being one; the words
+    /// were shortened as well (MakeEditable.converting). The cost is the mode
+    /// chip on an iPad in portrait while a transcription runs, and the mode
+    /// chip is the first thing this bar gives up anyway.
+    static let omrWidth: CGFloat = 142 + 8
     static let modeChipWidth: CGFloat = 90
     static let numeralWidth: CGFloat = 40
     /// Less than this and the title is not a title any more.

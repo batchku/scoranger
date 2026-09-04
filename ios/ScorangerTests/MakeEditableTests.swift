@@ -59,7 +59,7 @@ final class OMRConvertingProgressTests: XCTestCase {
     /// The regression, stated: the last page must not read as finished.
     func testTheLastPageIsNotAFullBar() {
         let (stage, fraction) = MakeEditable.converting(page: 8, pages: 8)
-        XCTAssertEqual(stage, "reading page 8 of 8")
+        XCTAssertEqual(stage, "page 8 of 8")
         let bar = try? XCTUnwrap(fraction)
         XCTAssertNotNil(bar)
         XCTAssertLessThan(bar ?? 1, 1,
@@ -96,7 +96,7 @@ final class OMRConvertingProgressTests: XCTestCase {
     func testTheWordsNameThePageBeingRead() {
         for page in 1...6 {
             XCTAssertEqual(MakeEditable.converting(page: page, pages: 6).stage,
-                           "reading page \(page) of 6")
+                           "page \(page) of 6")
         }
     }
 
@@ -104,11 +104,11 @@ final class OMRConvertingProgressTests: XCTestCase {
     /// past the end, or before the start, is still one of the pages.
     func testAPageOutsideTheScoreIsClampedIntoIt() {
         XCTAssertEqual(MakeEditable.converting(page: 99, pages: 6).stage,
-                       "reading page 6 of 6")
+                       "page 6 of 6")
         XCTAssertEqual(MakeEditable.converting(page: 0, pages: 6).stage,
-                       "reading page 1 of 6")
+                       "page 1 of 6")
         XCTAssertEqual(MakeEditable.converting(page: -3, pages: 6).stage,
-                       "reading page 1 of 6")
+                       "page 1 of 6")
     }
 
     /// No page count is a spinner, not a bar: a bar with no denominator is a
@@ -117,7 +117,7 @@ final class OMRConvertingProgressTests: XCTestCase {
         for pages in [0, -1] {
             let progress = MakeEditable.converting(page: 3, pages: pages)
             XCTAssertNil(progress.fraction)
-            XCTAssertEqual(progress.stage, "reading the score…")
+            XCTAssertEqual(progress.stage, "reading…")
         }
     }
 

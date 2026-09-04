@@ -461,6 +461,12 @@ struct OMRProgressChip: View {
                 .typeRole(.data)
                 .foregroundStyle(Theme.Accent.clayStrong)
                 .lineLimit(1)
+                // FIXED. A Text yields before anything else in an HStack, so
+                // reserving the width in ScoreBarLayout is not enough on its
+                // own: the bar squeezed this one to "reading page 8…" while its
+                // budget said it had room. ScoreBarLayout.omrWidth is what
+                // keeps the fixed size from pushing anything off the bar.
+                .fixedSize()
         }
         .padding(.horizontal, Theme.Metric.s8)
         .frame(height: 34)

@@ -42,6 +42,13 @@ final class TopBarShot: XCTestCase {
                              timeout: seconds)
     }
 
+    /// What the transcription chip says, or that there is none.
+    private func reportChip() {
+        let chip = app.descendants(matching: .any)["score-omr-progress"].firstMatch
+        guard chip.exists else { return print("SHOT: no transcription chip on screen") }
+        print("SHOT: transcription chip reads \(chip.label)")
+    }
+
     /// Open whatever the seed put in the library, by the route a person takes.
     private func openFirstScore() {
         let row = app.buttons.matching(
@@ -125,12 +132,14 @@ final class TopBarShot: XCTestCase {
         // transcription runs -- twice, so the pictures show whether the readout
         // MOVES or sits still.
         settle(12.0)
-        print("SHOT: score-omr-progress present = "
-              + "\(app.descendants(matching: .any)["score-omr-progress"].exists)")
-        print("SHOT: reads \(app.descendants(matching: .any)["score-omr-progress"].label)")
+        // Reading `.label` off something that is not there THROWS, and on the
+        // build this is the "before" of, it is not there -- which is the whole
+        // point of taking the picture. So it is asked whether it exists first,
+        // every time.
+        reportChip()
         snap("score-during-omr-early")
         settle(30.0)
-        print("SHOT: reads \(app.descendants(matching: .any)["score-omr-progress"].label)")
+        reportChip()
         snap("score-during-omr-later")
 
         // And what the switch itself says, which is the readout that stuck.

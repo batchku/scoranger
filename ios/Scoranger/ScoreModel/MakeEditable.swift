@@ -56,10 +56,16 @@ enum MakeEditable {
     static func converting(page: Int, pages: Int) -> (stage: String, fraction: Double?) {
         // No page count: Audiveris is reading something whose length we never
         // learned, and a bar with no denominator is a spinner.
-        guard pages > 0 else { return ("reading the score…", nil) }
+        guard pages > 0 else { return ("reading…", nil) }
         let current = min(max(page, 1), pages)
         let behind = Double(current - 1) / Double(pages)
-        return ("reading page \(current) of \(pages)",
+        // "page 8 of 12", not "reading page 8 of 12". The words sit in a chip on
+        // the top bar between the layout cells and `…`, and the longer form
+        // compressed to "reading page 8…" there -- a readout that has stopped
+        // being one. Everywhere else they follow something that already says
+        // what is happening: the Make editable switch, and the score's name in
+        // the library's import row.
+        return ("page \(current) of \(pages)",
                 min(max(behind, convertingFloor), convertingCeiling))
     }
 
