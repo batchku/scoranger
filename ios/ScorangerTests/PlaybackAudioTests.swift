@@ -12,10 +12,19 @@ import XCTest
 /// It drives `PlaybackGraph`, which is the graph that ships. A test that built
 /// its own parallel wiring would prove only that the test works.
 ///
-/// Three things this established that were assumed before it existed: the
-/// bundled General MIDI bank loads on the simulator runtime, `AVAudioSequencer`
-/// advances while the engine renders offline, and `AVAudioUnitSampler.volume`
-/// is exactly linear in amplitude.
+/// Three things this established that were assumed before it existed: a
+/// General MIDI bank loads, `AVAudioSequencer` advances while the engine
+/// renders offline, and `AVAudioUnitSampler.volume` is exactly linear in
+/// amplitude.
+///
+/// The first of those three used to read "the BUNDLED General MIDI bank loads
+/// on the simulator runtime", and the word bundled was false for six months.
+/// The bank was an absolute macOS path, carried by nothing, and a simulator
+/// process reads the host Mac's filesystem -- so this suite measured Apple's
+/// real timbres while an iPad played a bare sine on every channel. A level
+/// this suite can measure says nothing about WHICH sound made it; that is
+/// `PlaybackBankTests` (the app may not depend on a file it does not carry)
+/// and `PlaybackTimbreTests` (two programs must not render the same spectrum).
 final class PlaybackAudioTests: XCTestCase {
 
     private let sampleRate = 44100.0
@@ -107,7 +116,9 @@ final class PlaybackAudioTests: XCTestCase {
         let parts = quartet()
         let graph = try loaded("quartet-playback", parts: parts)
         XCTAssertEqual(graph.bankFailures, [],
-                       "the General MIDI bank at \(PlaybackSound.bank.path) did not load")
+                       "the bundled General MIDI bank "
+                       + "(\(PlaybackSound.bank?.lastPathComponent ?? "NONE")) "
+                       + "did not load")
         let sound = try render(graph, seconds: 2.0)
         XCTAssertGreaterThan(sound.rms, silence, "the graph rendered silence")
     }

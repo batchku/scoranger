@@ -104,9 +104,11 @@ enum MixerLayout {
     static let pickerWidth: CGFloat = 300
     static let pickerFamilyWidth: CGFloat = 116
     static let pickerRowHeight: CGFloat = 22
-    /// Seven rows. The instrument column never needs more -- a family is eight
-    /// sounds and the drum kits are nine -- so only the family column scrolls,
-    /// and the reader is never hunting in two scrolling lists at once.
+    /// Seven rows. A melodic family is eight sounds, so the instrument column
+    /// scrolls by one row at most and reads as a list that is all there. The
+    /// thirteen drum kits are the exception and do scroll -- they were nine
+    /// under the previous sound bank, and both columns have always been
+    /// scroll views, so nothing here changed when the bank did.
     static let pickerListHeight: CGFloat = 154
     /// "Back to the guess" and "every staff on this sound", which is the ask
     /// the whole feature came from.

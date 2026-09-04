@@ -609,9 +609,10 @@ private struct ChannelStrip: View {
 /// The list of sounds one channel can be played with.
 ///
 /// The product ask was "expose all of the standard instruments available with
-/// the macOS / iOS AudioUnit sampler", and there are 128 of them plus nine drum
-/// kits. A flat list of 137 rows in a floating panel is a list nobody finds
-/// anything in, so it is TWO columns: General MIDI's own sixteen families on
+/// the macOS / iOS AudioUnit sampler", and in the bundled bank there are 128
+/// of them plus thirteen drum kits. A flat list of 141 rows in a floating
+/// panel is a list nobody finds anything in, so it is TWO columns: General
+/// MIDI's own sixteen families on
 /// the left -- which are the blocks of eight the programs are already numbered
 /// in, not a taxonomy invented here -- and the sounds of the chosen family on
 /// the right.

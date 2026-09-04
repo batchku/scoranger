@@ -28,8 +28,11 @@ import XCTest
 /// the failure is structural, and the gate runs where the bug is invisible.
 final class PlaybackBankTests: XCTestCase {
 
-    func testTheSoundBankIsCarriedByTheAppAndNotBorrowedFromTheHost() {
-        let bank = PlaybackSound.bank
+    func testTheSoundBankIsCarriedByTheAppAndNotBorrowedFromTheHost() throws {
+        let bank = try XCTUnwrap(PlaybackSound.bank,
+                                 "this build carries no sound bank at all, so "
+                                 + "every part plays the sampler's built-in "
+                                 + "tone -- run ios/scripts/fetch_soundfont.sh")
 
         XCTAssertFalse(bank.path.hasPrefix("/System/"),
                        "the sound bank is a host system file (\(bank.path)). "
@@ -45,7 +48,7 @@ final class PlaybackBankTests: XCTestCase {
     /// The bank resolves out of a bundle rather than an absolute path, which
     /// is what makes the previous assertion true on a device as well as here.
     func testTheBankResolvesFromTheBundleThatShipsIt() throws {
-        let bank = PlaybackSound.bank
+        let bank = try XCTUnwrap(PlaybackSound.bank)
         let bundles = [Bundle.main] + Bundle.allBundles + Bundle.allFrameworks
         let carried = bundles.contains { bundle in
             bank.path.hasPrefix(bundle.bundlePath)

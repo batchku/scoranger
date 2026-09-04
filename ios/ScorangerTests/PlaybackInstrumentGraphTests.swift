@@ -4,9 +4,9 @@ import XCTest
 /// The instrument picker's two claims about the audio graph, measured rather
 /// than assumed.
 ///
-/// The catalogue in `GeneralMIDI` was read out of `gs_instruments.dls` by
-/// walking its RIFF chunks on a Mac. That says what is in the FILE. This says
-/// what the runtime does with it, which is the claim a reader's ear cares
+/// The catalogue in `GeneralMIDI` was read out of the bundled bank's preset
+/// table by `check_vendored_soundfont.py`. That says what is in the FILE. This
+/// says what the runtime does with it, which is the claim a reader's ear cares
 /// about -- an entry in the picker that loads nothing is a silent channel with
 /// a confident label on it.
 ///
@@ -136,11 +136,13 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
             }
         }
         XCTAssertEqual(refused, [],
-                       "the melodic bank at \(PlaybackSound.bank.path) refused these")
+                       "the melodic bank "
+                       + "(\(PlaybackSound.bank?.lastPathComponent ?? "NONE")) "
+                       + "refused these")
     }
 
-    /// Nine kits, and the reason the picker offers nine rather than 128: the
-    /// percussion bank holds nothing at the other programs.
+    /// The kits, and the reason the picker offers thirteen rather than 128:
+    /// the percussion bank holds nothing at the other programs.
     func testEveryDrumKitInTheCatalogueLoads() throws {
         let graph = try loaded(parts: quartet())
         var refused: [UInt8] = []
@@ -207,7 +209,7 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
                        "the picker offers these and they play nothing")
     }
 
-    /// The same question of the nine kits, on kit keys rather than pitches: a
+    /// The same question of the kits, on kit keys rather than pitches: a
     /// drum kit answers to key numbers, and middle C on a drum bank is a
     /// different instrument rather than a different pitch.
     func testEveryDrumKitActuallyMakesASound() throws {

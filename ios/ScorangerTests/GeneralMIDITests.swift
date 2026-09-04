@@ -2,10 +2,17 @@ import XCTest
 
 /// The catalogue of sounds the sampler can make.
 ///
-/// The counts here are not folklore: they were read out of
-/// `gs_instruments.dls` by walking its RIFF chunks. The melodic bank holds all
-/// 128 programs; the percussion bank holds nine kits and nothing at the other
-/// 119 programs. A picker offering what the bank does not hold offers silence.
+/// The counts here are not folklore: they were read out of the bundled bank's
+/// own preset table. The melodic bank holds all 128 programs; the percussion
+/// bank holds thirteen kits and nothing at the other 115 programs. A picker
+/// offering what the bank does not hold offers silence.
+///
+/// They were NINE until 0.6.9, when the bank changed -- Apple's
+/// `gs_instruments.dls` turned out to be a host-only macOS file the app was
+/// never carrying, and GeneralUser GS replaced it. Which is why the same
+/// numbers are asserted against the shipped FILE in
+/// `check_vendored_soundfont.py`: a catalogue can outlive the bank it
+/// describes, and this one did.
 final class GeneralMIDITests: XCTestCase {
 
     func testTheMelodicBankIsAllOneHundredAndTwentyEightPrograms() {
@@ -64,26 +71,30 @@ final class GeneralMIDITests: XCTestCase {
         XCTAssertEqual(GeneralMIDI.Family(melodicProgram: 127), .soundEffects)
     }
 
-    /// Read out of the file, not out of a specification: these nine programs
-    /// are the only ones in the percussion bank.
-    func testThePercussionBankIsTheNineKitsTheFileActuallyHolds() {
+    /// Read out of the file, not out of a specification: these thirteen
+    /// programs are the only ones in the percussion bank.
+    func testThePercussionBankIsTheKitsTheFileActuallyHolds() {
         XCTAssertEqual(GeneralMIDI.kits.map(\.program),
-                       [0, 8, 16, 24, 25, 32, 40, 48, 56])
+                       [0, 1, 2, 8, 16, 24, 25, 26, 32, 40, 48, 56, 127])
         for kit in GeneralMIDI.kits { XCTAssertEqual(kit.bank, .percussion) }
     }
 
     /// The families group the kits too, or a reader looking for a drum kit in
     /// a list of families does not find one.
     func testTheKitsAreTheirOwnFamily() {
-        XCTAssertEqual(GeneralMIDI.instruments(in: .percussion).count, 9)
+        XCTAssertEqual(GeneralMIDI.instruments(in: .percussion).count, 13)
         XCTAssertEqual(GeneralMIDI.kits[0].family, .percussion)
     }
 
     /// A program the bank does not hold is silence, and the caller has to be
     /// able to tell. This is the whole reason the lookup is optional.
     func testAProgramThePercussionBankDoesNotHoldIsNotInvented() {
-        XCTAssertNil(GeneralMIDI.instrument(program: 1, bank: .percussion))
-        XCTAssertNotNil(GeneralMIDI.instrument(program: 1, bank: .melodic))
+        // 3 and 100 are in the melodic bank and in no kit bank. (1 used to be
+        // the example here and is a kit in the bank that ships now -- the
+        // count of what is absent moved with the file.)
+        XCTAssertNil(GeneralMIDI.instrument(program: 3, bank: .percussion))
+        XCTAssertNil(GeneralMIDI.instrument(program: 100, bank: .percussion))
+        XCTAssertNotNil(GeneralMIDI.instrument(program: 3, bank: .melodic))
         XCTAssertNotNil(GeneralMIDI.instrument(program: 25, bank: .percussion))
     }
 
