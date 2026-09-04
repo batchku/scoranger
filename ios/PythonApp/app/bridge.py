@@ -323,6 +323,13 @@ def _dispatch(op, a):
         return workspace.set_score_metadata(a["score"], title=a.get("title"),
                                             composer=a.get("composer"),
                                             arranger=a.get("arranger"))
+    if op == "repair-titles":
+        # The other half of the v001.mxl fix. Guarding the way in protects only
+        # versions written after the guard; a library OMR'd before it has the
+        # file name baked into notation already on disk. This finds those and
+        # -- only when asked -- gives each one a corrected NEW version through
+        # set-metadata, so no history is rewritten.
+        return workspace.repair_titles(dry_run=not a.get("apply"))
     if op == "set-piece-metadata":
         # Composer lives on the PIECE as well as in notation: an arrangement
         # imported as a PDF has none to write into, so a scan could otherwise
@@ -363,6 +370,18 @@ def _dispatch(op, a):
         })
         workspace.rebuild_manifest()
         return {"score": slug, "versions": 0}
+    if op == "debug-poison-title":
+        # TEST FIXTURE ONLY, and the only way to produce this shape any more:
+        # add_version_from_file now refuses to let a file name become a title,
+        # so a version titled "v001.mxl" cannot be made through the normal path.
+        # The app calls this under -seedPoisonedTitles to reproduce the library
+        # the reader actually has -- OMR'd before the guard existed -- so the
+        # repair, and the screenshots of it, are taken against the real damage.
+        score = _load(a["score"])
+        ops.set_metadata(score, title=a.get("title") or "v001.mxl")
+        entry = workspace.add_version(a["score"], score, a.get("op") or "omr", {})
+        return {"score": a["score"], "version": entry["id"],
+                "title": a.get("title") or "v001.mxl"}
     if op == "create-arrangement":
         # a minimal valid score: one part, one 4/4 measure with a whole rest
         from music21 import clef, meter, metadata, note, stream

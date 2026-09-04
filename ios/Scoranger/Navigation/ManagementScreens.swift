@@ -60,7 +60,8 @@ struct MoveToPieceScreen: View {
     private var subject: String {
         moving.count == 1
             ? (state.manifest?.scores.first { $0.slug == moving[0] }
-                .map { $0.title ?? $0.name } ?? "one arrangement")
+                .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                                  slug: $0.slug) } ?? "one arrangement")
             : "\(moving.count) arrangements"
     }
 
@@ -144,7 +145,9 @@ struct SetlistsForScreen: View {
     }
 
     private var name: String? {
-        state.manifest?.scores.first { $0.slug == slug }.map { $0.title ?? $0.name }
+        state.manifest?.scores.first { $0.slug == slug }
+            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                              slug: $0.slug) }
     }
 
     private func commitNew() {
@@ -297,7 +300,8 @@ struct SetlistScreen: View {
     private func label(for member: String) -> String {
         if let p = state.placement(of: member) { return "\(p.piece.name) #\(p.number)" }
         return state.manifest?.scores.first { $0.slug == member }
-            .map { $0.title ?? $0.name } ?? member
+            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                              slug: $0.slug) } ?? member
     }
 
     private var summary: String? {
@@ -351,7 +355,8 @@ struct AddArrangementsScreen: View {
 
     private func label(_ score: ScoreDoc) -> String {
         if let p = state.placement(of: score.slug) { return "\(p.piece.name) #\(p.number)" }
-        return score.title ?? score.name
+        return ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                          slug: score.slug)
     }
 }
 
@@ -373,7 +378,10 @@ struct VersionsScreen: View {
                     groupRow(group)
                     if expanded.contains(group.id) {
                         ForEach(group.subs.reversed(), id: \.id) { step in
-                            ScreenRow(title: step.id, value: step.op, leads: false,
+                            ScreenRow(title: step.id,
+                                      value: VersionLabel.text(op: step.op,
+                                                               prompt: step.turn?.prompt),
+                                      leads: false,
                                       isSelected: step.id == shown,
                                       identifier: "step-\(slug)-\(step.id)") {
                                 show(step.id)
@@ -429,7 +437,10 @@ struct VersionsScreen: View {
             }
             .padding(.leading, Theme.Metric.s6)
         } else {
-            ScreenRow(title: group.face.id, value: group.face.op, leads: false,
+            ScreenRow(title: group.face.id,
+                      value: VersionLabel.text(op: group.face.op,
+                                               prompt: group.face.turn?.prompt),
+                      leads: false,
                       isSelected: group.face.id == shown,
                       identifier: "version-\(slug)-\(group.face.id)") {
                 show(group.face.id)
@@ -448,7 +459,10 @@ struct VersionsScreen: View {
     }
 
     private var score: ScoreDoc? { state.manifest?.scores.first { $0.slug == slug } }
-    private var name: String? { score.map { $0.title ?? $0.name } }
+    private var name: String? {
+        score.map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                               slug: $0.slug) }
+    }
 }
 
 /// Parts and ranges — read-only, from the version snapshot the engine writes.
@@ -483,7 +497,10 @@ struct PartsScreen: View {
     }
 
     private var score: ScoreDoc? { state.manifest?.scores.first { $0.slug == slug } }
-    private var name: String? { score.map { $0.title ?? $0.name } }
+    private var name: String? {
+        score.map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                               slug: $0.slug) }
+    }
 }
 
 
@@ -503,7 +520,10 @@ struct DetailsScreen: View {
         Group {
             if let score = opened {
                 Screen(title: "Details", backLabel: "Back",
-                       subtitle: score.title ?? score.name, onBack: onBack) {
+                       subtitle: ScoreTitle.arrangementName(title: score.title,
+                                                            name: score.name,
+                                                            slug: score.slug),
+                       onBack: onBack) {
                     ScoreInfoView(score: score)
                 }
             } else {

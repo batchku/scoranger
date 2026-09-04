@@ -104,7 +104,9 @@ struct ScoreInfoView: View {
             ForEach(live.versions.reversed()) { version in
                 SheetRow(label: version.id) {
                     HStack(spacing: Theme.Metric.s8) {
-                        Text(version.op).typeRole(.meta).foregroundStyle(Theme.Ink.ink)
+                        Text(VersionLabel.text(op: version.op,
+                                               prompt: version.turn?.prompt))
+                            .typeRole(.meta).foregroundStyle(Theme.Ink.ink)
                         if version.id == live.latest {
                             Text("latest").typeRole(.dataS)
                                 .foregroundStyle(Theme.Accent.clayStrong)

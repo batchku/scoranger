@@ -207,6 +207,20 @@ scor set-metadata <score> [--title T] [--composer C] [--arranger A]
   # the ONE title: the arrangement's name in the library and the title engraved
   # at the top of the page are the same value. Versioned, like any notation
   # change. `rename-score` is the same op under its older name.
+scor repair-titles [--apply]
+  # the other half of the v001.mxl fix. `set-metadata` and the import guard
+  # protect the way IN; they cannot touch a title already written into the
+  # notation of versions on disk, and a library OMR'd before the guard existed
+  # engraves the workspace's own file name at the top of every page. This lists
+  # those arrangements, and with --apply gives each a corrected NEW version
+  # through set-metadata -- no history rewritten, nothing edited in place,
+  # undoable like any version. The replacement is the arrangement's own name
+  # (or the piece's), spelled out; an arrangement nothing can name is REPORTED,
+  # never given an invented title. A scan whose latest version is still a PDF
+  # is left alone: there is no notation to correct.
+  # The app offers the same op in Settings, and only while the scan finds
+  # something -- derived from the library, never a per-device flag, which would
+  # fan out and re-run on the next iPad.
 scor check-range <score> --part "Violin I" [--instrument Viola]
 scor export <score> --format musicxml|midi|pdf --out <path> [--version vNNN] [--parts "..."]
   # PDF rendering: Verovio + cairosvg + pypdf, all in the venv (engine/scoranger_engine/render.py).

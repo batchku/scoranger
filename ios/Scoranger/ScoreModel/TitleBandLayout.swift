@@ -81,9 +81,11 @@ enum TitleBandLayout {
     /// what a person remembers; the op is the fallback for versions made from
     /// the CLI, and the id is still shown beside it because it is what the
     /// rest of the app calls this thing.
+    /// One rule, kept in `VersionLabel`: what was ASKED for, and failing that
+    /// what HAPPENED -- never the engine's name for the operation. This
+    /// returned the raw op, so the band read "omr" and "bulk-import" beside
+    /// the versions it was offering to switch to.
     static func versionLabel(prompt: String?, op: String) -> String {
-        let cleaned = (prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleaned.isEmpty { return cleaned }
-        return op.isEmpty ? "—" : op
+        VersionLabel.text(op: op, prompt: prompt)
     }
 }

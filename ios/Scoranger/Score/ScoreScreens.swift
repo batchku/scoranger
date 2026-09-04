@@ -351,7 +351,10 @@ struct ScoreOptionsScreen: View {
             case "Versions":
                 if let score = state.selectedScore {
                     ForEach(score.versions.reversed(), id: \.id) { version in
-                        ScreenRow(title: version.id, value: version.op, leads: false,
+                        ScreenRow(title: version.id,
+                                  value: VersionLabel.text(op: version.op,
+                                                           prompt: version.turn?.prompt),
+                                  leads: false,
                                   identifier: "version-\(version.id)") {
                             state.pinnedVersion = version.id == score.latest ? nil : version.id
                             Task { await state.renderIfNeeded() }
@@ -413,6 +416,21 @@ struct TitleSwitcherBand: View {
 
     private var arrangements: [String] { piece?.arrangements ?? [score.slug] }
 
+    /// The same labels the piece screen shows, by the same rule: a title that
+    /// is really the workspace's file name loses to the arrangement's own
+    /// name, and no two rows may read the same.
+    private var arrangementLabels: [String: String] {
+        let scores = arrangements.compactMap { slug in
+            state.manifest?.scores.first { $0.slug == slug }
+        }
+        let shown = ScoreTitle.labels(for: scores.map {
+            ScoreTitle.Arrangement(title: $0.title, name: $0.name, slug: $0.slug,
+                                   parts: ($0.versions.last?.parts ?? []).map(\.name),
+                                   isScan: ArtifactTag.holding(of: $0) == .pdf)
+        })
+        return Dictionary(uniqueKeysWithValues: zip(scores.map(\.slug), shown))
+    }
+
     private var contentHeight: CGFloat {
         TitleBandLayout.contentHeight(
             mode: mode,
@@ -451,7 +469,11 @@ struct TitleSwitcherBand: View {
             BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
             ForEach(Array(arrangements.enumerated()), id: \.offset) { index, slug in
                 if let arrangement = state.manifest?.scores.first(where: { $0.slug == slug }) {
-                    switchRow(title: arrangement.title ?? arrangement.name,
+                    switchRow(title: arrangementLabels[slug]
+                                     ?? ScoreTitle.arrangementName(
+                                            title: arrangement.title,
+                                            name: arrangement.name,
+                                            slug: arrangement.slug),
                               number: index + 1,
                               selected: slug == score.slug,
                               id: "menu-arrangement-\(slug)") { onPickArrangement(slug) }

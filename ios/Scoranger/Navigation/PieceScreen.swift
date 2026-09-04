@@ -97,10 +97,37 @@ struct PieceScreen: View {
         }
     }
 
+    /// What each arrangement of this piece is CALLED, none of them the same.
+    ///
+    /// The rows read `score.title ?? score.name`, so a title poisoned before
+    /// the engine guarded the way in beat the real name -- and since every
+    /// arrangement OMR'd before the fix was poisoned with the SAME string,
+    /// this piece listed two arrangements both labelled "v001.mxl". The
+    /// judgement is ScoreTitle's, over the whole piece at once, because
+    /// telling two rows apart is not something one row can do alone.
+    private var labels: [String: String] {
+        let scores = piece.arrangements.compactMap { slug in
+            state.manifest?.scores.first { $0.slug == slug }
+        }
+        let shown = ScoreTitle.labels(for: scores.map { score in
+            ScoreTitle.Arrangement(
+                title: score.title, name: score.name, slug: score.slug,
+                parts: (score.versions.last?.parts ?? []).map(\.name),
+                isScan: ArtifactTag.holding(of: score) == .pdf)
+        })
+        return Dictionary(uniqueKeysWithValues: zip(scores.map(\.slug), shown))
+    }
+
+    private func label(_ score: ScoreDoc) -> String {
+        labels[score.slug] ?? ScoreTitle.arrangementName(title: score.title,
+                                                         name: score.name,
+                                                         slug: score.slug)
+    }
+
     /// Spelled out rather than built inline: as one `+` chain in the modifier
     /// the type checker gave up on the whole row.
     private func arrangementLabel(_ score: ScoreDoc, number: Int) -> String {
-        let name = score.title ?? score.name
+        let name = label(score)
         let count = score.versions.count
         let versions = "\(count) version" + (count == 1 ? "" : "s")
         let format = ArtifactTag.holding(of: score).map { ArtifactTag.label($0) }
@@ -114,7 +141,7 @@ struct PieceScreen: View {
                 HStack(spacing: Theme.Metric.s12) {
                     NumeralBadge(number: number)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(score.title ?? score.name).typeRole(.titleS)
+                        Text(label(score)).typeRole(.titleS)
                             .foregroundStyle(Theme.Ink.ink)
                         HStack(spacing: Theme.Metric.s4) {
                             Text("\(score.versions.count) version"
@@ -150,11 +177,11 @@ struct PieceScreen: View {
             // another used to do -- the same inline pattern the set list screen
             // already uses, and the only way to reorder now that dragging is
             // gone from the app entirely.
-            orderButton("chevron.up", label: "Move \(score.title ?? score.name) up",
+            orderButton("chevron.up", label: "Move \(label(score)) up",
                         id: "arr-up-\(score.slug)", enabled: number > 1) {
                 move(score.slug, by: -1)
             }
-            orderButton("chevron.down", label: "Move \(score.title ?? score.name) down",
+            orderButton("chevron.down", label: "Move \(label(score)) down",
                         id: "arr-down-\(score.slug)",
                         enabled: number < piece.arrangements.count) {
                 move(score.slug, by: 1)
@@ -163,7 +190,7 @@ struct PieceScreen: View {
             // §8.1's own mitigation: a ☰ here pushes straight to the
             // arrangement's screen, so filing is two pushes rather than three.
             RowMenuButton(identifier: "row-menu-\(score.slug)",
-                          label: "Manage \(score.title ?? score.name)") {
+                          label: "Manage \(label(score))") {
                 push(.arrangement(score.slug))
             }
         }
@@ -241,7 +268,10 @@ struct ArrangementScreen: View {
                        .accessibilityIdentifier("arrangement-open")
                }) {
             VStack(alignment: .leading, spacing: 0) {
-                EditableTitle(text: score.title ?? score.name, role: .title,
+                EditableTitle(text: ScoreTitle.arrangementName(title: score.title,
+                                                              name: score.name,
+                                                              slug: score.slug),
+                              role: .title,
                               identifier: "arrangement-title") { name in
                     Task { _ = await state.renameScore(slug: score.slug, name: name) }
                 }
@@ -314,7 +344,7 @@ struct ArrangementScreen: View {
 
     private var deleteWarning: String {
         let n = score.versions.count
-        return "Delete \(score.title ?? score.name) and its \(n) version"
+        return "Delete \(ScoreTitle.arrangementName(title: score.title, name: score.name, slug: score.slug)) and its \(n) version"
             + (n == 1 ? "?" : "s?")
     }
 

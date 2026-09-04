@@ -56,14 +56,18 @@ final class TitleBandLayoutTests: XCTestCase {
                        "make the viola an alto clef")
     }
 
-    func testWithoutAPromptItSaysTheOp() {
+    /// It used to say the op itself -- "transpose", "omr", "bulk-import" --
+    /// which is the engine's word for it, not the reader's.
+    func testWithoutAPromptItSaysWhatHappened() {
         XCTAssertEqual(TitleBandLayout.versionLabel(prompt: nil, op: "transpose"),
-                       "transpose")
+                       "transposed")
         XCTAssertEqual(TitleBandLayout.versionLabel(prompt: "   ", op: "transpose"),
-                       "transpose")
+                       "transposed")
+        XCTAssertEqual(TitleBandLayout.versionLabel(prompt: nil, op: "omr"),
+                       "transcribed from the scan")
     }
 
     func testWithNeitherItSaysSomethingRatherThanNothing() {
-        XCTAssertEqual(TitleBandLayout.versionLabel(prompt: nil, op: ""), "—")
+        XCTAssertEqual(TitleBandLayout.versionLabel(prompt: nil, op: ""), "edited")
     }
 }
