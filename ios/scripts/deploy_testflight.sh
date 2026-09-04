@@ -39,6 +39,22 @@ PY=$(python_with_cryptography)
 [[ -d "Vendor/Python.xcframework" ]] || die "Vendor/Python.xcframework missing -- run scripts/fetch_python.sh"
 [[ -d "PythonApp/app_packages" ]]    || die "PythonApp/app_packages missing -- run scripts/vendor_engine.sh"
 
+# The General MIDI bank. Gitignored and fetched, like the two above -- and a
+# missing one is the SILENT failure of the set: the app builds, archives,
+# uploads and plays, with every part on `AVAudioUnitSampler`'s own built-in
+# near-sine and nothing anywhere saying the bank was not there. That shipped
+# once. So the digest is checked and not only the path, because a truncated
+# download is a file that exists.
+BANK="Vendor/SoundFonts/GeneralUser-GS.sf2"
+[[ -f "$BANK" ]] || die "$BANK missing -- run scripts/fetch_soundfont.sh"
+BANK_SHA=$(awk -F\" '/^SHA256=/ {print $2; exit}' scripts/fetch_soundfont.sh)
+[[ -n "$BANK_SHA" ]] || die "cannot read the bank digest from scripts/fetch_soundfont.sh"
+[[ "$(shasum -a 256 "$BANK" | cut -d' ' -f1)" == "$BANK_SHA" ]] \
+  || die "$BANK is not the pinned file -- run scripts/fetch_soundfont.sh"
+[[ -f "Vendor/SoundFonts/LICENSE.txt" ]] \
+  || die "Vendor/SoundFonts/LICENSE.txt missing -- somebody else's work ships in this binary; run scripts/fetch_soundfont.sh"
+say "sound bank: $(du -h "$BANK" | cut -f1), digest ${BANK_SHA:0:12}"
+
 # The vendored engine is gitignored and regenerated, and checking only that the
 # directory EXISTS let a stale copy ship: `adjust_element` was written, tested
 # and shipped in the engine while the app carried an ops.py without it, so the

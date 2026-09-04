@@ -6,15 +6,56 @@ import Foundation
 /// decision -- which General MIDI program, what a click is, when the
 /// performance is over -- while the engine is only wiring. Decisions are worth
 /// testing; wiring is worth keeping short.
-///
-/// The bank path was CONFIRMED on the iOS 26.5 runtime rather than remembered.
-/// Worth saying, because a search of the simulator runtime's `RuntimeRoot`
-/// does not show this file: only asking the running system does.
 enum PlaybackSound {
 
-    /// Apple's General MIDI sound set, shipped with the OS.
-    static let bank = URL(fileURLWithPath:
-        "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls")
+    /// The General MIDI bank, out of the bundle that carries this code.
+    ///
+    /// **The app has to bring its own.** This was an absolute path into macOS
+    /// for six months --
+    /// `/System/Library/Components/CoreAudio.component/.../gs_instruments.dls`,
+    /// Apple's own bank -- and it worked in every test and on nobody's iPad.
+    /// There is no `System/Library/Components` in the iOS SDK and none in the
+    /// simulator runtime's root; a simulator process falls through to the HOST
+    /// Mac's filesystem, where that file really does live, so the simulator
+    /// loaded real timbres and the device loaded nothing. The comment here
+    /// even recorded the clue and drew the wrong conclusion from it: "a search
+    /// of the simulator runtime's RuntimeRoot does not show this file: only
+    /// asking the running system does."
+    ///
+    /// What a device did instead: `loadSoundBankInstrument` threw,
+    /// `PlaybackGraph.loadInstrument` swallowed it, and an
+    /// `AVAudioUnitSampler` with no instrument loaded plays its own built-in
+    /// tone -- a near sine, the same one on every channel, deaf to every
+    /// program change. Which is what Ali heard: "all playback is using the
+    /// same synth; it sounds like pure sinusoids; changing instruments does
+    /// nothing."
+    ///
+    /// iOS ships no General MIDI bank an app is allowed to load, and Apple's
+    /// is not redistributable, so the app carries GeneralUser GS
+    /// (ios/scripts/fetch_soundfont.sh). It is fetched rather than committed,
+    /// like Python and Verovio, and bundled into the app target AND the test
+    /// target -- the unit tests have no host app, and a bank wired into the
+    /// app alone would leave every offline render measuring the fallback tone
+    /// again.
+    ///
+    /// `Bundle(for:)` rather than `Bundle.main`: this file compiles into both
+    /// targets, and in the unit bundle `Bundle.main` is the XCTest runner. The
+    /// bundle that carries THIS CODE is the bundle that carries the bank.
+    ///
+    /// Optional, and not a path that might not exist. A build without a bank
+    /// is a build with no sound at all, and `PlaybackGraph` records that on
+    /// every channel (`bankFailures`) rather than pretending a load was
+    /// attempted. `PlaybackBankTests` and `check_vendored_soundfont.py` are
+    /// what make it never nil in a shipped build.
+    static let bank: URL? = Bundle(for: BankBundle.self)
+        .url(forResource: bankName, withExtension: "sf2",
+             subdirectory: "SoundFonts")
+        ?? Bundle.main.url(forResource: bankName, withExtension: "sf2",
+                           subdirectory: "SoundFonts")
+
+    /// The vendored file's own name, in one place: the fetch script writes it,
+    /// project.yml bundles it and this reads it back.
+    static let bankName = "GeneralUser-GS"
 
     /// The melodic bank. Every pitched instrument lives here.
     static let melodicBankMSB: UInt8 = 0x79
@@ -67,3 +108,7 @@ enum PlaybackSound {
         end > 0 && beat >= end
     }
 }
+
+/// Only so `Bundle(for:)` has a class to name. `PlaybackSound` is an enum and
+/// `Bundle.main` is the wrong answer in the test bundle.
+private final class BankBundle {}

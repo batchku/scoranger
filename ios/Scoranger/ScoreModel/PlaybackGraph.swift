@@ -144,11 +144,25 @@ final class PlaybackGraph {
         }
     }
 
+    /// Put one program on one sampler, out of the bundled bank.
+    ///
+    /// A false here is what "this channel has no sound" means, and it is the
+    /// whole reason the failure is recorded rather than thrown: a sampler that
+    /// refused a load does not go quiet, it keeps whatever patch it had -- and
+    /// with nothing ever loaded, that is `AVAudioUnitSampler`'s own built-in
+    /// near-sine, identical on every channel. Silence would have been the
+    /// louder bug report.
+    ///
+    /// No bank at all is the same answer, reached earlier. It cannot happen in
+    /// a shipped build -- see `PlaybackSound.bank` -- and pretending to have
+    /// attempted a load would put every channel back in the state this whole
+    /// change exists to end.
     @discardableResult
     private func loadInstrument(_ sampler: AVAudioUnitSampler,
                                 program: UInt8, bankMSB: UInt8) -> Bool {
+        guard let bank = PlaybackSound.bank else { return false }
         do {
-            try sampler.loadSoundBankInstrument(at: PlaybackSound.bank,
+            try sampler.loadSoundBankInstrument(at: bank,
                                                 program: program,
                                                 bankMSB: bankMSB,
                                                 bankLSB: PlaybackSound.bankLSB)

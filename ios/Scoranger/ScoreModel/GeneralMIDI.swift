@@ -2,25 +2,32 @@ import Foundation
 
 /// The sounds the sampler can actually make, named and grouped.
 ///
-/// This is a catalogue, not a guess: every entry below was READ OUT of
-/// `gs_instruments.dls` -- the bank `PlaybackSound` loads -- by walking its
-/// RIFF chunks and collecting each `insh` header's bank and program. Worth
+/// This is a catalogue, not a guess: every entry below was READ OUT of the
+/// bank `PlaybackSound` loads, by walking the file's own preset table. Worth
 /// saying because the obvious alternative is to paste the General MIDI list
-/// from a specification and hope the file agrees with it. What the file holds:
+/// from a specification and hope the file agrees with it -- and this catalogue
+/// has already outlived one bank by four kits. What GeneralUser GS holds:
 ///
 ///   - the melodic bank carries **all 128 programs**, none missing
-///   - the percussion bank carries **nine kits**, at programs 0, 8, 16, 24,
-///     25, 32, 40, 48 and 56 -- and NOT at the other 119, so a picker offering
-///     128 drum programs would be offering 119 silences
-///   - there are also variation banks (MSB 1-32) with a few dozen programs
+///   - the percussion bank carries **thirteen kits**, at programs 0, 1, 2, 8,
+///     16, 24, 25, 26, 32, 40, 48, 56 and 127 -- and NOT at the other 115, so
+///     a picker offering 128 drum programs would be offering 115 silences
+///   - there are also variation banks (2-26) with a couple of hundred programs
 ///     between them. They are not exposed: `AVAudioUnitSampler` addresses the
 ///     main bank at the sampler's own melodic MSB, the variations are Roland
-///     extensions rather than General MIDI, and most of them are empty
+///     GS extensions rather than General MIDI, and they are sparse
+///
+/// It was Apple's `gs_instruments.dls` until 0.6.9, which held nine kits and
+/// none of programs 1, 2, 26 or 127. That bank turned out to be a host-only
+/// macOS file the app was never carrying (see `PlaybackSound.bank`), and the
+/// counts here moved with it. `check_vendored_soundfont.py` reads the shipped
+/// file's preset table and fails if `kits` and the bank disagree, so the two
+/// cannot drift apart again in silence.
 ///
 /// The names here are the standard General MIDI ones rather than the labels in
-/// the file, which are Roland's abbreviations ("Nylon-str.Gt", "Clav.",
-/// "Melo. Tom 1") and read as noise to a musician. `short` is the same
-/// instrument at the width a 64pt channel strip has for it.
+/// the file, which are abbreviations ("Nylon-str.Gt", "Clav.", "808/909") and
+/// read as noise to a musician. `short` is the same instrument at the width a
+/// 64pt channel strip has for it.
 enum GeneralMIDI {
 
     /// Which bank a sound comes from. Two, because they are addressed
@@ -111,18 +118,27 @@ enum GeneralMIDI {
                    name: pair.element.0, short: pair.element.1)
     }
 
-    /// The nine kits the percussion bank actually holds. A tenth would be
-    /// silence; see the note at the top.
+    /// The thirteen kits the percussion bank actually holds. A fourteenth
+    /// would be silence; see the note at the top.
+    ///
+    /// The names are the file's, tidied: these kits are not in the General
+    /// MIDI specification -- GM defines one drum set -- so there is no
+    /// standard name to prefer over the bank's own, and inventing one would
+    /// name a sound the reader is about to hear.
     static let kits: [Instrument] = [
         (0, "Standard Kit", "Std Kit"),
+        (1, "Standard Kit 2", "Std Kit 2"),
+        (2, "Standard Kit 3", "Std Kit 3"),
         (8, "Room Kit", "Room"),
         (16, "Power Kit", "Power"),
         (24, "Electronic Kit", "Electro"),
         (25, "TR-808 Kit", "TR-808"),
+        (26, "Dance Kit", "Dance"),
         (32, "Jazz Kit", "Jazz"),
         (40, "Brush Kit", "Brush"),
         (48, "Orchestra Kit", "Orch"),
         (56, "Sound FX Kit", "SFX"),
+        (127, "CM-64 Kit", "CM-64"),
     ].map { Instrument(program: UInt8($0.0), bank: .percussion,
                        name: $0.1, short: $0.2) }
 

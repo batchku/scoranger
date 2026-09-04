@@ -29,6 +29,14 @@ targets:
       - path: PythonApp/app_packages
         type: folder
         buildPhase: resources
+      # The General MIDI sound bank the app PLAYS with (scripts/fetch_soundfont.sh).
+      # It has to be IN the bundle: iOS ships no GM bank an app may load, and
+      # the absolute macOS path this used to read resolved in the simulator
+      # only because a simulator process falls through to the host Mac's
+      # filesystem. See PlaybackSound.bank.
+      - path: Vendor/SoundFonts
+        type: folder
+        buildPhase: resources
     # Stamp the commit into the built Info.plist, so a tester's report names an
     # exact tree rather than a version that covers several builds. Absent when
     # git is not available, in which case the stamp simply omits it.
@@ -114,8 +122,10 @@ targets:
         # Several builds share a version while its bugs get fixed.
         #   0.1.1  penny-whistle diagrams: smaller, above the staff
         #   0.1.2  dragging, repeat signs, two-page view (combined)
+        #   0.6.9  the app carries its own General MIDI bank, so playback has
+        #          timbres at all on a device
         CURRENT_PROJECT_VERSION: 167
-        MARKETING_VERSION: 0.6.8
+        MARKETING_VERSION: 0.6.9
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -227,6 +237,14 @@ targets:
       - path: Scoranger/Score/PagedCanvas.swift
       - path: Scoranger/Score/KeyboardInset.swift
       - path: ScorangerTests/Fixtures
+        type: folder
+        buildPhase: resources
+      # The same sound bank, again, because this bundle has NO HOST APP: the
+      # offline renders in PlaybackAudioTests and PlaybackTimbreTests load it
+      # out of the bundle that carries the code under test. Wired into the app
+      # alone, every one of them would go back to measuring the sampler's own
+      # fallback tone -- which is the bug they exist to catch.
+      - path: Vendor/SoundFonts
         type: folder
         buildPhase: resources
     dependencies:
