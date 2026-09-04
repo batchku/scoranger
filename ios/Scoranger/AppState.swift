@@ -1710,13 +1710,13 @@ final class AppState: ObservableObject {
                                           stage: queue > 0 ? "waiting (\(queue) ahead)…" : "waiting for converter…",
                                           fraction: nil)
                         case "converting":
-                            if pages > 0 {
-                                updatePending(pending.id,
-                                              stage: "reading page \(min(page + 1, pages)) of \(pages)",
-                                              fraction: max(0.02, Double(page) / Double(pages)))
-                            } else {
-                                updatePending(pending.id, stage: "reading the score…", fraction: nil)
-                            }
+                            // One place decides how converting reads, and it
+                            // is unit-tested: `page` is the sheet being WORKED
+                            // ON, so the bar behind it is `page - 1` and it
+                            // never fills here (MakeEditable.converting).
+                            let progress = MakeEditable.converting(page: page, pages: pages)
+                            updatePending(pending.id, stage: progress.stage,
+                                          fraction: progress.fraction)
                         case "done":
                             break poll
                         case "failed":

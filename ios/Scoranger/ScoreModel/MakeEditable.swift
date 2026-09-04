@@ -32,6 +32,37 @@ enum MakeEditable {
 
     static let offer = "Reads the page into notation. The PDF stays as it is."
 
+    /// The words and the bar for the CONVERTING stage, in one place because
+    /// three surfaces draw them now: the Make editable row, the library's
+    /// import row, and the top bar's chip.
+    ///
+    /// `page` is the sheet Audiveris is WORKING ON, not the number it has
+    /// finished, so the pages behind it are `page - 1`. Read as a count of
+    /// finished pages it put the bar at 1.0 and the words at "reading page N
+    /// of N" from the first poll of the job -- reproduced end to end against
+    /// the real service and the real Audiveris on an 8-page score: every one
+    /// of the 40 polls over 78 seconds of converting drew a full bar. The
+    /// service's own half of that is `SHEET_MARK` in omr-service/server.py,
+    /// which was matching the sheet LIST Audiveris prints in its first second.
+    ///
+    /// The bar never fills HERE, whatever arrives. Filling it is what `done`
+    /// means, and a bar that is full while the work runs is the same lie
+    /// however it got that way -- including from a service still reporting the
+    /// old numbers, which no client-side arithmetic can tell apart from a job
+    /// genuinely on its last page.
+    static let convertingCeiling = 0.95
+    static let convertingFloor = 0.02
+
+    static func converting(page: Int, pages: Int) -> (stage: String, fraction: Double?) {
+        // No page count: Audiveris is reading something whose length we never
+        // learned, and a bar with no denominator is a spinner.
+        guard pages > 0 else { return ("reading the score…", nil) }
+        let current = min(max(page, 1), pages)
+        let behind = Double(current - 1) / Double(pages)
+        return ("reading page \(current) of \(pages)",
+                min(max(behind, convertingFloor), convertingCeiling))
+    }
+
     static func control(busy: Bool, stage: String?, fraction: Double?) -> OMRControl {
         guard busy else {
             return OMRControl(isOn: false, detail: offer, fraction: nil,

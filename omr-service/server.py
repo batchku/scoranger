@@ -13,7 +13,9 @@ GET /healthz -> {"ok": true}
 
 Auth: set the OMR_API_KEY env var; requests must send it as X-API-Key.
 Progress comes from Audiveris's own log stream: each per-sheet line carries a
-"[book#NN]" prefix, and total pages are counted from the PDF itself.
+"[book#NN]" logger prefix, and total pages are counted from the PDF itself.
+`page` is the sheet being WORKED ON, not the number finished, so a client
+showing a bar has `page - 1` pages behind it (see SHEET_MARK).
 
 NOTE: jobs live in process memory — deploy with max-instances=1 (polls must
 hit the instance that owns the job) and concurrency > 1 (polls arrive while a
@@ -42,7 +44,18 @@ JOBS = {}
 JOBS_LOCK = threading.Lock()
 AUDIVERIS_LOCK = threading.Lock()  # one conversion at a time per instance
 
-SHEET_MARK = re.compile(rb"#(\d{1,3})\]")          # audiveris log prefix [book#03]
+# The sheet Audiveris is WORKING ON, taken from the logger prefix its per-sheet
+# lines carry: "INFO  [probe#03]  StepMonitoring ... | BINARY".
+#
+# Anchored to that prefix on purpose. `#(\d{1,3})\]` alone also matched the
+# SHEET LIST Audiveris prints in its first second -- "Book reaching PAGE on
+# sheets:[#1#2#3#4#5#6#7#8]" -- whose last number is the page TOTAL. `page`
+# therefore jumped to `pages` before a single sheet had been read and stayed
+# there, and the iPad drew a full progress bar reading "reading page 8 of 8"
+# for the whole conversion (0.6.8). Measured on an 8-page score: the counter
+# reached 8 at log line 9 of 570, and 100% of the polls over the 78s of
+# converting reported page == pages.
+SHEET_MARK = re.compile(rb"^\w+\s+\[[^\[\]]*#(\d{1,3})\]")
 PDF_PAGE = re.compile(rb"/Type\s*/Page(?!s)")      # crude but adequate page count
 
 
