@@ -56,24 +56,27 @@ final class BookBrowserPerfTests: XCTestCase {
 
     // MARK: - what one raster costs
 
-    /// A picture drawn at 52x68 points on a 2x display needs 104x136 pixels.
-    /// Anything more is work and memory spent on nothing.
-    func testARasterIsNoBiggerThanThePixelsItIsDrawnWith() throws {
+    /// `PDFPage.thumbnail(of:for:)` answers in PIXELS, not points: the size
+    /// asked for comes back at scale 1.
+    ///
+    /// Which is why every call site asks for twice what it draws at. It looks
+    /// like a doubling that could be dropped -- it is not: dropping it would
+    /// halve the resolution of every page picture in the app on a retina
+    /// display. Asserted so that a later reading of the same code arrives at
+    /// the measurement instead of at the guess.
+    func testARasterComesBackInPixelsAndNotPoints() throws {
         ThumbnailCache.shared.clear()
-        let drawn = Self.stripCell
+        let asked = Self.shippedStrip
         let image = try XCTUnwrap(
-            ThumbnailCache.shared.image(document: book, index: 0, size: drawn))
+            ThumbnailCache.shared.image(document: book, index: 0, size: asked))
         let cg = try XCTUnwrap(image.cgImage)
-        let scale = UIScreen.main.scale
-        let wanted = (w: Int((drawn.width * scale).rounded()),
-                      h: Int((drawn.height * scale).rounded()))
-        print("RASTER asked \(drawn) -> image \(image.size) @\(image.scale) "
-              + "= \(cg.width)x\(cg.height)px, wanted \(wanted.w)x\(wanted.h)px, "
+        print("RASTER asked \(asked) -> image \(image.size) @\(image.scale) "
+              + "= \(cg.width)x\(cg.height)px, "
               + "\(cg.bytesPerRow * cg.height) bytes")
-        XCTAssertLessThanOrEqual(cg.width, wanted.w + 2,
-                                 "rastered wider than it is drawn")
-        XCTAssertLessThanOrEqual(cg.height, wanted.h + 2,
-                                 "rastered taller than it is drawn")
+        XCTAssertEqual(image.scale, 1, accuracy: 0.01,
+                       "the raster is no longer at scale 1; the call sites' "
+                       + "hand-doubling for retina is now a doubling too many")
+        XCTAssertLessThanOrEqual(cg.width, Int(asked.width) + 2)
     }
 
     /// What the browser holds after a reader has been through the book: every
@@ -100,8 +103,29 @@ final class BookBrowserPerfTests: XCTestCase {
         }
         print("HELD strip \(thumbBytes / (1 << 20))MB over \(book.pageCount) pages, "
               + "reading pages \(pageBytes / (1 << 20))MB over 64 stops, "
-              + "worst held = 200 entries x biggest = "
-              + "\(200 * (pageBytes / 64) / (1 << 20))MB")
+              + "cache now holds \(ThumbnailCache.shared.heldBytes / (1 << 20))MB "
+              + "in \(ThumbnailCache.shared.heldCount) entries "
+              + "(the old count bound would have allowed "
+              + "\(200 * (pageBytes / 64) / (1 << 20))MB)")
+        XCTAssertLessThanOrEqual(ThumbnailCache.shared.heldBytes,
+                                 ThumbnailCache.budget,
+                                 "the store grew past its ceiling")
+    }
+
+    /// A memory warning empties it. It is the one raster store in the app that
+    /// used not to be emptied, so under pressure the app shed the score the
+    /// reader was looking at and kept the book they had scrolled past.
+    func testAMemoryWarningEmptiesTheStore() {
+        ThumbnailCache.shared.clear()
+        for index in 0..<20 {
+            _ = ThumbnailCache.shared.image(document: book, index: index,
+                                            size: Self.shippedStrip)
+        }
+        XCTAssertGreaterThan(ThumbnailCache.shared.heldBytes, 0)
+        NotificationCenter.default.post(
+            name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        XCTAssertEqual(ThumbnailCache.shared.heldBytes, 0,
+                       "a memory warning left the book's pages held")
     }
 
     // MARK: - what a scroll costs
