@@ -69,7 +69,7 @@ final class ScoreBarLayoutTests: XCTestCase {
         var seenChipDrop = false, seenVersionsDrop = false, seenCellDrop = false
         var width = ScoreBarLayout.essentials + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.modeChipWidth
-            + ScoreBarLayout.transportWidth + ScoreBarLayout.titleMinimum
+            + ScoreBarLayout.switchesWidth + ScoreBarLayout.titleMinimum
         while width > 200 {
             let fit = ScoreBarLayout.fit(barWidth: width)
             if !fit.showsModeChip { seenChipDrop = true }
@@ -138,6 +138,145 @@ final class ScoreBarLayoutTests: XCTestCase {
         XCTAssertEqual(ScoreBarLayout.fit(barWidth: 0),
                        ScoreBarLayout.Fit(showsVersions: true, showsModeChip: true,
                                           layoutCells: 3))
+    }
+
+    // MARK: - The two switches (0.6.8)
+
+    /// They yield as ONE step. A bar showing Performance mode and not Show
+    /// transport, or the other way round, reads as arbitrary -- and Options
+    /// carries whichever the bar has not got, so a half-yield would leave one
+    /// switch in both places.
+    func testTheTwoSwitchesAreNeverSplit() {
+        for width in stride(from: CGFloat(1400), through: 260, by: -1) {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertEqual(fit.showsTransportToggle, fit.showsPerformanceToggle,
+                           "the switches came apart at \(width)pt: \(fit)")
+        }
+    }
+
+    /// An iPad seats both, which is the point of the move: the two switches
+    /// that were two screens from the music are one tap away.
+    func testAnIPadSeatsBothSwitches() {
+        for width in [iPadPortrait, iPadLandscape] {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertTrue(fit.showsPerformanceToggle, "no Performance mode at \(width)")
+            XCTAssertTrue(fit.showsTransportToggle, "no Show transport at \(width)")
+            XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                          "the bar overflows at \(width) with both switches on it")
+        }
+    }
+
+    /// Nothing comes back as the bar narrows, the performance toggle included.
+    func testThePerformanceToggleNeverReappears() {
+        var previous = ScoreBarLayout.fit(barWidth: 1400)
+        for width in stride(from: CGFloat(1400), through: 300, by: -5) {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertFalse(fit.showsPerformanceToggle && !previous.showsPerformanceToggle,
+                           "the performance toggle came back at \(width)pt")
+            previous = fit
+        }
+    }
+
+    // MARK: - The transcription chip (0.6.8)
+
+    /// It is drawn only while OMR is running. A chip that is always there says
+    /// nothing.
+    func testTheChipIsAbsentUnlessOMRIsRunning() {
+        for width in [iPhoneSE, iPhonePortrait, iPadPortrait, iPadLandscape] {
+            XCTAssertFalse(ScoreBarLayout.fit(barWidth: width).showsOMRProgress,
+                           "a chip at \(width) with nothing transcribing")
+        }
+    }
+
+    /// An iPad seats it, and seating it does not push anything off the bar.
+    func testAnIPadSeatsTheChipWithoutOverflowing() {
+        for width in [iPadPortrait, iPadLandscape] {
+            let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: true)
+            XCTAssertTrue(fit.showsOMRProgress, "no transcription chip at \(width)")
+            XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                          "the bar overflows at \(width) with the chip on it: \(fit)")
+        }
+    }
+
+    /// The chip outranks both switches: while a transcription runs it is the
+    /// only sign in the score view that anything is happening, and a switch is
+    /// a shortcut to something reachable elsewhere.
+    func testTheChipIsSeatedBeforeTheSwitchesAre() {
+        // A width that seats the switches with nothing running.
+        let width = ScoreBarLayout.essentials + ScoreBarLayout.threeCells
+            + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
+            + ScoreBarLayout.titleMinimum
+        XCTAssertTrue(ScoreBarLayout.fit(barWidth: width).showsTransportToggle,
+                      "the fixture is wrong: this width should seat the switches")
+        let busy = ScoreBarLayout.fit(barWidth: width, omrBusy: true)
+        XCTAssertTrue(busy.showsOMRProgress, "the chip yielded to a switch")
+        XCTAssertFalse(busy.showsTransportToggle,
+                       "the switches should have made room for the chip")
+    }
+
+    /// And it yields itself rather than pushing ✕ off the bar. #60 is the rule
+    /// nothing on this bar is exempt from, the newest thing on it least of all.
+    func testANarrowBarYieldsTheChipRatherThanTheWayOut() {
+        for width in [iPhoneSE, iPhonePortrait] {
+            let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: true)
+            XCTAssertFalse(fit.showsOMRProgress,
+                           "a phone cannot seat the chip at \(width): "
+                           + "ContentView draws it over the canvas instead")
+            XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                          "the bar overflows at \(width) while transcribing")
+        }
+    }
+
+    /// Whatever the width, transcribing or not, the bar fits. This is the whole
+    /// of #60 as one sweep, and it is a sweep rather than five widths because
+    /// five widths missed a 40pt band where the thresholds and `fits` disagreed
+    /// about the numeral for two releases.
+    ///
+    /// From 375, the narrowest bar the app has to seat: below that the last
+    /// fallback has nothing left to give up and cannot fit anything at all.
+    func testNoWidthOverflowsWhetherOrNotSomethingIsTranscribing() {
+        for busy in [false, true] {
+            for width in stride(from: iPhoneSE, through: 1400, by: 1) {
+                let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: busy)
+                XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                              "the bar overflows at \(width)pt (omrBusy: \(busy)): \(fit)")
+            }
+        }
+    }
+}
+
+/// One switch, one place, at every width (0.6.8).
+///
+/// Performance mode and Show transport are top-bar controls now, and
+/// `ScoreOptionsScreen` renders each one only where `Fit` says the bar could
+/// not seat it. Both views read ONE `Fit` from ONE measurement, which is what
+/// this pins: a width where a switch is in both places is a control that will
+/// drift, and a width where it is in neither is a feature that is gone.
+final class SwitchesHaveExactlyOneHomeTests: XCTestCase {
+
+    func testEveryWidthPutsEachSwitchInExactlyOnePlace() {
+        for busy in [false, true] {
+            for width in stride(from: CGFloat(320), through: 1400, by: 1) {
+                let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: busy)
+                // The two properties the two views actually read.
+                XCTAssertNotEqual(fit.showsPerformanceToggle,
+                                  fit.optionsCarriesPerformanceToggle,
+                                  "Performance mode is in both places or neither "
+                                  + "at \(width)pt")
+                XCTAssertNotEqual(fit.showsTransportToggle,
+                                  fit.optionsCarriesTransportToggle,
+                                  "Show transport is in both places or neither "
+                                  + "at \(width)pt")
+            }
+        }
+    }
+
+    /// An unmeasured bar shows everything, so Options must show nothing --
+    /// otherwise the first frame of every score has two of each switch.
+    func testAnUnmeasuredBarLeavesOptionsWithNeitherSwitch() {
+        let fit = ScoreBarLayout.fit(barWidth: 0, omrBusy: true)
+        XCTAssertTrue(fit.showsPerformanceToggle)
+        XCTAssertTrue(fit.showsTransportToggle)
     }
 }
 

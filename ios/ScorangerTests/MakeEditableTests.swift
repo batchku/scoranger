@@ -44,3 +44,91 @@ final class MakeEditableTests: XCTestCase {
         }
     }
 }
+
+/// The bar that sat full while the work ran (0.6.8).
+///
+/// Reproduced end to end against the real service and the real Audiveris on an
+/// 8-page score: 40 of 40 polls over 78 seconds of converting reported
+/// page == pages, so the client drew "reading page 8 of 8" and a full bar from
+/// the first poll. Two faults met there -- `SHEET_MARK` in
+/// omr-service/server.py was matching the sheet LIST Audiveris prints in its
+/// first second, and this side was reading `page` as a count of FINISHED pages.
+/// These are this side's half.
+final class OMRConvertingProgressTests: XCTestCase {
+
+    /// The regression, stated: the last page must not read as finished.
+    func testTheLastPageIsNotAFullBar() {
+        let (stage, fraction) = MakeEditable.converting(page: 8, pages: 8)
+        XCTAssertEqual(stage, "page 8 of 8")
+        let bar = try? XCTUnwrap(fraction)
+        XCTAssertNotNil(bar)
+        XCTAssertLessThan(bar ?? 1, 1,
+                          "a full bar while the page is still being read is the "
+                          + "bug this exists to stop")
+    }
+
+    /// And no page, at any count, fills it: `done` is what fills it, and this
+    /// function never sees `done`.
+    func testNoPageOfAnyScoreEverFillsTheBar() {
+        for pages in [1, 2, 8, 40, 400] {
+            for page in 0...(pages + 2) {
+                let fraction = MakeEditable.converting(page: page, pages: pages).fraction
+                let bar = fraction ?? 0
+                XCTAssertLessThanOrEqual(bar, MakeEditable.convertingCeiling,
+                                         "page \(page) of \(pages) drew \(bar)")
+                XCTAssertGreaterThanOrEqual(bar, MakeEditable.convertingFloor,
+                                            "page \(page) of \(pages) drew nothing at all")
+            }
+        }
+    }
+
+    /// `page` is the sheet being WORKED ON, so the bar behind it is page - 1.
+    /// Reading it as finished pages is what put the bar a whole page ahead.
+    func testTheBarCountsThePagesBEHINDTheOneBeingRead() {
+        XCTAssertEqual(MakeEditable.converting(page: 1, pages: 4).fraction,
+                       MakeEditable.convertingFloor,
+                       "the first page is not a quarter done the moment it starts")
+        XCTAssertEqual(MakeEditable.converting(page: 3, pages: 4).fraction, 0.5,
+                       "two of four pages are behind page three")
+    }
+
+    /// The words and the bar tell the same story, page by page.
+    func testTheWordsNameThePageBeingRead() {
+        for page in 1...6 {
+            XCTAssertEqual(MakeEditable.converting(page: page, pages: 6).stage,
+                           "page \(page) of 6")
+        }
+    }
+
+    /// Nonsense from the service is clamped rather than drawn: a page number
+    /// past the end, or before the start, is still one of the pages.
+    func testAPageOutsideTheScoreIsClampedIntoIt() {
+        XCTAssertEqual(MakeEditable.converting(page: 99, pages: 6).stage,
+                       "page 6 of 6")
+        XCTAssertEqual(MakeEditable.converting(page: 0, pages: 6).stage,
+                       "page 1 of 6")
+        XCTAssertEqual(MakeEditable.converting(page: -3, pages: 6).stage,
+                       "page 1 of 6")
+    }
+
+    /// No page count is a spinner, not a bar: a bar with no denominator is a
+    /// number the app does not have.
+    func testNoPageCountIsASpinner() {
+        for pages in [0, -1] {
+            let progress = MakeEditable.converting(page: 3, pages: pages)
+            XCTAssertNil(progress.fraction)
+            XCTAssertEqual(progress.stage, "reading…")
+        }
+    }
+
+    /// It never goes backwards as the pages go by -- a progress bar that
+    /// retreats reads as a failure.
+    func testItOnlyEverMovesForward() {
+        var previous = -1.0
+        for page in 1...40 {
+            let bar = MakeEditable.converting(page: page, pages: 40).fraction ?? 0
+            XCTAssertGreaterThanOrEqual(bar, previous, "the bar went back at page \(page)")
+            previous = bar
+        }
+    }
+}

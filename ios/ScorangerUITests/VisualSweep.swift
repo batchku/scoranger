@@ -318,7 +318,14 @@ final class VisualSweep: XCTestCase {
         if tapFirst(beginning: "display-") != nil {
             settle(); snap("34-score-options-subscreen"); back(); settle()
         }
-        tap("more-performance"); settle(1.2); snap("35-performance-mode")
+        // Performance mode is a TOP BAR button since 0.6.8, so leave Options
+        // first. `more-performance` is the phone-width fallback and stays as
+        // the second attempt.
+        back(); settle(0.6)
+        if !tap("score-performance", wait: 3) {
+            tap("score-more", wait: 3); settle(0.6); tap("more-performance", wait: 3)
+        }
+        settle(1.2); snap("35-performance-mode")
         tap("score-close"); settle(0.8)
 
         tap("score-ask"); settle(1.0); snap("36-chat-open")

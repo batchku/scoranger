@@ -82,6 +82,10 @@ SKIP=(
   -skip-testing:ScorangerUITests/InkShot
   -skip-testing:ScorangerUITests/InkZoomShot
   -skip-testing:ScorangerUITests/PerfSweep
+  # TopBarShot photographs the bar before and after a change for a human to
+  # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
+  # gate has no reason to be running. Neither asserts.
+  -skip-testing:ScorangerUITests/TopBarShot
 )
 
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"

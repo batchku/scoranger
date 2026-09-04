@@ -175,9 +175,11 @@ extension RowShot {
         snap(app, "score-subtitle")
         app.buttons["score-more"].tap()
         sleep(2)
-        // "Score display" is gone (0.6.3 #6); the transport switch it held
-        // sits on the options root now, so that is the row this photographs.
-        let display = app.descendants(matching: .any)["more-transport"].firstMatch
+        // "Score display" is gone (0.6.3 #6) and the transport switch that
+        // replaced it here went to the top bar (0.6.8), so the first row of the
+        // options root is Chord symbols -- which is what this photographs. It
+        // is the ROW's geometry that matters, not which row it is.
+        let display = app.descendants(matching: .any)["more-chords"].firstMatch
         print("OPTIONS row frame: \(display.exists ? "\(display.frame)" : "absent")")
         snap(app, "score-options")
     }
