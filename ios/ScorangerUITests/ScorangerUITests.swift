@@ -1736,6 +1736,15 @@ final class ScorangerUITests: XCTestCase {
         openArrangement(firstArrangement)
         let canvas = waitForEngraving(of: firstArrangement)
 
+        revealTransport()
+        // The reading view, whole, for the owner to compare against
+        // design/screenshots/transport-paged.png -- the picture he marked. The
+        // three marks on it are all in this frame: no bar chip in the corner,
+        // no voice dropdown on the transport, and a hairline cursor with its
+        // handle at the top of the first system.
+        settle(engravedPage, still: 0.5, timeout: 20)
+        shot("canvas-transport-after-reading")
+
         let counter = app.staticTexts["counter-bar"]
         XCTAssertFalse(counter.exists,
                        "the bar chip is on screen over a score nobody is playing: "
@@ -1746,7 +1755,6 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["counter-pages"].waitForExistence(timeout: 30),
                       "the page counter went with the bar chip")
 
-        revealTransport()
         startPlaying()
         XCTAssertTrue(counter.waitForExistence(timeout: 30),
                       "no bar counter in the top bar while playing")
