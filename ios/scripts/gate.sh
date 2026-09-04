@@ -88,7 +88,14 @@ for _, ds in json.load(sys.stdin)['devices'].items():
 rm -rf "$OUT"; mkdir -p "$OUT"
 
 if [[ -n "$SERIAL" ]]; then
-  DEST="platform=iOS Simulator,name=iPad Pro 11-inch (M5)"
+  # A BARE --serial used to resolve `name=iPad Pro 11-inch (M5)`, and on a
+  # machine where that name matches exactly one device it took whichever
+  # simulator a release gate was already using. Two runs on one simulator kill
+  # each other: the second dies with "Test crashed with signal kill before
+  # establishing connection" and silently records a fraction of its tests. So
+  # --serial now uses a gate-owned simulator of its own unless told otherwise,
+  # and the release simulator is never taken by accident.
+  DEST="platform=iOS Simulator,id=$(sim_for serial)"
   [[ -n "$SERIAL_UDID" ]] && DEST="platform=iOS Simulator,id=$SERIAL_UDID"
   exec xcodebuild test -project "$PROJECT" -scheme "$SCHEME" -destination "$DEST" \
     "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"}
