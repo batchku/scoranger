@@ -37,9 +37,15 @@ final class NamingShot: XCTestCase {
         snap("1-library")
 
         // --- the piece, and its two arrangements ---
+        // The seed imports one file at a time and the library polls, so a row
+        // read too early holds ONE arrangement and opens straight into it.
         let piece = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
         XCTAssertTrue(piece.waitForExistence(timeout: 90), "no piece row")
+        XCTAssertTrue(waitUntil("both arrangements are imported", timeout: 240) {
+            piece.exists && piece.label.contains("2 arrangement")
+        }, "the piece never held two arrangements: \(piece.label)")
+        settle(piece, still: 0.5)
         piece.tap()
 
         let choices = app.descendants(matching: .any)
@@ -121,5 +127,22 @@ final class NamingShot: XCTestCase {
         XCTAssertTrue(waitUntil("the offer disappears", timeout: 60) { !fix.exists },
                       "the repair is still being offered after it ran")
         snap("7-offer-gone")
+
+        // --- and the page itself, which is the whole point ---
+        let close = app.buttons["Close settings"]
+        if close.waitForExistence(timeout: 10) { close.tap() }
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
+        guard row.waitForExistence(timeout: 60) else { return XCTFail("no piece row") }
+        row.tap()
+        let choice = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                  "arrangement-choice-")).firstMatch
+        if choice.waitForExistence(timeout: 30) { choice.tap() }
+        let page = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-")).firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 300), "the score never engraved")
+        settle(page, still: 1.5)
+        snap("8-engraved-title-after-repair")
     }
 }
