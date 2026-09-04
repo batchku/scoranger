@@ -48,6 +48,27 @@ enum BarPosition {
     static func label(for bar: Int?) -> String? {
         bar.map { "bar \($0)" }
     }
+
+    /// Whether the canvas puts a bar number in the corner at all.
+    ///
+    /// Marked "remove from this view" on a screenshot of a score being READ.
+    /// It is right: a reader looking at the music is looking at bar numbers
+    /// already -- they are engraved on the page, above the systems, where the
+    /// publisher put them -- and a chip in the corner repeating one of them is
+    /// a second answer to a question the page has already answered.
+    ///
+    /// It is NOT removed, because there is one state where the page cannot
+    /// answer it: while the music is playing, the bar that is SOUNDING is a
+    /// moving fact no engraving carries, and a player who has scrolled away
+    /// from the cursor has nothing else to tell them where they have drifted
+    /// to. So the chip is playback's, and it appears with the play head.
+    ///
+    /// The page counter beside it is a different thing and is not touched:
+    /// "3 of 12" is about the DOCUMENT, is true whether anything is playing or
+    /// not, and nothing on the page says it.
+    static func counter(bar: Int?, isPlaying: Bool) -> Int? {
+        isPlaying ? bar : nil
+    }
 }
 
 extension BarPosition {

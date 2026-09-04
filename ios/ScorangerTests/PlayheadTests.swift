@@ -103,6 +103,135 @@ final class PlayheadTests: XCTestCase {
                        "a page with no width cannot be turned past")
     }
 
+    // MARK: - A size on screen, at any zoom (0.6.6: thinner, still view-space)
+
+    /// The line was thinned from 2pt to 1pt because the owner marked it
+    /// "thin". The number is asserted here rather than only looked at, so
+    /// thinning it never quietly becomes thickening it back.
+    func testTheLineIsAHairline() {
+        XCTAssertEqual(Playhead.weight, 1, accuracy: 0.0001,
+                       "the cursor is the app's hairline weight")
+    }
+
+    /// And thinning it did NOT make it a size in page coordinates. This is the
+    /// rule the two screenshots at 1x and 3x photograph: what is written
+    /// `weight / zoom` inside the transform lands `weight` wide on screen,
+    /// whatever the transform is.
+    func testTheLineKeepsItsWeightAtEveryZoom() {
+        for zoom in [1, 1.5, 2, 3, 6, 12] as [CGFloat] {
+            let drawn = Playhead.onScreen(Playhead.weight, zoom: zoom)
+            XCTAssertEqual(drawn * zoom, Playhead.weight, accuracy: 0.0001,
+                           "at \(zoom)x the line lands \(drawn * zoom)pt wide "
+                           + "on screen instead of \(Playhead.weight)")
+        }
+    }
+
+    /// The handle did not thin with the line: it is a touch target now.
+    func testTheHandleIsBiggerThanTheLineAndSoIsItsTarget() {
+        XCTAssertGreaterThan(Playhead.handle, Playhead.weight)
+        XCTAssertGreaterThan(Playhead.handleTouchTarget, Playhead.handle,
+                             "a 10pt square is not something a finger can hit")
+    }
+
+    /// A zoom that is not a number yet draws at full size rather than as a
+    /// slab -- the same guard the selection ink carries, and the same one,
+    /// because this delegates to it.
+    func testAnUnreportedZoomDrawsTheLineAtFullSize() {
+        for nonsense in [0, -3, CGFloat.nan, CGFloat.infinity] as [CGFloat] {
+            XCTAssertEqual(Playhead.onScreen(Playhead.weight, zoom: nonsense),
+                           Playhead.weight, accuracy: 0.0001,
+                           "zoom \(nonsense) drew a slab")
+        }
+    }
+
+    // MARK: - Grabbing the handle
+
+    /// The target is a square around the handle's centre, in whatever space
+    /// the caller is working in.
+    func testTheHandleIsGrabbedInsideItsTargetAndNotOutside() {
+        let handle = CGPoint(x: 200, y: 50)
+        let target = Playhead.handleTouchTarget      // 32 -> 16 either side
+        XCTAssertTrue(Playhead.handleGrabbed(touch: handle, handle: handle,
+                                             target: target))
+        XCTAssertTrue(Playhead.handleGrabbed(touch: CGPoint(x: 215, y: 61),
+                                             handle: handle, target: target),
+                      "a corner of the target is still the handle")
+        XCTAssertFalse(Playhead.handleGrabbed(touch: CGPoint(x: 200, y: 90),
+                                              handle: handle, target: target),
+                       "a touch on the LINE below the handle is not a grab: "
+                       + "that is where the lasso works")
+        XCTAssertFalse(Playhead.handleGrabbed(touch: CGPoint(x: 240, y: 50),
+                                              handle: handle, target: target))
+    }
+
+    /// A target of nothing catches nothing. The layer passes the target
+    /// divided by the zoom, and a zoom that has gone wrong must not turn the
+    /// whole page into a scrub handle.
+    func testNoTargetGrabsNothing() {
+        XCTAssertFalse(Playhead.handleGrabbed(touch: .zero, handle: .zero, target: 0))
+        XCTAssertFalse(Playhead.handleGrabbed(touch: .zero, handle: .zero, target: -5))
+    }
+
+    // MARK: - What a drag lands on
+
+    /// A page of two systems, four bars each, laid out the way an engraving
+    /// is: bars 1-4 across the top, 5-8 across the bottom, at the SAME x
+    /// positions.
+    private let twoSystems: [BarPosition.Bar] = {
+        var bars: [BarPosition.Bar] = []
+        for (offset, number) in [1, 2, 3, 4].enumerated() {
+            bars.append(.init(number: number,
+                              frame: CGRect(x: CGFloat(offset) * 100, y: 0,
+                                            width: 100, height: 60)))
+        }
+        for (offset, number) in [5, 6, 7, 8].enumerated() {
+            bars.append(.init(number: number,
+                              frame: CGRect(x: CGFloat(offset) * 100, y: 200,
+                                            width: 100, height: 60)))
+        }
+        return bars
+    }()
+
+    func testADragLandsOnTheBarUnderIt() {
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 250, y: 30), bars: twoSystems), 3)
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 50, y: 30), bars: twoSystems), 1)
+    }
+
+    /// The failure this rule exists to prevent: two systems share every x, so
+    /// x alone cannot say which bar is meant. The same x on the lower system
+    /// is a bar four later.
+    func testTheSystemIsChosenByYBeforeTheBarIsChosenByX() {
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 250, y: 30), bars: twoSystems), 3)
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 250, y: 230), bars: twoSystems), 7,
+                       "the same x on the lower system is a different bar")
+    }
+
+    /// Dragged into the gap between two systems, or off the end of a line: the
+    /// nearest bar, never nothing. A scrub that stops answering at the edge of
+    /// the music reads as a gesture that has broken.
+    func testADragOffTheMusicTakesTheNearestBar() {
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 250, y: 70), bars: twoSystems), 3,
+                       "just below the top system is still the top system")
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 250, y: 190), bars: twoSystems), 7,
+                       "just above the lower system is the lower system")
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 900, y: 30), bars: twoSystems), 4,
+                       "dragged past the end of the line: the last bar of it")
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: -200, y: 230), bars: twoSystems), 5)
+    }
+
+    /// A quartet gives four frames for one bar, and the drag reads their
+    /// union: a finger over the cello staff must select the bar, not fail to
+    /// find it because it was looking at the violin's frame.
+    func testAQuartetsFourStavesAreOneBarToADrag() {
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 140, y: 200), bars: quartetBar2), 2,
+                       "the lowest staff of bar 2 is still bar 2")
+        XCTAssertEqual(Playhead.bar(at: CGPoint(x: 140, y: 10), bars: quartetBar2), 2)
+    }
+
+    func testADragOverNoGeometryLandsNowhere() {
+        XCTAssertNil(Playhead.bar(at: CGPoint(x: 10, y: 10), bars: []))
+    }
+
     /// The claim the whole silent-playback rule rests on: **the CURSOR moves
     /// when nothing can be heard.**
     ///
