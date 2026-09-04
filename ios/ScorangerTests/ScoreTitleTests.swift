@@ -173,8 +173,10 @@ final class ArrangementLabelTests: XCTestCase {
             .init(title: "v001.mxl", name: "Jovano Jovanke", slug: "jovano-jovanke-2",
                   parts: ["Voice", "Guitar"]),
         ])
+        // "Voice" is what OMR calls a staff it could not name, so it is not
+        // part of the description -- the guitar is what there is to say.
         XCTAssertEqual(labels, ["Jovano Jovanke — Accordion",
-                                "Jovano Jovanke — 2 parts"])
+                                "Jovano Jovanke — Guitar"])
     }
 
     /// A scan has no parts at all, so what tells it apart is that it is a scan.

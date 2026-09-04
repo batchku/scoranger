@@ -38,7 +38,11 @@ final class VersionLabelTests: XCTestCase {
             let shown = VersionLabel.text(op)
             XCTAssertFalse(VersionLabel.isRawOpName(shown),
                            "\(op) came back as an op name: \(shown)")
-            XCTAssertFalse(shown.contains("-"), "\(op) -> \(shown) still reads like an op")
+            // kebab-case with no spaces in it is what an op name looks like.
+            // "engine self-test" is a hyphenated PHRASE and reads as English.
+            XCTAssertFalse(!shown.contains(" ") && shown.contains("-"),
+                           "\(op) -> \(shown) still reads like an op")
+            XCTAssertNotEqual(shown.lowercased(), op.lowercased())
         }
     }
 

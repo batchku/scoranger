@@ -15,6 +15,8 @@ struct SettingsView: View {
     /// the draft being the thing the network layer reads.
     @State private var savedChatKey = ""
     @State private var savedOMRKey = ""
+    @State private var repairRunning = false
+    @State private var repairResult = ""
 
     /// Send a tiny non-PDF body: 415 back = URL and key both good
     /// (the request passed auth and reached content validation).
@@ -70,6 +72,39 @@ struct SettingsView: View {
                           + "left to right, for arranging.")
             }
             .padding(Theme.Metric.panelPadding)
+
+            // Only while there is something to repair. Derived from the
+            // library, so it appears on every device that holds the damage and
+            // disappears from all of them once it is fixed -- no flag, and no
+            // large edit made on anyone's behalf at launch.
+            if let offer = TitleRepair.offer(count: state.titleRepairsNeeded.count) {
+                BandHeader("Titles")
+                VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                    PanelNote(text: offer)
+                    HStack {
+                        PanelButton(title: repairRunning ? "Fixing…" : "Fix titles",
+                                    kind: .primary) {
+                            repairRunning = true
+                            repairResult = ""
+                            Task {
+                                let done = await state.repairTitles()
+                                repairResult = TitleRepair.outcome(repaired: done.repaired,
+                                                                   failed: done.failed)
+                                repairRunning = false
+                            }
+                        }
+                        .disabled(repairRunning)
+                        .accessibilityIdentifier("repair-titles")
+                        Spacer()
+                    }
+                }
+                .padding(Theme.Metric.panelPadding)
+            }
+            if !repairResult.isEmpty {
+                WellBlock(text: repairResult, tint: Theme.Status.ok)
+                    .padding(Theme.Metric.panelPadding)
+                    .accessibilityIdentifier("repair-titles-result")
+            }
 
             BandHeader("About")
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {

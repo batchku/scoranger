@@ -1877,6 +1877,30 @@ final class AppState: ObservableObject {
         return false
     }
 
+    /// Arrangements engraving an internal file name instead of a title.
+    ///
+    /// Read from the library every time it is asked, never remembered: see
+    /// TitleRepair for why a flag would be the wrong shape.
+    var titleRepairsNeeded: [String] {
+        TitleRepair.affected(manifest?.scores ?? [])
+    }
+
+    /// Fix them, the legitimate way: the engine adds a corrected version to
+    /// each. Returns (repaired, failed).
+    func repairTitles() async -> (repaired: Int, failed: Int) {
+        do {
+            let r = try await local.call(op: "repair-titles", args: ["apply": true])
+            let affected = (r["affected"] as? Int) ?? 0
+            let failed = ((r["failed"] as? [Any]) ?? []).count
+            pinnedVersion = nil
+            await refresh()
+            return (affected, failed)
+        } catch {
+            report("fix those titles", error)
+            return (0, 0)
+        }
+    }
+
     /// The arrangement's title. Kept as its own call because renaming is what
     /// callers ask for; the work is setScoreMetadata's, so a rename can never
     /// leave the page saying something else.
