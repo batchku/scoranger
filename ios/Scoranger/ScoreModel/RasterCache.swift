@@ -128,7 +128,31 @@ final class MemoCache<Key: Hashable, Value>: @unchecked Sendable {
         return made
     }
 
-    private func store(_ value: Value, for key: Key, bytes: Int) {
+    /// What is held for this key, WITHOUT making it.
+    ///
+    /// For a caller that must not block -- a view body deciding whether it can
+    /// draw now or has to ask for the work and wait. A successful peek counts
+    /// as a use, because it IS one: the picture was drawn on screen, and an
+    /// LRU that did not know that would evict the pages the reader is looking
+    /// at in favour of ones they scrolled past.
+    func held(_ key: Key) -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var entry = entries[key] else {
+            missCount += 1
+            return nil
+        }
+        clock += 1
+        entry.used = clock
+        entries[key] = entry
+        hitCount += 1
+        return entry.value
+    }
+
+    /// Hold a value that was made elsewhere -- by a caller that had to do the
+    /// work off this store's own thread, which is every raster that must not
+    /// happen inside a view body.
+    func store(_ value: Value, for key: Key, bytes: Int) {
         lock.lock()
         defer { lock.unlock() }
         // Bigger than the whole budget: it was handed to the caller and is

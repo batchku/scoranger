@@ -222,9 +222,9 @@ struct BookScreen: View {
 
 /// One page of the book, big enough to read a tune's title off.
 ///
-/// Rastered through `ThumbnailCache` like every other page picture in the app:
-/// a fake book is four hundred pages and the cache is what keeps a flip
-/// through it from drawing each of them twice.
+/// Rastered through `ThumbnailCache` like every other page picture in the app,
+/// and — since a fake book is four hundred pages of scan — rastered OFF the
+/// main thread. See `BookPageImage`.
 private struct BookPageView: View {
     let document: PDFDocument
     let index: Int
@@ -235,22 +235,21 @@ private struct BookPageView: View {
 
     var body: some View {
         let size = drawnSize()
-        Group {
-            if let image = ThumbnailCache.shared.image(
-                document: document, index: index,
-                size: CGSize(width: size.width * 2, height: size.height * 2)) {
-                Image(uiImage: image)
-                    .resizable().interpolation(.high)
-                    .frame(width: size.width, height: size.height)
-            } else {
-                PageThumb(width: size.width, height: size.height)
-                    .overlay {
+        BookPageImage(document: document, index: index, drawn: size,
+                      // Twice the points drawn, because `PDFPage.thumbnail`
+                      // answers at scale 1 and this is a retina display.
+                      raster: CGSize(width: size.width * 2, height: size.height * 2),
+                      interpolation: .high) { phase in
+            PageThumb(width: size.width, height: size.height)
+                .overlay {
+                    if phase == .missing {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 15))
                             .foregroundStyle(Theme.Status.warn)
                     }
-                    .accessibilityIdentifier("book-page-failed")
-            }
+                }
+                .accessibilityIdentifier(phase == .missing ? "book-page-failed"
+                                                           : "book-page-drawing")
         }
         .background(Theme.Surface.paper)
         .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
@@ -268,6 +267,66 @@ private struct BookPageView: View {
     }
 }
 
+/// A page of the book as a picture, drawn off the main thread and abandoned
+/// when the reader moves on.
+///
+/// This is the fix for "too slow to scroll a big book". The picture used to be
+/// made INSIDE the view body: `ThumbnailCache.shared.image(...)` rasterises a
+/// PDF page on whatever thread asks, and the thread asking was the main one.
+/// A lazy strip builds a cell for every page a flick passes over, so a flick
+/// across a 512-page book stopped the main thread once per page — and there
+/// was nothing to call off, because the drawing WAS the view.
+///
+/// So: ask the cache what it already holds, which is a dictionary lookup and
+/// free; and only when it holds nothing, queue the raster and wait. `.task` is
+/// cancelled when the cell leaves the strip, which cancels the operation, and
+/// one that has not started never rasterises at all.
+///
+/// The placeholder is told WHY it is being shown. A page not drawn yet and a
+/// page that cannot be drawn are two different problems, and with cancellation
+/// the first one is the ordinary outcome of a flick — so the warning triangle
+/// belongs to `.missing` alone.
+private struct BookPageImage<Placeholder: View>: View {
+    let document: PDFDocument
+    let index: Int
+    /// Where it is drawn, in points.
+    let drawn: CGSize
+    /// What it is rastered at, in pixels.
+    let raster: CGSize
+    let interpolation: Image.Interpolation
+    @ViewBuilder let placeholder: (PageThumbnails.Phase) -> Placeholder
+
+    @State private var image: UIImage?
+    @State private var phase: PageThumbnails.Phase = .pending
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().interpolation(interpolation)
+            } else {
+                placeholder(phase)
+            }
+        }
+        .frame(width: drawn.width, height: drawn.height)
+        // The key names the document, the page AND the size, so a cell that
+        // changes any of them asks again and one that changes none does not.
+        .task(id: ThumbnailCache.key(document: document, index: index, size: raster)) {
+            if let held = ThumbnailCache.shared.cached(document: document,
+                                                       index: index, size: raster) {
+                image = held
+                phase = .drawn
+                return
+            }
+            image = nil
+            phase = .pending
+            let made = await ThumbnailCache.shared.request(document: document,
+                                                           index: index, size: raster)
+            phase = PageThumbnails.phase(drew: made != nil, abandoned: Task.isCancelled)
+            image = phase == .drawn ? made : nil
+        }
+    }
+}
+
 /// The strip under the page: every page in the book, lazily.
 ///
 /// Lazy, so a four-hundred-page book builds the dozen thumbnails on screen and
@@ -278,6 +337,10 @@ private struct BookThumbnails: View {
     let showing: Int
     let chosen: (Int) -> Bool
     var onJump: (Int) -> Void
+
+    /// The cell, in points, and the raster it needs on a retina display.
+    private static let cell = CGSize(width: 52, height: 68)
+    private static let raster = CGSize(width: 104, height: 136)
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -305,16 +368,17 @@ private struct BookThumbnails: View {
         let inRange = chosen(page)
         return Button { onJump(page) } label: {
             ZStack(alignment: .bottomTrailing) {
-                Group {
-                    if let drawn = ThumbnailCache.shared.image(
-                        document: document, index: index,
-                        size: CGSize(width: 104, height: 136)) {
-                        Image(uiImage: drawn).resizable().interpolation(.medium)
-                    } else {
-                        PageThumb(width: 52, height: 68)
-                    }
+                BookPageImage(document: document, index: index, drawn: Self.cell,
+                              raster: Self.raster, interpolation: .medium) { phase in
+                    PageThumb(width: Self.cell.width, height: Self.cell.height)
+                        .overlay {
+                            if phase == .missing {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.Status.warn)
+                            }
+                        }
                 }
-                .frame(width: 52, height: 68)
                 .background(Theme.Surface.paper)
                 Text("\(page)").typeRole(.data)
                     .foregroundStyle(Theme.Ink.ink3)
