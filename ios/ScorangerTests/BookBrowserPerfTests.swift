@@ -223,6 +223,62 @@ final class ScannedBookPerfTests: XCTestCase {
               + "(\(Int(ms / 120))ms per cell)")
     }
 
+    /// What a flick costs THE MAIN THREAD, before and after.
+    ///
+    /// This is the whole change in one reading. The strip is a lazy stack, so
+    /// scrolling it builds a cell per page swept, and building a cell is
+    /// running its `body`:
+    ///
+    ///  - before, `body` called `image(...)`, which rasterises a PDF page on
+    ///    the calling thread. The main thread therefore paid for every page the
+    ///    flick passed over, in order, with no way to skip the ones already
+    ///    behind the reader;
+    ///  - after, `body` calls `cached(...)`, which is a dictionary lookup, and
+    ///    starts a task. The raster happens on a queue, and the task is
+    ///    cancelled when the cell leaves the strip.
+    ///
+    /// Same book, same 120 cells, same thread.
+    @MainActor
+    func testWhatAFlickCostsTheMainThreadBeforeAndAfter() async throws {
+        let book = try openBook()
+        let cells = 120
+
+        ThumbnailCache.shared.clear()
+        let wasStart = PerfClock.now
+        for index in 0..<cells {
+            _ = ThumbnailCache.shared.image(document: book, index: index,
+                                            size: Self.stripCell)
+        }
+        let was = (PerfClock.now - wasStart) * 1000
+
+        ThumbnailCache.shared.clear()
+        var asks: [Task<UIImage?, Never>] = []
+        let isStart = PerfClock.now
+        for index in 0..<cells {
+            // Exactly what the cell's body now does: peek, and if there is
+            // nothing, ask for it.
+            if ThumbnailCache.shared.cached(document: book, index: index,
+                                            size: Self.stripCell) == nil {
+                asks.append(Task {
+                    await ThumbnailCache.shared.request(document: book, index: index,
+                                                        size: Self.stripCell)
+                })
+            }
+        }
+        let now = (PerfClock.now - isStart) * 1000
+
+        // ...and the reader has moved on, so the asks are withdrawn.
+        for ask in asks { ask.cancel() }
+        for ask in asks { _ = await ask.value }
+        let drawn = ThumbnailCache.shared.heldCount
+
+        print("FLICK-MAINTHREAD \(cells) cells: was \(Int(was))ms, "
+              + "is \(Int(now))ms; pages actually drawn after the reader "
+              + "moved on: \(drawn) of \(cells)")
+        XCTAssertLessThan(now, was,
+                          "the main thread pays no less than it used to")
+    }
+
     func testWhatAScannedReadingPageCostsAndHolds() throws {
         let book = try openBook()
         ThumbnailCache.shared.clear()
