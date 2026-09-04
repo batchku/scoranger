@@ -1083,16 +1083,27 @@ final class ScorangerUITests: XCTestCase {
                        "the score top bar is drawn more than once")
     }
 
-    /// Performance mode, from the "…" screen's switch.
+    /// Performance mode, from wherever this width keeps it.
+    ///
+    /// It is a bar button now and an Options row only where the bar cannot
+    /// seat it -- and it is in exactly ONE of those places at any width, which
+    /// is the rule ScoreBarLayout.Fit enforces. So this asks the bar first and
+    /// falls back, rather than naming one home and failing on the other.
     private func enterPerformanceMode() {
-        app.buttons["score-more"].tap()
-        // a PanelToggle, exposed as a SWITCH (L33): the row around it is a
-        // container and tapping that does not flip it
-        let toggle = app.switches["Performance mode"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "no Performance mode switch")
-        toggle.tap()
-        if app.buttons["score-more"].exists, app.buttons["score-more"].isSelected {
+        let onBar = app.buttons["score-performance"]
+        if onBar.waitForExistence(timeout: 10) {
+            onBar.tap()
+        } else {
             app.buttons["score-more"].tap()
+            // a PanelToggle, exposed as a SWITCH (L33): the row around it is a
+            // container and tapping that does not flip it
+            let toggle = app.switches["Performance mode"]
+            XCTAssertTrue(toggle.waitForExistence(timeout: 10),
+                          "the bar yielded Performance mode and Options has not got it")
+            toggle.tap()
+            if app.buttons["score-more"].exists, app.buttons["score-more"].isSelected {
+                app.buttons["score-more"].tap()
+            }
         }
         XCTAssertTrue(app.otherElements["performance-bar"].waitForExistence(timeout: 10),
                       "performance mode did not start")
