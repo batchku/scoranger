@@ -317,6 +317,12 @@ enum ChordDiagrams {
     /// exactly as a whistle column takes its pitch from the verses Verovio
     /// laid out.
     static func blocks(in svg: String) -> [Block] {
+        // Nothing below can return a block without matching `labelRE`, which
+        // needs this literal. The scan it skips is a dot-matches-newline regex
+        // over the whole page, built and run once per page of every score --
+        // including the great majority that carry no diagram at all. A filter,
+        // not a behaviour change: the two conditions are the same condition.
+        guard svg.contains("labelAttr") else { return [] }
         guard let groupRE = try? NSRegularExpression(
                 pattern: "<g[^>]*class=\"dir\">.*?</g>",
                 options: [.dotMatchesLineSeparators]),

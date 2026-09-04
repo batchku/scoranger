@@ -215,6 +215,14 @@ final class PerfMetrics: @unchecked Sendable {
         static let engraveMEI = "engrave: MEI passes"
         static let engraveSVG = "engrave: SVG (verovio)"
         static let engravePDF = "engrave: SVG -> PDF (swiftdraw)"
+        /// The whole rasterisation phase, once per engrave.
+        ///
+        /// The per-page name above is still recorded, but the pages now
+        /// OVERLAP: several are drawn at the same time, so their durations no
+        /// longer sum to the wait. This is the one to read against the old
+        /// `engravePDF median x page count`, and the only one that can be
+        /// compared before and after honestly.
+        static let engravePDFAll = "engrave: SVG -> PDF (all pages)"
         static let engraveModel = "engrave: geometry model"
         /// One manifest fetch and the library rebuild it triggers.
         static let manifest = "manifest refresh"

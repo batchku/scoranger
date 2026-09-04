@@ -1,6 +1,5 @@
 import Foundation
 import PDFKit
-import SwiftDraw
 import VerovioToolkit
 
 /// On-device engraving: MusicXML -> SVG pages (Verovio) -> PDF (SwiftDraw).
@@ -179,10 +178,13 @@ actor VerovioRenderer {
             guard t.loadData(mei) else { throw RenderError.loadFailed(musicXMLPath) }
         }
         meiSpan?.end()
-        let document = PDFDocument()
+        // Verovio draws every page FIRST, and alone.
+        //
+        // The toolkit holds one document and is not thread-safe, so this loop
+        // stays exactly as serial as it was. It is also the last thing in this
+        // method that touches `t` -- which is what lets the drawing below run
+        // on several cores at once.
         var rawPages: [String] = []
-        /// Pages that could not be drawn, kept so the caller can say which.
-        var failures: [RenderError] = []
         for page in 1...max(t.getPageCount(), 1) {
             // size is applied to the drawn glyph, because Verovio has no
             // per-element text size to ask for
@@ -191,23 +193,39 @@ actor VerovioRenderer {
                                             adjustments: adjustments)
             }
             rawPages.append(svg)
-            let pdfSpan = PerfMetrics.shared.begin(PerfMetrics.Name.engravePDF)
-            defer { pdfSpan?.end() }
+        }
+
+        // ...and then every page is drawn at once. Half the wait for a score to
+        // open was this loop: 95 ms a page in a RELEASE build, one after
+        // another, against 1609 ms of Verovio C++ nobody here can shorten.
+        // Nothing in it depends on anything else in it. See PageRasteriser for
+        // what makes that safe and PageRasteriserTests for the proof.
+        let drawn = PerfMetrics.shared.measure(PerfMetrics.Name.engravePDFAll) {
+            PageRasteriser.rasterise(pages: rawPages)
+        }
+
+        // Assembling the document stays here, serial and on the actor. PDFKit
+        // promises nothing about concurrent use and this costs nothing: what
+        // was expensive is already done.
+        let document = PDFDocument()
+        /// Pages that could not be drawn, kept so the caller can say which.
+        var failures: [RenderError] = []
+        for page in drawn {
             // A page that cannot be drawn is SKIPPED, not fatal. Throwing here
             // meant one unconvertible page threw away every good page with it:
             // a reader whose page 1 failed got no score at all rather than
             // pages 2 to 9. The pages that work are the point.
-            let prepared = SVGForSwiftDraw.prepare(svg)
-            guard !prepared.isEmpty else {
-                failures.append(.pageEmpty(page)); continue
+            guard let pageData = page.pdf else {
+                switch page.failure {
+                case .empty: failures.append(.pageEmpty(page.number))
+                case .unconvertible, .none:
+                    failures.append(.pageUnconvertible(page.number))
+                }
+                continue
             }
-            guard let parsed = SVG(data: Data(prepared.utf8)) else {
-                failures.append(.pageUnconvertible(page)); continue
-            }
-            guard let pageData = try? parsed.pdfData(),
-                  let pageDoc = PDFDocument(data: pageData),
+            guard let pageDoc = PDFDocument(data: pageData),
                   let p = pageDoc.page(at: 0) else {
-                failures.append(.pageUnconvertible(page)); continue
+                failures.append(.pageUnconvertible(page.number)); continue
             }
             document.insert(p, at: document.pageCount)
         }
