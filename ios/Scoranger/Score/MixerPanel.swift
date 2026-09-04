@@ -107,7 +107,35 @@ struct MixerPanel: View {
             Text("MIXER").typeRole(.meta)
                 .tracking(0.8)
                 .foregroundStyle(Theme.Accent.clayStrong)
+                .fixedSize()
+
+            // What the reader will HEAR, in one line: "all voices", "3 of 4
+            // voices", "metronome only", "silent". It was the transport's
+            // voice button's own label, readable without opening anything, and
+            // it came here when that button went (0.6.6) -- a rack of strips
+            // says what each channel is doing and nothing says what the whole
+            // of it adds up to.
+            //
+            // First to be squeezed: negative layout priority, so a panel too
+            // narrow for everything drops the sentence and keeps the controls.
+            Text(playback.voices.summary(in: parts, metronome: playback.metronome))
+                .typeRole(.meta)
+                .foregroundStyle(Theme.Ink.ink3)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
+                .accessibilityIdentifier("mixer-summary")
+
             Spacer(minLength: 0)
+
+            // All on / All off, which the strips cannot do between them: every
+            // voice off is the PRACTICE case -- play along to the click -- and
+            // reaching it by tapping six mutes in turn is not reaching it.
+            // Same identifiers the voice list carried, because it is the same
+            // control in a better place.
+            bulk("All on", id: "voices-all-on", on: true)
+            bulk("All off", id: "voices-all-off", on: false)
+
             Button(action: onClose) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Theme.Ink.ink2)
@@ -120,6 +148,17 @@ struct MixerPanel: View {
         }
         .padding(.horizontal, MixerLayout.padding)
         .frame(height: MixerLayout.headerHeight)
+    }
+
+    private func bulk(_ title: String, id: String, on: Bool) -> some View {
+        Button(title) {
+            playback.voices.setAll(on: on, parts: parts)
+        }
+        .typeRole(.meta)
+        .foregroundStyle(Theme.Accent.clayStrong)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - Choosing a sound (0.6.5)
