@@ -86,3 +86,133 @@ final class ScoreTitleTests: XCTestCase {
         XCTAssertNil(ScoreTitle.versionsLabel(count: 0))
     }
 }
+
+/// The bug reported twice: "v001.mxl" as an arrangement's label, and two
+/// arrangements of one piece labelled identically because both carried it.
+final class ArrangementLabelTests: XCTestCase {
+
+    func testTheWorkspacesOwnFileNameIsNotAName() {
+        XCTAssertTrue(ScoreTitle.isInternalArtifactName("v001.mxl"))
+        XCTAssertTrue(ScoreTitle.isInternalArtifactName("v002.musicxml"))
+        XCTAssertTrue(ScoreTitle.isInternalArtifactName("v001"))
+        // what the first attempt at this fix engraved instead
+        XCTAssertTrue(ScoreTitle.isInternalArtifactName("V001"))
+    }
+
+    /// Narrow, or it starts refusing real names.
+    func testARealNameIsNotAnArtifactName() {
+        XCTAssertFalse(ScoreTitle.isInternalArtifactName("Jovano Jovanke"))
+        XCTAssertFalse(ScoreTitle.isInternalArtifactName("Variation 3"))
+        XCTAssertFalse(ScoreTitle.isInternalArtifactName("V"))
+        XCTAssertFalse(ScoreTitle.isInternalArtifactName("Vivaldi"))
+        XCTAssertFalse(ScoreTitle.isInternalArtifactName(nil))
+    }
+
+    /// PieceScreen read `score.title ?? score.name`, so a poisoned title beat
+    /// the real name. It must not.
+    func testAPoisonedTitleLosesToTheArrangementsOwnName() {
+        XCTAssertEqual(ScoreTitle.arrangementName(title: "v001.mxl",
+                                                  name: "Jovano Jovanke accordion",
+                                                  slug: "jovano-jovanke-accordion"),
+                       "Jovano Jovanke accordion")
+        XCTAssertEqual(ScoreTitle.arrangementName(title: "V001", name: "Nature Boy",
+                                                  slug: "nature-boy"),
+                       "Nature Boy")
+    }
+
+    func testARealTitleStillWins() {
+        XCTAssertEqual(ScoreTitle.arrangementName(title: "Sous le ciel de Paris",
+                                                  name: "sous-le-ciel-quartet",
+                                                  slug: "sous-le-ciel-quartet"),
+                       "Sous le ciel de Paris")
+    }
+
+    /// A file stem still carries the music's name, so it is spelled out rather
+    /// than discarded -- and an artifact name is not, because there is no
+    /// version of "v001" worth reading.
+    func testASlugIsSpelledOutAndAnArtifactNameIsNot() {
+        XCTAssertEqual(ScoreTitle.arrangementName(title: "v001.mxl",
+                                                  name: "under-paris-skies",
+                                                  slug: "x"),
+                       "Under paris skies")
+        XCTAssertEqual(ScoreTitle.arrangementName(title: "v001.mxl", name: "v001",
+                                                  slug: "v001"),
+                       "Untitled arrangement")
+    }
+
+    func testNoLabelEverContainsAnArtifactName() {
+        for (title, name) in [("v001.mxl", "Jovano Jovanke"), ("V001", "v001"),
+                              ("v002.musicxml", "under-paris-skies")] {
+            let shown = ScoreTitle.arrangementName(title: title, name: name, slug: name)
+            XCTAssertFalse(shown.lowercased().contains("v001"), shown)
+            XCTAssertFalse(shown.lowercased().contains("v002"), shown)
+            XCTAssertFalse(shown.contains(".mxl"), shown)
+        }
+    }
+
+    // MARK: - two rows of one piece may not read the same
+
+    /// Exactly the screenshot: one piece, two arrangements, both poisoned.
+    func testTwoPoisonedArrangementsFallBackToTheirOwnNames() {
+        let labels = ScoreTitle.labels(for: [
+            .init(title: "v001.mxl", name: "Jovano Jovanke accordion",
+                  slug: "jovano-jovanke-accordion"),
+            .init(title: "v001.mxl", name: "Jovano Jovanke voice",
+                  slug: "jovano-jovanke-voice"),
+        ])
+        XCTAssertEqual(labels, ["Jovano Jovanke accordion", "Jovano Jovanke voice"])
+    }
+
+    /// The names collide too -- which the bulk import can produce, since it
+    /// strips "copy" and a leading ordinal off a file stem. The rows are then
+    /// told apart by what is IN them.
+    func testCollidingNamesAreToldApartByTheirParts() {
+        let labels = ScoreTitle.labels(for: [
+            .init(title: "v001.mxl", name: "Jovano Jovanke", slug: "jovano-jovanke",
+                  parts: ["Accordion"]),
+            .init(title: "v001.mxl", name: "Jovano Jovanke", slug: "jovano-jovanke-2",
+                  parts: ["Voice", "Guitar"]),
+        ])
+        // "Voice" is what OMR calls a staff it could not name, so it is not
+        // part of the description -- the guitar is what there is to say.
+        XCTAssertEqual(labels, ["Jovano Jovanke — Accordion",
+                                "Jovano Jovanke — Guitar"])
+    }
+
+    /// A scan has no parts at all, so what tells it apart is that it is a scan.
+    func testAScanIsToldApartFromNotation() {
+        let labels = ScoreTitle.labels(for: [
+            .init(title: nil, name: "Jovano Jovanke", slug: "a", parts: [], isScan: true),
+            .init(title: nil, name: "Jovano Jovanke", slug: "b", parts: [], isScan: false),
+        ])
+        XCTAssertEqual(labels, ["Jovano Jovanke — scan", "Jovano Jovanke — notation"])
+    }
+
+    /// When nothing true distinguishes them, position does -- and the rows are
+    /// still different from each other, which is the requirement.
+    func testIdenticalArrangementsAreStillNumbered() {
+        let labels = ScoreTitle.labels(for: [
+            .init(title: nil, name: "Jovano Jovanke", slug: "a"),
+            .init(title: nil, name: "Jovano Jovanke", slug: "b"),
+            .init(title: nil, name: "Jovano Jovanke", slug: "c"),
+        ])
+        XCTAssertEqual(labels, ["Jovano Jovanke (1)", "Jovano Jovanke (2)",
+                                "Jovano Jovanke (3)"])
+        XCTAssertEqual(Set(labels).count, 3)
+    }
+
+    /// Arrangements that already differ are left exactly as they are.
+    func testDistinctArrangementsAreNotDecorated() {
+        let labels = ScoreTitle.labels(for: [
+            .init(title: "Jovano Jovanke", name: "a", slug: "a"),
+            .init(title: "Nature Boy", name: "b", slug: "b"),
+        ])
+        XCTAssertEqual(labels, ["Jovano Jovanke", "Nature Boy"])
+    }
+
+    func testOneArrangementIsNeverDecorated() {
+        XCTAssertEqual(ScoreTitle.labels(for: [.init(title: nil, name: "Nature Boy",
+                                                     slug: "nature-boy")]),
+                       ["Nature Boy"])
+    }
+}

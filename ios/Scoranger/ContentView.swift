@@ -125,7 +125,9 @@ struct ContentView: View {
         case .details:
             if let score = state.selectedScore {
                 Screen(title: "Details", backLabel: "Options",
-                       subtitle: score.title ?? score.name,
+                       subtitle: ScoreTitle.arrangementName(title: score.title,
+                                                            name: score.name,
+                                                            slug: score.slug),
                        onBack: { scoreScreen = .options }) {
                     ScoreInfoView(score: score)
                 }

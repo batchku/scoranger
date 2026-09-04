@@ -882,7 +882,8 @@ final class AppState: ObservableObject {
                 groups[groups.count - 1] = last
             } else {
                 groups.append(VersionGroup(id: v.id,
-                                           title: v.turn?.prompt ?? v.op,
+                                           title: VersionLabel.text(
+                                               op: v.op, prompt: v.turn?.prompt),
                                            face: v,
                                            subs: v.turn != nil ? [v] : []))
             }
@@ -1014,6 +1015,20 @@ final class AppState: ObservableObject {
                                           args: ["slug": "broken-arrangement",
                                                  "name": "Morrison's jig"])
             }
+            // The library the reader actually has: arrangements OMR'd before
+            // the engine guarded the way in, each with the file name written
+            // into its notation. Nothing can produce this shape any more, so
+            // the fixture makes it deliberately -- and every screenshot of the
+            // repair is then taken against the real damage rather than a
+            // description of it.
+            if ProcessInfo.processInfo.arguments.contains("-seedPoisonedTitles") {
+                for score in (try await local.manifest()).scores {
+                    _ = try? await local.call(op: "debug-poison-title",
+                                              args: ["score": score.slug,
+                                                     "title": "v001.mxl"])
+                }
+                print("SCORANGER-SEED poisoned the titles")
+            }
             // Chord symbols to nudge. Neither sample score carries any, and
             // the chip's position-and-size row only appears for a selection of
             // adjustable elements -- so without this there is nothing to test
@@ -1036,10 +1051,36 @@ final class AppState: ObservableObject {
                     print("SCORANGER-SEED chord chart FAILED: \(error)")
                 }
             }
+            // A book the size of a Real Book. The browser's two faults -- a
+            // flick that stopped the main thread once per page, and a picture
+            // store bounded by a count -- do not show on a ten-page fixture,
+            // so the test that guards them gets the size that broke.
+            if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
+                await seedBigBook()
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture only: a several-hundred-page book, made on the spot and
+    /// imported. See `BigBookFixture`.
+    private func seedBigBook() async {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "big-book-fixture.pdf")
+        guard BigBookFixture.write(to: url) else {
+            print("SCORANGER-SEED big book could not be written")
+            return
+        }
+        do {
+            let slug = try await local.importBook(fileURL: url, name: "Big Fake Book")
+            print("SCORANGER-SEED big book \(slug), "
+                  + "\(BigBookFixture.defaultPages) pages")
+        } catch {
+            print("SCORANGER-SEED big book failed: \(error.localizedDescription)")
+        }
+        try? FileManager.default.removeItem(at: url)
     }
 
     #if DEBUG
@@ -1876,6 +1917,30 @@ final class AppState: ObservableObject {
         return false
     }
 
+    /// Arrangements engraving an internal file name instead of a title.
+    ///
+    /// Read from the library every time it is asked, never remembered: see
+    /// TitleRepair for why a flag would be the wrong shape.
+    var titleRepairsNeeded: [String] {
+        TitleRepair.affected(manifest?.scores ?? [])
+    }
+
+    /// Fix them, the legitimate way: the engine adds a corrected version to
+    /// each. Returns (repaired, failed).
+    func repairTitles() async -> (repaired: Int, failed: Int) {
+        do {
+            let r = try await local.call(op: "repair-titles", args: ["apply": true])
+            let affected = (r["affected"] as? Int) ?? 0
+            let failed = ((r["failed"] as? [Any]) ?? []).count
+            pinnedVersion = nil
+            await refresh()
+            return (affected, failed)
+        } catch {
+            report("fix those titles", error)
+            return (0, 0)
+        }
+    }
+
     /// The arrangement's title. Kept as its own call because renaming is what
     /// callers ask for; the work is setScoreMetadata's, so a rename can never
     /// leave the page saying something else.
@@ -2050,7 +2115,9 @@ final class AppState: ObservableObject {
             notice = "Couldn't export: there is no arrangement '\(slug)'."
             return nil
         }
-        let name = ScoreExport.filename(title: score.title ?? score.name,
+        let name = ScoreExport.filename(
+            title: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                              slug: score.slug),
                                         version: version, format: format)
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("export", isDirectory: true)
@@ -2415,7 +2482,8 @@ final class AppState: ObservableObject {
 
     func deleteScore(slug: String, undoable: Bool = true) {
         let name = manifest?.scores.first { $0.slug == slug }
-            .map { $0.title ?? $0.name } ?? slug
+            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                              slug: $0.slug) } ?? slug
         Task {
             do {
                 try await local.deleteScore(slug)

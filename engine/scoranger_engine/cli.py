@@ -422,6 +422,10 @@ def cmd_set_metadata(a):
                                        arranger=a.arranger))
 
 
+def cmd_repair_titles(a):
+    _emit(workspace.repair_titles(dry_run=not a.apply))
+
+
 def cmd_set_piece_metadata(a):
     tags = None
     if a.tags is not None:
@@ -819,6 +823,13 @@ def main() -> None:
     s.add_argument("--composer", help="composer credit ('' clears it)")
     s.add_argument("--arranger", help="arranger credit ('' clears it)")
     s.set_defaults(fn=cmd_set_metadata)
+
+    s = sub.add_parser("repair-titles",
+                       help="Re-title arrangements engraving an internal file "
+                            "name (lists them; --apply writes a new version each)")
+    s.add_argument("--apply", action="store_true",
+                   help="write the corrected titles (without it, only lists)")
+    s.set_defaults(fn=cmd_repair_titles)
 
     s = sub.add_parser("set-piece-metadata",
                        help="Edit a PIECE's composer and tags (a scan has no "
