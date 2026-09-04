@@ -370,6 +370,18 @@ def _dispatch(op, a):
         })
         workspace.rebuild_manifest()
         return {"score": slug, "versions": 0}
+    if op == "debug-poison-title":
+        # TEST FIXTURE ONLY, and the only way to produce this shape any more:
+        # add_version_from_file now refuses to let a file name become a title,
+        # so a version titled "v001.mxl" cannot be made through the normal path.
+        # The app calls this under -seedPoisonedTitles to reproduce the library
+        # the reader actually has -- OMR'd before the guard existed -- so the
+        # repair, and the screenshots of it, are taken against the real damage.
+        score = _load(a["score"])
+        ops.set_metadata(score, title=a.get("title") or "v001.mxl")
+        entry = workspace.add_version(a["score"], score, a.get("op") or "omr", {})
+        return {"score": a["score"], "version": entry["id"],
+                "title": a.get("title") or "v001.mxl"}
     if op == "create-arrangement":
         # a minimal valid score: one part, one 4/4 measure with a whole rest
         from music21 import clef, meter, metadata, note, stream

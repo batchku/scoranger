@@ -1015,6 +1015,20 @@ final class AppState: ObservableObject {
                                           args: ["slug": "broken-arrangement",
                                                  "name": "Morrison's jig"])
             }
+            // The library the reader actually has: arrangements OMR'd before
+            // the engine guarded the way in, each with the file name written
+            // into its notation. Nothing can produce this shape any more, so
+            // the fixture makes it deliberately -- and every screenshot of the
+            // repair is then taken against the real damage rather than a
+            // description of it.
+            if ProcessInfo.processInfo.arguments.contains("-seedPoisonedTitles") {
+                for score in (try await local.manifest()).scores {
+                    _ = try? await local.call(op: "debug-poison-title",
+                                              args: ["score": score.slug,
+                                                     "title": "v001.mxl"])
+                }
+                print("SCORANGER-SEED poisoned the titles")
+            }
             // Chord symbols to nudge. Neither sample score carries any, and
             // the chip's position-and-size row only appears for a selection of
             // adjustable elements -- so without this there is nothing to test
