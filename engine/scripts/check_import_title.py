@@ -250,6 +250,9 @@ def main() -> int:
         check(f"{text!r} is {'a file name' if expected else 'a title'}", got == expected,
               f"got {got}")
 
+    print("\nand a title already spoiled is not tidied into another one")
+    check_a_poisoned_title_is_not_tidied_into_another_one()
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)}")

@@ -640,6 +640,73 @@ def set_score_metadata(slug: str, title: str | None = None,
             **applied}
 
 
+def title_repairs() -> list[dict]:
+    """Arrangements engraving an internal file name instead of a title.
+
+    A read. It looks at the score DOCUMENT rather than parsing forty scores,
+    which it is entitled to do: `_write_version` writes the document's title as
+    a projection of the notation's, so what the document says is what the page
+    shows.
+
+    Each entry carries `title` (what is engraved now), `proposed` (what a
+    repair would engrave) and `kind` -- "artifact-name" for the `v001.mxl` this
+    was reported for, "file-name" for the slug an earlier import left behind.
+    An arrangement whose PDF is still its latest version has no notation to
+    version and is left out: its title never came from a file in the first
+    place, and writing the document directly is the divergence the one-title
+    rule exists to prevent.
+    """
+    from . import ops
+
+    repo = _repo()
+    pieces = {p["slug"]: p["name"] for p in repo.list_pieces()}
+    out = []
+    for doc in repo.list_scores():
+        title = doc.get("title")
+        proposed = ops.title_repair(title, doc.get("name"),
+                                    pieces.get(doc.get("piece")))
+        if proposed is None:
+            continue
+        if not doc.get("latest") or version_kind(doc["slug"]) != "musicxml":
+            continue
+        out.append({
+            "slug": doc["slug"], "name": doc.get("name"),
+            "title": title, "proposed": proposed,
+            "kind": ("artifact-name" if ops.is_internal_artifact_name(title)
+                     else "file-name"),
+        })
+    return out
+
+
+def repair_titles(dry_run: bool = True) -> dict:
+    """Give every arrangement engraving a file name a corrected NEW version.
+
+    Deliberately not automatic, and deliberately not a flag. Silently appending
+    a version to forty arrangements the first time an app launches is a large
+    edit nobody asked for, and a per-device UserDefaults flag would run it
+    again on the reader's next iPad. This is derived from the library itself:
+    the offer appears while there is something to repair and stops existing
+    once there is not, on every device, with no state to keep.
+
+    The repair is `set-metadata` and nothing else -- a new immutable version,
+    reversible like any other, with history left exactly as it was written.
+    """
+    found = title_repairs()
+    if dry_run:
+        return {"dry_run": True, "affected": len(found), "repairs": found}
+    repaired, failed = [], []
+    for row in found:
+        try:
+            result = set_score_metadata(row["slug"], title=row["proposed"])
+            repaired.append({**row, "version": result["version"]})
+        except Exception as exc:                          # noqa: BLE001
+            # one unreadable arrangement may not abandon the other thirty-nine
+            failed.append({**row, "error": f"{type(exc).__name__}: {exc}"})
+    rebuild_manifest()
+    return {"dry_run": False, "affected": len(repaired),
+            "repairs": repaired, "failed": failed}
+
+
 def rename_slug(slug: str, new_slug: str) -> dict:
     """Change a score's slug -- the identity it is filed under.
 

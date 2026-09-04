@@ -323,6 +323,13 @@ def _dispatch(op, a):
         return workspace.set_score_metadata(a["score"], title=a.get("title"),
                                             composer=a.get("composer"),
                                             arranger=a.get("arranger"))
+    if op == "repair-titles":
+        # The other half of the v001.mxl fix. Guarding the way in protects only
+        # versions written after the guard; a library OMR'd before it has the
+        # file name baked into notation already on disk. This finds those and
+        # -- only when asked -- gives each one a corrected NEW version through
+        # set-metadata, so no history is rewritten.
+        return workspace.repair_titles(dry_run=not a.get("apply"))
     if op == "set-piece-metadata":
         # Composer lives on the PIECE as well as in notation: an arrangement
         # imported as a PDF has none to write into, so a scan could otherwise

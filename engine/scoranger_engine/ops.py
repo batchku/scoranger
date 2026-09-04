@@ -2541,19 +2541,56 @@ def clean_imported_metadata(score, fallback_title: str,
     return set_metadata(score, title=title or humanise_title(fallback_title))
 
 
-def _is_internal_artifact_name(name: str | None) -> bool:
+def is_internal_artifact_name(name: str | None) -> bool:
     """Is this the workspace's own file name for a version, rather than a name?
 
     Versions are stored as `vNNN.<ext>` -- v001.mxl, v002.musicxml -- and that
     string is never anybody's music. It is distinct from a file stem that still
     carries the title ("under-paris-skies"), which is worth tidying rather than
     discarding.
+
+    Public because the repair reads it too: `title_repair` has to recognise a
+    title poisoned before the guard existed, and the app mirrors this judgement
+    in ScoreTitle.isInternalArtifactName so a poisoned title is never SHOWN
+    either.
     """
     if not name:
         return False
     stem = str(name).strip()
     stem = stem.rsplit(".", 1)[0] if "." in stem else stem
     return bool(re.fullmatch(r"[vV]\d{2,}", stem))
+
+
+#: The name kept for the callers written before it was public.
+_is_internal_artifact_name = is_internal_artifact_name
+
+
+def title_repair(stored: str | None, name: str | None,
+                 piece: str | None = None) -> str | None:
+    """The title an ALREADY STORED arrangement should carry, or None if it is fine.
+
+    `title_for_added_version` guards the way in, and it only ever protected
+    versions written after it existed. A library OMR'd before that carries the
+    damage baked into the notation of versions already on disk, and nothing
+    re-runs the title logic over a file that has been written -- so the reader
+    still sees "v001.mxl" engraved at the top of music he imported months ago.
+
+    This is the other half: given what a score document holds now, what is the
+    title worth writing in a NEW version. Nothing is invented -- the
+    replacement is the arrangement's own name, or failing that the piece's,
+    spelled out the way an import spells a file stem. When neither can say
+    anything, this returns None and the arrangement is reported rather than
+    given a title someone would have to undo.
+    """
+    if stored and not _is_junk_title(stored) and not is_internal_artifact_name(stored):
+        return None
+    for candidate in (name, piece):
+        if not candidate or is_internal_artifact_name(candidate):
+            continue
+        spelled = humanise_title(candidate)
+        if spelled and not is_internal_artifact_name(spelled):
+            return None if spelled == (stored or "").strip() else spelled
+    return None
 
 
 def title_for_added_version(existing: str | None, incoming: str | None,
