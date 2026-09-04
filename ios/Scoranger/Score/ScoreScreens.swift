@@ -373,11 +373,11 @@ struct ScoreOptionsScreen: View {
             case "Versions":
                 if let score = state.selectedScore {
                     ForEach(score.versions.reversed(), id: \.id) { version in
-                        ScreenRow(title: version.id,
+                        ScreenRow(title: version.name,
                                   value: VersionLabel.text(op: version.op,
                                                            prompt: version.turn?.prompt),
                                   leads: false,
-                                  identifier: "version-\(version.id)") {
+                                  identifier: "version-\(version.name)") {
                             state.pinnedVersion = version.id == score.latest ? nil : version.id
                             Task { await state.renderIfNeeded() }
                             onBack()
@@ -515,9 +515,9 @@ struct TitleSwitcherBand: View {
                 switchRow(title: TitleBandLayout.versionLabel(
                                     prompt: version.turn?.prompt, op: version.op),
                           number: nil,
-                          detail: version.id,
+                          detail: version.name,
                           selected: version.id == state.displayedVersionID,
-                          id: "menu-version-\(version.id)") {
+                          id: "menu-version-\(version.name)") {
                     onPickVersion(version.id == score.latest ? nil : version.id)
                 }
             }

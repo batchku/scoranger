@@ -43,7 +43,10 @@ def _emit(payload: dict) -> None:
 
 def _mutate(slug: str, score, op: str, args: dict, details) -> None:
     entry = workspace.add_version(slug, score, op, args)
-    _emit({"score": slug, "op": op, "new_version": entry["id"], "details": details,
+    # both names: `new_version` is the identity to pass back to any other
+    # command, `new_version_label` is the `v012` to put in a sentence
+    _emit({"score": slug, "op": op, "new_version": entry["id"],
+           "new_version_label": workspace.version_label(entry), "details": details,
            "file": str(workspace.score_dir(slug) / entry["file"])})
 
 
@@ -59,7 +62,8 @@ def cmd_import(a):
     # in rather than surfacing as "my-score.mxl" at the top of the page.
     name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
     slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
-    out = {"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)}
+    out = {"score": slug, "name": name, "version": entry["id"],
+           "version_label": workspace.version_label(entry), "info": ops.info(score)}
     # imperfect sources import and say so; they are never refused
     if entry.get("rhythm_warnings"):
         out["rhythm_warnings"] = entry["rhythm_warnings"]

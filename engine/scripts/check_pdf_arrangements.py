@@ -81,7 +81,8 @@ def main() -> int:
     print("importing a PDF")
     slug, entry = workspace.create_pdf_score("Medeno Kolo", source,
                                              args={"source": source.name})
-    check(entry["id"] == "v001", "it gets a first version like any arrangement")
+    check(workspace.version_label(entry) == "v001",
+          "it gets a first version like any arrangement")
     stored = workspace.resolve_path(slug)
     check(stored.suffix == ".pdf", f"the artifact is a PDF: {stored.name}")
     check(stored.read_bytes() == original,
@@ -124,7 +125,8 @@ def main() -> int:
     print("OMR turns a scan into an editable version of the SAME arrangement")
     # what the on-demand OMR action does once the service returns notation
     entry2 = workspace.add_version(slug, a_little_score(), "omr", {"source": "cloud"})
-    check(entry2["id"] == "v002", "the transcription is the next version, not a new score")
+    check(workspace.version_label(entry2) == "v002",
+          "the transcription is the next version, not a new score")
     check(workspace.version_kind(slug, "v001") == "pdf",
           "and the scan is still there as v001 -- the page the reader knows")
     check(workspace.version_kind(slug, "v002") == "musicxml",

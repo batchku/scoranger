@@ -378,12 +378,12 @@ struct VersionsScreen: View {
                     groupRow(group)
                     if expanded.contains(group.id) {
                         ForEach(group.subs.reversed(), id: \.id) { step in
-                            ScreenRow(title: step.id,
+                            ScreenRow(title: step.name,
                                       value: VersionLabel.text(op: step.op,
                                                                prompt: step.turn?.prompt),
                                       leads: false,
                                       isSelected: step.id == shown,
-                                      identifier: "step-\(slug)-\(step.id)") {
+                                      identifier: "step-\(slug)-\(step.name)") {
                                 show(step.id)
                             }
                             .padding(.leading, Theme.Metric.stepIndent)
@@ -425,24 +425,24 @@ struct VersionsScreen: View {
                                          : "Show the \(steps) steps of this prompt")
                 .accessibilityIdentifier("steps-toggle-\(slug)-\(group.id)")
                 ScreenRow(title: group.title,
-                          value: "\(group.face.id) · \(steps) steps",
+                          value: "\(group.face.name) · \(steps) steps",
                           leads: false,
                           // while the steps are open they own the highlight:
                           // a group's steps include its own face, and lighting
                           // both read as two versions being open at once
                           isSelected: !open && group.subs.contains { $0.id == shown },
-                          identifier: "version-\(slug)-\(group.face.id)") {
+                          identifier: "version-\(slug)-\(group.face.name)") {
                     show(group.face.id)
                 }
             }
             .padding(.leading, Theme.Metric.s6)
         } else {
-            ScreenRow(title: group.face.id,
+            ScreenRow(title: group.face.name,
                       value: VersionLabel.text(op: group.face.op,
                                                prompt: group.face.turn?.prompt),
                       leads: false,
                       isSelected: group.face.id == shown,
-                      identifier: "version-\(slug)-\(group.face.id)") {
+                      identifier: "version-\(slug)-\(group.face.name)") {
                 show(group.face.id)
             }
         }

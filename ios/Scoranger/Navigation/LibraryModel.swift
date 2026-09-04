@@ -69,7 +69,7 @@ enum LibraryModel {
                 chips.append(.init(text: "OMR DRAFT", kind: .warning))
             }
             let latest = arrangements.compactMap { $0.versions.last?.time ?? nil }.max() ?? ""
-            let version = arrangements.compactMap { $0.latest }.last ?? ""
+            let version = arrangements.compactMap { $0.latestLabel }.last ?? ""
             return LibraryRow(
                 id: piece.slug,
                 title: piece.name,
@@ -102,7 +102,7 @@ enum LibraryModel {
                     + (score.versions.count == 1 ? "version" : "versions")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
-                meta: [score.latest ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
+                meta: [score.latestLabel ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 sortName: ScoreTitle.arrangementName(title: score.title, name: score.name,
                                                      slug: score.slug),

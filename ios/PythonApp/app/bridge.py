@@ -37,7 +37,11 @@ def _mutate(slug, op, args, fn):
     score = _load(slug)
     details = fn(score)
     entry = workspace.add_version(slug, score, op, args)
-    return {"new_version": entry["id"], "details": details}
+    # id AND label: the id is what anything addressing this version must use,
+    # the label is the only one of the two a person can read in a chat step
+    return {"new_version": entry["id"],
+            "new_version_label": workspace.version_label(entry),
+            "details": details}
 
 
 def _part(score, name):
