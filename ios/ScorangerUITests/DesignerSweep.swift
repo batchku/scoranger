@@ -121,6 +121,16 @@ final class DesignerSweep: XCTestCase {
 
     private func back() { tap("screen-back", wait: 2) }
 
+    /// Into performance mode by whichever route this width offers: the top
+    /// bar's button, or the Options row the bar yields to on a phone (0.6.8).
+    @discardableResult
+    private func enterPerformanceMode() -> Bool {
+        if tap("score-performance", wait: 3) { return true }
+        guard tap("score-more", wait: 3) else { return false }
+        settle(0.8)
+        return tap("more-performance", wait: 3)
+    }
+
     /// Put the keyboard away.
     ///
     /// Tapping the search field raises it, and on iPad it then covers the
@@ -335,7 +345,14 @@ final class DesignerSweep: XCTestCase {
         if tapFirst(beginning: "display-") != nil {
             settle(); snap("34-score-options-subscreen"); back(); settle()
         }
-        tap("more-performance"); settle(1.2); snap("35-performance-mode")
+        // Performance mode is a TOP BAR button since 0.6.8, so leave Options
+        // first. `more-performance` is the phone-width fallback and stays as
+        // the second attempt.
+        back(); settle(0.6)
+        if !tap("score-performance", wait: 3) {
+            tap("score-more", wait: 3); settle(0.6); tap("more-performance", wait: 3)
+        }
+        settle(1.2); snap("35-performance-mode")
         tap("score-close"); settle(0.8)
 
         tap("score-ask"); settle(1.0); snap("36-chat-open")
@@ -498,9 +515,9 @@ final class DesignerSweep: XCTestCase {
             app.swipeLeft(); settle(1.2); snap("92-continuous-scrolled")
             print("SWEEP: strip present in continuous = \(app.otherElements["thumbnail-strip"].exists)")
         }
-        // and it must not survive into performance mode
-        tap("score-more", wait: 2); settle(0.8)
-        if tap("more-performance", wait: 2) {
+        // and it must not survive into performance mode. The switch is a bar
+        // button since 0.6.8; the Options row is the phone-width fallback.
+        if enterPerformanceMode() {
             settle(1.5); snap("93-performance-no-layout-control")
             print("SWEEP: layout control in performance = \(app.otherElements["score-layout"].exists || app.buttons["layout-page"].exists)")
             tap("score-close", wait: 2)
@@ -523,8 +540,7 @@ final class DesignerSweep: XCTestCase {
         } else {
             print("SWEEP: no version control in the score bar")
         }
-        tap("score-more", wait: 2); settle(0.6)
-        if tap("more-performance", wait: 2) {
+        if enterPerformanceMode() {
             settle(1.2)
             if tap("score-versions", wait: 3) { settle(1.0); snap("96-version-dropdown-performance") }
             else { print("SWEEP: no version control in performance mode") }

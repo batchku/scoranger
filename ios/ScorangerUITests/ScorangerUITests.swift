@@ -565,11 +565,101 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["score-spread"].exists,
                        "the old two-state spread button should be gone")
         XCTAssertTrue(app.buttons["score-title"].exists, "no title block to switch from")
+        // The two switches came UP from Options (0.6.8): what you are looking
+        // at and what mode you are in are decided on the bar, beside the layout
+        // cells. On a bar too narrow to seat them they yield and Options
+        // carries them -- so this asserts the pair, not one of them, and it
+        // asserts the fallback where the bar has yielded.
+        let onBar = app.buttons["score-performance"].exists
+        XCTAssertEqual(onBar, app.buttons["score-transport-toggle"].exists,
+                       "the two switches yield together: the bar is showing one "
+                       + "of them and not the other")
+        if !onBar {
+            app.buttons["score-more"].tap()
+            XCTAssertTrue(app.switches["Performance mode"].waitForExistence(timeout: 20),
+                          "the bar yielded Performance mode and Options has not got it")
+            XCTAssertTrue(app.switches["Show transport"].exists,
+                          "the bar yielded Show transport and Options has not got it")
+            goBack()
+        }
         XCTAssertFalse(app.buttons["pill-library"].exists,
                        "the pill's library toggle should be gone: browsing is a tab now")
         XCTAssertFalse(app.navigationBars.element.exists,
                        "the score-first layout has no navigation bar")
         shot("score-top-bar")
+    }
+
+    /// Performance mode from the TOP BAR, and the way back out (0.6.8).
+    ///
+    /// It was the top row of the Options screen: two taps and a screen away
+    /// from the music, for the one control that changes what every input on
+    /// that music means. What this pins is not where the button is but that the
+    /// MODE actually takes from there -- the performance bar is a different bar
+    /// and its ✕ says so -- because moving a control that does not work in its
+    /// new home is how a feature gets dropped.
+    ///
+    /// On a bar too narrow to seat the switch the Options row is still the way
+    /// in, and this walks that route instead; either way the assertion is the
+    /// mode, not the control.
+    func testPerformanceModeIsEnteredFromTheTopBarAndLeftFromItsOwn() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180),
+                      "the score never opened")
+
+        let onBar = app.buttons["score-performance"]
+        if onBar.exists {
+            onBar.tap()
+        } else {
+            app.buttons["score-more"].tap()
+            let row = app.switches["Performance mode"]
+            XCTAssertTrue(row.waitForExistence(timeout: 20),
+                          "the bar yielded Performance mode and Options has not got "
+                          + "it: there is no way into the mode at this width")
+            row.tap()
+        }
+
+        // The mode, not the button: the bar becomes the performance strip.
+        XCTAssertTrue(app.otherElements["performance-bar"].waitForExistence(timeout: 20),
+                      "the switch did not put the score into performance mode")
+        XCTAssertFalse(app.buttons["layout-page"].exists,
+                       "the layout control should be gone in performance mode")
+        shot("top-bar-performance-mode")
+
+        // And out again, by the one control that bar has.
+        app.buttons["score-close"].tap()
+        XCTAssertTrue(waitForDisappearance(of: app.otherElements["performance-bar"],
+                                           timeout: 20),
+                      "✕ in performance mode did not come back to reading")
+        XCTAssertTrue(app.buttons["score-edit"].waitForExistence(timeout: 20),
+                      "leaving performance mode did not restore the full bar")
+    }
+
+    /// The transport switch, from the bar, turns the transport off and on.
+    ///
+    /// `revealTransport` already walks every route the switch has; this is the
+    /// other direction, which nothing covered: the switch is what puts the
+    /// chrome AWAY, and a toggle that only ever turns something on is half a
+    /// control. It runs only where the bar seats it -- on a phone the Options
+    /// switch is the route and `revealTransport` is what exercises it.
+    func testTheTransportSwitchOnTheBarTurnsTheTransportOffAndBackOn() {
+        openArrangement(firstArrangement)
+        XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180))
+        let toggle = app.buttons["score-transport-toggle"]
+        guard toggle.exists else {
+            return XCTAssertFalse(app.buttons["score-performance"].exists,
+                                  "the bar seats Performance mode but not the "
+                                  + "transport switch: they yield together")
+        }
+        revealTransport()
+        let transport = app.otherElements["transport"]
+        XCTAssertTrue(transport.exists, "nothing to turn off")
+
+        toggle.tap()
+        XCTAssertTrue(waitForDisappearance(of: transport, timeout: 20),
+                      "the bar's switch would not put the transport away")
+        toggle.tap()
+        XCTAssertTrue(transport.waitForExistence(timeout: 20),
+                      "the bar's switch would not bring the transport back")
     }
 
     /// Reading happens over the library, and X ALWAYS lands back on it -- there
@@ -1969,18 +2059,33 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
         let more = app.buttons["score-more"]
         XCTAssertTrue(more.isHittable, "the … button is not tappable")
+        // Read BEFORE the screen covers the bar: which of the two places holds
+        // Performance mode is decided by what the bar could seat.
+        let performanceOnBar = app.buttons["score-performance"].exists
         more.tap()
         XCTAssertTrue(more.isSelected, "the … button did not take: the action never ran")
         XCTAssertFalse(app.buttons["Highlight a passage for chat"].exists,
                        "the bar-estimate highlight toggle is still in the options menu")
-        // Performance mode is the app's own PanelToggle now, not a stock iOS
-        // Toggle and not a bare label (L33), so it is exposed as a SWITCH --
-        // which is what it should have been reported as all along.
+        // Performance mode moved to the top bar (0.6.8), so it is no longer
+        // what proves this screen opened -- Chord symbols is, being the first
+        // row of the options root at every width. Where the bar has yielded the
+        // switch, Options still carries it and it is still the app's own
+        // PanelToggle rather than a stock iOS Toggle or a bare label (L33), so
+        // it is exposed as a SWITCH.
+        let chords = app.descendants(matching: .any)["more-chords"].firstMatch
+        XCTAssertTrue(chords.waitForExistence(timeout: 5),
+                      "the … menu did not open (no Chord symbols row)")
         let performance = app.descendants(matching: .any)["more-performance"].firstMatch
-        XCTAssertTrue(performance.waitForExistence(timeout: 5),
-                      "the … menu did not open (no Performance mode row)")
-        XCTAssertTrue(app.switches["Performance mode"].exists,
-                      "Performance mode is not a switch to a screen reader")
+        if performanceOnBar {
+            XCTAssertFalse(performance.exists,
+                           "Performance mode is on the bar AND in Options: one "
+                           + "control, two places, and they will drift")
+        } else {
+            XCTAssertTrue(performance.exists,
+                          "the bar yielded Performance mode and Options has not got it")
+            XCTAssertTrue(app.switches["Performance mode"].exists,
+                          "Performance mode is not a switch to a screen reader")
+        }
         // by identifier rather than by type: a menu row is a stack inside a
         // Button, which XCUITest reports as a container rather than a button --
         // the same reason the canvas is looked up this way

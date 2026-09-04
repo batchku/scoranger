@@ -18,6 +18,19 @@ struct ScoreOptionsScreen: View {
     @EnvironmentObject var state: AppState
     @Binding var mode: ScoreMode
     @Binding var showTransport: Bool
+    /// What the top bar seats at its current width (0.6.8).
+    ///
+    /// Performance mode and Show transport are BAR controls now -- the two
+    /// screens they used to be from the music. This screen keeps them at
+    /// exactly the widths the bar cannot seat them, which is a phone, and
+    /// shows neither anywhere else.
+    ///
+    /// Read from `ContentView`'s one measurement rather than measured again
+    /// here: two notions of what fits would put a switch in both places at some
+    /// width and in neither at another.
+    var barFit: ScoreBarLayout.Fit = ScoreBarLayout.Fit(showsVersions: true,
+                                                        showsModeChip: true,
+                                                        layoutCells: 3)
     var section: String?
     var onBack: () -> Void
     var push: (String) -> Void
@@ -54,25 +67,31 @@ struct ScoreOptionsScreen: View {
 
     private var root: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Performance mode first and lit, because it is the one entry that
-            // changes what every input means (§6 of the navigation system).
+            // Performance mode moved to the TOP BAR (0.6.8): it is the one
+            // control that changes what every input on the music means, and it
+            // sat two screens away from that music. It stays here at the widths
+            // the bar cannot seat it -- a phone -- because an access path is
+            // not removed until its replacement exists at that width, and on a
+            // phone it does not (ScoreBarLayout).
+            //
             // The app's own switch, not the system's. This was the one stock
-            // iOS control left anywhere in it (L33) -- and it sat in the most
-            // prominent row of the options screen.
-            PanelToggle(title: "Performance mode",
-                        isOn: Binding(get: { mode == .performance },
-                                      set: { on in
-                                          mode = on ? .performance : .read
-                                          if on { state.annotation.isOn = false }
-                                          onBack()
-                                      }))
-                .accessibilityIdentifier("more-performance")
-                .padding(.horizontal, Theme.Metric.s20)
-                .padding(.vertical, 11)
-                .background(Theme.Accent.clayTint)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(Theme.Line.line).frame(height: 1)
-                }
+            // iOS control left anywhere in it (L33).
+            if barFit.optionsCarriesPerformanceToggle {
+                PanelToggle(title: "Performance mode",
+                            isOn: Binding(get: { mode == .performance },
+                                          set: { on in
+                                              mode = on ? .performance : .read
+                                              if on { state.annotation.isOn = false }
+                                              onBack()
+                                          }))
+                    .accessibilityIdentifier("more-performance")
+                    .padding(.horizontal, Theme.Metric.s20)
+                    .padding(.vertical, 11)
+                    .background(Theme.Accent.clayTint)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(Theme.Line.line).frame(height: 1)
+                    }
+            }
 
             // Only for a scan, and only while it IS one: once OMR has run, the
             // arrangement has a notation version and the row has nothing left
@@ -91,14 +110,17 @@ struct ScoreOptionsScreen: View {
             // it was chord symbols, so chord symbols come up a level rather
             // than sitting two screens deep (#7).
             //
-            // The transport switch stays HERE as well as on the bar: a narrow
-            // bar yields the toggle (ScoreBarLayout), and a build where the
-            // only way to reach a switch depends on screen width is a build
-            // where some readers cannot reach it at all.
-            PanelToggle(title: "Show transport", isOn: $showTransport)
-                .padding(.horizontal, Theme.Metric.s20)
-                .padding(.vertical, 6)
-                .accessibilityIdentifier("more-transport")
+            // The transport switch is a BAR control (0.6.3 #6), and since 0.6.8
+            // it is here ONLY where the bar has yielded it -- the same rule
+            // Performance mode follows above. It was in both places at every
+            // width, which is one switch too many on an iPad and the reason the
+            // bar's copy read as a duplicate rather than as the control.
+            if barFit.optionsCarriesTransportToggle {
+                PanelToggle(title: "Show transport", isOn: $showTransport)
+                    .padding(.horizontal, Theme.Metric.s20)
+                    .padding(.vertical, 6)
+                    .accessibilityIdentifier("more-transport")
+            }
             ScreenRow(title: "Chord symbols", value: "\(state.chordDefaultSize) pt",
                       identifier: "more-chords") { push("Chord symbols") }
             // Every row states its current answer where it has one. A screen of

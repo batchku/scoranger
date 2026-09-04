@@ -28,7 +28,12 @@ struct ScoreTopBar: View {
     /// belongs beside the layout cells that are the other one.
     @Binding var showTransport: Bool
     /// Measured, so the bar can say what it can seat (#60).
-    @State private var barWidth: CGFloat = 0
+    ///
+    /// Owned by `ContentView` since 0.6.8, because the Options screen has to
+    /// read the SAME fit: it carries the two switches at exactly the widths
+    /// this bar cannot seat them, and two independent notions of what fits
+    /// would leave a width where a switch appears twice or not at all.
+    @Binding var barWidth: CGFloat
     @Binding var moreOpen: Bool
     var chatOpen: Bool
     var onClose: () -> Void
@@ -70,7 +75,11 @@ struct ScoreTopBar: View {
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             layoutControl
+            if fit.showsPerformanceToggle { performanceToggle }
             if fit.showsTransportToggle { transportToggle }
+            if fit.showsOMRProgress {
+                OMRProgressChip(control: omr) { moreOpen = true; titleMenuOpen = false }
+            }
             barButton("ellipsis", label: "More", identifier: "score-more",
                       active: moreOpen) { moreOpen.toggle(); titleMenuOpen = false }
         }
@@ -101,6 +110,10 @@ struct ScoreTopBar: View {
             Text(ScoreMode.performance.pencilMeaning).typeRole(.meta)
                 .foregroundStyle(Theme.Ink.ink3)
             Spacer()
+            // A transcription started before the reader went into performance
+            // mode is still running, and this bar was the one place with no
+            // sign of it at all.
+            if state.omrBusy { OMRProgressChip(control: omr, action: nil) }
             // Performance mode strips the bar to the way out and the mode, but
             // switching version is what a player does mid-rehearsal and there
             // was NO route to it here at all.
@@ -118,6 +131,37 @@ struct ScoreTopBar: View {
         // reason.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("performance-bar")
+    }
+
+    /// What OMR is doing, read from the one signal the app keeps for it
+    /// (`AppState.omrBusy` + the stage of the pending import it started). No
+    /// second notion: the Make editable switch in Options reads exactly this.
+    private var omr: OMRControl {
+        MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
+                             fraction: state.omrFraction)
+    }
+
+    /// Performance mode, on the bar (0.6.8).
+    ///
+    /// It was the top row of the Options screen -- two taps and a screen away
+    /// from the music, for the one control that changes what every input on
+    /// that music means. The bar already STATES the mode; this is the switch
+    /// that sets it, beside the other two controls that say what you are
+    /// looking at.
+    ///
+    /// Only the way IN. The way out is the performance bar's own ✕, which has
+    /// always been there and reads "Leave performance mode" -- and once
+    /// performance mode is on, this bar is not the bar on screen.
+    private var performanceToggle: some View {
+        barButton("arrow.up.left.and.arrow.down.right", label: "Performance mode",
+                  identifier: "score-performance",
+                  active: mode == .performance) {
+            mode = .performance
+            // The same line the Options row ran: performance mode and ink are
+            // the same Pencil, and it cannot mean both (§6).
+            annotation.isOn = false
+        }
+        .accessibilityValue(mode == .performance ? "on" : "off")
     }
 
     /// The transport, on or off, beside the layout cells.
@@ -276,7 +320,9 @@ struct ScoreTopBar: View {
 
     /// What this bar can seat. See `ScoreBarLayout` for the order things yield
     /// in -- ✕ never does (#60).
-    private var fit: ScoreBarLayout.Fit { ScoreBarLayout.fit(barWidth: barWidth) }
+    private var fit: ScoreBarLayout.Fit {
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+    }
 
     private var titleBlock: some View {
         Button {
@@ -367,6 +413,86 @@ struct ScoreTopBar: View {
         .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+}
+
+/// A transcription, running, at the trailing end of the top bar (0.6.8).
+///
+/// The reader could start OMR from the Options screen and then had NO sign in
+/// the score view that it was running: the switch reported its own progress on
+/// the screen that was left behind, and the score itself said nothing for the
+/// minute or two the conversion takes. A reader who came back to the music saw
+/// a PDF that was still a PDF.
+///
+/// It reads the SAME signal the Make editable switch does -- `AppState.omrBusy`
+/// and the stage of the pending import it started, through `MakeEditable` --
+/// because two notions of "is OMR running" fall out of step the moment either
+/// moves.
+///
+/// `action` opens Options, where the switch and its full report live. Nil where
+/// there is nowhere to go: the performance bar has no `…`.
+struct OMRProgressChip: View {
+    let control: OMRControl
+    var action: (() -> Void)?
+
+    var body: some View {
+        if let action {
+            Button(action: action) { chip }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityHint("Open Options to see the transcription")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("score-omr-progress")
+        } else {
+            chip
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityIdentifier("score-omr-progress")
+        }
+    }
+
+    private var label: String { "Transcribing, \(control.detail)" }
+
+    private var chip: some View {
+        HStack(spacing: Theme.Metric.s6) {
+            ring
+            Text(control.detail)
+                .typeRole(.data)
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, Theme.Metric.s8)
+        .frame(height: 34)
+        .background(Theme.Accent.clayTint)
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                .stroke(Theme.Accent.clayBorder, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        .contentShape(Rectangle())
+    }
+
+    /// A ring rather than a bar: a bar wants a width the top bar has not got,
+    /// and the words beside it already say how far along the job is. Drawn as
+    /// a path for the determinate case for the same reason the whistle's
+    /// circles are -- the fraction has to be visible at 16pt.
+    @ViewBuilder
+    private var ring: some View {
+        if let fraction = control.fraction {
+            ZStack {
+                Circle()
+                    .stroke(Theme.Accent.clayBorder, lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.02, min(fraction, 1)))
+                    .stroke(Theme.Accent.clayStrong,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 16, height: 16)
+        } else {
+            ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+        }
     }
 }
 

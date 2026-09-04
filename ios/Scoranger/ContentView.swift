@@ -46,6 +46,11 @@ struct ContentView: View {
     /// The height the score view has, so the title band can be capped against
     /// it rather than taking whatever it is offered (L16).
     @State private var scoreHeight: CGFloat = 0
+    /// The top bar's measured width, owned here because TWO views decide from
+    /// it: the bar seats what it can, and Options carries the switches the bar
+    /// could not (0.6.8). One measurement, one `Fit`, so a switch cannot end up
+    /// in both places or in neither.
+    @State private var barWidth: CGFloat = 0
     /// The keyboard, watched rather than obeyed: the score screen opts out of
     /// SwiftUI's automatic avoidance so the page keeps its size, and the chat
     /// panel lifts its own input instead (#59).
@@ -90,6 +95,12 @@ struct ContentView: View {
 
     private var isCompact: Bool { hSize == .compact }
 
+    /// What the top bar can seat at its measured width. Read by the bar and by
+    /// Options, which carries what the bar could not.
+    private var barFit: ScoreBarLayout.Fit {
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+    }
+
     var body: some View {
         ZStack {
             scoreBody
@@ -112,6 +123,7 @@ struct ContentView: View {
         case .options, .optionsSection:
             ScoreOptionsScreen(mode: $state.scoreMode,
                                showTransport: $showTransport,
+                               barFit: barFit,
                                section: optionsSection,
                                onBack: {
                                    if optionsSection != nil { optionsSection = nil }
@@ -156,6 +168,7 @@ struct ContentView: View {
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
                         showTransport: $showTransport,
+                        barWidth: $barWidth,
                         moreOpen: Binding(get: { scoreScreen != nil },
                                           set: { on in
                                               scoreScreen = on ? .options : nil
@@ -207,20 +220,36 @@ struct ContentView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if state.selectedScore != nil {
-                    LiveCounters(playback: state.playback,
-                                 pages: state.layout.showsPageCounter ? pageCounter : nil,
-                                 bar: barCounter)
-                        .padding(.top, Theme.Metric.s8)
-                        // clear of the chat panel: these belong to the music,
-                        // and they were being drawn over the chat's own header
-                        .padding(.trailing,
-                                 ScorePosition.counterTrailingInset(
-                                    chatOpen: chatOpen, isCompact: isCompact,
-                                    chatWidth: Theme.Metric.chatWidth,
-                                    base: Theme.Metric.s12))
-                        .allowsHitTesting(false)
+                VStack(alignment: .trailing, spacing: Theme.Metric.s6) {
+                    if state.selectedScore != nil {
+                        LiveCounters(playback: state.playback,
+                                     pages: state.layout.showsPageCounter ? pageCounter : nil,
+                                     bar: barCounter)
+                            .allowsHitTesting(false)
+                    }
+                    // The transcription chip where the BAR could not seat it: a
+                    // phone at reading width has about four points of slack,
+                    // and OMR running with no sign of it in the score view is
+                    // what 0.6.8 set out to fix. Same view, same signal -- only
+                    // where it sits changes, and it sits here only while the
+                    // bar is not showing it.
+                    if state.omrBusy, !barFit.showsOMRProgress,
+                       state.scoreMode != .performance {
+                        OMRProgressChip(control: MakeEditable.control(
+                                            busy: state.omrBusy,
+                                            stage: state.omrStage,
+                                            fraction: state.omrFraction),
+                                        action: { scoreScreen = .options })
+                    }
                 }
+                .padding(.top, Theme.Metric.s8)
+                // clear of the chat panel: these belong to the music, and they
+                // were being drawn over the chat's own header
+                .padding(.trailing,
+                         ScorePosition.counterTrailingInset(
+                            chatOpen: chatOpen, isCompact: isCompact,
+                            chatWidth: Theme.Metric.chatWidth,
+                            base: Theme.Metric.s12))
             }
             // TWO gates, not one. They were a single condition, and that put
             // the transport behind `!isContinuous` -- so the scrolling view,
