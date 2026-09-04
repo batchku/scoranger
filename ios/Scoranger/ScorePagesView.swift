@@ -618,7 +618,9 @@ struct ScorePagesView: View {
                                     viewportWidth: visibleRect.width,
                                     isFollowing: state.pageFollow.isFollowing,
                                     scroller: scroller,
-                                    showsHandle: mode != .performance)
+                                    showsHandle: mode != .performance,
+                                    zoom: rasterZoom)
+                .frame(width: surface.width, height: surface.height)
         }
         .padding(.vertical, ContinuousTiles.margin)
         // NO page shadow. A page is a sheet lying on a surface and its shadow
@@ -806,13 +808,17 @@ private struct PlayheadLayer: View {
     let zoom: CGFloat
     let showsHandle: Bool
 
+    /// The bar the finger has already been given, so a drag across one bar
+    /// does not re-seek to its downbeat twenty times. Nil when nothing is
+    /// being dragged.
+    @State private var scrubbed: Int?
+
     var body: some View {
         GeometryReader { geo in
             if let position = position, pageSize.width > 0, pageSize.height > 0 {
                 let sx = geo.size.width / pageSize.width
                 let sy = geo.size.height / pageSize.height
-                let scale = max(zoom, 0.01)
-                let over = Playhead.overshoot / scale
+                let over = Playhead.onScreen(Playhead.overshoot, zoom: zoom)
                 let top = position.top * sy - over
                 let height = position.height * sy + over * 2
                 let x = position.x * sx
@@ -823,23 +829,76 @@ private struct PlayheadLayer: View {
                     // its own to stay distinct from a selection.
                     Rectangle()
                         .fill(Theme.Accent.clay)
-                        .frame(width: Playhead.weight / scale, height: height)
+                        .frame(width: Playhead.onScreen(Playhead.weight, zoom: zoom),
+                               height: height)
                         .position(x: x, y: top + height / 2)
                     if showsHandle {
-                        RoundedRectangle(cornerRadius: Playhead.handleRadius / scale)
+                        RoundedRectangle(
+                            cornerRadius: Playhead.onScreen(Playhead.handleRadius, zoom: zoom))
                             .fill(Theme.Accent.clay)
-                            .frame(width: Playhead.handle / scale,
-                                   height: Playhead.handle / scale)
+                            .frame(width: Playhead.onScreen(Playhead.handle, zoom: zoom),
+                                   height: Playhead.onScreen(Playhead.handle, zoom: zoom))
                             .position(x: x, y: top)
+                    }
+                }
+                // The DRAWING takes no touch, exactly as before: the line and
+                // the square are pictures, and a cursor that swallowed a
+                // stroke would make selection fail wherever the music happened
+                // to be playing.
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                // The handle is the one exception, and it is a view of its
+                // own so that "the only hit-testable thing in this layer" is
+                // a fact about the code rather than a promise in a comment.
+                .overlay {
+                    if showsHandle {
+                        PlayheadHandle(
+                            handle: CGPoint(x: x, y: top),
+                            target: Playhead.onScreen(Playhead.handleTouchTarget,
+                                                      zoom: zoom),
+                            bar: playback.soundingBar,
+                            onScrub: { point in
+                                scrub(to: point, sx: sx, sy: sy)
+                            },
+                            onEnded: { scrubbed = nil },
+                            onStep: { step($0) })
                     }
                 }
             }
         }
-        // The layer sits over the music, where the lasso and the Pencil live.
-        // It must never take a touch: a cursor that swallowed a stroke would
-        // make selection fail wherever the music happened to be playing.
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+    }
+
+    /// The finger has moved: put the play head on the bar it is over.
+    ///
+    /// BAR granularity, and not an interpolation across the bar, for the same
+    /// reason the mixer's scrubber chip reads `bar 21` rather than `2:14`:
+    /// musicians seek by bar. It goes through `PlaybackEngine.seek(toBar:)`,
+    /// which is the path the scrubber and a tap on a bar already take -- a
+    /// second way to move the play head would be a second place for the
+    /// repeat-expansion rule in `PlaybackTimeline.firstBeat(ofBar:)` to be got
+    /// wrong.
+    ///
+    /// STOPPED and PLAYING are the same operation, deliberately. Dragging
+    /// while stopped moves the cursor, the transport's readout and the mixer's
+    /// scrubber and starts nothing; dragging while playing keeps playing, from
+    /// there. Neither starts nor stops the transport, because the handle is
+    /// not the play button and a scrub that started the music would make
+    /// looking at a bar an act of performing it.
+    private func scrub(to point: CGPoint, sx: CGFloat, sy: CGFloat) {
+        guard sx > 0, sy > 0 else { return }
+        let onPage = CGPoint(x: point.x / sx, y: point.y / sy)
+        guard let bar = Playhead.bar(at: onPage, bars: bars), bar != scrubbed
+        else { return }
+        scrubbed = bar
+        playback.seek(toBar: bar)
+    }
+
+    /// One bar either way, for a reader who cannot drag. VoiceOver's
+    /// `.adjustable` swipe, which is the same path the mixer's grip offers
+    /// for moving a panel.
+    private func step(_ direction: Int) {
+        guard let now = playback.soundingBar else { return }
+        playback.seek(toBar: max(now + direction, 1))
     }
 
     private var position: Playhead.Position? {
@@ -848,6 +907,133 @@ private struct PlayheadLayer: View {
         else { return nil }
         return Playhead.position(measure: progress.measure,
                                  fraction: CGFloat(progress.fraction), bars: bars)
+    }
+}
+
+/// The grab handle at the top of the cursor: the ONLY thing in the cursor
+/// layer a touch can reach.
+///
+/// A UIKit recogniser and not a SwiftUI `DragGesture`, and the reason decides
+/// the whole design. This layer is inside `ZoomableScroll`'s UIScrollView, and
+/// the scroll view carries the pan, the lasso recogniser and three Pencil taps
+/// -- all of which see a touch that lands here too. A SwiftUI gesture has no
+/// way to tell those to stand down, so the canvas would scroll while the
+/// handle scrubbed. `shouldBeRequiredToFailBy` says it, to every one of them
+/// at once, from a delegate this file owns.
+///
+/// And it is SCOPED by hit testing rather than by that delegate: the view
+/// spans the layer but `hitTest` returns nil everywhere except the handle's
+/// own target, so a touch anywhere else never reaches this recogniser and
+/// never enters the dependency at all. That is what leaves the lasso and the
+/// Pencil untouched over the other 99% of the page -- the thing
+/// `testThePlayheadDrawsAndTheLassoStillSelectsUnderIt` exists to catch.
+///
+/// FINGERS ONLY (`allowedTouchTypes`). Outside markup mode a Pencil drag is a
+/// lasso and inside it a Pencil drag is ink; taking either away over a 32pt
+/// square would be a gesture that silently eats a stroke. So Pencil behaviour
+/// is exactly what it was, and what the drag costs is a finger pan that begins
+/// on the handle itself.
+private struct PlayheadHandle: UIViewRepresentable {
+    /// The handle's centre, in the layer's own coordinates.
+    let handle: CGPoint
+    /// How wide a touch may land from it, in the same coordinates.
+    let target: CGFloat
+    /// What the play head reads as, for VoiceOver.
+    let bar: Int?
+    /// Where the finger is, in the layer's coordinates.
+    var onScrub: (CGPoint) -> Void
+    var onEnded: () -> Void
+    /// One bar forward or back, for a reader who cannot drag.
+    var onStep: (Int) -> Void
+
+    func makeUIView(context: Context) -> PlayheadHandleView {
+        let view = PlayheadHandleView()
+        view.backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(
+            target: view, action: #selector(PlayheadHandleView.panned(_:)))
+        pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = view
+        view.addGestureRecognizer(pan)
+        return view
+    }
+
+    func updateUIView(_ view: PlayheadHandleView, context: Context) {
+        view.handleRect = CGRect(x: handle.x - target / 2, y: handle.y - target / 2,
+                                 width: max(target, 0), height: max(target, 0))
+        view.bar = bar
+        view.onScrub = onScrub
+        view.onEnded = onEnded
+        view.onStep = onStep
+    }
+}
+
+final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
+    /// The grabbable square, in this view's own coordinates. Everything
+    /// outside it belongs to whatever is underneath.
+    var handleRect: CGRect = .zero
+    var bar: Int?
+    var onScrub: ((CGPoint) -> Void)?
+    var onEnded: (() -> Void)?
+    var onStep: ((Int) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "playhead-handle"
+        accessibilityLabel = "Play head"
+        accessibilityTraits = [.adjustable]
+        accessibilityHint = "Drag to move the play head"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("PlayheadHandleView is not from a nib") }
+
+    /// The a11y frame is the HANDLE, not the layer. Without this, VoiceOver
+    /// and every UI test would be pointed at the centre of the whole page.
+    override var accessibilityFrame: CGRect {
+        get { UIAccessibility.convertToScreenCoordinates(handleRect, in: self) }
+        set { super.accessibilityFrame = newValue }
+    }
+
+    override var accessibilityValue: String? {
+        get { bar.map { "bar \($0)" } ?? "start" }
+        set { super.accessibilityValue = newValue }
+    }
+
+    override func accessibilityIncrement() { onStep?(1) }
+    override func accessibilityDecrement() { onStep?(-1) }
+
+    /// The whole of "the handle is the only hit-testable thing in the layer".
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        handleRect.contains(point) ? self : nil
+    }
+
+    @objc func panned(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began, .changed: onScrub?(pan.location(in: self))
+        case .ended, .cancelled, .failed: onEnded?()
+        default: break
+        }
+    }
+
+    // MARK: - Standing the scroll view, the lasso and the taps down
+
+    /// Everything else waits for this to fail. It only ever fails when the
+    /// touch was not a drag of the handle -- and it only ever sees touches
+    /// that landed on the handle in the first place, so this costs the rest of
+    /// the canvas nothing.
+    func gestureRecognizer(_ recogniser: UIGestureRecognizer,
+                           shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    /// Never alongside. A scrub that also scrolled the page would move the
+    /// music out from under the finger driving it.
+    func gestureRecognizer(_ recogniser: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        false
     }
 }
 
@@ -878,6 +1064,17 @@ private struct ContinuousPlayheadLayer: View {
     let isFollowing: Bool
     let scroller: CanvasScroller
     let showsHandle: Bool
+    /// The scroll view's settled zoom. The strip is inside the same zoomable
+    /// scroll view a page is, and this layer used to draw its constants raw --
+    /// so the line that is a hairline at fit was a slab at 12x, which is
+    /// exactly the fault `PlayheadLayer` divides to avoid.
+    let zoom: CGFloat
+
+    /// The bar the finger has already been given, and the flag that stops
+    /// FOLLOWING while it is down: seeking moves the strip, the strip moves
+    /// the music out from under the finger, and the next touch reading is of
+    /// somewhere the reader never pointed at.
+    @State private var scrubbed: Int?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -891,26 +1088,58 @@ private struct ContinuousPlayheadLayer: View {
                                height: max(frame.height * scale, 6) + 4)
                         .position(x: frame.midX * scale, y: frame.midY * scale)
                 }
+                let over = Playhead.onScreen(Playhead.overshoot, zoom: zoom)
                 let x = position.x * scale
-                let top = position.top * scale - Playhead.overshoot
-                let height = position.height * scale + Playhead.overshoot * 2
-                Rectangle()
-                    .fill(Theme.Accent.clay)
-                    .frame(width: Playhead.weight, height: height)
-                    .position(x: x, y: top + height / 2)
-                if showsHandle {
-                    RoundedRectangle(cornerRadius: Playhead.handleRadius)
+                let top = position.top * scale - over
+                let height = position.height * scale + over * 2
+                Group {
+                    Rectangle()
                         .fill(Theme.Accent.clay)
-                        .frame(width: Playhead.handle, height: Playhead.handle)
-                        .position(x: x, y: top)
+                        .frame(width: Playhead.onScreen(Playhead.weight, zoom: zoom),
+                               height: height)
+                        .position(x: x, y: top + height / 2)
+                    if showsHandle {
+                        RoundedRectangle(
+                            cornerRadius: Playhead.onScreen(Playhead.handleRadius, zoom: zoom))
+                            .fill(Theme.Accent.clay)
+                            .frame(width: Playhead.onScreen(Playhead.handle, zoom: zoom),
+                                   height: Playhead.onScreen(Playhead.handle, zoom: zoom))
+                            .position(x: x, y: top)
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                if showsHandle {
+                    PlayheadHandle(
+                        handle: CGPoint(x: x, y: top),
+                        target: Playhead.onScreen(Playhead.handleTouchTarget, zoom: zoom),
+                        bar: playback.soundingBar,
+                        onScrub: { point in scrub(to: point) },
+                        onEnded: { scrubbed = nil },
+                        onStep: { step($0) })
                 }
             }
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
         // Following happens on the same tick that draws the line, off the same
         // position, so the two can never disagree about where the music is.
         .onChange(of: playback.beat, initial: true) { _, _ in follow() }
+    }
+
+    /// The strip's own scrub. Same rule as the paged one, and one conversion
+    /// less: the strip is a single engraved page, so the layer's coordinates
+    /// are the engraving's multiplied by `scale`.
+    private func scrub(to point: CGPoint) {
+        guard let page, scale > 0 else { return }
+        let onPage = CGPoint(x: point.x / scale, y: point.y / scale)
+        guard let bar = Playhead.bar(at: onPage, bars: BarPosition.bars(onPage: page)),
+              bar != scrubbed else { return }
+        scrubbed = bar
+        playback.seek(toBar: bar)
+    }
+
+    private func step(_ direction: Int) {
+        guard let now = playback.soundingBar else { return }
+        playback.seek(toBar: max(now + direction, 1))
     }
 
     private var progress: (measure: Int, fraction: Double)? {
@@ -937,8 +1166,16 @@ private struct ContinuousPlayheadLayer: View {
         return Playhead.sounding(notes: notes, x: position.x)
     }
 
+    /// Not while the handle is being dragged. Following moves the strip so the
+    /// line parks a third of the way in; do that while a finger is holding the
+    /// handle and the music slides out from under it, the next touch reading
+    /// lands somewhere the reader never pointed at, and that seeks again --
+    /// a loop, driven at the beat rate, that ends wherever it happens to stop.
+    /// Following resumes on release, which is when the reader wants to be
+    /// shown where they landed.
     private func follow() {
-        guard isFollowing, playback.isPlaying, let position else { return }
+        guard scrubbed == nil, isFollowing, playback.isPlaying, let position
+        else { return }
         scroller.follow(to: Playhead.stripOffset(playheadX: position.x * scale,
                                                  viewportWidth: viewportWidth,
                                                  surfaceWidth: surfaceWidth))

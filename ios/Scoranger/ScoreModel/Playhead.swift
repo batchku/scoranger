@@ -151,12 +151,16 @@ enum Playhead {
         // The bar: the one the finger is inside, else the nearest along the
         // line. Ties go to the lower measure number so the same drag always
         // lands the same way.
-        return onSystem
-            .map { (number: $0.key, distance: horizontalDistance(from: point.x, to: $0.value)) }
-            .min { left, right in
-                left.distance == right.distance ? left.number < right.number
-                                                : left.distance < right.distance
-            }?.number
+        var best: Int?
+        var bestDistance = CGFloat.infinity
+        for (number, frame) in onSystem {
+            let distance = horizontalDistance(from: point.x, to: frame)
+            if distance < bestDistance || (distance == bestDistance && number < (best ?? .max)) {
+                best = number
+                bestDistance = distance
+            }
+        }
+        return best
     }
 
     private static func verticalDistance(from y: CGFloat, to frame: CGRect) -> CGFloat {
