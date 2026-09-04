@@ -224,7 +224,7 @@ struct BookScreen: View {
 ///
 /// Rastered through `ThumbnailCache` like every other page picture in the app,
 /// and — since a fake book is four hundred pages of scan — rastered OFF the
-/// main thread. See `BookPageImage`.
+/// main thread. See `PageImage`.
 private struct BookPageView: View {
     let document: PDFDocument
     let index: Int
@@ -235,11 +235,11 @@ private struct BookPageView: View {
 
     var body: some View {
         let size = drawnSize()
-        BookPageImage(document: document, index: index, drawn: size,
-                      // Twice the points drawn, because `PDFPage.thumbnail`
-                      // answers at scale 1 and this is a retina display.
-                      raster: CGSize(width: size.width * 2, height: size.height * 2),
-                      interpolation: .high) { phase in
+        PageImage(document: document, index: index, drawn: size,
+                  // Twice the points drawn, because `PDFPage.thumbnail`
+                  // answers at scale 1 and this is a retina display.
+                  raster: CGSize(width: size.width * 2, height: size.height * 2),
+                  interpolation: .high) { phase in
             PageThumb(width: size.width, height: size.height)
                 .overlay {
                     if phase == .missing {
@@ -267,8 +267,12 @@ private struct BookPageView: View {
     }
 }
 
-/// A page of the book as a picture, drawn off the main thread and abandoned
-/// when the reader moves on.
+/// A page as a picture, drawn off the main thread and abandoned when the
+/// reader moves on.
+///
+/// Used by the book browser and by the score's own thumbnail strip
+/// (`ScoreFooter`), which had the same fault and is fixed by the same view
+/// rather than by a second copy of this reasoning.
 ///
 /// This is the fix for "too slow to scroll a big book". The picture used to be
 /// made INSIDE the view body: `ThumbnailCache.shared.image(...)` rasterises a
@@ -286,7 +290,7 @@ private struct BookPageView: View {
 /// page that cannot be drawn are two different problems, and with cancellation
 /// the first one is the ordinary outcome of a flick — so the warning triangle
 /// belongs to `.missing` alone.
-private struct BookPageImage<Placeholder: View>: View {
+struct PageImage<Placeholder: View>: View {
     let document: PDFDocument
     let index: Int
     /// Where it is drawn, in points.
@@ -368,8 +372,8 @@ private struct BookThumbnails: View {
         let inRange = chosen(page)
         return Button { onJump(page) } label: {
             ZStack(alignment: .bottomTrailing) {
-                BookPageImage(document: document, index: index, drawn: Self.cell,
-                              raster: Self.raster, interpolation: .medium) { phase in
+                PageImage(document: document, index: index, drawn: Self.cell,
+                          raster: Self.raster, interpolation: .medium) { phase in
                     PageThumb(width: Self.cell.width, height: Self.cell.height)
                         .overlay {
                             if phase == .missing {

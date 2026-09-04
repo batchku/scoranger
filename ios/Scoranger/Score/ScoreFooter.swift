@@ -58,24 +58,30 @@ struct ThumbnailStrip: View {
     private func thumb(_ index: Int) -> some View {
         Button { onJump(index) } label: {
             ZStack(alignment: .bottomTrailing) {
-                Group {
-                    if let drawn = ThumbnailCache.shared.image(
-                        document: document, index: index,
-                        size: CGSize(width: 104, height: 136)) {
-                        Image(uiImage: drawn)
-                            .resizable().interpolation(.medium)
-                    } else {
-                        // A page that will not draw says so. It used to look
-                        // exactly like a page that had not been drawn YET,
-                        // which is two different problems wearing one face.
-                        PageThumb(width: 52, height: 68)
-                            .overlay {
+                // Off the main thread, and abandoned when the cell scrolls
+                // away. This strip rasterised INSIDE its body -- the same
+                // fault the book browser had, where a flick across 512 pages
+                // stopped the main thread once per page because the drawing
+                // WAS the view. One view, not a second copy of the fix.
+                PageImage(document: document, index: index,
+                          drawn: CGSize(width: 52, height: 68),
+                          raster: CGSize(width: 104, height: 136),
+                          interpolation: .medium) { phase in
+                    // A page that will not draw says so. It used to look
+                    // exactly like a page that had not been drawn YET, which
+                    // is two different problems wearing one face -- and with
+                    // cancellation the second is now the ORDINARY outcome of
+                    // a flick, so the triangle belongs to .missing alone.
+                    PageThumb(width: 52, height: 68)
+                        .overlay {
+                            if phase == .missing {
                                 Image(systemName: "exclamationmark.triangle")
                                     .font(.system(size: 13))
                                     .foregroundStyle(Theme.Status.warn)
                             }
-                            .accessibilityIdentifier("thumb-failed-\(index)")
-                    }
+                        }
+                        .accessibilityIdentifier(phase == .missing
+                                                 ? "thumb-failed-\(index)" : "thumb-pending-\(index)")
                 }
                 .frame(width: 52, height: 68)
                 .background(Theme.Surface.paper)
