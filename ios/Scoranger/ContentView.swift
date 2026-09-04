@@ -208,8 +208,9 @@ struct ContentView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if state.selectedScore != nil {
-                    PositionCounters(pages: state.layout.showsPageCounter ? pageCounter : nil,
-                                     bar: barCounter)
+                    LiveCounters(playback: state.playback,
+                                 pages: state.layout.showsPageCounter ? pageCounter : nil,
+                                 bar: barCounter)
                         .padding(.top, Theme.Metric.s8)
                         // clear of the chat panel: these belong to the music,
                         // and they were being drawn over the chat's own header
@@ -679,3 +680,27 @@ private extension View {
 // (NAVIGATION_SYSTEM.md §8), and with the legacy overlay removed there is
 // nothing left for its library button to open.
 
+
+/// The page and bar counters, wired to the transport's own clock.
+///
+/// It OBSERVES the engine, and that is the whole reason it exists rather than
+/// `PositionCounters` being called with a boolean: the bar chip appears with
+/// the play head and goes when it stops, and `AppState` publishes nothing when
+/// the engine's state changes. Read through `AppState` the chip would appear
+/// only when something else happened to redraw the score screen -- the same
+/// fault the transport row and the ink bar each had to be fixed for.
+///
+/// `BarPosition.counter` is the rule, and it is tested there: bar while
+/// playing, nothing while reading. The page counter is not playback's business
+/// and passes straight through.
+private struct LiveCounters: View {
+    @ObservedObject var playback: PlaybackEngine
+    let pages: String?
+    let bar: Int?
+
+    var body: some View {
+        PositionCounters(pages: pages,
+                         bar: BarPosition.counter(bar: bar,
+                                                  isPlaying: playback.isPlaying))
+    }
+}

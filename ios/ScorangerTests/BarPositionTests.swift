@@ -106,6 +106,30 @@ final class BarPositionTests: XCTestCase {
         XCTAssertNil(BarPosition.label(for: nil))
     }
 
+    // MARK: - When the corner shows a bar at all (0.6.6)
+
+    /// Reading a score, the chip says nothing the page does not already say:
+    /// the bar numbers are engraved above the systems. So it is gone from the
+    /// reading view -- which is the removal the owner asked for -- and the
+    /// counter still resolves a bar, so the geometry that feeds it is still
+    /// being exercised by every other test in this file.
+    func testTheCornerShowsNoBarWhileTheScoreIsMerelyBeingRead() {
+        XCTAssertNil(BarPosition.counter(bar: 21, isPlaying: false),
+                     "the bar chip is clutter over a score nobody is playing")
+    }
+
+    /// And it comes back with the play head, where it is the only thing that
+    /// can say where the reader has drifted to.
+    func testTheCornerShowsTheBarWhileThePlayHeadIsRunning() {
+        XCTAssertEqual(BarPosition.counter(bar: 21, isPlaying: true), 21)
+    }
+
+    /// Playing over a score with no geometry -- every remote-engine render --
+    /// still shows nothing rather than a guess.
+    func testNoGeometryStillShowsNoBarWhilePlaying() {
+        XCTAssertNil(BarPosition.counter(bar: nil, isPlaying: true))
+    }
+
     // MARK: - A spread is two pages, and the answer spans both
 
     /// With the spread on, the unit is two pages side by side. The reader is at

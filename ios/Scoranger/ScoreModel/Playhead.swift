@@ -56,14 +56,124 @@ enum Playhead {
 
     // The view-space constants (§2 of the designer spec). Every one of them is
     // a size ON SCREEN, so the view divides by the zoom before using them: at
-    // 3x an undivided 2pt line is a 6pt slab lying over the noteheads.
+    // 3x an undivided line is a slab lying over the noteheads.
     /// The line's weight.
-    static let weight: CGFloat = 2
+    ///
+    /// 1pt, down from the 2pt §2 drew. The owner marked the 2pt line "thin" on
+    /// a screenshot -- meaning make it thin -- and 1pt is not a new number: it
+    /// is the hairline every rule, border and divider in this app is drawn at,
+    /// so the cursor now weighs the same as the lines it crosses and is told
+    /// apart by its COLOUR, which is what `clay` on a black-and-white
+    /// engraving is for. It stays a size on screen, which is the whole reason
+    /// this constant is here and not baked into the geometry.
+    static let weight: CGFloat = 1
     /// How far past the top and bottom staff the line runs.
     static let overshoot: CGFloat = 6
     /// The square handle at the top of the line.
+    ///
+    /// It did not shrink with the line. It is now the only part of the cursor
+    /// layer a touch can reach (`ScorePagesView.PlayheadHandle`), and a target
+    /// that is hard to land on is worse than a heavy one.
     static let handle: CGFloat = 10
     static let handleRadius: CGFloat = 2
+
+    /// How wide a touch may land from the handle's centre and still be a grab,
+    /// in VIEW space.
+    ///
+    /// Larger than the 10pt square it grabs, because a 10pt target is below
+    /// anything a finger can be asked to hit -- and smaller than the 44pt
+    /// Apple would ask for, because every point of it is taken away from the
+    /// lasso and the Pencil. 32 is the compromise, stated as a number so it
+    /// can be argued with: half of it, 16pt, is the radius inside which a
+    /// touch stops being a pan and starts being a scrub.
+    static let handleTouchTarget: CGFloat = 32
+
+    /// A size on screen, written in the space the layer draws in.
+    ///
+    /// The same rule as `SelectionInk.onScreen` and deliberately delegating to
+    /// it rather than repeating it: the cursor and the selection ink are two
+    /// marks with one law, and the divide-by-zoom was written twice before,
+    /// with two different guards against a zoom that is not a number yet.
+    static func onScreen(_ size: CGFloat, zoom: CGFloat) -> CGFloat {
+        SelectionInk.onScreen(size, zoom: zoom)
+    }
+
+    // MARK: - Dragging the handle (0.6.6)
+
+    /// Is this touch a grab of the handle?
+    ///
+    /// Asked in the SAME space the two points are given in, whichever that is:
+    /// the caller hands over a touch and the handle's centre in one coordinate
+    /// system and the target already converted into it, so the rule does not
+    /// need to know whether it is looking at page units or surface points. A
+    /// square and not a circle, because the handle is a square and a reader
+    /// aiming at its corner should hit it.
+    static func handleGrabbed(touch: CGPoint, handle: CGPoint,
+                              target: CGFloat) -> Bool {
+        guard target > 0 else { return false }
+        let half = target / 2
+        return abs(touch.x - handle.x) <= half && abs(touch.y - handle.y) <= half
+    }
+
+    /// The bar the reader has dragged the handle onto, in PAGE coordinates.
+    ///
+    /// Y FIRST, and that is the whole of it. A page holds several systems
+    /// stacked, and bar 3 of the first system sits at the same x as bar 40 of
+    /// the fourth -- so a rule that reads x alone lands the play head on
+    /// whichever of them the search happened to reach first, and a two-inch
+    /// horizontal drag jumps thirty bars. The system is chosen by the y the
+    /// finger is at, and only then is the bar chosen by its x.
+    ///
+    /// Nothing is refused. A finger dragged into the margin, above the first
+    /// system or past the last bar of a line still means something -- the
+    /// nearest bar to where it is -- and a scrub that stops responding at the
+    /// edge of the music reads as a broken gesture rather than as a limit.
+    ///
+    /// - Parameters:
+    ///   - point: where the finger is, in page (SVG user) coordinates.
+    ///   - bars: `BarPosition.bars(onPage:)` -- one frame per STAFF per
+    ///     measure, so the frames are unioned per measure first, exactly as
+    ///     `position(measure:fraction:bars:)` does. Taking them one at a time
+    ///     would let the cello's staff win a drag aimed at the violin's.
+    static func bar(at point: CGPoint, bars: [BarPosition.Bar]) -> Int? {
+        var union: [Int: CGRect] = [:]
+        for bar in bars {
+            union[bar.number] = union[bar.number].map { $0.union(bar.frame) } ?? bar.frame
+        }
+        guard !union.isEmpty else { return nil }
+
+        // The system: the bars whose vertical span the finger is in, or --
+        // when it is in none of them -- the bars nearest it vertically.
+        let vertical = union.mapValues { verticalDistance(from: point.y, to: $0) }
+        guard let nearest = vertical.values.min() else { return nil }
+        let onSystem = union.filter { (vertical[$0.key] ?? .infinity) <= nearest + 0.5 }
+
+        // The bar: the one the finger is inside, else the nearest along the
+        // line. Ties go to the lower measure number so the same drag always
+        // lands the same way.
+        var best: Int?
+        var bestDistance = CGFloat.infinity
+        for (number, frame) in onSystem {
+            let distance = horizontalDistance(from: point.x, to: frame)
+            if distance < bestDistance || (distance == bestDistance && number < (best ?? .max)) {
+                best = number
+                bestDistance = distance
+            }
+        }
+        return best
+    }
+
+    private static func verticalDistance(from y: CGFloat, to frame: CGRect) -> CGFloat {
+        if y < frame.minY { return frame.minY - y }
+        if y > frame.maxY { return y - frame.maxY }
+        return 0
+    }
+
+    private static func horizontalDistance(from x: CGFloat, to frame: CGRect) -> CGFloat {
+        if x < frame.minX { return frame.minX - x }
+        if x > frame.maxX { return x - frame.maxX }
+        return 0
+    }
 
     /// Which page of the engraving holds a measure, or nil when none does.
     ///

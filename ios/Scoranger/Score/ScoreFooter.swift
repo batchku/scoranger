@@ -100,13 +100,27 @@ struct ThumbnailStrip: View {
 
 /// The transport (12.13).
 ///
-/// Previous and next step the current setlist. Play, the metronome and the
-/// voices are the 0.5.1 playback feature; they were drawn and inert for three
-/// builds, and the inert copy is gone with them.
+/// Previous and next step the current setlist. Play and the metronome are the
+/// 0.5.1 playback feature; they were drawn and inert for three builds, and the
+/// inert copy is gone with them.
 ///
-/// Modal-free (NAV_MODAL_FREE_0.4.2): the voice list is an INLINE REVEAL under
-/// the row, not a sheet or a popover. It pushes the canvas up by its own height
-/// while it is open, the same way the title band does.
+/// THE VOICE LIST IS GONE (0.6.6). It was an inline reveal under this row --
+/// one switch per staff, All on, All off -- and every switch in it now has a
+/// mute of its own in the mixer, beside a fader the list never had. Two ways
+/// to the same mutes is two places for them to disagree, and the reader marked
+/// the second one for removal.
+///
+/// The rule this is allowed under is CLAUDE.md's: keep the current access path
+/// until its replacement exists. It does, and it was checked control by
+/// control before the delete. What moved with it, and where it went:
+///
+/// | the list had | now |
+/// |---|---|
+/// | a switch per staff | `strip-mute-N`, one per strip |
+/// | the staff's instrument beside its name | the strip's sound chip, which also CHANGES it |
+/// | All on / All off | the mixer's header, same identifiers |
+/// | "3 of 4 voices", readable without opening it | the mixer's header, beside the title |
+/// | "turn every voice off to play along to the click" | NOT carried across -- a hint about a state, and the state is now one tap away with both buttons in front of the reader |
 struct Transport: View {
     let setlistLabel: String?
     var canStep: Bool
@@ -129,22 +143,15 @@ struct Transport: View {
     var onPlay: () -> Void
     /// Perform whatever `unavailable` is offering.
     var onResolve: () -> Void = {}
-    /// Whether the mixer is on screen. The voice list BELOW stays exactly
-    /// where it was: the mixer is a richer way to reach the same mutes, and
-    /// the rule is that an access path survives the build that replaces it.
+    /// Whether the mixer is on screen. It is the ONLY way to the mutes now:
+    /// the inline voice list that used to sit under this row is gone, and the
+    /// table in this type's documentation says where each of its controls
+    /// went.
     var mixerOpen: Bool = false
     var onMixer: () -> Void = {}
 
-    /// The voice list, revealed in place. Local because nothing outside this
-    /// row needs to know whether it is open.
-    @State private var voicesOpen = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
-        VStack(spacing: 0) {
-            row
-            if voicesOpen { voiceList }
-        }
+        row
         .background(Theme.Surface.band)
         // The spacebar, as in every DAW (0.6.3 #9). It lives HERE and not on
         // the score screen, so it exists exactly while the transport does --
@@ -300,35 +307,6 @@ struct Transport: View {
 
         toggleButton("mixer", glyph: "slider.vertical.3",
                      on: mixerOpen, id: "transport-mixer", action: onMixer)
-
-        // The one control that opens something. Its label is the ANSWER, not
-        // the question: "3 of 4 voices" says what the state is without opening
-        // it, which is what every other row in this app does (L34).
-        Button {
-            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
-                voicesOpen.toggle()
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(playback.voices.summary(in: playback.timeline.parts,
-                                             metronome: playback.metronome))
-                    .typeRole(.data)
-                Image(systemName: voicesOpen ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundStyle(Theme.Ink.ink2)
-            .padding(.horizontal, Theme.Metric.s8)
-            .frame(height: 32)
-            .background(voicesOpen ? Theme.Accent.clayTint : Theme.Surface.panel)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(voicesOpen ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("transport-voices")
-        .accessibilityLabel("Voices, \(playback.voices.summary(in: playback.timeline.parts, metronome: playback.metronome))")
     }
 
     /// Where the sound has got to, and how fast. The tempo says whose it is:
@@ -357,71 +335,6 @@ struct Transport: View {
         PlaybackTempo.label(bpm: playback.tempoBPM,
                             fromScore: playback.timeline.tempoFromScore,
                             overridden: playback.tempoOverride != nil)
-    }
-
-    /// One row per part, each a switch. Muting every one of them is how the
-    /// reader gets the metronome alone, so the list says so rather than
-    /// looking like a mistake.
-    private var voiceList: some View {
-        // The staff labels, with a display-only ordinal where one repeats: a
-        // scanned quartet is four staves called "Voice" and the page says so,
-        // but four identical rows cannot be told apart.
-        let labels = PlaybackChannels.labels(for: playback.timeline.parts)
-        return VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
-            ForEach(Array(playback.timeline.parts.enumerated()), id: \.element.index) { position, part in
-                let caption = labels.indices.contains(position) ? labels[position] : part.name
-                Button {
-                    playback.voices.toggle(part.index)
-                } label: {
-                    HStack(spacing: Theme.Metric.s8) {
-                        Image(systemName: playback.voices.isOn(part.index)
-                                ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(playback.voices.isOn(part.index)
-                                             ? Theme.Accent.clayStrong : Theme.Ink.ink3)
-                            .frame(width: 20)
-                        Text(caption).typeRole(.row)
-                            .foregroundStyle(playback.voices.isOn(part.index)
-                                             ? Theme.Ink.ink : Theme.Ink.ink3)
-                        if let instrument = part.instrument, instrument != caption {
-                            Text(instrument).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, Theme.Metric.s12)
-                    .padding(.vertical, 7)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("voice-\(part.index)")
-                .accessibilityLabel(caption)
-                .accessibilityValue(playback.voices.isOn(part.index) ? "on" : "off")
-            }
-            HStack(spacing: Theme.Metric.s12) {
-                Button("All on") {
-                    playback.voices.setAll(on: true, parts: playback.timeline.parts)
-                }
-                .typeRole(.meta).foregroundStyle(Theme.Accent.clayStrong)
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("voices-all-on")
-
-                Button("All off") {
-                    playback.voices.setAll(on: false, parts: playback.timeline.parts)
-                }
-                .typeRole(.meta).foregroundStyle(Theme.Accent.clayStrong)
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("voices-all-off")
-
-                Text(playback.voices.advice(in: playback.timeline.parts,
-                                            metronome: playback.metronome))
-                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Theme.Metric.s12)
-            .padding(.vertical, Theme.Metric.s8)
-        }
     }
 
     private func chip(_ text: String, id: String) -> some View {

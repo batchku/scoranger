@@ -51,13 +51,30 @@ it, which is how a reader confirms the mute is working.
 
 ## 2. Playhead
 
-2pt **`clay`** line spanning topmost to bottom staff, 6pt overshoot each end.
+**1pt** `clay` line spanning topmost to bottom staff, 6pt overshoot each end.
 Clay despite selection also being clay: a moving hairline and a tinted outlined
-box cannot be confused. Weight is in **view space** — 2pt on screen at any zoom,
+box cannot be confused. Weight is in **view space** — 1pt on screen at any zoom,
 or at 3× it becomes a slab over the noteheads. **No glow** (§4 forbids gradients
 and blur); if direction needs reinforcing, a flat 8pt `clayTint` trailing band at
 12%. Top handle: 10×10pt `clay` square, radius 2, centred on the line at the top
 staff's upper edge; hidden in performance mode.
+
+> **1pt, revised from the 2pt drawn here (0.6.6).** The owner marked the shipped
+> 2pt line "thin" on a screenshot. 1pt is not a new number: it is the hairline
+> every rule, border and divider in the app is drawn at, so the cursor now
+> weighs the same as the lines it crosses and is told apart by its colour, which
+> is what `clay` on a black-and-white engraving is for. The view-space rule is
+> unchanged and is now asserted arithmetically as well as photographed
+> (`PlayheadTests`, and the pair of pictures at 1× and 3×).
+>
+> **The handle is draggable (0.6.6).** A finger on the square scrubs the
+> transport to the bar under it, through the seek the mixer's scrubber already
+> uses. Stopped and playing behave identically: the play head moves and the
+> transport is neither started nor stopped. The handle keeps its 10pt and takes
+> a 32pt touch target; it is the only part of the cursor layer that accepts a
+> touch, so the lasso and the Pencil are untouched everywhere else, and the
+> Pencil is not accepted even on the handle — a Pencil over it still lassos and
+> still inks.
 
 - **Paged / spread:** sweeps left→right; the page turns at **85% of page width**, so the next page arrives before the music does
 - **Continuous:** the line **parks at 30% from the left** and the score scrolls under it; before that point the line travels and the score is still
