@@ -882,7 +882,8 @@ final class AppState: ObservableObject {
                 groups[groups.count - 1] = last
             } else {
                 groups.append(VersionGroup(id: v.id,
-                                           title: v.turn?.prompt ?? v.op,
+                                           title: VersionLabel.text(
+                                               op: v.op, prompt: v.turn?.prompt),
                                            face: v,
                                            subs: v.turn != nil ? [v] : []))
             }
@@ -2050,7 +2051,9 @@ final class AppState: ObservableObject {
             notice = "Couldn't export: there is no arrangement '\(slug)'."
             return nil
         }
-        let name = ScoreExport.filename(title: score.title ?? score.name,
+        let name = ScoreExport.filename(
+            title: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                              slug: score.slug),
                                         version: version, format: format)
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("export", isDirectory: true)
@@ -2415,7 +2418,8 @@ final class AppState: ObservableObject {
 
     func deleteScore(slug: String, undoable: Bool = true) {
         let name = manifest?.scores.first { $0.slug == slug }
-            .map { $0.title ?? $0.name } ?? slug
+            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
+                                              slug: $0.slug) } ?? slug
         Task {
             do {
                 try await local.deleteScore(slug)

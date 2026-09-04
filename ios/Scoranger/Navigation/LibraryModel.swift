@@ -96,14 +96,16 @@ enum LibraryModel {
             if isOMRDraft(score) { chips.append(.init(text: "OMR DRAFT", kind: .warning)) }
             return LibraryRow(
                 id: score.slug,
-                title: score.title ?? score.name,
+                title: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                                  slug: score.slug),
                 subtitle: [score.composer ?? "", "\(score.versions.count) "
                     + (score.versions.count == 1 ? "version" : "versions")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [score.latest ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
-                sortName: score.title ?? score.name,
+                sortName: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                                     slug: score.slug),
                 composer: score.composer ?? "",
                 changed: (score.versions.last?.time ?? nil) ?? "",
                 arrangementCount: 1)
@@ -140,7 +142,9 @@ enum LibraryModel {
                 guard let score = scores[slug] else { return nil }
                 guard let piece = pieces.first(where: { $0.arrangements.contains(slug) }),
                       let index = piece.arrangements.firstIndex(of: slug) else {
-                    return score.title ?? score.name
+                    return ScoreTitle.arrangementName(title: score.title,
+                                                      name: score.name,
+                                                      slug: score.slug)
                 }
                 return "\(piece.name) #\(index + 1)"
             }
