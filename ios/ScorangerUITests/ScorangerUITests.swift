@@ -1367,9 +1367,14 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(waitForDisappearance(of: save, timeout: 90),
                       "the metadata edit never completed")
 
-        // the edit is a version, like every other change to the notation
-        XCTAssertTrue(app.staticTexts["set-metadata"].waitForExistence(timeout: 10),
-                      "editing metadata should append a version")
+        // the edit is a version, like every other change to the notation --
+        // and the row says what happened in the reader's words, not the
+        // engine's op name (VersionLabel; Ali marked "v001 bulk-import" and
+        // "v002 omr" "Don't!"). "set-metadata" is what it must NOT say.
+        XCTAssertTrue(app.staticTexts["title and credits"].waitForExistence(timeout: 10),
+                      "editing metadata should append a version, labelled in the reader's words")
+        XCTAssertFalse(app.staticTexts["set-metadata"].exists,
+                       "a version row must never show the engine's own op name")
         goBack()            // details -> arrangement screen
         goBack()            // arrangement -> the piece it belongs to
 
