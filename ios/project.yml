@@ -124,7 +124,7 @@ targets:
         #   0.1.2  dragging, repeat signs, two-page view (combined)
         #   0.6.9  the app carries its own General MIDI bank, so playback has
         #          timbres at all on a device
-        CURRENT_PROJECT_VERSION: 167
+        CURRENT_PROJECT_VERSION: 168
         MARKETING_VERSION: 0.6.9
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
