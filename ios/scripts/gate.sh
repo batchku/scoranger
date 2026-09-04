@@ -30,6 +30,25 @@
 # its own device, created here and reused by name, and the run FAILS unless the
 # number of tests that actually executed equals the number enumerated.
 #
+# THE SECOND HAZARD, found by using it: four workers make the host slower than
+# any test author measured against, and a UI test that waits a wall-clock
+# budget ACROSS AN ENGINE CALL then measures the machine rather than the app.
+# testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted waited 40s for a row to
+# go after a delete: 25s solo, past 40s under four workers. It cost two release
+# gates.
+#
+# The rule, and it is the test's job, not the gate's: never spend a wall-clock
+# budget across an engine call. Wait on the signal the app RAISES when the work
+# returned -- the undo bar after a delete, a save button going away -- and give
+# only the redraw after it a short fixed budget. See waitForDeleteToLand.
+#
+# Release gates run sharded, like this one. Serial is not the safer option it
+# looks like: the 0.6.4 release gate died serially, killed by other work on the
+# host, so what makes a gate trustworthy is a QUIET machine and tests that do
+# not race -- not one worker. And a test that only passes solo is a broken test
+# whichever way the gate is run; serial would hide it until CI or a slower Mac
+# found it again.
+#
 # Usage:
 #   scripts/gate.sh                    # 4 workers
 #   scripts/gate.sh -j 6               # 6 workers

@@ -510,6 +510,40 @@ final class ScorangerUITests: XCTestCase {
         return !element.exists
     }
 
+    /// A row is gone after a DELETE -- waited for on the app's own signal
+    /// rather than on the clock.
+    ///
+    /// `waitForDisappearance(of: row, timeout: 40)` after a delete measures the
+    /// MACHINE: the engine call inside that window takes as long as the host
+    /// lets it, and 40s was enough solo and not enough under four gate workers.
+    /// Re-rolling such a test until it is green keeps the fragility and buys a
+    /// pass; sizing the clock up hides it behind a bigger number.
+    ///
+    /// So wait on what the app SAYS. `AppState.deleteScore` raises
+    /// `undoableDelete` only after `local.deleteScore` returned, and that draws
+    /// the undo bar. Once it is up, the engine is done and only a local refresh
+    /// is left, which is what the short second budget is for. The row already
+    /// being gone is the same answer arriving first.
+    ///
+    /// The long budget is a backstop, not a wait: this returns as soon as
+    /// either signal lands, so a fast machine pays nothing for it.
+    private func waitForDeleteToLand(of row: XCUIElement,
+                                     signal: TimeInterval = 180,
+                                     redraw: TimeInterval = 30) -> Bool {
+        // Both, because which of the two a SwiftUI overlay exposes is not
+        // ours to decide: the bar carries the identifier and the Undo inside
+        // it is unambiguously a button.
+        let undoBar = app.otherElements["undo-bar"]
+        let undoButton = app.buttons["undo-delete"]
+        let deadline = Date().addingTimeInterval(signal)
+        while Date() < deadline {
+            if !row.exists { return true }
+            if undoBar.exists || undoButton.exists { break }
+            usleep(200_000)
+        }
+        return waitForDisappearance(of: row, timeout: redraw)
+    }
+
     // MARK: - The score view's own chrome (NAVIGATION_SYSTEM.md §4.5)
 
     /// The pill is gone from the score view. Its duties did not vanish -- they
@@ -2048,7 +2082,7 @@ final class ScorangerUITests: XCTestCase {
         delete.tap()
         if app.buttons["Delete"].waitForExistence(timeout: 10) { app.buttons["Delete"].tap() }
 
-        XCTAssertTrue(waitForDisappearance(of: broken, timeout: 40),
+        XCTAssertTrue(waitForDeleteToLand(of: broken),
                       "the broken arrangement is still in the library after deleting it")
         shot("version-less-arrangement-deleted")
     }
