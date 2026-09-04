@@ -262,5 +262,27 @@ def main() -> int:
     return 0
 
 
+def check_a_poisoned_title_is_not_tidied_into_another_one():
+    """A title already spoiled before the fix must not be smartened up.
+
+    The first version of this fix rejected `v001.mxl` and then humanised the
+    same string on the way out, engraving "V001". The reader saw the bug it was
+    meant to end, wearing different capitals. A rejected name does not improve
+    by being tidied.
+    """
+    from scoranger_engine.ops import title_for_added_version as t
+    cases = [
+        (("v001.mxl", None), None, "a poisoned title with nothing to replace it"),
+        (("v002.musicxml", None), None, "the same, another extension"),
+        (("v001.mxl", "Jovano Jovanke"), "Jovano Jovanke", "a real incoming title wins"),
+        (("Jovano Jovanke", "v001.mxl"), "Jovano Jovanke", "the arrangement's own wins"),
+        ((None, None), None, "nothing in, nothing out"),
+    ]
+    for (existing, incoming), want, why in cases:
+        got = t(existing, incoming)
+        check(f"{why}: {existing!r} + {incoming!r} -> {got!r}", got == want,
+              f"expected {want!r}")
+
+
 if __name__ == "__main__":
     sys.exit(main())

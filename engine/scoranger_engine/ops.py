@@ -2541,6 +2541,21 @@ def clean_imported_metadata(score, fallback_title: str,
     return set_metadata(score, title=title or humanise_title(fallback_title))
 
 
+def _is_internal_artifact_name(name: str | None) -> bool:
+    """Is this the workspace's own file name for a version, rather than a name?
+
+    Versions are stored as `vNNN.<ext>` -- v001.mxl, v002.musicxml -- and that
+    string is never anybody's music. It is distinct from a file stem that still
+    carries the title ("under-paris-skies"), which is worth tidying rather than
+    discarding.
+    """
+    if not name:
+        return False
+    stem = str(name).strip()
+    stem = stem.rsplit(".", 1)[0] if "." in stem else stem
+    return bool(re.fullmatch(r"[vV]\d{2,}", stem))
+
+
 def title_for_added_version(existing: str | None, incoming: str | None,
                             source_stem: str | None = None) -> str | None:
     """Which title a version built FROM A FILE should carry.
@@ -2561,9 +2576,22 @@ def title_for_added_version(existing: str | None, incoming: str | None,
         return existing
     if incoming and not _is_junk_title(incoming, source_stem):
         return incoming
-    # Only the arrangement's own name is worth spelling out. A file name that
-    # has been de-hyphenated is still a file name, and this is the last place
-    # it could become one.
+    # Both were rejected, and a rejected name does not improve by being
+    # tidied: humanising `existing` here turned the v001.mxl this function
+    # exists to stop into "V001" and engraved that instead. A file name that
+    # has been de-hyphenated is still a file name.
+    #
+    # So nothing is returned, and the caller clears the title. An empty title
+    # engraves nothing, which is honest; the library still shows the
+    # arrangement's own name beside it.
+    # A file stem still carrying the music's name -- "under-paris-skies" --
+    # improves by being tidied, and that is worth doing. An INTERNAL ARTIFACT
+    # name does not: "v001.mxl" is the workspace's own filename for a version
+    # and means nothing to a reader. Humanising it here is what engraved
+    # "V001" on the page after the first attempt at this fix, which is the very
+    # bug the function exists to stop, wearing different capitals.
+    if _is_internal_artifact_name(existing):
+        return None
     return humanise_title(existing or "") or None
 
 
