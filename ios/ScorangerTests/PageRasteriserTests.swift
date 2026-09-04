@@ -1,5 +1,4 @@
 import XCTest
-import SwiftDraw
 
 /// Does drawing the pages of a score on several cores draw the SAME score?
 ///
