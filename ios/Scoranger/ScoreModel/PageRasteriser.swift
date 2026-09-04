@@ -1,0 +1,121 @@
+import Foundation
+import SwiftDraw
+
+/// One page of Verovio's SVG turned into a one-page PDF, and the whole score's
+/// worth of them turned at once.
+///
+/// Why this is its own file, out of the renderer: it is the half of an engrave
+/// that is OURS. A release-configuration reading of an eight-page score:
+///
+///     Verovio loadFile        1609 ms   (C++, one call, not ours)
+///     SVG -> PDF (SwiftDraw)    95 ms   PER PAGE, serial  -> 1623 ms
+///     Verovio renderToSVG       25 ms   per page          ->  455 ms
+///     geometry model            71 ms
+///
+/// Half the wait is a loop over pages that do not depend on each other. Verovio
+/// holds one document in one toolkit and must stay serial; this does not.
+///
+/// It lives in `ScoreModel/` so the suite can reach it without an app, an
+/// engine or a screen -- which is the only way the claim that the concurrent
+/// path draws the same bytes as the serial one gets to be a claim and not a
+/// hope. See `PageRasteriserTests`.
+enum PageRasteriser {
+
+    /// Why a page did not draw. Both were once reported as the same thing,
+    /// which sent three people hunting degenerate notation for a score that was
+    /// fine; the renderer's errors keep them apart and so does this.
+    enum Failure: Equatable {
+        /// Our rewrite of Verovio's page came out empty.
+        case empty
+        /// The page was engraved and rewritten, and SwiftDraw would not take it.
+        case unconvertible
+    }
+
+    /// What became of one page. Exactly one of `pdf` and `failure` is set.
+    struct Page: Equatable {
+        /// The page number Verovio drew, 1-based -- what an error message says
+        /// to the reader, so it survives the trip through the task pool.
+        let number: Int
+        let pdf: Data?
+        let failure: Failure?
+
+        static func drawn(_ number: Int, _ pdf: Data) -> Page {
+            Page(number: number, pdf: pdf, failure: nil)
+        }
+        static func failed(_ number: Int, _ failure: Failure) -> Page {
+            Page(number: number, pdf: nil, failure: failure)
+        }
+    }
+
+    // MARK: - One page
+
+    /// Rewrite one page and draw it.
+    ///
+    /// Every piece of state this touches is created inside it. `SVGForSwiftDraw`
+    /// and the diagram drawers it calls are pure string work over their
+    /// argument with no storage of their own; `SVG(data:)` parses into a value
+    /// type (a `Sendable` struct of drawing commands) and never consults
+    /// SwiftDraw's URL cache, which only the `fileURL` initialiser reads; and
+    /// `pdfData()` allocates its own `NSMutableData`, `CGDataConsumer` and
+    /// `CGContext` per call. That is what makes `rasterise(pages:)` legal.
+    static func rasterise(number: Int, svg: String) -> Page {
+        let prepared = SVGForSwiftDraw.prepare(svg)
+        guard !prepared.isEmpty else { return .failed(number, .empty) }
+        guard let parsed = SVG(data: Data(prepared.utf8)) else {
+            return .failed(number, .unconvertible)
+        }
+        guard let pdf = try? parsed.pdfData() else {
+            return .failed(number, .unconvertible)
+        }
+        return .drawn(number, pdf)
+    }
+
+    // MARK: - Every page
+
+    /// The whole score, one page per core, returned IN PAGE ORDER.
+    ///
+    /// Order is restored rather than relied upon: the pages finish in whatever
+    /// order the cores get to them, and a score whose bars 40-52 print before
+    /// bars 1-13 is worse than a slow one.
+    ///
+    /// `concurrentPerform` and not a task group, deliberately. The caller is an
+    /// actor holding a Verovio toolkit, and a task group would suspend it --
+    /// which lets a second engrave in on the same toolkit while the first is
+    /// mid-flight. This blocks the actor's thread exactly as the serial loop it
+    /// replaces did, so the guarantee that only one engrave is ever inside the
+    /// toolkit is the one that was already there.
+    ///
+    /// The results are collected under a lock rather than written into a
+    /// preallocated array by index: distinct indices of a Swift `Array` are not
+    /// a thread-safe destination (the subscript setter checks uniqueness of the
+    /// buffer), and a lock held for the length of a dictionary insert is
+    /// nothing against 95 ms of drawing.
+    static func rasterise(pages: [String], firstNumber: Int = 1) -> [Page] {
+        guard pages.count > 1 else {
+            return pages.enumerated().map {
+                rasterise(number: firstNumber + $0.offset, svg: $0.element)
+            }
+        }
+        let lock = NSLock()
+        var done: [Int: Page] = [:]
+        done.reserveCapacity(pages.count)
+        DispatchQueue.concurrentPerform(iterations: pages.count) { i in
+            let span = PerfMetrics.shared.begin(PerfMetrics.Name.engravePDF)
+            let page = rasterise(number: firstNumber + i, svg: pages[i])
+            span?.end()
+            lock.lock()
+            done[i] = page
+            lock.unlock()
+        }
+        return (0..<pages.count).compactMap { done[$0] }
+    }
+
+    /// The same work, one page after another. Kept because it is what the
+    /// concurrent path is checked AGAINST: a test that only ran the concurrent
+    /// path could tell you it did not crash, not that it drew the same score.
+    static func rasteriseSerially(pages: [String], firstNumber: Int = 1) -> [Page] {
+        pages.enumerated().map {
+            rasterise(number: firstNumber + $0.offset, svg: $0.element)
+        }
+    }
+}
