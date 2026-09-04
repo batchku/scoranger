@@ -1351,7 +1351,7 @@ final class AppState: ObservableObject {
             // the play head, which is exactly the lie this key exists to stop.
             guard playbackKey == key else { return }
             try playback.load(midi: performance.midi, timeline: performance.timeline,
-                              key: key)
+                              key: key, slug: score.slug)
             playback.report(unavailable: nil)
         } catch {
             // Said in the TRANSPORT, which is where someone who just pressed
@@ -1901,9 +1901,10 @@ final class AppState: ObservableObject {
     /// Change the slug an arrangement is filed under.
     ///
     /// The engine moves the artifacts and rewrites every reference it owns; the
-    /// app owns two things keyed by slug — the current selection and the pencil
-    /// annotations — and moves those here. Returns the slug actually used (it is
-    /// normalized), or nil if the rename was refused.
+    /// app owns three things keyed by slug — the current selection, the pencil
+    /// annotations and the mixer's instrument choices — and moves those here.
+    /// Returns the slug actually used (it is normalized), or nil if the rename
+    /// was refused.
     @discardableResult
     func renameSlug(slug: String, to newSlug: String) async -> String? {
         let trimmed = newSlug.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1915,6 +1916,7 @@ final class AppState: ObservableObject {
             if now != slug {
                 movedSlugs[slug] = now
                 DrawingStore.shared.rename(fromPrefix: slug, toPrefix: now)
+                PlaybackInstrumentStore.shared.rename(from: slug, to: now)
                 if selectedSlug == slug { selectedSlug = now }
                 if previewedSlug == slug { previewedSlug = now }
                 renderedKey = nil   // the render is keyed by slug/version
