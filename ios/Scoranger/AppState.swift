@@ -1036,10 +1036,36 @@ final class AppState: ObservableObject {
                     print("SCORANGER-SEED chord chart FAILED: \(error)")
                 }
             }
+            // A book the size of a Real Book. The browser's two faults -- a
+            // flick that stopped the main thread once per page, and a picture
+            // store bounded by a count -- do not show on a ten-page fixture,
+            // so the test that guards them gets the size that broke.
+            if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
+                await seedBigBook()
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture only: a several-hundred-page book, made on the spot and
+    /// imported. See `BigBookFixture`.
+    private func seedBigBook() async {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "big-book-fixture.pdf")
+        guard BigBookFixture.write(to: url) else {
+            print("SCORANGER-SEED big book could not be written")
+            return
+        }
+        do {
+            let slug = try await local.importBook(fileURL: url, name: "Big Fake Book")
+            print("SCORANGER-SEED big book \(slug), "
+                  + "\(BigBookFixture.defaultPages) pages")
+        } catch {
+            print("SCORANGER-SEED big book failed: \(error.localizedDescription)")
+        }
+        try? FileManager.default.removeItem(at: url)
     }
 
     #if DEBUG
