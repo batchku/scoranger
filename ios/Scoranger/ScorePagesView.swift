@@ -850,18 +850,25 @@ private struct PlayheadLayer: View {
                 // The handle is the one exception, and it is a view of its
                 // own so that "the only hit-testable thing in this layer" is
                 // a fact about the code rather than a promise in a comment.
-                .overlay {
+                .overlay(alignment: .topLeading) {
                     if showsHandle {
+                        let target = Playhead.onScreen(Playhead.handleTouchTarget,
+                                                       zoom: zoom)
                         PlayheadHandle(
-                            handle: CGPoint(x: x, y: top),
-                            target: Playhead.onScreen(Playhead.handleTouchTarget,
-                                                      zoom: zoom),
+                            target: target,
                             bar: playback.soundingBar,
+                            // The recogniser reports in the HANDLE's own
+                            // coordinates now, so the corner it sits at is
+                            // added back to get the layer's.
                             onScrub: { point in
-                                scrub(to: point, sx: sx, sy: sy)
+                                scrub(to: CGPoint(x: x - target / 2 + point.x,
+                                                  y: top - target / 2 + point.y),
+                                      sx: sx, sy: sy)
                             },
                             onEnded: { scrubbed = nil },
                             onStep: { step($0) })
+                            .frame(width: target, height: target)
+                            .offset(x: x - target / 2, y: top - target / 2)
                     }
                 }
             }
@@ -921,11 +928,16 @@ private struct PlayheadLayer: View {
 /// handle scrubbed. `shouldBeRequiredToFailBy` says it, to every one of them
 /// at once, from a delegate this file owns.
 ///
-/// And it is SCOPED by hit testing rather than by that delegate: the view
-/// spans the layer but `hitTest` returns nil everywhere except the handle's
-/// own target, so a touch anywhere else never reaches this recogniser and
-/// never enters the dependency at all. That is what leaves the lasso and the
-/// Pencil untouched over the other 99% of the page -- the thing
+/// And it is SCOPED by being the size of the handle. The view used to span
+/// the layer and return nil from `hitTest` everywhere but the target, which
+/// kept touches out but left a full-page view sitting over the canvas -- and
+/// that OCCLUDED it: the two-finger undo tap could not resolve a point on the
+/// score at all, proven by the gate in testOneUndoTapRemovesExactlyOneStroke
+/// and testTwoFingerTapUndoesEvenWithMarkupOff, and proven to be this view by
+/// the same test passing with the handle taken away. Hit testing keeps
+/// touches out; it does not stop a view being in the way. So the view is now
+/// 32pt square and positioned, and the rest of the page has nothing over it
+/// -- which is what leaves the lasso and the Pencil untouched, the thing
 /// `testThePlayheadDrawsAndTheLassoStillSelectsUnderIt` exists to catch.
 ///
 /// FINGERS ONLY (`allowedTouchTypes`). Outside markup mode a Pencil drag is a
@@ -934,9 +946,7 @@ private struct PlayheadLayer: View {
 /// is exactly what it was, and what the drag costs is a finger pan that begins
 /// on the handle itself.
 private struct PlayheadHandle: UIViewRepresentable {
-    /// The handle's centre, in the layer's own coordinates.
-    let handle: CGPoint
-    /// How wide a touch may land from it, in the same coordinates.
+    /// How wide the handle is. The view IS this square; the caller places it.
     let target: CGFloat
     /// What the play head reads as, for VoiceOver.
     let bar: Int?
@@ -960,8 +970,6 @@ private struct PlayheadHandle: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PlayheadHandleView, context: Context) {
-        view.handleRect = CGRect(x: handle.x - target / 2, y: handle.y - target / 2,
-                                 width: max(target, 0), height: max(target, 0))
         view.bar = bar
         view.onScrub = onScrub
         view.onEnded = onEnded
@@ -970,9 +978,6 @@ private struct PlayheadHandle: UIViewRepresentable {
 }
 
 final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
-    /// The grabbable square, in this view's own coordinates. Everything
-    /// outside it belongs to whatever is underneath.
-    var handleRect: CGRect = .zero
     var bar: Int?
     var onScrub: ((CGPoint) -> Void)?
     var onEnded: (() -> Void)?
@@ -990,13 +995,6 @@ final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("PlayheadHandleView is not from a nib") }
 
-    /// The a11y frame is the HANDLE, not the layer. Without this, VoiceOver
-    /// and every UI test would be pointed at the centre of the whole page.
-    override var accessibilityFrame: CGRect {
-        get { UIAccessibility.convertToScreenCoordinates(handleRect, in: self) }
-        set { super.accessibilityFrame = newValue }
-    }
-
     override var accessibilityValue: String? {
         get { bar.map { "bar \($0)" } ?? "start" }
         set { super.accessibilityValue = newValue }
@@ -1004,11 +1002,6 @@ final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
 
     override func accessibilityIncrement() { onStep?(1) }
     override func accessibilityDecrement() { onStep?(-1) }
-
-    /// The whole of "the handle is the only hit-testable thing in the layer".
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        handleRect.contains(point) ? self : nil
-    }
 
     @objc func panned(_ pan: UIPanGestureRecognizer) {
         switch pan.state {
@@ -1110,13 +1103,20 @@ private struct ContinuousPlayheadLayer: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 if showsHandle {
+                    let target = Playhead.onScreen(Playhead.handleTouchTarget, zoom: zoom)
                     PlayheadHandle(
-                        handle: CGPoint(x: x, y: top),
-                        target: Playhead.onScreen(Playhead.handleTouchTarget, zoom: zoom),
+                        target: target,
                         bar: playback.soundingBar,
-                        onScrub: { point in scrub(to: point) },
+                        // In the handle's own coordinates now; its corner puts
+                        // them back in the layer's.
+                        onScrub: { point in
+                            scrub(to: CGPoint(x: x - target / 2 + point.x,
+                                              y: top - target / 2 + point.y))
+                        },
                         onEnded: { scrubbed = nil },
                         onStep: { step($0) })
+                        .frame(width: target, height: target)
+                        .position(x: x, y: top)
                 }
             }
         }
