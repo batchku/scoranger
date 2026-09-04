@@ -2,20 +2,31 @@ import XCTest
 
 /// Looking through a book the size of a Real Book.
 ///
-/// The browser had no test at all, and the report that it "got stuck" arrived
-/// from a reader with a 512-page fake book. Nothing smaller reproduces it: the
-/// fault was that every cell the lazy strip built rasterised a PDF page on the
-/// main thread, so the cost of a flick was the number of pages it swept and
-/// there was nothing to call off. A ten-page book sweeps ten cells.
+/// The browser shipped in 0.6.4 with NO test of any kind. This is that test:
+/// a 512-page book opens, the strip is there, it survives being flicked
+/// through, the pager moves and a typed page number turns the book to it.
 ///
-/// So this seeds a 512-page book (`-seedBigBook`, `BigBookFixture`) and asks
-/// the one question that matters: after a hard flick through it, does the app
-/// still answer?
+/// # What it is NOT
 ///
-/// It asserts NO latency budget -- there is none agreed, and inventing one
-/// here would be inventing a requirement. It asserts that a control tapped
-/// after the flick does its job inside a very generous deadline, which is a
-/// hang test and not a speed test.
+/// It is not the guard for the fault it was written alongside. That was
+/// checked the way this repository checks things -- the fix was reverted and
+/// the test run again -- and it PASSED on the broken code, in the same time.
+/// It has to, and the reason is worth writing down rather than papering over:
+///
+///  - The cost that broke the browser is DECODING A SCAN. A page of a real
+///    fake book is a full-page JPEG and takes about 4 ms; `BigBookFixture` is
+///    vector and takes a quarter of a millisecond. Making the fixture heavy
+///    enough to hurt would mean inventing a slow book.
+///  - Even at a scan's 4 ms, eight flicks sweep a few hundred cells: seconds,
+///    not the tens of seconds a deadline here could sanely allow. To fail on
+///    that this would have to assert a LATENCY BUDGET, and there is no agreed
+///    one -- the same reason `PerfSweep` asserts nothing.
+///
+/// So the fault is guarded where it can actually fail, in the unit suite:
+/// `ThumbnailRequestTests` (an ask withdrawn draws 7 pages of 120 instead of
+/// 120; a peek never rasterises; the store holds its budget in bytes) and
+/// `PageThumbnailsTests` (the count bound it replaces was five times the
+/// budget). This is end-to-end coverage of a screen that had none.
 final class BookBrowser: XCTestCase {
 
     private var app: XCUIApplication!
@@ -57,9 +68,8 @@ final class BookBrowser: XCTestCase {
 
     /// A hard flick through the strip of a 512-page book, and then a tap.
     ///
-    /// Before the fix the tap had to wait behind one PDF raster for every cell
-    /// the flick had swept over, on the main thread, with no way to skip the
-    /// ones the reader had already passed.
+    /// The deadline is deliberately generous: see the note on the class. This
+    /// says the browser works on a book of that size, not how fast.
     func testTheBrowserStillAnswersAfterFlickingThroughABigBook() {
         launch()
         guard openTheBook() else { return }
