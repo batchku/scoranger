@@ -92,11 +92,33 @@ DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-i
 RUNTIME=$(xcrun simctl list runtimes -j \
   | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and "iOS" in r["name"]]; print(sorted(rs, key=lambda r: [int(x) for x in r["version"].split(".")])[-1]["identifier"])')
 
-# A simulator per worker, made once and kept. Named, so a second gate on the
-# same machine reuses these rather than piling up clones -- and so it never
-# borrows the device somebody is watching a release run on.
+# A simulator per worker, made once and kept. Named, so a gate reuses its
+# devices rather than piling up clones.
+#
+# THE POOL IS NAMESPACED, and that is not decoration. Two gates on this machine
+# used to resolve the same four names and take the same four devices, and two
+# xcodebuild runs on one simulator kill each other: every test dies with "Test
+# crashed with signal kill", the failures scatter across tests nobody touched,
+# and fewer tests execute than were enumerated. It reads exactly like a broken
+# branch. It cost the 0.6.10 gate a full 18-minute run on 2026-09-04, when a
+# second gate started eight minutes into the first from another worktree --
+# and it voided that second gate too, silently, because nothing told either of
+# them the other existed.
+#
+# The old comment claimed the naming meant a gate "never borrows the device
+# somebody is watching a release run on". That was only ever true of ONE gate
+# reusing ITS devices; between two gates the shared names guaranteed the
+# collision rather than preventing it.
+#
+# So the pool is keyed on the checkout by default: two worktrees get two pools
+# and cannot collide. GATE_SIM_POOL overrides it -- pass the same value twice
+# to deliberately share a pool, or a fresh one to get devices of your own.
+# The CHECKOUT's name, not this script's directory: gate.sh cds into ios/, so
+# `basename $PWD` is "ios" in every worktree and would have namespaced nothing.
+GATE_SIM_POOL="${GATE_SIM_POOL:-$(basename "$(dirname "$PWD")")}"
+
 sim_for() {
-  local name="scoranger-gate-$1" udid
+  local name="scoranger-gate-$GATE_SIM_POOL-$1" udid
   udid=$(xcrun simctl list devices -j | python3 -c "
 import json,sys
 for _, ds in json.load(sys.stdin)['devices'].items():
@@ -124,7 +146,7 @@ if [[ -n "$SERIAL" ]]; then
     "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"}
 fi
 
-echo "==> building once for $WORKERS workers"
+echo "==> building once for $WORKERS workers (simulator pool: $GATE_SIM_POOL)"
 BUILD_SIM=$(sim_for 1)
 xcodebuild build-for-testing -project "$PROJECT" -scheme "$SCHEME" \
   -destination "platform=iOS Simulator,id=$BUILD_SIM" -derivedDataPath "$DD" \
