@@ -132,7 +132,7 @@ targets:
         #          it was not going to hold this.
         #   0.6.12 the mixer rebuilt as a window you can pick up
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
-        CURRENT_PROJECT_VERSION: 170
+        CURRENT_PROJECT_VERSION: 171
         MARKETING_VERSION: 0.6.12
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
