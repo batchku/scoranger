@@ -1565,7 +1565,128 @@ final class AppState: ObservableObject {
     /// A file handed to us by the system (share sheet / "Open in").
     /// `piece` files the resulting arrangement under that piece (the sidebar's
     /// per-piece import); nil leaves it unfiled.
+    /// Read a bundle and offer it. Nothing is imported here.
+    ///
+    /// A security-scoped URL from Files or AirDrop has to be opened before the
+    /// engine can read the bytes, and closed afterwards -- and it is copied
+    /// somewhere the engine owns first, because the scope can end while the
+    /// reader is still deciding whether to accept.
+    func offerBundle(at url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let inbox = FileManager.default.temporaryDirectory
+            .appending(path: "bundles", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        let local = inbox.appending(path: url.lastPathComponent)
+        try? FileManager.default.removeItem(at: local)
+        do {
+            try FileManager.default.copyItem(at: url, to: local)
+        } catch {
+            notice = "Couldn't read that bundle: \(error.localizedDescription)"
+            return
+        }
+
+        let seen: [String: Any]
+        do {
+            seen = try await self.local.call(op: "bundle-inspect",
+                                             args: ["path": local.path])
+        } catch {
+            notice = "Couldn't read that bundle: \(error.localizedDescription)"
+            return
+        }
+        guard let arrangements = seen["arrangements"] as? [[String: Any]],
+              !arrangements.isEmpty else {
+            notice = "That file is not a Scoranger bundle."
+            return
+        }
+
+        let titles = arrangements.compactMap { $0["name"] as? String }
+        let ink = arrangements.reduce(0) { $0 + (($1["ink_pages"] as? Int) ?? 0) }
+        let summary: String
+        if let setlist = seen["setlist"] as? String {
+            summary = "\(setlist) — a setlist of \(titles.count) "
+                + (titles.count == 1 ? "arrangement" : "arrangements")
+        } else {
+            summary = titles.first ?? "An arrangement"
+        }
+        var parts = [titles.joined(separator: ", ")]
+        if ink > 0 { parts.append("\(ink) page\(ink == 1 ? "" : "s") of markup") }
+        // Whose work it is, said plainly and not acted on. §12.12: the
+        // classification rides along so a person can decide; it blocks nothing.
+        if arrangements.allSatisfy({ ($0["provenance"] as? String) == "imported" }) {
+            parts.append("scanned or imported material")
+        }
+        bundleOffer = BundleOffer(url: local, summary: summary,
+                                  detail: parts.joined(separator: " · "))
+    }
+
+    /// Take the offered bundle in. New arrangements, never a merge (§13.3).
+    func acceptBundle() async {
+        guard let offer = bundleOffer else { return }
+        bundleOffer = nil
+        let got: [String: Any]
+        do {
+            got = try await local.call(
+                op: "bundle-import",
+                args: ["path": offer.url.path, "ink": DrawingStore.shared.dir.path])
+        } catch {
+            notice = "Couldn't add that bundle: \(error.localizedDescription)"
+            return
+        }
+        guard let imported = got["imported"] as? [[String: Any]] else {
+            notice = "Couldn't add that bundle."
+            return
+        }
+        try? FileManager.default.removeItem(at: offer.url)
+        await refresh()
+        let names = imported.compactMap { $0["title"] as? String }
+        let duplicates = (got["duplicates"] as? [String]) ?? []
+        var said = "Added \(names.count) arrangement\(names.count == 1 ? "" : "s")."
+        if !duplicates.isEmpty {
+            // Flagged, never merged: two divergent chains are §7 rule 2's fork
+            // problem and not worth solving for a file that arrived by AirDrop.
+            said += " You already had \(duplicates.joined(separator: ", "))"
+                + " — this is a second copy, not a replacement."
+        }
+        notice = said
+        if let first = imported.first?["slug"] as? String { selectedSlug = first }
+    }
+
+    /// Write an arrangement or a setlist out as one shareable file.
+    ///
+    /// Returns where it landed, for the share sheet to hand to AirDrop. Markup
+    /// travels with it: principle 5 does not stop applying because the sharing
+    /// went over AirDrop rather than a cloud (§13.2).
+    func exportBundle(target: String, fullHistory: Bool = false) async -> URL? {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "export", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let out = dir.appending(path: "\(target).scorbundle")
+        var args: [String: Any] = ["target": target, "out": out.path,
+                                   "ink": DrawingStore.shared.dir.path]
+        if fullHistory { args["full_history"] = true }
+        do {
+            let made = try await local.call(op: "bundle-export", args: args)
+            guard let path = made["path"] as? String else {
+                notice = "Couldn't make that bundle."
+                return nil
+            }
+            return URL(fileURLWithPath: path)
+        } catch {
+            notice = "Couldn't make that bundle: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     func receiveFile(at url: URL, intoPiece piece: String? = nil) {
+        // A bundle is somebody else's library arriving, not a file to import as
+        // an arrangement. It is READ first and imported only if the reader says
+        // so: a file that lands in Files and imports itself is not something
+        // anyone asked for (design/FIREBASE.md §13.3).
+        if url.pathExtension.lowercased() == "scorbundle" {
+            Task { await offerBundle(at: url) }
+            return
+        }
         if url.pathExtension.lowercased() == "pdf" {
             // A PDF comes in AS A PDF: it opens and takes markup immediately,
             // offline, with no service involved. It used to go straight to
@@ -2481,6 +2602,14 @@ final class AppState: ObservableObject {
         let isSetlist: Bool
     }
     @Published var undoableDelete: UndoableDelete?
+
+    /// A bundle somebody sent, read but not yet imported. §13.3.
+    struct BundleOffer: Equatable {
+        let url: URL
+        let summary: String
+        let detail: String
+    }
+    @Published var bundleOffer: BundleOffer?
 
     func restoreDeleted() {
         guard let undo = undoableDelete else { return }

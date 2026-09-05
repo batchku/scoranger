@@ -50,11 +50,25 @@ def main() -> int:
 
     # A module the app's bridge imports but that was never copied is the
     # original form of this bug.
-    bridge = (ROOT / "ios" / "PythonApp" / "app" / "bridge.py").read_text()
-    for mod in ("workspace", "ops", "bulk", "db"):
-        if f"from scoranger_engine import" in bridge or f"scoranger_engine.{mod}" in bridge:
-            if not (VENDORED / f"{mod}.py").exists():
-                missing.append(f"bridge.py uses {mod} and it is not vendored")
+    #
+    # Derived from bridge.py, not listed here. A hard-coded tuple is what let
+    # ids.py go missing, and it would have let bundle.py go missing too: the
+    # closure check below cannot see it, because bundle is reached only FROM
+    # the bridge and nothing already vendored imports it.
+    bridge_src = (ROOT / "ios" / "PythonApp" / "app" / "bridge.py").read_text()
+    wanted: set[str] = set()
+    for node in ast.walk(ast.parse(bridge_src)):
+        if isinstance(node, ast.ImportFrom) and node.module == "scoranger_engine":
+            wanted |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "scoranger_engine."):
+            wanted.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            wanted |= {alias.name.split(".")[1] for alias in node.names
+                       if alias.name.startswith("scoranger_engine.")}
+    for mod in sorted(wanted):
+        if (SOURCE / f"{mod}.py").exists() and not (VENDORED / f"{mod}.py").exists():
+            missing.append(f"bridge.py uses {mod} and it is not vendored")
 
     # And the SECOND form of it, which the loop above cannot see: a vendored
     # module importing a sibling that was never copied.

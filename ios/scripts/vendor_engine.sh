@@ -47,7 +47,7 @@ def intra(module: str) -> set[str]:
     return found
 
 # what the bridge names, then everything those reach, transitively
-seeds = {"__init__", "workspace", "ops", "db", "bulk"}
+seeds = {"__init__", "workspace", "ops", "db", "bulk", "bundle"}
 closure, queue = set(), list(seeds)
 while queue:
     module = queue.pop()

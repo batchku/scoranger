@@ -194,6 +194,19 @@ targets:
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
+          # An arrangement or a setlist somebody sent, with its markup, over
+          # AirDrop or Files. Owner rank because this is our own format.
+          - CFBundleTypeName: "Scoranger bundle"
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.scoranger.bundle]
+        # EXPORTED, not imported: we define this one. The others are formats
+        # the world already had and we merely open (design/FIREBASE.md §13).
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.scoranger.bundle
+            UTTypeDescription: "Scoranger bundle"
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [scorbundle]
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"

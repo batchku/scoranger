@@ -12,7 +12,10 @@ import PencilKit
 /// Cloud sync is a later stage (§11.7); nothing here knows about it.
 final class DrawingStore {
     static let shared = DrawingStore()
-    private let dir: URL
+    /// Where the markup lives. The engine writes and reads bundles here too, so
+    /// it is not private: a bundle carries ink, and the engine is what packs it
+    /// (design/FIREBASE.md §13.4).
+    let dir: URL
 
     /// `dir` is injectable so the migration can be tested against a scratch
     /// directory. Nothing but a test passes it.
