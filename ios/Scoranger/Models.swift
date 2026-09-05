@@ -26,11 +26,22 @@ struct Manifest: Codable, Equatable {
     /// Collections that arrangements are taken OUT of -- a fake book, a
     /// method book. Not pieces, and not arrangements.
     var books: [BookDoc]?
+    /// This device's library, and its identity. Written before any account
+    /// exists, so signing in later gives the library an owner rather than
+    /// migrating it (design/FIREBASE.md §9.2). Optional: a manifest from an
+    /// engine that predates it still decodes.
+    var library: LibraryDoc?
 
     static func == (lhs: Manifest, rhs: Manifest) -> Bool {
         lhs.scores == rhs.scores && lhs.pieces == rhs.pieces
             && lhs.setlists == rhs.setlists && lhs.books == rhs.books
     }
+}
+
+/// The library this device holds. One per device, identity assigned once.
+struct LibraryDoc: Codable, Equatable {
+    var uid: String?
+    var created: String?
 }
 
 struct ScoreDoc: Codable, Identifiable, Hashable {

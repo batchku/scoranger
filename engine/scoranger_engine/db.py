@@ -35,6 +35,8 @@ class Repository(Protocol):
     not a replacement store.
     """
 
+    def get_library(self) -> dict | None: ...
+    def set_library(self, doc: dict) -> None: ...
     def set_score(self, score_id: str, doc: dict) -> None: ...
     def get_score(self, score_id: str, include_deleted: bool = True) -> dict | None: ...
     def list_scores(self, include_deleted: bool = False) -> list[dict]: ...
@@ -82,9 +84,28 @@ class SqliteRepository:
                 "CREATE TABLE IF NOT EXISTS setlists (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
+            # One row, id 'self'. The library is a document like any other and
+            # it is the one this device IS -- design/FIREBASE.md §9.2: signing
+            # in later writes an owner onto it, it does not migrate anything,
+            # because the library already had an identity.
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS library (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.commit()
 
     # -- scores collection ------------------------------------------------
+
+    def get_library(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT doc FROM library WHERE id = 'self'").fetchone()
+        return json.loads(row[0]) if row else None
+
+    def set_library(self, doc: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO library (id, doc) VALUES ('self', ?)"
+                " ON CONFLICT(id) DO UPDATE SET doc = excluded.doc",
+                (json.dumps(doc),))
+            self._conn.commit()
 
     def set_score(self, score_id: str, doc: dict) -> None:
         with self._lock:

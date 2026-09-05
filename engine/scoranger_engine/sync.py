@@ -119,6 +119,9 @@ class JournalingRepository:
         row = self._conn.execute("SELECT value FROM meta WHERE key = 'adopted'").fetchone()
         if row:
             return
+        library = self._inner.get_library()
+        if library:
+            self._record("library/self", "set", library.get("uid"), library.get("rev"))
         for doc in self._inner.list_scores(include_deleted=True):
             slug = doc["slug"]
             self._record(f"scores/{slug}", "set", doc.get("uid"), doc.get("rev"))
@@ -212,6 +215,16 @@ class JournalingRepository:
         self._record(key, "delete", (previous or {}).get("uid"), None)
 
     # -- scores ------------------------------------------------------------
+
+    def get_library(self) -> dict | None:
+        return self._inner.get_library()
+
+    def set_library(self, doc: dict) -> None:
+        # One document, one key. It is what a share and a push address the
+        # device by (design/FIREBASE.md §9.2), so it owes the server a rev like
+        # anything else.
+        self._write("library/self", doc, self._inner.get_library(),
+                    self._inner.set_library)
 
     def set_score(self, score_id: str, doc: dict) -> None:
         self._write(f"scores/{score_id}", doc, self._inner.get_score(score_id),

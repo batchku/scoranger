@@ -304,6 +304,11 @@ def journaling_changes_nothing_a_user_sees() -> None:
                 d.pop("uid", None)
                 d.pop("rev", None)
                 d["arrangements"] = ["<slug>" for _ in d.get("arrangements", [])]
+        # the library's identity and birthday, for the same reason as every
+        # uid above: two workspaces are two libraries, and a fresh ULID and a
+        # fresh timestamp differ between any two runs, journal or no journal
+        for k in ("uid", "created", "rev"):
+            (m.get("library") or {}).pop(k, None)
         return m
 
     check(scrub(without) == scrub(with_journal),

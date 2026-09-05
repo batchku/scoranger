@@ -53,9 +53,11 @@ So:
   four bars wide and a playhead lands two bars late),
   `check_identity.py` (an existing library survives the id migration with
   every reference intact, a rename changes nothing but the slug, and two
-  offline devices allocate versions that do not collide), and `check_sync.py`
+  offline devices allocate versions that do not collide), `check_sync.py`
   (a signed-out device pays nothing for sync, and a delete outlives the row it
-  deleted).
+  deleted), and `check_signed_out.py` (no login gates the app: the default
+  repository journals nothing, the library's own id costs nothing, and the
+  engine the app ships imports no network client -- design/FIREBASE.md §0.2).
 
 ## The engine CLI
 

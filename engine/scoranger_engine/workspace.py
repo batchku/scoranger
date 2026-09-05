@@ -126,6 +126,16 @@ def _migrate_ids(repo: Repository) -> None:
     skipped without its versions being read at all, so `_repo()` can call this
     on every launch.
     """
+    # The library itself, before any account exists. Signing in later writes an
+    # owner onto this document rather than migrating anything, because the
+    # library already had an identity (design/FIREBASE.md §9.2). Assigned here
+    # and never rewritten -- a second call finds it and leaves it alone.
+    if not (repo.get_library() or {}).get("uid"):
+        library = dict(repo.get_library() or {})
+        library["uid"] = ids.new_id()
+        library.setdefault("created", _now())
+        repo.set_library(library)
+
     for score in repo.list_scores(include_deleted=True):
         slug = score["slug"]
         # Two conditions, and the second one is not redundant.
@@ -1319,8 +1329,17 @@ def rebuild_manifest() -> dict:
     books = [{"slug": b["slug"], "uid": b.get("uid"), "name": b["name"],
               "pages": b.get("pages")}
              for b in sorted(repo.list_books(), key=lambda x: x["name"].lower())]
+    # The library's own identity, so the app can address this device without
+    # reading the database (design/FIREBASE.md §9.2). Named fields, not the
+    # whole document, like every other projection here: a journaling repository
+    # puts `rev` and `synced_rev` on what it writes, and §4.1 says neither is
+    # ever exposed to the user, the CLI or chat. Passed through wholesale, the
+    # manifest would differ with sync on and off -- which is exactly what
+    # check_sync.py's transparency assertion caught.
+    library_doc = repo.get_library() or {}
+    library = {"uid": library_doc.get("uid"), "created": library_doc.get("created")}
     manifest = {"generated": _now(), "scores": scores, "pieces": pieces,
-                "setlists": setlists, "books": books}
+                "setlists": setlists, "books": books, "library": library}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
