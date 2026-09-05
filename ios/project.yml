@@ -128,8 +128,11 @@ targets:
         #          library named before anyone signs in, and a reader's pencil
         #          marks keyed to the score rather than to what it is called
         #          today. Nothing user-visible; the ground 0.7 sharing stands on
+        #   0.7.1  share without the cloud: an arrangement or a setlist, with
+        #          its markup, as one .scorbundle over AirDrop or Files. No
+        #          account, no network, nothing deployed
         CURRENT_PROJECT_VERSION: 168
-        MARKETING_VERSION: 0.7.0
+        MARKETING_VERSION: 0.7.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
