@@ -215,19 +215,33 @@ enum MixerLayout {
         return CGPoint(x: max(x, 0), y: max(y, 0))
     }
 
-    /// Keep a dragged panel reachable.
+    /// Keep a dragged panel WHOLLY on screen.
     ///
-    /// Deliberately the ink bar's rule and not a second one: `mustRemainVisible`
-    /// of it stays on screen, so a panel pushed at an edge can always be taken
-    /// hold of again. Two movable panels with two different escape rules is how
-    /// a reader learns that one of them traps them.
+    /// This was the ink bar's rule until 0.6.10 -- keep `mustRemainVisible` of
+    /// it on screen and let the rest go -- shared deliberately, on the
+    /// reasoning that two movable panels with two escape rules is how a reader
+    /// learns one of them traps them.
+    ///
+    /// The rule was wrong here, and Ali found it: "the mixer renders cut off /
+    /// clipped at the screen edge". Measured on an iPad Pro 13, a shove at the
+    /// bottom-right corner parked a 268pt panel at x=971.5 in a 1032pt
+    /// screen -- 207pt of it in the bezel, 61pt showing. Nothing was broken;
+    /// that IS what the rule permits.
+    ///
+    /// The two panels turn out not to be in the same situation. The ink bar
+    /// has no way to move itself, so it must be pushable aside to read what is
+    /// under it. The mixer's grip CYCLES CORNERS on a tap and it has a close
+    /// button, so a reader who wants the music underneath has two ways to get
+    /// it that leave no control half off the screen. Sharing the rule bought a
+    /// consistency nobody could see and cost the thing Ali reported.
+    ///
+    /// A panel larger than its canvas cannot be wholly visible. It is pinned
+    /// to the leading edge rather than centred out of both, because the grip
+    /// and the close button live there.
     static func clamp(_ origin: CGPoint, panel: CGSize, in bounds: CGSize) -> CGPoint {
-        let keep = InkBarPlacement.mustRemainVisible
-        let minX = -(panel.width - min(keep, panel.width))
-        let maxX = bounds.width - min(keep, panel.width)
-        let minY: CGFloat = 0
-        let maxY = bounds.height - min(keep, panel.height)
-        return CGPoint(x: min(max(origin.x, minX), max(maxX, minX)),
-                       y: min(max(origin.y, minY), max(maxY, minY)))
+        let maxX = max(bounds.width - panel.width, 0)
+        let maxY = max(bounds.height - panel.height, 0)
+        return CGPoint(x: min(max(origin.x, 0), maxX),
+                       y: min(max(origin.y, 0), maxY))
     }
 }

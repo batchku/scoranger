@@ -179,19 +179,46 @@ final class MixerLayoutTests: XCTestCase {
                                           in: bounds, lanesInset: 0).x, pad)
     }
 
-    /// A panel dragged at an edge stays reachable, by the ink bar's own rule
-    /// rather than a second one invented for this panel.
-    func testADraggedPanelCannotBeLost() {
+    /// A dragged panel stays WHOLLY on screen.
+    ///
+    /// It used to keep only `InkBarPlacement.mustRemainVisible` on screen and
+    /// let the rest go, borrowing the ink bar's rule so that two movable
+    /// panels would not behave differently. Measured on an iPad Pro 13 that
+    /// rule let a 268pt panel be shoved to x=971.5 in a 1032pt screen: 207pt
+    /// off the right, 61pt left showing. That is Ali's "renders cut off /
+    /// clipped at the screen edge", reproduced in
+    /// MixerVisibility.testTheMixerCannotBeDraggedOffTheEdge.
+    ///
+    /// The two panels are not in the same situation, which is why they no
+    /// longer share the rule. The ink bar cannot move itself, so it has to be
+    /// pushable aside to see under it. The mixer's grip CYCLES CORNERS on a
+    /// tap and it has a close button -- two ways to clear the music that do
+    /// not end with a control half in the bezel.
+    func testADraggedPanelStaysWhollyOnScreen() {
         let bounds = CGSize(width: 1000, height: 800)
         let panel = CGSize(width: 400, height: 268)
-        let shoved = MixerLayout.clamp(CGPoint(x: -9000, y: 9000),
-                                       panel: panel, in: bounds)
-        XCTAssertGreaterThanOrEqual(shoved.x + panel.width,
-                                    InkBarPlacement.mustRemainVisible,
-                                    "some of it must stay on screen to grab")
-        XCTAssertLessThanOrEqual(shoved.y,
-                                 bounds.height - InkBarPlacement.mustRemainVisible)
-        XCTAssertGreaterThanOrEqual(shoved.y, 0, "never above the top edge")
+        for shove in [CGPoint(x: -9000, y: 9000), CGPoint(x: 9000, y: -9000),
+                      CGPoint(x: 9000, y: 9000), CGPoint(x: -9000, y: -9000)] {
+            let at = MixerLayout.clamp(shove, panel: panel, in: bounds)
+            XCTAssertGreaterThanOrEqual(at.x, 0, "off the left from \(shove)")
+            XCTAssertGreaterThanOrEqual(at.y, 0, "off the top from \(shove)")
+            XCTAssertLessThanOrEqual(at.x + panel.width, bounds.width,
+                                     "off the right from \(shove)")
+            XCTAssertLessThanOrEqual(at.y + panel.height, bounds.height,
+                                     "off the bottom from \(shove)")
+        }
+    }
+
+    /// A panel BIGGER than its canvas is pinned to the top-left rather than
+    /// centred out of both edges. It cannot be wholly visible, so the rule
+    /// becomes the one that keeps its controls reachable -- the grip and the
+    /// close button are at its leading edge.
+    func testAPanelLargerThanItsCanvasKeepsItsLeadingEdge() {
+        let bounds = CGSize(width: 300, height: 200)
+        let panel = CGSize(width: 400, height: 268)
+        let at = MixerLayout.clamp(CGPoint(x: 50, y: 50), panel: panel, in: bounds)
+        XCTAssertEqual(at.x, 0)
+        XCTAssertEqual(at.y, 0)
     }
 
     /// A muted strip dims but its LED still lights: the staff IS playing and
