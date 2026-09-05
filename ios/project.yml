@@ -232,6 +232,10 @@ targets:
       - path: Scoranger/Navigation/Route.swift
       - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
+      # the annotation store: pure file handling over a scratch directory, and
+      # the key migration in it is the one thing standing between a reader's
+      # pencil marks and silence (design/FIREBASE.md §13.3)
+      - path: Scoranger/Score/DrawingStore.swift
       - path: Scoranger/Score/PageTurn.swift
       - path: Scoranger/Score/ScorePosition.swift
       - path: Scoranger/Score/PagedCanvas.swift

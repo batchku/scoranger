@@ -11,7 +11,7 @@ import SwiftUI
 /// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
     let document: PDFDocument
-    let annotationKey: String  // "<slug>/<version>"
+    let annotationKey: String  // "<score uid>/<version id>", see DrawingStore
 
     @EnvironmentObject var state: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1509,105 +1509,6 @@ private struct PencilCanvas: UIViewRepresentable {
         }
     }
 }
-
-/// Local persistence for pencil annotations (server sync is a later feature).
-final class DrawingStore {
-    static let shared = DrawingStore()
-    private let dir: URL
-
-    init() {
-        dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appending(path: "annotations")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    }
-
-    private func url(for key: String) -> URL {
-        let safe = key.replacingOccurrences(of: "/", with: "_")
-        return dir.appending(path: "\(safe).pkdrawing")
-    }
-
-    func drawing(for key: String) -> PKDrawing {
-        guard let data = try? Data(contentsOf: url(for: key)),
-              let drawing = try? PKDrawing(data: data) else { return PKDrawing() }
-        return drawing
-    }
-
-    func save(_ drawing: PKDrawing, for key: String) {
-        try? drawing.dataRepresentation().write(to: url(for: key))
-    }
-
-    /// Re-file every drawing of one arrangement under a new slug. The engine
-    /// moves the score's artifacts when a slug is renamed; the user's pencil
-    /// marks live here, keyed by "<slug>/<version>/pN", so they have to move
-    /// too or they are silently orphaned.
-    func rename(fromPrefix old: String, toPrefix new: String) {
-        let from = old.replacingOccurrences(of: "/", with: "_")
-        let to = new.replacingOccurrences(of: "/", with: "_")
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.lastPathComponent.hasPrefix(from + "_") {
-            let moved = to + String(f.lastPathComponent.dropFirst(from.count))
-            try? FileManager.default.moveItem(at: f, to: dir.appending(path: moved))
-        }
-    }
-
-    func clear(prefix: String) {
-        // the trailing separator matters: without it, clearing "blue" also
-        // clears "blue-bossa", and clearing one version's marks could reach
-        // another version whose id merely starts the same way
-        let safePrefix = prefix.isEmpty ? ""
-            : prefix.replacingOccurrences(of: "/", with: "_") + "_"
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where safePrefix.isEmpty
-            || f.lastPathComponent.hasPrefix(safePrefix) {
-            try? FileManager.default.removeItem(at: f)
-        }
-    }
-
-    /// Re-file drawings keyed by a version's old `vNNN` onto its opaque id.
-    ///
-    /// Version ids became opaque so two devices could allocate one without
-    /// colliding (design/FIREBASE.md §3). The engine migrates its own
-    /// documents and deliberately renames no artifact, but a reader's pencil
-    /// marks live HERE, outside the workspace, keyed by the id the version
-    /// used to have. Without this they are not deleted, they are simply never
-    /// looked up again -- markup that is still on disk and gone from the page,
-    /// which is the worst of both.
-    ///
-    /// Driven by the manifest because the manifest is the only place that
-    /// knows both names: every version carries its `label` (`v012`) beside its
-    /// id. Idempotent, and it never overwrites: a destination that already
-    /// exists is left alone and the stale source is kept, so a half-run can be
-    /// re-run and nothing is destroyed by running it twice.
-    @discardableResult
-    func migrateVersionKeys(manifest: Manifest) -> Int {
-        let files = Set(((try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil)) ?? []).map { $0.lastPathComponent })
-        var moved = 0
-        for score in manifest.scores {
-            for version in score.versions {
-                guard let label = version.label, label != version.id else { continue }
-                let from = "\(score.slug)_\(label)_"
-                let to = "\(score.slug)_\(version.id)_"
-                for name in files where name.hasPrefix(from) {
-                    let target = to + String(name.dropFirst(from.count))
-                    guard !files.contains(target) else { continue }
-                    do {
-                        try FileManager.default.moveItem(
-                            at: dir.appending(path: name),
-                            to: dir.appending(path: target))
-                        moved += 1
-                    } catch {
-                        // a drawing that will not move is left where it is:
-                        // losing the markup is worse than not migrating it
-                    }
-                }
-            }
-        }
-        return moved
-    }
-}
-
 
 struct ChipShadow: ViewModifier {
     func body(content: Content) -> some View { Theme.Elevation.pill(content) }

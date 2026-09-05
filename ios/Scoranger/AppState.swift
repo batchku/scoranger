@@ -1169,11 +1169,12 @@ final class AppState: ObservableObject {
             engineOK = true
             reportedEngineFailure = nil   // a later outage speaks again
             // Once per launch, and only after a manifest has arrived: the
-            // manifest is what carries each version's old `vNNN` beside its new
-            // id, so it is the only thing that can re-file a reader's pencil
+            // manifest is what carries every old name beside its new one -- a
+            // version's `vNNN` beside its opaque id, a score's slug beside its
+            // uid -- so it is the only thing that can re-file a reader's pencil
             // marks onto the new key. Cheap when there is nothing to do.
             if !didMigrateAnnotationKeys {
-                DrawingStore.shared.migrateVersionKeys(manifest: m)
+                DrawingStore.shared.migrateKeys(manifest: m)
                 didMigrateAnnotationKeys = true
             }
             // a selection pointing at a deleted score would otherwise leave the

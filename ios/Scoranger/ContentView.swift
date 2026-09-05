@@ -501,7 +501,7 @@ struct ContentView: View {
                 // AppState: AppState publishes nothing when the play head
                 // moves, so a canvas that read it that way would never follow.
                 // Same reason the ink bar observes its controller directly.
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+                ScorePagesView(document: doc, annotationKey: "\(score.inkNamespace)/\(vid)",
                                mode: state.scoreMode, playback: state.playback)
             }
         } else if score.versions.isEmpty {

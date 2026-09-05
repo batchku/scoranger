@@ -1,22 +1,22 @@
 import XCTest
 
-/// What this device keeps, and what it must never delete (`ArtifactHolding`).
+/// What this device keeps, and what it must never delete (`HoldingPolicy`).
 ///
 /// design/FIREBASE.md §5.4 asks for one of these by name: "Evicting a
 /// local-only artifact is never allowed: an artifact that has not yet been
 /// pushed is the only copy that exists. That check is easy to forget and is the
 /// sort of thing worth a test of its own." It is the first test below.
-final class ArtifactHoldingTests: XCTestCase {
+final class HoldingPolicyTests: XCTestCase {
 
     private func artifact(_ key: String,
                           bytes: Int = 500_000,
-                          kind: ArtifactHolding.Kind = .notation,
+                          kind: HoldingPolicy.Kind = .notation,
                           opened: Date? = nil,
                           latest: Bool = false,
                           pinned: Bool = false,
                           offlineSetlist: Bool = false,
-                          pushed: Bool = true) -> ArtifactHolding.Artifact {
-        ArtifactHolding.Artifact(key: key, kind: kind, bytes: bytes,
+                          pushed: Bool = true) -> HoldingPolicy.Artifact {
+        HoldingPolicy.Artifact(key: key, kind: kind, bytes: bytes,
                                  isLatest: latest, isPinned: pinned, lastOpened: opened,
                                  inOfflineSetlist: offlineSetlist, isPushed: pushed,
                                  isHeld: true)
@@ -34,10 +34,10 @@ final class ArtifactHoldingTests: XCTestCase {
                                 opened: daysAgo(400), pushed: false)
         let others = (1...5).map { artifact("old-\($0)", opened: daysAgo(300 + $0)) }
 
-        let plan = ArtifactHolding.evictionPlan([onlyCopy] + others, budget: 100_000, now: now)
+        let plan = HoldingPolicy.evictionPlan([onlyCopy] + others, budget: 100_000, now: now)
 
         XCTAssertFalse(plan.contains(onlyCopy), "this is the only copy that exists anywhere")
-        XCTAssertEqual(ArtifactHolding.reasonToHold(onlyCopy, now: now), .notPushed)
+        XCTAssertEqual(HoldingPolicy.reasonToHold(onlyCopy, now: now), .notPushed)
     }
 
     /// Even when nothing else can be freed and the budget is still blown.
@@ -45,7 +45,7 @@ final class ArtifactHoldingTests: XCTestCase {
         let onlyCopy = artifact("plane-work", bytes: 5_000_000,
                                 opened: daysAgo(400), pushed: false)
 
-        XCTAssertEqual(ArtifactHolding.evictionPlan([onlyCopy], budget: 1, now: now), [])
+        XCTAssertEqual(HoldingPolicy.evictionPlan([onlyCopy], budget: 1, now: now), [])
     }
 
     // -- ordinary eviction -------------------------------------------------
@@ -58,7 +58,7 @@ final class ArtifactHoldingTests: XCTestCase {
             artifact("c", bytes: 100, opened: daysAgo(100)),
         ]
 
-        let plan = ArtifactHolding.evictionPlan(artifacts, budget: 250, now: now)
+        let plan = HoldingPolicy.evictionPlan(artifacts, budget: 250, now: now)
 
         XCTAssertEqual(plan.map(\.key), ["a"], "one is enough to get under the budget")
     }
@@ -66,7 +66,7 @@ final class ArtifactHoldingTests: XCTestCase {
     func testEvictionKeepsGoingUntilItFits() {
         let artifacts = (1...4).map { artifact("v\($0)", bytes: 100, opened: daysAgo(400 - $0)) }
 
-        let plan = ArtifactHolding.evictionPlan(artifacts, budget: 150, now: now)
+        let plan = HoldingPolicy.evictionPlan(artifacts, budget: 150, now: now)
 
         XCTAssertEqual(plan.map(\.key), ["v1", "v2", "v3"])
     }
@@ -80,33 +80,33 @@ final class ArtifactHoldingTests: XCTestCase {
             artifact("stale", bytes: 1_000, opened: daysAgo(999)),
         ]
 
-        let plan = ArtifactHolding.evictionPlan(artifacts, budget: 1, now: now)
+        let plan = HoldingPolicy.evictionPlan(artifacts, budget: 1, now: now)
 
         XCTAssertEqual(plan.map(\.key), ["stale"],
                        "the gig, the pinned version and what opens on a tap all stay")
     }
 
     func testNothingIsEvictedWhenItAlreadyFits() {
-        XCTAssertEqual(ArtifactHolding.evictionPlan([artifact("a", bytes: 10)],
+        XCTAssertEqual(HoldingPolicy.evictionPlan([artifact("a", bytes: 10)],
                                                     budget: 1_000, now: now), [])
     }
 
     /// A version opened last month is still held; one from last year is not.
     func testRecentlyOpenedIsHeldAndThenIsNot() {
-        XCTAssertEqual(ArtifactHolding.reasonToHold(artifact("recent", opened: daysAgo(3)),
+        XCTAssertEqual(HoldingPolicy.reasonToHold(artifact("recent", opened: daysAgo(3)),
                                                     now: now), .openedRecently)
-        XCTAssertNil(ArtifactHolding.reasonToHold(artifact("old", opened: daysAgo(400)),
+        XCTAssertNil(HoldingPolicy.reasonToHold(artifact("old", opened: daysAgo(400)),
                                                   now: now))
     }
 
     // -- what is fetched without being asked (§5.1) ------------------------
 
     func testTheLatestVersionOfEveryScoreIsFetched() {
-        XCTAssertTrue(ArtifactHolding.shouldFetch(artifact("current", latest: true), now: now))
+        XCTAssertTrue(HoldingPolicy.shouldFetch(artifact("current", latest: true), now: now))
     }
 
     func testAnOldVersionIsARowWithADownloadAffordanceNotAnError() {
-        XCTAssertFalse(ArtifactHolding.shouldFetch(artifact("v003", opened: daysAgo(400)),
+        XCTAssertFalse(HoldingPolicy.shouldFetch(artifact("v003", opened: daysAgo(400)),
                                                    now: now))
     }
 
@@ -114,24 +114,24 @@ final class ArtifactHoldingTests: XCTestCase {
     func testABookIsNeverFetchedAutomaticallyEvenWhenItIsTheLatestThing() {
         let book = artifact("fake-book", bytes: 52_000_000, kind: .book, latest: true)
 
-        XCTAssertFalse(ArtifactHolding.shouldFetch(book, now: now))
-        XCTAssertEqual(ArtifactHolding.tier(for: book), .wifiOnly)
+        XCTAssertFalse(HoldingPolicy.shouldFetch(book, now: now))
+        XCTAssertEqual(HoldingPolicy.tier(for: book), .wifiOnly)
     }
 
     // -- the one setting (§5.2) --------------------------------------------
 
     func testDocumentsAndInkGoOverAnything() {
-        XCTAssertTrue(ArtifactHolding.mayTransfer(.anyConnection, over: .cellular,
+        XCTAssertTrue(HoldingPolicy.mayTransfer(.anyConnection, over: .cellular,
                                                   allowCellular: false))
     }
 
     func testNotationWaitsForWifiUnlessTheReaderSaysOtherwise() {
-        let tier = ArtifactHolding.tier(for: artifact("v012"))
+        let tier = HoldingPolicy.tier(for: artifact("v012"))
 
         XCTAssertEqual(tier, .wifiUnlessAsked)
-        XCTAssertFalse(ArtifactHolding.mayTransfer(tier, over: .cellular, allowCellular: false))
-        XCTAssertTrue(ArtifactHolding.mayTransfer(tier, over: .cellular, allowCellular: true))
-        XCTAssertTrue(ArtifactHolding.mayTransfer(tier, over: .cellular,
+        XCTAssertFalse(HoldingPolicy.mayTransfer(tier, over: .cellular, allowCellular: false))
+        XCTAssertTrue(HoldingPolicy.mayTransfer(tier, over: .cellular, allowCellular: true))
+        XCTAssertTrue(HoldingPolicy.mayTransfer(tier, over: .cellular,
                                                   allowCellular: false, asked: true),
                       "tapping download on one thing beats the setting")
     }
@@ -139,7 +139,7 @@ final class ArtifactHoldingTests: XCTestCase {
     /// The setting does not reach the tier that exists to stop a 52 MB
     /// download starting on a train.
     func testTheCellularSettingDoesNotUnlockABook() {
-        XCTAssertFalse(ArtifactHolding.mayTransfer(.wifiOnly, over: .cellular,
+        XCTAssertFalse(HoldingPolicy.mayTransfer(.wifiOnly, over: .cellular,
                                                    allowCellular: true, asked: true))
     }
 
@@ -147,12 +147,12 @@ final class ArtifactHoldingTests: XCTestCase {
         let scan = artifact("big-scan", bytes: 20_000_000, kind: .pdf)
         let page = artifact("small-scan", bytes: 400_000, kind: .pdf)
 
-        XCTAssertEqual(ArtifactHolding.tier(for: scan), .wifiOnly)
-        XCTAssertEqual(ArtifactHolding.tier(for: page), .wifiUnlessAsked)
+        XCTAssertEqual(HoldingPolicy.tier(for: scan), .wifiOnly)
+        XCTAssertEqual(HoldingPolicy.tier(for: page), .wifiUnlessAsked)
     }
 
     func testNothingTransfersWithNoConnection() {
-        XCTAssertFalse(ArtifactHolding.mayTransfer(.anyConnection, over: .none,
+        XCTAssertFalse(HoldingPolicy.mayTransfer(.anyConnection, over: .none,
                                                    allowCellular: true, asked: true))
     }
 }

@@ -352,7 +352,7 @@ struct ScoreOptionsScreen: View {
                 ScreenRow(title: "Clear markup on this version", leads: false,
                           isDestructive: true, identifier: "annotations-clear") {
                     if let score = state.selectedScore, let vid = state.displayedVersionID {
-                        DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
+                        DrawingStore.shared.clear(prefix: "\(score.inkNamespace)/\(vid)")
                         Task { await state.renderIfNeeded(force: true) }
                     }
                     onBack()

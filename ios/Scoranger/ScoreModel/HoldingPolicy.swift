@@ -11,7 +11,13 @@ import Foundation
 /// and never a blank page.
 ///
 /// Everything here is pure: it decides, it does not transfer.
-enum ArtifactHolding {
+///
+/// Named for §5.1's own words, "the holding policy", and NOT `ArtifactHolding`:
+/// that name was already taken by a different idea -- what an arrangement holds,
+/// a PDF or notation or both (`ArtifactTag.swift`), which the reader sees on a
+/// chip. Two unrelated meanings of "holding", and the one the library already
+/// shows keeps the name.
+enum HoldingPolicy {
 
     /// What an artifact IS, which decides how carelessly it may be moved.
     enum Kind: Equatable {

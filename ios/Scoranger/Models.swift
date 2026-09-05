@@ -35,6 +35,12 @@ struct Manifest: Codable, Equatable {
 
 struct ScoreDoc: Codable, Identifiable, Hashable {
     var slug: String
+    /// Identity that outlives the title. The slug is `slugify(name)` and moves
+    /// when a score is renamed; this does not, and it is what a bundle and a
+    /// shared setlist entry address (design/FIREBASE.md §3, §13). Optional so a
+    /// manifest written before the engine assigned one still decodes; the
+    /// engine backfills it on open, so in a shipped build it is always there.
+    var uid: String?
     var name: String
     var title: String?
     var composer: String?
@@ -44,6 +50,13 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
     var piece: String?
 
     var id: String { slug }
+
+    /// What a reader's pencil marks are filed under. The uid, because markup
+    /// must survive a rename and must mean the same thing on the device a
+    /// bundle is opened on; the slug only while an older manifest is in hand,
+    /// and `DrawingStore.migrateKeys` re-files onto the uid as soon as one
+    /// appears.
+    var inkNamespace: String { uid ?? slug }
 
     /// By content: the sidebar polls, and a poll that finds the same library
     /// must not look like a change or every row rebuilds twice a second.
