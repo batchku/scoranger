@@ -127,8 +127,11 @@ targets:
         #   0.6.10 three of Ali's five: the Pencil chip off the bar, the mixer
         #          out of the bezel, and chord-diagrams refusing a staff it
         #          cannot draw on. The other two are 0.6.11.
+        #   0.6.11 a + on the score bar that files this arrangement into set
+        #          lists. Pagination (#4) is 0.6.12: its scope is unbounded and
+        #          it was not going to hold this.
         CURRENT_PROJECT_VERSION: 169
-        MARKETING_VERSION: 0.6.10
+        MARKETING_VERSION: 0.6.11
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
