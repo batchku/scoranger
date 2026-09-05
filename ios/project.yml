@@ -198,6 +198,16 @@ targets:
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
+          # A photograph or screenshot of a page. Some of the reader's scores
+          # are images rather than PDFs, and they are the same kind of thing:
+          # readable, annotatable, OMR-able. `public.image` is the umbrella
+          # every one of these conforms to; the three under it are named as
+          # well so a Files listing filtering on a concrete type still offers
+          # this app.
+          - CFBundleTypeName: "Image score"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.image, public.jpeg, public.png,
+                                 public.heic]
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"
