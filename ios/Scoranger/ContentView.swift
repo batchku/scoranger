@@ -502,6 +502,7 @@ struct ContentView: View {
                 // moves, so a canvas that read it that way would never follow.
                 // Same reason the ink bar observes its controller directly.
                 ScorePagesView(document: doc, annotationKey: "\(score.inkNamespace)/\(vid)",
+                               canvasIdentity: "\(score.slug)/\(vid)",
                                mode: state.scoreMode, playback: state.playback)
             }
         } else if score.versions.isEmpty {
