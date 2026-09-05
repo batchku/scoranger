@@ -154,4 +154,44 @@ extension BarPosition {
                                      height: bar.frame.height))
         }
     }
+
+    /// The bars of a page, grouped into the systems they sit on.
+    ///
+    /// There is no system in `ScoreGeometry` to read: Verovio draws them but
+    /// the model keeps measures, notes and the addressable groups. So this
+    /// infers them, by the SAME rule `clippedToNeighbours` above already
+    /// depends on -- two bars are on one system when their vertical extents
+    /// overlap -- rather than inventing a second rule that could disagree
+    /// with the one the playhead relies on.
+    ///
+    /// Overlap and not equality, because a system's bars are not aligned: a
+    /// bar carrying a high note, a slur or a chord diagram is taller than its
+    /// neighbours, and a stricter test would split one system into three
+    /// every time the music did something.
+    ///
+    /// Why it exists: a page COUNT cannot tell a collapsed layout from a
+    /// short piece. Ali's #4 screenshot reads "p. 1 / 1", and on a folk tune
+    /// one page may be perfectly correct -- what is wrong is that the music
+    /// is on one line. This counts the lines.
+    ///
+    /// Returned in reading order, top to bottom, each system's bars left to
+    /// right: the count is the point, but an order makes a failure legible.
+    static func systems(of bars: [Bar]) -> [[Bar]] {
+        var systems: [[Bar]] = []
+        for bar in bars.sorted(by: { $0.frame.minY < $1.frame.minY }) {
+            if let index = systems.firstIndex(where: { system in
+                system.contains { other in
+                    other.frame.minY < bar.frame.maxY
+                        && other.frame.maxY > bar.frame.minY
+                }
+            }) {
+                systems[index].append(bar)
+            } else {
+                systems.append([bar])
+            }
+        }
+        return systems
+            .map { $0.sorted { $0.frame.minX < $1.frame.minX } }
+            .sorted { ($0.first?.frame.minY ?? 0) < ($1.first?.frame.minY ?? 0) }
+    }
 }

@@ -574,10 +574,23 @@ struct PositionCounters: View {
     /// Nil in continuous mode, which has no pages to count.
     let pages: String?
     let bar: Int?
+    /// Test-only: the per-page SYSTEM count, passed in under `-geometryProbe`
+    /// and nil otherwise. See `ScoreGeometry.probeDescription`.
+    var probe: String? = nil
 
     var body: some View {
         HStack(spacing: Theme.Metric.s6) {
             if let pages { chip(pages, identifier: "counter-pages") }
+            // Test-only, under -geometryProbe and nothing else: the per-page
+            // SYSTEM count, which is the one thing that tells a collapsed
+            // layout from a short piece that genuinely fits on a page. Same
+            // shape as the seed flags; invisible and zero-sized, so it costs
+            // a shipped build nothing but the branch.
+            if let probe {
+                Color.clear.frame(width: 0, height: 0)
+                    .accessibilityIdentifier("geometry-probe")
+                    .accessibilityLabel(probe)
+            }
             // one place decides how a bar reads, and it is unit-tested
             if let label = BarPosition.label(for: bar) {
                 chip(label, identifier: "counter-bar")

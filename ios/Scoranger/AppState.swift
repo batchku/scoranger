@@ -1076,6 +1076,55 @@ final class AppState: ObservableObject {
                     print("SCORANGER-SEED guitar tab FAILED: \(error)")
                 }
             }
+            // ALI'S ACTUAL PROMPT, as one fixture. IMG_0196/0197: "Add a
+            // second staff and add guitar tabs and below that put the guitar
+            // chords with the core diagrams", on a two-staff folk tune, and
+            // the page counter came back "p. 1 / 1" with the fingering row
+            // crammed and overlapping.
+            //
+            // The separate fixtures above each paginate fine -- chords 8
+            // pages, a tab 11 -- so if this collapses it is the COMBINATION,
+            // and most likely the added staff: a taller system is the one
+            // input that could push Verovio into a degenerate layout, and a
+            // crammed fingering row is what a system that no longer fits its
+            // page looks like. pull-part is what "add a second staff" is.
+            // The ACCORDION SOLO by name, not "the first score": Ali's is a
+            // two-staff folk tune, and the quartet is four staves and 136
+            // bars, which paginates whatever you do to it and so cannot show
+            // his fault.
+            if ProcessInfo.processInfo.arguments.contains("-seedCombinedOp"),
+               (try await local.manifest()).scores.contains(where: {
+                   $0.slug == "under-paris-skies-accordion-solo" }) {
+                let slug = "under-paris-skies-accordion-solo"
+                let steps: [(String, [String: Any])] = [
+                    ("pull-part", ["score": slug, "from": "v001",
+                                   "part": "#0", "as": "Guitar"]),
+                    ("guitar-tab", ["score": slug, "part": "Guitar"]),
+                    ("set-chords", ["score": slug, "part": "Guitar",
+                                    "chords": (1...8).map {
+                                        ["measure": $0,
+                                         "symbol": ["G", "C", "D", "Em"][($0 - 1) % 4]] }]),
+                    ("chord-diagrams", ["score": slug, "part": "Guitar"]),
+                ]
+                // THE OUTCOME GOES WHERE THE TEST CAN SEE IT. It printed and
+                // continued, and app stdout is not in the xcodebuild log, so
+                // a pull-part that failed was invisible: the fixture reported
+                // nothing, the geometry came back identical to the untouched
+                // score, and the test read that as "no collapse". Three
+                // preconditions were written before one of them noticed.
+                var outcome: [String] = []
+                for (op, args) in steps {
+                    do {
+                        _ = try await local.call(op: op, args: args)
+                        outcome.append("\(op)=ok")
+                    } catch {
+                        outcome.append("\(op)=FAILED(\(error.localizedDescription))")
+                        break   // the rest depend on this one having landed
+                    }
+                }
+                seedOutcome = outcome.joined(separator: " ")
+                print("SCORANGER-SEED combined: \(seedOutcome ?? "-")")
+            }
             // A book the size of a Real Book. The browser's two faults -- a
             // flick that stopped the main thread once per page, and a picture
             // store bounded by a count -- do not show on a ten-page fixture,
@@ -1368,6 +1417,13 @@ final class AppState: ObservableObject {
     ///
     /// Here rather than in the view because the transport opens it and the
     /// canvas draws it, the same reason the ink controller lives here.
+    /// What the test-only combined-op seed did, step by step.
+    ///
+    /// Published so it can be surfaced beside the geometry probe: a fixture
+    /// that silently failed is worse than one that never ran, because the
+    /// test then measures an untouched score and calls it a pass.
+    @Published var seedOutcome: String?
+
     @Published var mixerOpen = false
     @Published var mixerCorner = MixerLayout.Corner.bottomTrailing
 

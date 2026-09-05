@@ -224,7 +224,13 @@ struct ContentView: View {
                     if state.selectedScore != nil {
                         LiveCounters(playback: state.playback,
                                      pages: state.layout.showsPageCounter ? pageCounter : nil,
-                                     bar: barCounter)
+                                     bar: barCounter,
+                                     probe: ProcessInfo.processInfo.arguments
+                                        .contains("-geometryProbe")
+                                        ? [state.geometry?.probeDescription,
+                                           state.seedOutcome.map { "seed[\($0)]" }]
+                                            .compactMap { $0 }.joined(separator: " ")
+                                        : nil)
                             .allowsHitTesting(false)
                     }
                     // The transcription chip where the BAR could not seat it: a
@@ -729,10 +735,13 @@ private struct LiveCounters: View {
     @ObservedObject var playback: PlaybackEngine
     let pages: String?
     let bar: Int?
+    /// Test-only, under `-geometryProbe`: the per-page system count.
+    let probe: String?
 
     var body: some View {
         PositionCounters(pages: pages,
                          bar: BarPosition.counter(bar: bar,
-                                                  isPlaying: playback.isPlaying))
+                                                  isPlaying: playback.isPlaying),
+                         probe: probe)
     }
 }
