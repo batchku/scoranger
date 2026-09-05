@@ -127,7 +127,7 @@ targets:
         #   0.6.10 three of Ali's five: the Pencil chip off the bar, the mixer
         #          out of the bezel, and chord-diagrams refusing a staff it
         #          cannot draw on. The other two are 0.6.11.
-        CURRENT_PROJECT_VERSION: 168
+        CURRENT_PROJECT_VERSION: 169
         MARKETING_VERSION: 0.6.10
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
