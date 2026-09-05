@@ -153,13 +153,27 @@ class NotNotationError(Exception):
 #: something a reader can look at but no op can touch.
 NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
 
+#: Pictures of music. The SAME kind of thing as a PDF -- readable,
+#: annotatable, OMR-able, editable by nothing until OMR has read it -- so they
+#: take the PDF's path rather than a parallel one.
+#:
+#: HEIC is here because an iPhone photograph of a page is one, and a reader
+#: who photographs a chart should not have to convert it first. Nothing in
+#: this module decodes any of them: the artifact is stored as it arrived and
+#: the DEVICE turns it into something to look at (see ScanImage on the Swift
+#: side), which is why no image library is a dependency of the engine.
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic"}
+
+#: Everything that is a scan rather than notation.
+SCAN_SUFFIXES = {".pdf"} | IMAGE_SUFFIXES
+
 
 def list_versions(slug: str) -> list:
     return _repo().list_versions(slug)
 
 
 def version_kind(slug: str, version_id: str | None = None) -> str:
-    """"musicxml" or "pdf", from the artifact the version points at.
+    """"musicxml", "pdf" or "image", from the artifact the version points at.
 
     DERIVED from the filename rather than stored on the document, so every
     version written before PDFs existed reports correctly with no migration
@@ -169,7 +183,17 @@ def version_kind(slug: str, version_id: str | None = None) -> str:
 
 
 def artifact_kind(path) -> str:
-    return "musicxml" if Path(path).suffix.lower() in NOTATION_SUFFIXES else "pdf"
+    """Three kinds, and it used to be two.
+
+    Anything not notation was called "pdf", which was true while a PDF was the
+    only scan there was. An image imported under that rule would have been
+    treated correctly -- as a scan -- and LABELLED a PDF in the library, which
+    is a lie in the one place a reader looks to see what they brought in.
+    """
+    suffix = Path(path).suffix.lower()
+    if suffix in NOTATION_SUFFIXES:
+        return "musicxml"
+    return "image" if suffix in IMAGE_SUFFIXES else "pdf"
 
 
 def resolve_notation_path(slug: str, version_id: str | None = None) -> Path:
@@ -181,29 +205,34 @@ def resolve_notation_path(slug: str, version_id: str | None = None) -> Path:
     it is a scan and that OMR is what makes it editable.
     """
     path = resolve_path(slug, version_id)
-    if artifact_kind(path) != "musicxml":
+    kind = artifact_kind(path)
+    if kind != "musicxml":
+        what = "an image" if kind == "image" else "a PDF"
         raise NotNotationError(
-            f"'{slug}' {version_id or 'latest'} is a PDF, not notation, so it "
-            f"cannot be edited: run OMR on it to turn it into an editable "
-            f"arrangement first.")
+            f"'{slug}' {version_id or 'latest'} is {what} -- a scan, not "
+            f"notation, so it cannot be edited: run OMR on it to turn it into "
+            f"an editable arrangement first.")
     return path
 
 
-def _write_pdf_version(slug: str, pdf_path: Path, op: str, args: dict,
-                       parent: str | None) -> dict:
-    """A version whose artifact is the PDF itself, copied in unchanged.
+def _write_scan_version(slug: str, scan_path: Path, op: str, args: dict,
+                        parent: str | None) -> dict:
+    """A version whose artifact is the scan itself, copied in unchanged.
 
     Nothing re-encodes it: what a reader looks at is the file they gave us.
+    That is why the SUFFIX is carried across rather than assumed -- it was
+    hard-coded `.pdf`, which for an image would have written a JPEG to a file
+    called v001.pdf and left every later reader of that name wrong about it.
     """
     import shutil
 
     repo = _repo()
     seq = len(repo.list_versions(slug)) + 1
     vid = f"v{seq:03d}"
-    fname = f"{vid}.pdf"
+    fname = f"{vid}{scan_path.suffix.lower()}"
     score_dir(slug).mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(pdf_path, score_dir(slug) / fname)
-    # `parts` is [] and not a guess: a PDF has no parts until OMR reads it, and
+    shutil.copyfile(scan_path, score_dir(slug) / fname)
+    # `parts` is [] and not a guess: a scan has no parts until OMR reads it, and
     # inventing one would put a lie in the library.
     doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": []}
@@ -315,9 +344,11 @@ def _ops_humanised(name: str) -> str:
     return ops.humanise_title(name) or name
 
 
-def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
-                     args: dict | None = None) -> tuple[str, dict]:
-    """Create an arrangement whose artifact is a PDF. Returns (slug, version doc).
+def create_scan_score(name: str, pdf_path, op: str = "import-pdf",
+                      args: dict | None = None) -> tuple[str, dict]:
+    """Create an arrangement whose artifact is a scan -- a PDF or an image.
+
+    Returns (slug, version doc).
 
     It reads, it takes Pencil markup and it sits in the library like anything
     else; what it cannot do is be edited, because selection, addresses and
@@ -326,8 +357,12 @@ def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
     source = Path(pdf_path)
     if not source.exists():
         raise FileNotFoundError(f"No such file: {source}")
-    if artifact_kind(source) != "pdf":
-        raise ValueError(f"{source.name} is not a PDF")
+    if artifact_kind(source) == "musicxml":
+        raise ValueError(f"{source.name} is notation, not a scan")
+    if source.suffix.lower() not in SCAN_SUFFIXES:
+        raise ValueError(
+            f"{source.name} is not a scan the app can show: "
+            f"{sorted(SCAN_SUFFIXES)}")
 
     repo = _repo()
     base = slugify(name)
@@ -347,7 +382,7 @@ def create_pdf_score(name: str, pdf_path, op: str = "import-pdf",
     # same rule as create_score: an arrangement holding no version must not
     # exist, so the row goes if the artifact does not land
     try:
-        entry = _write_pdf_version(slug, source, op, args or {}, parent=None)
+        entry = _write_scan_version(slug, source, op, args or {}, parent=None)
     except BaseException:
         import shutil
         repo.delete_score(slug)
@@ -1140,3 +1175,19 @@ def rebuild_manifest() -> dict:
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
+
+
+#: The names these had while a PDF was the only scan there was. Kept because
+#: the bridge, the CLI and the checks all call them, and a rename that breaks
+#: three callers to say the same thing is churn.
+create_pdf_score = create_scan_score
+_write_pdf_version = _write_scan_version
+
+
+def import_scan(path, name: str, op: str = "import-pdf",
+                args: dict | None = None) -> dict:
+    """Import a PDF or an image as an arrangement, and report it like an op."""
+    slug, entry = create_scan_score(name, path, op=op, args=args)
+    rebuild_manifest()
+    return {"score": slug, "op": op, "new_version": entry["id"],
+            "kind": artifact_kind(resolve_path(slug)), "file": entry["file"]}
