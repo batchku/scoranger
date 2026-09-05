@@ -342,8 +342,11 @@ struct ContentView: View {
         // spec settles: fixed chrome < ink bar < sync chip < mixer.
         .overlay {
             if state.scoreMode != .performance, state.mixerOpen {
-                MixerLayer(state: state, playback: state.playback,
-                           lanesInset: mixerLaneInset)
+                // The rebuilt window (design/MIXER_WINDOW.md). `MixerLayer` --
+                // the panel positioned by arithmetic that was not what got
+                // drawn -- is what Ali's iPad clipped.
+                MixerWindowLayer(state: state, playback: state.playback,
+                                 lanesInset: mixerLaneInset)
             }
         }
         .background(Theme.Surface.ground)

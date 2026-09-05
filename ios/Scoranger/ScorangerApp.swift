@@ -31,6 +31,9 @@ struct ScorangerApp: App {
                 .task {
                     state.migrateStaleOMRURL()
                     state.prepareDocumentsFolders()
+                    // The mixer window opens where it was left, and in the
+                    // state it was left in (MIXER_WINDOW.md §5, §1.3).
+                    state.restoreMixerWindow()
                     // warm up the interpreter so first render doesn't pay import cost
                     let started = await PythonEngine.shared.start()
                     print("SCORANGER-ENGINE start: \(started)")

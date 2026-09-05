@@ -1338,6 +1338,48 @@ final class AppState: ObservableObject {
     @Published var mixerOpen = false
     @Published var mixerCorner = MixerLayout.Corner.bottomTrailing
 
+    /// WHERE the mixer window is, and whether it is collapsed
+    /// (design/MIXER_WINDOW.md §5, §1.3).
+    ///
+    /// A placement, not a translation. A stored translation does not survive a
+    /// rotation -- the parked origin it was measured from moves, and the panel
+    /// teleports by the difference -- so a freely dragged window is kept as a
+    /// unit point of the free rect, which maps into any new one.
+    ///
+    /// Persisted per device, so the window opens where it was left and in the
+    /// state it was left in. `mixerCorner` stays beside it as the corner the
+    /// park button will cycle to next, which is what its glyph previews.
+    @Published var mixerPlacement: MixerLayout.Placement = .corner(.bottomTrailing) {
+        didSet { storePlacement() }
+    }
+    @Published var mixerCollapsed = false {
+        didSet { storedMixerCollapsed = mixerCollapsed }
+    }
+
+    @AppStorage("mixerCollapsed") private var storedMixerCollapsed = false
+    @AppStorage("mixerPlacement") private var storedMixerPlacement = ""
+
+    private func storePlacement() {
+        guard let data = try? JSONEncoder().encode(mixerPlacement),
+              let text = String(data: data, encoding: .utf8) else { return }
+        storedMixerPlacement = text
+    }
+
+    /// Read the window's position back on launch.
+    ///
+    /// A bad or absent value falls back to the bottom-trailing corner rather
+    /// than to nothing: a mixer with no placement would be drawn at the origin
+    /// of the free rect, over the top of the score.
+    func restoreMixerWindow() {
+        mixerCollapsed = storedMixerCollapsed
+        guard !storedMixerPlacement.isEmpty,
+              let data = storedMixerPlacement.data(using: .utf8),
+              let placement = try? JSONDecoder()
+                  .decode(MixerLayout.Placement.self, from: data) else { return }
+        mixerPlacement = placement
+        if case .corner(let corner) = placement { mixerCorner = corner }
+    }
+
     /// Who is deciding which page is shown while the music plays.
     @Published var pageFollow = PageFollow()
 

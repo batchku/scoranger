@@ -185,33 +185,43 @@ final class MixerOnAlisCase: XCTestCase {
                              40, "dragging the header moved the panel nowhere")
     }
 
-    /// And from the panel's BODY over a strip, which is where a finger lands
-    /// first. This one is EXPECTED to be refused by the fader underneath -- it
-    /// is here to record which grab points work and which do not, because
-    /// "not draggable at all" is what a reader concludes when the place they
-    /// grabbed is not a handle.
-    func testWhichGrabPointsMoveThePanel() {
+    /// Which grab points move the window, and which must NOT.
+    ///
+    /// The header drags. A fader does not -- it is a fader, and §1.1 forbids a
+    /// gesture anywhere on the panel body, which is exactly what made the old
+    /// panel feel dead: its one drag competed with every control and lost.
+    /// Measured on the shipped build: grip 169.7pt, caption 120.1pt, fader
+    /// 0.0pt, body 0.0pt.
+    func testTheHeaderDragsAndTheBodyDoesNot() {
         let app = launched()
-        guard let panel = openMixer(app) else { return XCTFail("no mixer") }
-        var moved: [String: Double] = [:]
-        for (name, element) in [("grip", app.descendants(matching: .any)["mixer-grip"].firstMatch),
-                                ("caption", app.staticTexts["MIXER"].firstMatch),
-                                ("fader", app.descendants(matching: .any)["strip-fader-0"].firstMatch),
-                                ("panel-edge", panel)] {
-            guard element.exists else { moved[name] = -1; continue }
+        guard openMixer(app) != nil else { return XCTFail("no mixer") }
+        let header = app.descendants(matching: .any)["mixer-header"].firstMatch
+        let fader = app.descendants(matching: .any)["strip-fader-0"].firstMatch
+
+        func move(_ element: XCUIElement, dx: CGFloat, dy: CGFloat) -> Double {
             let before = app.otherElements["mixer"].firstMatch.frame
-            let start = element.coordinate(
-                withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            start.press(forDuration: 0.25,
-                        thenDragTo: start.withOffset(CGVector(dx: -120, dy: -120)),
-                        withVelocity: .slow, thenHoldForDuration: 0.6)
+            let from = element.coordinate(withNormalizedOffset:
+                CGVector(dx: 0.5, dy: 0.5))
+            from.press(forDuration: 0.25,
+                       thenDragTo: from.withOffset(CGVector(dx: dx, dy: dy)),
+                       withVelocity: .slow, thenHoldForDuration: 0.5)
             let after = app.otherElements["mixer"].firstMatch.frame
-            moved[name] = hypot(after.minX - before.minX, after.minY - before.minY)
-            // put it back where it was, so the next grab point starts level
-            app.descendants(matching: .any)["mixer-grip"].firstMatch.tap()
-            settle(panel)
+            return hypot(after.minX - before.minX, after.minY - before.minY)
         }
-        print("GRAB POINTS -> distance moved: \(moved)")
+
+        let byHeader = move(header, dx: -120, dy: -120)
+        print("header moved the window \(byHeader)pt")
+        XCTAssertGreaterThan(byHeader, 40, "the header did not drag the window")
+
+        // §8.5: a fader drag changes the LEVEL and leaves the window alone.
+        let levelBefore = fader.value as? String ?? ""
+        let byFader = move(fader, dx: 0, dy: -60)
+        let levelAfter = fader.value as? String ?? ""
+        print("fader moved the window \(byFader)pt, level \(levelBefore) -> \(levelAfter)")
+        XCTAssertLessThan(byFader, 2,
+                          "dragging a fader moved the whole window \(byFader)pt")
+        XCTAssertNotEqual(levelAfter, levelBefore,
+                          "dragging the fader did not change its level")
         snap("grab-points")
     }
 }
