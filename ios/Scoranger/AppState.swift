@@ -1051,6 +1051,27 @@ final class AppState: ObservableObject {
                     print("SCORANGER-SEED chord chart FAILED: \(error)")
                 }
             }
+            // A guitar tab, which is the other half of the pagination
+            // fixture. Ali's report is that a chat op which ADDS material --
+            // a staff, a tab, chords -- collapses the page layout to one long
+            // squished system, and those three are exactly the transforms
+            // that make `VerovioRenderer.engrave` reload the document from
+            // rewritten MEI. Chords are already seeded above; this is the tab.
+            //
+            // Through the engine rather than a canned file, so the fixture is
+            // whatever `guitar-tab` really produces today.
+            if ProcessInfo.processInfo.arguments.contains("-seedGuitarTab"),
+               let first = (try await local.manifest()).scores
+                    .sorted(by: { $0.slug < $1.slug }).first {
+                do {
+                    _ = try await local.call(op: "guitar-tab",
+                                             args: ["score": first.slug,
+                                                    "part": "#0"])
+                    print("SCORANGER-SEED guitar tab on \(first.slug)")
+                } catch {
+                    print("SCORANGER-SEED guitar tab FAILED: \(error)")
+                }
+            }
             // A book the size of a Real Book. The browser's two faults -- a
             // flick that stopped the main thread once per page, and a picture
             // store bounded by a count -- do not show on a ten-page fixture,
