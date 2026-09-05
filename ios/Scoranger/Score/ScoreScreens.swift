@@ -452,11 +452,23 @@ struct TitleSwitcherBand: View {
         return Dictionary(uniqueKeysWithValues: zip(scores.map(\.slug), shown))
     }
 
+    private var setlistCount: Int { state.manifest?.setlists?.count ?? 0 }
+
+    /// One row count per mode, and read from the mode rather than defaulted.
+    ///
+    /// It was `mode == .versions ? versions : arrangements`, so a third mode
+    /// would silently have been sized by the arrangement count -- a band with
+    /// eight set lists and two arrangements opening two rows tall, its
+    /// checklist scrolled out of sight.
     private var contentHeight: CGFloat {
-        TitleBandLayout.contentHeight(
-            mode: mode,
-            rows: mode == .versions ? shownVersions.count : arrangements.count,
-            hasAllVersionsRow: hasAllVersionsRow)
+        let rows: Int
+        switch mode {
+        case .versions:     rows = shownVersions.count
+        case .arrangements: rows = arrangements.count
+        case .setlists:     rows = setlistCount
+        }
+        return TitleBandLayout.contentHeight(mode: mode, rows: rows,
+                                             hasAllVersionsRow: hasAllVersionsRow)
     }
 
     var body: some View {
@@ -482,6 +494,7 @@ struct TitleSwitcherBand: View {
         switch mode {
         case .arrangements: arrangementColumn
         case .versions:     versionColumn
+        case .setlists:     setlistColumn
         }
     }
 
@@ -526,6 +539,83 @@ struct TitleSwitcherBand: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Which set lists this arrangement is in, one box each (0.6.11 #1).
+    ///
+    /// The rows come from `SetlistMembership`, which is where the two
+    /// decisions live: the order is by NAME and never by membership, so a box
+    /// checked under the finger does not move the row out from under the next
+    /// tap; and a tap resolves to `.add` or `.remove` read off the row rather
+    /// than a Bool a caller has to interpret.
+    ///
+    /// The band STAYS OPEN on a tap, like the sound picker and unlike the
+    /// arrangement and version rows -- those switch what you are looking at
+    /// and have nothing more to say, while this is a checklist and a reader
+    /// putting one arrangement in three set lists should not reopen it twice.
+    private var setlistColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BandHeader("Set lists")
+            let rows = SetlistMembership.rows(for: score.slug,
+                                              in: state.manifest?.setlists ?? [])
+            if rows.isEmpty {
+                // Not an empty band: a line saying where set lists come from.
+                // The library makes them; this only files an arrangement into
+                // one that exists, and a blank panel would read as broken.
+                PanelNote(text: "No set lists yet. Make one in the library, "
+                          + "then this arrangement can go in it.")
+                    .padding(.horizontal, Theme.Metric.s16)
+                    .padding(.vertical, 8)
+            }
+            ForEach(rows) { row in
+                setlistRow(row)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// One set list, with its box.
+    ///
+    /// The count is shown as the row's `detail` rather than in the title, so
+    /// the names line up and a reader scanning for "Friday night" is not
+    /// reading past a number to find it.
+    private func setlistRow(_ row: SetlistMembership.Row) -> some View {
+        Button {
+            switch SetlistMembership.tap(row) {
+            case .add(let setlist):
+                Task { await state.addToSetlist(setlist: setlist, score: score.slug) }
+            case .remove(let setlist):
+                Task { await state.removeFromSetlist(setlist: setlist,
+                                                     score: score.slug) }
+            }
+        } label: {
+            HStack(spacing: Theme.Metric.s8) {
+                // A box, not a checkmark on the trailing edge: this row is a
+                // CHECKLIST entry that toggles, and the version rows' trailing
+                // tick means "this is the one you are looking at". Two
+                // different meanings should not share one mark.
+                Image(systemName: row.isMember ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(row.isMember ? Theme.Accent.clayStrong
+                                                  : Theme.Ink.ink3)
+                Text(row.name).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                    .lineLimit(1)
+                Spacer(minLength: Theme.Metric.s8)
+                Text(row.count == 1 ? "1 arrangement" : "\(row.count) arrangements")
+                    .typeRole(.data).foregroundStyle(Theme.Ink.ink3).fixedSize()
+            }
+            .padding(.horizontal, Theme.Metric.s16)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.name)
+        .accessibilityValue(row.isMember ? "in this set list" : "not in this set list")
+        .accessibilityHint(row.isMember ? "Remove from this set list"
+                                        : "Add to this set list")
+        .accessibilityAddTraits(row.isMember ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityIdentifier("setlist-check-\(row.slug)")
     }
 
     private func switchRow(title: String, number: Int?, detail: String? = nil,

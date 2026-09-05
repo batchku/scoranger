@@ -25,13 +25,20 @@ import CoreGraphics
 ///                       at exactly the widths the bar does not (0.6.8).
 ///   5. layout control   three cells, then two
 ///   6. the title        flexible: it truncates, it does not disappear
-///   7. version count    optional, and the first to go -- the title block
-///                       opens the same band, so nothing becomes unreachable
+///   7. version count    optional -- the title block opens the same band, so
+///                       nothing becomes unreachable when it goes
+///   8. add to set list   optional, and the FIRST to go (0.6.11). Every op in
+///                       this app makes a version, so the count above is a
+///                       shortcut to something a reader reaches constantly;
+///                       putting an arrangement in a set list is organising,
+///                       done occasionally, and the library's own set list
+///                       picker still does it from the other direction. So
+///                       this drops a shortcut, never a feature.
 ///
-/// There was an item 8: a "Pencil: select" chip under the title, which yielded
-/// before everything above it. Ali asked for it off the bar in 0.6.10, so the
-/// bar is 90pt richer at every width and the version count is now what a
-/// narrowing bar gives up first. The mode itself is not lost -- the Edit
+/// Item 8 was a "Pencil: select" chip until 0.6.10, which yielded before
+/// everything above it. Ali asked for it off the bar, freeing 90pt at every
+/// width -- which is what left room to seat the + here without taking
+/// anything else off a narrow bar. The mode itself is not lost -- the Edit
 /// button's own active state shows it, and Selection & chat states it in
 /// words.
 ///
@@ -40,6 +47,14 @@ enum ScoreBarLayout {
     struct Fit: Equatable {
         /// The "N versions" dropdown trigger.
         var showsVersions: Bool
+        /// The + that puts this arrangement in a set list (0.6.11 #1).
+        ///
+        /// Last in the yield order and so the first to go. Defaulted, unlike
+        /// `showsVersions`, because every existing `Fit(...)` in the tests and
+        /// in `ScoreScreens` names the fields it cares about and a new
+        /// REQUIRED field would have meant editing all of them to say
+        /// "and not this either".
+        var showsAddToSetlist: Bool = false
         /// Cells in the layout control: 3 (page/spread/continuous) or 2
         /// (page/continuous -- a spread across a phone is two thumbnails).
         var layoutCells: Int
@@ -102,6 +117,8 @@ enum ScoreBarLayout {
     static let threeCells: CGFloat = 40 * 3 + 2   // cells plus their dividers
     static let twoCells: CGFloat = 40 * 2 + 1
     static let versionsWidth: CGFloat = 110
+    /// The + and the gap before it. The same button as Edit and Ask.
+    static let addToSetlistWidth: CGFloat = actionWidth + gap
     /// The transport toggle and the gap before it.
     static let transportWidth: CGFloat = 34 + 8
     /// The performance toggle and the gap before it. The same button.
@@ -153,7 +170,8 @@ enum ScoreBarLayout {
     }
 
     private static func layout(barWidth: CGFloat) -> Fit {
-        let everything = Fit(showsVersions: true, layoutCells: 3)
+        let everything = Fit(showsVersions: true, showsAddToSetlist: true,
+                             layoutCells: 3)
         // Unmeasured: show everything rather than flashing a stripped bar on
         // the first frame and filling it in afterwards.
         guard barWidth > 0 else { return everything }
@@ -167,15 +185,22 @@ enum ScoreBarLayout {
         // every threshold by its own width.
         let base = essentials + titleMinimum + numeralWidth
         let forAll = base + threeCells + versionsWidth + switchesWidth
+            + addToSetlistWidth
         if barWidth >= forAll { return everything }
 
-        // The version count goes first. The title block opens VERSIONS when this
+        // The + goes first: the library's set list picker still offers the
+        // same operation, so this costs a shortcut rather than a feature.
+        let withoutAdd = forAll - addToSetlistWidth
+        if barWidth >= withoutAdd {
+            return Fit(showsVersions: true, layoutCells: 3)
+        }
+        // Then the version count. The title block opens VERSIONS when this
         // has gone, so versions stay REACHABLE -- this drops a shortcut, never
         // a feature. That invariant was briefly untrue: 0.6.3 #8 split the band
         // so the title opened arrangements only, and a phone at reading width
         // had no route to versions at all. Whoever changes what the title opens
         // must keep this true (ScoreTopBar.titleBlock).
-        let withoutVersions = forAll - versionsWidth
+        let withoutVersions = withoutAdd - versionsWidth
         if barWidth >= withoutVersions {
             return Fit(showsVersions: false, layoutCells: 3)
         }
@@ -218,6 +243,7 @@ enum ScoreBarLayout {
         var needed = essentials + titleMinimum
         needed += fit.layoutCells >= 3 ? threeCells : twoCells
         if fit.showsVersions { needed += versionsWidth }
+        if fit.showsAddToSetlist { needed += addToSetlistWidth }
         if fit.showsTransportToggle { needed += transportWidth }
         if fit.showsPerformanceToggle { needed += performanceWidth }
         if fit.showsOMRProgress { needed += omrWidth }

@@ -23,11 +23,18 @@ enum TitleBandLayout {
     enum Mode: Equatable {
         case arrangements
         case versions
+        /// Which set lists this arrangement is in, with a box per set list
+        /// (0.6.11 #1). A third mode on this band rather than a second kind of
+        /// dropdown on the score: the band already knows how tall to be, when
+        /// to scroll, and how to get out of the way, and a floating panel
+        /// beside it would be a second answer to all three.
+        case setlists
 
         var heading: String {
             switch self {
             case .arrangements: return "Arrangements"
             case .versions:     return "Versions"
+            case .setlists:     return "Set lists"
             }
         }
     }

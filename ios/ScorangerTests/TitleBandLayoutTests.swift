@@ -70,4 +70,40 @@ final class TitleBandLayoutTests: XCTestCase {
     func testWithNeitherItSaysSomethingRatherThanNothing() {
         XCTAssertEqual(TitleBandLayout.versionLabel(prompt: nil, op: ""), "edited")
     }
+
+    // MARK: - The set list checklist (0.6.11 #1)
+
+    /// The band gains a third mode rather than the score gaining a second kind
+    /// of dropdown. The height rule is the one every column already uses.
+    func testTheSetlistColumnIsAsTallAsItsRows() {
+        XCTAssertEqual(
+            TitleBandLayout.contentHeight(mode: .setlists, rows: 3,
+                                          hasAllVersionsRow: false),
+            TitleBandLayout.headerHeight + 3 * TitleBandLayout.rowHeight)
+    }
+
+    /// A library with no set lists still opens as a band with something in it,
+    /// by the same "at least one row" rule the other columns follow -- there
+    /// is a line to read explaining where set lists come from.
+    func testAnEmptySetlistColumnIsStillAReadableBand() {
+        XCTAssertEqual(
+            TitleBandLayout.contentHeight(mode: .setlists, rows: 0,
+                                          hasAllVersionsRow: false),
+            TitleBandLayout.headerHeight + TitleBandLayout.rowHeight)
+    }
+
+    /// `hasAllVersionsRow` belongs to the versions column and must not add a
+    /// row to this one -- the flag is passed by a caller that does not know
+    /// which mode it is in.
+    func testTheAllVersionsRowDoesNotLeakIntoTheSetlistColumn() {
+        XCTAssertEqual(
+            TitleBandLayout.contentHeight(mode: .setlists, rows: 2,
+                                          hasAllVersionsRow: true),
+            TitleBandLayout.contentHeight(mode: .setlists, rows: 2,
+                                          hasAllVersionsRow: false))
+    }
+
+    func testTheSetlistColumnIsHeaded() {
+        XCTAssertEqual(TitleBandLayout.Mode.setlists.heading, "Set lists")
+    }
 }

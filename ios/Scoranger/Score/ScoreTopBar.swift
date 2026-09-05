@@ -74,6 +74,7 @@ struct ScoreTopBar: View {
             }
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
+            if fit.showsAddToSetlist { addToSetlistTrigger }
             layoutControl
             if fit.showsPerformanceToggle { performanceToggle }
             if fit.showsTransportToggle { transportToggle }
@@ -132,6 +133,31 @@ struct ScoreTopBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("performance-bar")
     }
+
+    /// The + that puts this arrangement in a set list (0.6.11 #1).
+    ///
+    /// It opens the title band in its third mode rather than a panel of its
+    /// own -- the band already knows how tall to be, when to scroll and how to
+    /// get out of the way (`TitleBandLayout`), and a floating checklist beside
+    /// it would be a second answer to all three.
+    ///
+    /// The direction is what makes this worth a control at all: the library
+    /// files arrangements INTO a set list, one set list at a time, and this
+    /// asks the opposite question -- where does THIS arrangement belong? Both
+    /// routes stay; neither replaces the other.
+    private var addToSetlistTrigger: some View {
+        barButton("plus", label: "Add to set list", identifier: "score-add-setlist",
+                  active: setlistsOpen) {
+            titleMenuOpen = (titleMenuMode == .setlists) ? !titleMenuOpen : true
+            titleMenuMode = .setlists
+            moreOpen = false
+        }
+        .accessibilityValue(SetlistMembership.summary(
+            for: state.selectedScore?.slug ?? "",
+            in: state.manifest?.setlists ?? []))
+    }
+
+    private var setlistsOpen: Bool { titleMenuOpen && titleMenuMode == .setlists }
 
     /// What OMR is doing, read from the one signal the app keeps for it
     /// (`AppState.omrBusy` + the stage of the pending import it started). No

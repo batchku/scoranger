@@ -58,7 +58,9 @@ final class ScoreBarLayoutTests: XCTestCase {
 
     func testAnIPadShowsTheWholeBar() {
         let fit = ScoreBarLayout.fit(barWidth: iPadLandscape)
-        XCTAssertEqual(fit, ScoreBarLayout.Fit(showsVersions: true, layoutCells: 3))
+        XCTAssertEqual(fit, ScoreBarLayout.Fit(showsVersions: true,
+                                               showsAddToSetlist: true,
+                                               layoutCells: 3))
     }
 
     /// The stated order: the version count yields before the switches, and the
@@ -137,7 +139,9 @@ final class ScoreBarLayoutTests: XCTestCase {
     /// fills in on the second frame reads as a glitch.
     func testAnUnmeasuredBarShowsEverything() {
         XCTAssertEqual(ScoreBarLayout.fit(barWidth: 0),
-                       ScoreBarLayout.Fit(showsVersions: true, layoutCells: 3))
+                       ScoreBarLayout.Fit(showsVersions: true,
+                                          showsAddToSetlist: true,
+                                          layoutCells: 3))
     }
 
     // MARK: - The two switches (0.6.8)
@@ -257,16 +261,62 @@ final class ScoreBarLayoutTests: XCTestCase {
         let withoutAChip = ScoreBarLayout.essentials + ScoreBarLayout.titleMinimum
             + ScoreBarLayout.numeralWidth + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
+            + ScoreBarLayout.addToSetlistWidth
         XCTAssertTrue(ScoreBarLayout.fits(widest, in: withoutAChip),
                       "the bar still reserves width for something it no longer draws")
     }
 
-    /// And the yield order starts one item later. The chip was item 8 and the
-    /// first to go; with it gone, the version count is what a narrowing bar
-    /// gives up first -- which is what §7 always said would happen after it.
-    func testTheFirstThingANarrowingBarYieldsIsTheVersionCount() throws {
+    /// And the version count yields SECOND, not first.
+    ///
+    /// When the chip went in 0.6.10 the count became the first thing a
+    /// narrowing bar gave up. 0.6.11 seated the add-to-set-list + below it, so
+    /// the count is one rung up again -- and the assertion that matters is
+    /// unchanged in spirit: nothing ABOVE the count in the order may go before
+    /// it does.
+    func testTheVersionCountYieldsSecondAndNothingAboveItGoesFirst() throws {
         let widest = ScoreBarLayout.fit(barWidth: 2000)
         XCTAssertTrue(widest.showsVersions)
+
+        var seen: [ScoreBarLayout.Fit] = []
+        var width = 2000.0
+        while width > ScoreBarLayout.floor {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            if seen.last != fit { seen.append(fit) }
+            if !fit.showsVersions { break }
+            width -= 1
+        }
+        // widest, then the + gone, then the count gone: three distinct fits.
+        XCTAssertEqual(seen.count, 3, "the count did not yield second: \(seen)")
+        let dropped = try XCTUnwrap(seen.last)
+        XCTAssertFalse(dropped.showsVersions)
+        XCTAssertFalse(dropped.showsAddToSetlist, "the + should already be gone")
+        XCTAssertEqual(dropped.layoutCells, widest.layoutCells,
+                       "a layout cell went before the version count did")
+        XCTAssertEqual(dropped.showsTransportToggle, widest.showsTransportToggle,
+                       "a switch went before the version count did")
+    }
+
+
+    // MARK: - Add to set list (0.6.11 #1)
+
+    /// The + that puts this arrangement in a set list. On a wide bar it is
+    /// there; it is the FIRST thing a narrowing bar gives up.
+    func testAWideBarSeatsTheAddToSetlistButton() {
+        XCTAssertTrue(ScoreBarLayout.fit(barWidth: iPadLandscape).showsAddToSetlist)
+    }
+
+    /// It yields before the version count, which was the first to go until
+    /// this was added.
+    ///
+    /// The reasoning, since a yield order is a claim about what matters least:
+    /// every op in this app makes a version, so the version count is a
+    /// shortcut to something a reader reaches constantly; putting an
+    /// arrangement in a set list is organising, done occasionally, and the
+    /// library's own set list picker still does it. Dropping the + drops a
+    /// shortcut, never the feature -- the same test §7 has to pass.
+    func testTheAddToSetlistButtonIsTheFirstThingToGo() throws {
+        let widest = ScoreBarLayout.fit(barWidth: 2000)
+        XCTAssertTrue(widest.showsAddToSetlist)
 
         var firstChange: ScoreBarLayout.Fit?
         var width = 2000.0
@@ -276,12 +326,29 @@ final class ScoreBarLayoutTests: XCTestCase {
             width -= 1
         }
         let changed = try XCTUnwrap(firstChange, "the bar never yielded anything")
-        XCTAssertFalse(changed.showsVersions,
-                       "the first thing yielded should be the version count")
-        XCTAssertEqual(changed.layoutCells, widest.layoutCells,
-                       "nothing below the version count may go before it")
-        XCTAssertEqual(changed.showsTransportToggle, widest.showsTransportToggle)
+        XCTAssertFalse(changed.showsAddToSetlist,
+                       "something went before the + did")
+        XCTAssertTrue(changed.showsVersions,
+                      "the version count went before the + did")
     }
+
+    /// A phone does not seat it, and that is allowed precisely because the
+    /// library still offers the same operation from the other direction.
+    func testAPhoneDropsIt() {
+        XCTAssertFalse(ScoreBarLayout.fit(barWidth: iPhonePortrait).showsAddToSetlist)
+    }
+
+    /// It never comes back as the bar narrows.
+    func testTheAddToSetlistButtonNeverReappears() {
+        var previous = ScoreBarLayout.fit(barWidth: 1400)
+        for width in stride(from: CGFloat(1400), through: 300, by: -5) {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertFalse(fit.showsAddToSetlist && !previous.showsAddToSetlist,
+                           "the + came back at \(width)pt")
+            previous = fit
+        }
+    }
+
 
 }
 
