@@ -18,7 +18,27 @@ final class ScoreArtifactTests: XCTestCase {
     /// Verovio and fail deep in a parser.
     func testTheUnknownIsTreatedAsAScan() {
         XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001"), .scan)
-        XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001.png"), .scan)
+        // `.png` stood here as the unrecognised file until images became a
+        // kind of their own. The claim is about the UNKNOWN, so it asks with
+        // a suffix nothing knows.
+        XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001.tiff"), .scan)
+    }
+
+    /// A picture of a page is its own kind: the same behaviour as a PDF, and
+    /// a different word for it, because a reader has to be able to tell a
+    /// photograph from a PDF in the library.
+    func testAPictureOfAPageIsAnImage() {
+        for name in ["v001.jpg", "v001.jpeg", "v001.png", "v001.PNG",
+                     "v001.heic", "v001.HEIC"] {
+            XCTAssertEqual(ScoreArtifact.kind(ofFile: name), .image, name)
+        }
+    }
+
+    /// And it can no more be selected or edited than a PDF can.
+    func testAnImageCanBeNeitherSelectedNorEdited() {
+        XCTAssertFalse(ScoreArtifact.allowsSelection(.image))
+        XCTAssertFalse(ScoreArtifact.allowsEditing(.image))
+        XCTAssertFalse(ScoreArtifact.Kind.image.isNotation)
     }
 
     func testOnlyNotationCanBeSelectedOrEdited() {

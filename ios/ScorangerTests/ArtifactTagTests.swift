@@ -46,11 +46,18 @@ final class ArtifactTagTests: XCTestCase {
 
     /// The suffix rule is `ScoreArtifact`'s, not a second one invented here --
     /// so an unrecognised file is a scan in both places.
+    ///
+    /// This used `v001.png` as the unrecognised file, which it was until
+    /// images became a kind of their own. The claim was always about the rule
+    /// being SHARED rather than about PNG in particular, so it now asks with a
+    /// suffix nothing knows.
     func testTheSuffixRuleIsTheOneTheScoreViewUses() {
-        XCTAssertEqual(ArtifactTag.holding(files: ["v001.png"]), .pdf)
+        XCTAssertEqual(ArtifactTag.holding(files: ["v001.tiff"]), .pdf)
+        XCTAssertEqual(ArtifactTag.holding(files: ["v001.png"]), .image)
         XCTAssertEqual(ArtifactTag.holding(files: ["v001.mid"]), .notation)
         XCTAssertEqual(ArtifactTag.holding(for: .notation), .notation)
         XCTAssertEqual(ArtifactTag.holding(for: .scan), .pdf)
+        XCTAssertEqual(ArtifactTag.holding(for: .image), .image)
     }
 
     // MARK: - Arrangements and pieces
@@ -178,5 +185,82 @@ final class LibraryFormatChipTests: XCTestCase {
         let rows = LibraryModel.pieceRows(manifest: manifest())
         XCTAssertEqual(LibraryModel.searched(rows, query: "pdf").map(\.id), ["tune"])
         XCTAssertEqual(LibraryModel.searched(rows, query: "musicxml").map(\.id), ["other"])
+    }
+
+    // MARK: - Images (0.6.x)
+
+    /// An image is a scan, and it says so rather than borrowing "PDF".
+    ///
+    /// Ali brings scores in as JPEGs and PNGs. They behave exactly like a PDF
+    /// -- readable, annotatable, not editable until OMR -- but a reader
+    /// looking at the library has to be able to tell a photograph from a PDF,
+    /// because those are the two things they actually brought in.
+    func testAnImageIsItsOwnTag() {
+        XCTAssertEqual(ArtifactTag.label(ArtifactHolding.image), "IMAGE")
+        XCTAssertEqual(ArtifactTag.label(ScoreArtifact.Kind.image), "IMAGE")
+        XCTAssertEqual(ArtifactTag.markerDetail(.image), "not editable")
+    }
+
+    /// Every suffix, from the one place that decides.
+    func testTheKindComesFromTheSuffix() {
+        for name in ["v001.jpg", "v001.jpeg", "v001.png", "v001.PNG",
+                     "v001.heic"] {
+            XCTAssertEqual(ScoreArtifact.kind(ofFile: name), .image, name)
+        }
+        XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001.pdf"), .scan)
+        XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001.musicxml"), .notation)
+        XCTAssertEqual(ScoreArtifact.kind(ofFile: "v001.mxl"), .notation)
+    }
+
+    /// An image that has been OMR'd holds both, the same way a PDF does -- and
+    /// says IMAGE rather than PDF, because the thing still on disk to compare
+    /// the transcription against is the photograph.
+    func testAnOMRdImageHoldsBoth() {
+        let holding = ArtifactTag.holding(files: ["v001.png", "v002.musicxml"])
+        XCTAssertEqual(holding, [.image, .notation])
+        XCTAssertEqual(ArtifactTag.label(holding!), "IMAGE + MUSICXML")
+        XCTAssertEqual(ArtifactTag.chips(for: holding!).map(\.text),
+                       ["IMAGE", "MUSICXML"])
+    }
+
+    /// A PDF and an image in one arrangement. Unusual, and it must still read
+    /// as what it is rather than as whichever was checked first.
+    func testAPdfAndAnImageAreBothNamed() {
+        let holding = ArtifactTag.holding(files: ["v001.pdf", "v002.jpg"])
+        XCTAssertEqual(ArtifactTag.label(holding!), "PDF + IMAGE")
+        let all = ArtifactTag.holding(files: ["v001.pdf", "v002.jpg",
+                                              "v003.musicxml"])
+        XCTAssertEqual(ArtifactTag.label(all!), "PDF + IMAGE + MUSICXML")
+    }
+
+    /// The question the library actually asks: can anything here be worked on.
+    /// An image answers no, exactly as a PDF does.
+    func testAnImageHasNoNotation() {
+        XCTAssertFalse(ArtifactHolding.image.hasNotation)
+        XCTAssertFalse(ArtifactHolding.pdf.hasNotation)
+        XCTAssertTrue(ArtifactTag.holding(files: ["v001.png", "v002.mxl"])!
+                        .hasNotation)
+    }
+
+    /// And the one the row asks to draw its "scan" treatment. It was
+    /// `holding == .pdf`, which an image-only arrangement fails while being
+    /// exactly as much of a scan.
+    func testAnImageOnlyArrangementIsAScan() {
+        XCTAssertTrue(ArtifactTag.holding(files: ["v001.png"])!.isScanOnly)
+        XCTAssertTrue(ArtifactTag.holding(files: ["v001.pdf"])!.isScanOnly)
+        XCTAssertTrue(ArtifactTag.holding(files: ["v001.pdf", "v002.png"])!
+                        .isScanOnly)
+        XCTAssertFalse(ArtifactTag.holding(files: ["v001.musicxml"])!.isScanOnly)
+        XCTAssertFalse(ArtifactTag.holding(files: ["v001.png", "v002.mxl"])!
+                        .isScanOnly)
+    }
+
+    /// The existing tags are untouched by all of it.
+    func testPdfAndNotationStillReadAsTheyDid() {
+        XCTAssertEqual(ArtifactTag.label(ArtifactHolding.pdf), "PDF")
+        XCTAssertEqual(ArtifactTag.label(ArtifactHolding.notation), "MUSICXML")
+        XCTAssertEqual(ArtifactTag.label(ArtifactHolding.both), "PDF + MUSICXML")
+        XCTAssertEqual(ArtifactTag.chips(for: .both).map(\.text),
+                       ["PDF", "MUSICXML"])
     }
 }

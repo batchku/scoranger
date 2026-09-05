@@ -132,8 +132,10 @@ targets:
         #          it was not going to hold this.
         #   0.6.12 the mixer rebuilt as a window you can pick up
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
-        CURRENT_PROJECT_VERSION: 171
-        MARKETING_VERSION: 0.6.12
+        #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
+        #          path. Pagination moves to 0.6.14.
+        CURRENT_PROJECT_VERSION: 172
+        MARKETING_VERSION: 0.6.13
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -198,6 +200,16 @@ targets:
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
+          # A photograph or screenshot of a page. Some of the reader's scores
+          # are images rather than PDFs, and they are the same kind of thing:
+          # readable, annotatable, OMR-able. `public.image` is the umbrella
+          # every one of these conforms to; the three under it are named as
+          # well so a Files listing filtering on a concrete type still offers
+          # this app.
+          - CFBundleTypeName: "Image score"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.image, public.jpeg, public.png,
+                                 public.heic]
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"

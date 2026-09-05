@@ -74,7 +74,11 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
         while graph.engine.manualRenderingSampleTime < target {
             let remaining = target - graph.engine.manualRenderingSampleTime
             let frames = AVAudioFrameCount(min(AVAudioFramePosition(block), remaining))
-            let status = try graph.engine.renderOffline(frames, to: buffer)
+            // renderOffline hands back autoreleased CoreAudio objects; drained
+            // per block, the loop's peak is one block rather than a whole note.
+            let status = try autoreleasepool {
+                try graph.engine.renderOffline(frames, to: buffer)
+            }
             guard status == .success, let channels = buffer.floatChannelData else { break }
             for channel in 0..<Int(buffer.format.channelCount) {
                 for frame in 0..<Int(buffer.frameLength) {
@@ -198,11 +202,26 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
         let graph = try sounding(quartet())
         var silent: [String] = []
         for instrument in GeneralMIDI.melodic {
-            XCTAssertTrue(graph.setInstrument(program: instrument.program,
-                                              bank: .melodic, channel: 0),
-                          "\(instrument.name) would not load")
-            if try loudest(graph, keys: [60, 48, 72]) <= silence {
-                silent.append("\(instrument.program) \(instrument.name)")
+            // AN AUTORELEASE POOL PER PROGRAM, and it is not decoration.
+            //
+            // This loop is 128 programs x 3 keys = 384 offline renders, each
+            // allocating a PCM buffer, each `setInstrument` reading a patch
+            // out of a 31MB sound bank -- and every one of those is CoreAudio,
+            // which is Objective-C underneath. Nothing drains until the method
+            // returns, so the peak is the whole loop's allocations at once.
+            //
+            // It crashed twice under four-worker gate load ("Test crashed with
+            // signal kill" in `render`), on the worker also carrying all 1019
+            // unit tests, and passed on quieter runs -- which is what a memory
+            // cliff looks like rather than a broken assertion. The assertions
+            // are untouched: the same 128 programs on the same three keys.
+            try autoreleasepool {
+                XCTAssertTrue(graph.setInstrument(program: instrument.program,
+                                                  bank: .melodic, channel: 0),
+                              "\(instrument.name) would not load")
+                if try loudest(graph, keys: [60, 48, 72]) <= silence {
+                    silent.append("\(instrument.program) \(instrument.name)")
+                }
             }
         }
         XCTAssertEqual(silent, [],
@@ -216,12 +235,16 @@ final class PlaybackInstrumentGraphTests: XCTestCase {
         let graph = try sounding(quartet())
         var silent: [String] = []
         for kit in GeneralMIDI.kits {
-            XCTAssertTrue(graph.setInstrument(program: kit.program,
-                                              bank: .percussion, channel: 0),
-                          "\(kit.name) would not load")
-            // bass drum, snare, closed hi-hat -- every kit has these three
-            if try loudest(graph, keys: [36, 38, 42]) <= silence {
-                silent.append("\(kit.program) \(kit.name)")
+            // Same pool, same reason as the melodic loop above -- fewer
+            // programs, but the same 31MB bank behind each load.
+            try autoreleasepool {
+                XCTAssertTrue(graph.setInstrument(program: kit.program,
+                                                  bank: .percussion, channel: 0),
+                              "\(kit.name) would not load")
+                // bass drum, snare, closed hi-hat -- every kit has these three
+                if try loudest(graph, keys: [36, 38, 42]) <= silence {
+                    silent.append("\(kit.program) \(kit.name)")
+                }
             }
         }
         XCTAssertEqual(silent, [], "these kits play nothing")

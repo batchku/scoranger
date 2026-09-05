@@ -120,7 +120,7 @@ final class MixerOnAlisCase: XCTestCase {
     func testTheMixerFitsInLandscapeAtNormalText() {
         let app = launched()
         guard let panel = openMixer(app) else { return XCTFail("no mixer") }
-        XCUIDevice.shared.orientation = .landscapeLeft
+        rotate(app, to: .landscapeLeft)
         settle(panel, still: 0.8)
         snap("alis-case-landscape")
         report("landscape", panel, app)
@@ -149,7 +149,7 @@ final class MixerOnAlisCase: XCTestCase {
         let sound = app.descendants(matching: .any)["strip-sound-0"]
         if sound.waitForExistence(timeout: 20) { sound.tap() }
         _ = app.descendants(matching: .any)["mixer-picker"].waitForExistence(timeout: 20)
-        XCUIDevice.shared.orientation = .landscapeLeft
+        rotate(app, to: .landscapeLeft)
         settle(panel, still: 0.8)
         snap("alis-case-landscape-picker")
         report("landscape+picker", app.otherElements["mixer"].firstMatch, app)

@@ -922,7 +922,11 @@ final class AppState: ObservableObject {
         let inbox = docs.appending(path: "inbox")
         let staging = docs.appending(path: ".ingesting")
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        // Notation, PDFs, and pictures of a page. The image list comes from
+        // ScoreArtifact rather than being typed again, so a format added there
+        // is accepted here without anyone remembering to.
         let supported = ["musicxml", "mxl", "xml", "mid", "midi", "pdf"]
+            + ScoreArtifact.imageSuffixes.sorted()
         for f in (try? FileManager.default.contentsOfDirectory(
             at: inbox, includingPropertiesForKeys: nil)) ?? []
         where supported.contains(f.pathExtension.lowercased()) {
@@ -1271,13 +1275,21 @@ final class AppState: ObservableObject {
             var stamp = 0
             if useLocalEngine {
                 let path = try await local.versionFilePath(score: score.slug, version: vid)
-                if ScoreArtifact.kind(ofFile: path) == .scan {
-                    // A PDF the reader brought in. There is nothing to engrave:
-                    // the artifact IS the pages, so it is shown exactly as it
-                    // arrived. No geometry, which is what makes selection and
-                    // chat editing unavailable until OMR turns it into
-                    // notation -- see ScoreArtifact.
-                    data = try Data(contentsOf: URL(fileURLWithPath: path))
+                let artifact = ScoreArtifact.kind(ofFile: path)
+                if !artifact.isNotation {
+                    // A scan the reader brought in -- a PDF or a photograph of
+                    // a page. There is nothing to engrave: the artifact IS the
+                    // pages, so it is shown exactly as it arrived. No geometry,
+                    // which is what makes selection and chat editing
+                    // unavailable until OMR turns it into notation.
+                    //
+                    // `isNotation` and not `== .scan`: there are two kinds of
+                    // scan now, and an image falling through to the engraver
+                    // would hand a JPEG to Verovio.
+                    let raw = try Data(contentsOf: URL(fileURLWithPath: path))
+                    guard let shown = ScanImage.displayable(raw, kind: artifact)
+                    else { throw ScanImageError.undecodable }
+                    data = shown
                     model = nil
                 } else {
                     // one engrave: the pages drawn and the model hit-tested are
@@ -1611,8 +1623,9 @@ final class AppState: ObservableObject {
     /// `piece` files the resulting arrangement under that piece (the sidebar's
     /// per-piece import); nil leaves it unfiled.
     func receiveFile(at url: URL, intoPiece piece: String? = nil) {
-        if url.pathExtension.lowercased() == "pdf" {
-            // A PDF comes in AS A PDF: it opens and takes markup immediately,
+        if !ScoreArtifact.kind(ofFile: url.lastPathComponent).isNotation {
+            // A scan comes in AS A SCAN -- a PDF or a photograph of a page.
+            // It opens and takes markup immediately,
             // offline, with no service involved. It used to go straight to
             // cloud OMR, which meant a reader could not open their own scan
             // without a network and a wait, and got an imperfect transcription
@@ -1660,12 +1673,22 @@ final class AppState: ObservableObject {
     private func convertPDF(at url: URL, intoPiece piece: String? = nil,
                             intoScore: String? = nil) {
         let scoped = url.startAccessingSecurityScopedResource()
-        let pdfData = try? Data(contentsOf: url)
+        let raw = try? Data(contentsOf: url)
         let name = url.deletingPathExtension().lastPathComponent
         if scoped { url.stopAccessingSecurityScopedResource() }
-        guard let pdfData else {
+        guard let raw else {
             omrBusy = false
-            notice = "Couldn't read the PDF."
+            notice = "Couldn't read the scan."
+            return
+        }
+        // The OMR service is handed `Content-Type: application/pdf`, so a
+        // photograph is wrapped into a one-page PDF here rather than the
+        // service learning about images. One helper does this and the score
+        // view's own display, so what is transcribed is what was looked at.
+        let kind = ScoreArtifact.kind(ofFile: url.lastPathComponent)
+        guard let pdfData = ScanImage.displayable(raw, kind: kind) else {
+            omrBusy = false
+            notice = ScanImageError.undecodable.errorDescription
             return
         }
         guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
@@ -2653,5 +2676,20 @@ final class AppState: ObservableObject {
                 chatMessages[slug, default: []].append(.init(role: .error, text: error.localizedDescription))
             }
         }
+    }
+}
+
+
+/// A scan the app could not turn into pages.
+///
+/// Its own error so the notice can say what happened. A photograph that will
+/// not decode is a real thing -- a truncated download, a format the OS does
+/// not know -- and "could not open" with no reason sends the reader looking
+/// for a fault in the app.
+enum ScanImageError: LocalizedError {
+    case undecodable
+    var errorDescription: String? {
+        "This image could not be opened. It may be damaged, or in a format "
+        + "this iPad does not read."
     }
 }

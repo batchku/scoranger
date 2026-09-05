@@ -25,7 +25,8 @@ from . import workspace
 #: an editable arrangement when the reader wants that. What it cannot do until
 #: then is be edited, which `workspace.resolve_notation_path` enforces.
 NOTATION = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
-SCANS = {".pdf"}
+from .workspace import SCAN_SUFFIXES
+SCANS = set(SCAN_SUFFIXES)
 IMPORTABLE = NOTATION | SCANS
 
 #: Nothing is held back any more. Kept as an empty set so the report shape does
