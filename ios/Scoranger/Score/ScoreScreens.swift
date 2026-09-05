@@ -29,7 +29,6 @@ struct ScoreOptionsScreen: View {
     /// here: two notions of what fits would put a switch in both places at some
     /// width and in neither at another.
     var barFit: ScoreBarLayout.Fit = ScoreBarLayout.Fit(showsVersions: true,
-                                                        showsModeChip: true,
                                                         layoutCells: 3)
     var section: String?
     var onBack: () -> Void

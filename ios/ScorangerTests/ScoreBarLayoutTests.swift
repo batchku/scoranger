@@ -26,7 +26,6 @@ final class ScoreBarLayoutTests: XCTestCase {
     func testAPhoneKeepsTheEssentialsAndDropsTheExtras() {
         let fit = ScoreBarLayout.fit(barWidth: iPhonePortrait)
         XCTAssertFalse(fit.showsVersions, "the version count is what pushed ✕ off")
-        XCTAssertFalse(fit.showsModeChip)
         XCTAssertEqual(fit.layoutCells, 2, "a spread across 390pt is two thumbnails")
         XCTAssertFalse(fit.showsTransportToggle,
                        "the toggle yields on a phone -- Options still carries it")
@@ -59,32 +58,36 @@ final class ScoreBarLayoutTests: XCTestCase {
 
     func testAnIPadShowsTheWholeBar() {
         let fit = ScoreBarLayout.fit(barWidth: iPadLandscape)
-        XCTAssertEqual(fit, ScoreBarLayout.Fit(showsVersions: true, showsModeChip: true,
-                                               layoutCells: 3))
+        XCTAssertEqual(fit, ScoreBarLayout.Fit(showsVersions: true, layoutCells: 3))
     }
 
-    /// The stated order: the chip yields before the version count, and the
-    /// version count before the spread cell.
+    /// The stated order: the version count yields before the switches, and the
+    /// switches before the spread cell.
+    ///
+    /// It used to begin with the mode chip, which was item 8 and went first.
+    /// With the chip gone (0.6.10) the ladder starts one rung lower and the
+    /// same invariant is asserted over what is left.
     func testThingsYieldInTheStatedOrder() {
-        var seenChipDrop = false, seenVersionsDrop = false, seenCellDrop = false
+        var seenVersionsDrop = false, seenSwitchDrop = false, seenCellDrop = false
         var width = ScoreBarLayout.essentials + ScoreBarLayout.threeCells
-            + ScoreBarLayout.versionsWidth + ScoreBarLayout.modeChipWidth
-            + ScoreBarLayout.switchesWidth + ScoreBarLayout.titleMinimum
+            + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
+            + ScoreBarLayout.titleMinimum + ScoreBarLayout.numeralWidth
         while width > 200 {
             let fit = ScoreBarLayout.fit(barWidth: width)
-            if !fit.showsModeChip { seenChipDrop = true }
-            if !fit.showsVersions {
-                seenVersionsDrop = true
-                XCTAssertTrue(seenChipDrop, "the version count went before the chip did")
+            if !fit.showsVersions { seenVersionsDrop = true }
+            if !fit.showsTransportToggle {
+                seenSwitchDrop = true
+                XCTAssertTrue(seenVersionsDrop,
+                              "a switch went before the version count did")
             }
             if fit.layoutCells < 3 {
                 seenCellDrop = true
-                XCTAssertTrue(seenVersionsDrop,
-                              "a layout cell went before the version count did")
+                XCTAssertTrue(seenSwitchDrop,
+                              "a layout cell went before the switches did")
             }
             width -= 10
         }
-        XCTAssertTrue(seenChipDrop && seenVersionsDrop && seenCellDrop,
+        XCTAssertTrue(seenVersionsDrop && seenSwitchDrop && seenCellDrop,
                       "the sweep should have exercised every step")
     }
 
@@ -116,8 +119,6 @@ final class ScoreBarLayoutTests: XCTestCase {
         var previous = ScoreBarLayout.fit(barWidth: 1400)
         for width in stride(from: CGFloat(1400), through: 300, by: -5) {
             let fit = ScoreBarLayout.fit(barWidth: width)
-            XCTAssertFalse(fit.showsModeChip && !previous.showsModeChip,
-                           "the chip came back at \(width)pt")
             XCTAssertFalse(fit.showsVersions && !previous.showsVersions,
                            "the version count came back at \(width)pt")
             XCTAssertLessThanOrEqual(fit.layoutCells, previous.layoutCells,
@@ -136,8 +137,7 @@ final class ScoreBarLayoutTests: XCTestCase {
     /// fills in on the second frame reads as a glitch.
     func testAnUnmeasuredBarShowsEverything() {
         XCTAssertEqual(ScoreBarLayout.fit(barWidth: 0),
-                       ScoreBarLayout.Fit(showsVersions: true, showsModeChip: true,
-                                          layoutCells: 3))
+                       ScoreBarLayout.Fit(showsVersions: true, layoutCells: 3))
     }
 
     // MARK: - The two switches (0.6.8)
@@ -243,6 +243,46 @@ final class ScoreBarLayoutTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - The mode chip is gone (0.6.10)
+
+    /// Ali asked for the "Pencil: select" chip off the bar.
+    ///
+    /// Asserted as WIDTH rather than as a flag, because the flag is what the
+    /// change removes and a test written against it could not outlive it. This
+    /// says the same thing from outside: the widest bar the layout produces
+    /// must fit in a width that reserves nothing for a chip.
+    func testTheWidestBarReservesNoRoomForAModeChip() {
+        let widest = ScoreBarLayout.fit(barWidth: 2000)
+        let withoutAChip = ScoreBarLayout.essentials + ScoreBarLayout.titleMinimum
+            + ScoreBarLayout.numeralWidth + ScoreBarLayout.threeCells
+            + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
+        XCTAssertTrue(ScoreBarLayout.fits(widest, in: withoutAChip),
+                      "the bar still reserves width for something it no longer draws")
+    }
+
+    /// And the yield order starts one item later. The chip was item 8 and the
+    /// first to go; with it gone, the version count is what a narrowing bar
+    /// gives up first -- which is what §7 always said would happen after it.
+    func testTheFirstThingANarrowingBarYieldsIsTheVersionCount() throws {
+        let widest = ScoreBarLayout.fit(barWidth: 2000)
+        XCTAssertTrue(widest.showsVersions)
+
+        var firstChange: ScoreBarLayout.Fit?
+        var width = 2000.0
+        while width > ScoreBarLayout.floor {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            if fit != widest { firstChange = fit; break }
+            width -= 1
+        }
+        let changed = try XCTUnwrap(firstChange, "the bar never yielded anything")
+        XCTAssertFalse(changed.showsVersions,
+                       "the first thing yielded should be the version count")
+        XCTAssertEqual(changed.layoutCells, widest.layoutCells,
+                       "nothing below the version count may go before it")
+        XCTAssertEqual(changed.showsTransportToggle, widest.showsTransportToggle)
+    }
+
 }
 
 /// One switch, one place, at every width (0.6.8).

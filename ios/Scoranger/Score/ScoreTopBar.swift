@@ -352,17 +352,10 @@ struct ScoreTopBar: View {
                                 .foregroundStyle(Theme.Ink.ink3)
                                 .lineLimit(1)
                         }
-                        // The mode, stated: §6 only works if it is visible --
-                        // but as bare text it ran straight into the version
-                        // beside it and read as "… · v003 Pencil: select".
-                        // The chip's own border tells them apart. A "·" as
-                        // well left a dangling separator between the version
-                        // and a box -- punctuation joining a sentence to a
-                        // thing that is not one (#41).
-                        if fit.showsModeChip {
-                            MiniChip(text: mode.pencilMeaning)
-                                .accessibilityIdentifier("pencil-mode")
-                        }
+                        // The "Pencil: …" chip stood here until 0.6.10. Ali
+                        // asked for it gone. What states the mode now: the
+                        // Edit button's own active state, and Selection & chat
+                        // in words. The bar keeps the 90pt.
                     }
                 }
                 Image(systemName: "chevron.down")

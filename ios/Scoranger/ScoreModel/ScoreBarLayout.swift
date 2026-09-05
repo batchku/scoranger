@@ -25,18 +25,21 @@ import CoreGraphics
 ///                       at exactly the widths the bar does not (0.6.8).
 ///   5. layout control   three cells, then two
 ///   6. the title        flexible: it truncates, it does not disappear
-///   7. version count    optional -- the title block opens the same band, so
-///                       nothing becomes unreachable when it goes
-///   8. the mode chip    optional, and the first to go -- the Edit button's
-///                       own active state still states the mode
+///   7. version count    optional, and the first to go -- the title block
+///                       opens the same band, so nothing becomes unreachable
+///
+/// There was an item 8: a "Pencil: select" chip under the title, which yielded
+/// before everything above it. Ali asked for it off the bar in 0.6.10, so the
+/// bar is 90pt richer at every width and the version count is now what a
+/// narrowing bar gives up first. The mode itself is not lost -- the Edit
+/// button's own active state shows it, and Selection & chat states it in
+/// words.
 ///
 /// Nothing above the line an item sits on is ever sacrificed for it.
 enum ScoreBarLayout {
     struct Fit: Equatable {
         /// The "N versions" dropdown trigger.
         var showsVersions: Bool
-        /// The "Pencil: …" chip under the title.
-        var showsModeChip: Bool
         /// Cells in the layout control: 3 (page/spread/continuous) or 2
         /// (page/continuous -- a spread across a phone is two thumbnails).
         var layoutCells: Int
@@ -111,11 +114,8 @@ enum ScoreBarLayout {
     /// Wide enough for the longest thing it says -- "waiting (1 ahead)…", and
     /// "page 12 of 12" once Audiveris starts. It was 122 and compressed both to
     /// an ellipsis, which is a readout that has stopped being one; the words
-    /// were shortened as well (MakeEditable.converting). The cost is the mode
-    /// chip on an iPad in portrait while a transcription runs, and the mode
-    /// chip is the first thing this bar gives up anyway.
+    /// were shortened as well (MakeEditable.converting).
     static let omrWidth: CGFloat = 142 + 8
-    static let modeChipWidth: CGFloat = 90
     static let numeralWidth: CGFloat = 40
     /// Less than this and the title is not a title any more.
     ///
@@ -153,7 +153,7 @@ enum ScoreBarLayout {
     }
 
     private static func layout(barWidth: CGFloat) -> Fit {
-        let everything = Fit(showsVersions: true, showsModeChip: true, layoutCells: 3)
+        let everything = Fit(showsVersions: true, layoutCells: 3)
         // Unmeasured: show everything rather than flashing a stripped bar on
         // the first frame and filling it in afterwards.
         guard barWidth > 0 else { return everything }
@@ -166,23 +166,18 @@ enum ScoreBarLayout {
         // sweep that seats the transcription chip did, because the chip moves
         // every threshold by its own width.
         let base = essentials + titleMinimum + numeralWidth
-        let forAll = base + threeCells + versionsWidth + modeChipWidth + switchesWidth
+        let forAll = base + threeCells + versionsWidth + switchesWidth
         if barWidth >= forAll { return everything }
 
-        // The chip goes first: the Edit button already states the mode.
-        let withoutChip = forAll - modeChipWidth
-        if barWidth >= withoutChip {
-            return Fit(showsVersions: true, showsModeChip: false, layoutCells: 3)
-        }
-        // Then the version count. The title block opens VERSIONS when this
+        // The version count goes first. The title block opens VERSIONS when this
         // has gone, so versions stay REACHABLE -- this drops a shortcut, never
         // a feature. That invariant was briefly untrue: 0.6.3 #8 split the band
         // so the title opened arrangements only, and a phone at reading width
         // had no route to versions at all. Whoever changes what the title opens
         // must keep this true (ScoreTopBar.titleBlock).
-        let withoutVersions = withoutChip - versionsWidth
+        let withoutVersions = forAll - versionsWidth
         if barWidth >= withoutVersions {
-            return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3)
+            return Fit(showsVersions: false, layoutCells: 3)
         }
         // Then BOTH switches, together. Options carries both at exactly the
         // widths the bar does not (ScoreOptionsScreen reads this same Fit), and
@@ -190,11 +185,11 @@ enum ScoreBarLayout {
         // (TransportReveal) -- so a phone loses two shortcuts and nothing else.
         let withoutSwitches = withoutVersions - switchesWidth
         if barWidth >= withoutSwitches {
-            return Fit(showsVersions: false, showsModeChip: false, layoutCells: 3,
+            return Fit(showsVersions: false, layoutCells: 3,
                        showsTransportToggle: false, showsPerformanceToggle: false)
         }
         // Then the spread cell, which is the one a narrow screen cannot use.
-        let twoCellFit = Fit(showsVersions: false, showsModeChip: false, layoutCells: 2,
+        let twoCellFit = Fit(showsVersions: false, layoutCells: 2,
                              showsTransportToggle: false, showsPerformanceToggle: false)
         if fits(twoCellFit, in: barWidth) { return twoCellFit }
 
@@ -207,12 +202,12 @@ enum ScoreBarLayout {
         //
         // They yield rather than the title being given a hard minimum: forcing
         // a width here pushed the ✕ off the bar entirely, which is #60.
-        let withoutSubtitle = Fit(showsVersions: false, showsModeChip: false,
-                                  layoutCells: 2, showsTransportToggle: false,
+        let withoutSubtitle = Fit(showsVersions: false, layoutCells: 2,
+                                  showsTransportToggle: false,
                                   showsPerformanceToggle: false,
                                   showsSubtitle: false)
         if fits(withoutSubtitle, in: barWidth) { return withoutSubtitle }
-        return Fit(showsVersions: false, showsModeChip: false, layoutCells: 2,
+        return Fit(showsVersions: false, layoutCells: 2,
                    showsTransportToggle: false, showsPerformanceToggle: false,
                    showsNumeral: false, showsSubtitle: false)
     }
@@ -226,7 +221,6 @@ enum ScoreBarLayout {
         if fit.showsTransportToggle { needed += transportWidth }
         if fit.showsPerformanceToggle { needed += performanceWidth }
         if fit.showsOMRProgress { needed += omrWidth }
-        if fit.showsModeChip { needed += modeChipWidth }
         if fit.showsNumeral { needed += numeralWidth }
         return needed <= width
     }
