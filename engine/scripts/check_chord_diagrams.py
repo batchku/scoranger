@@ -459,6 +459,78 @@ check("ChordDiagrams.swift reserves the same block",
       f"static let rows = {render.DIAGRAM_ROWS}" in swift
       and f"static let frets = {render.DIAGRAM_FRETS}" in swift)
 
+# ---------------------------------------------------------------------------
+# A SEVENTH thing: the op says so when there is nothing to draw on.
+#
+# Ali, 0.6.10: "the agent reports adding chord-diagram grids but none appear on
+# the score." The renderers were the first suspects and both are innocent --
+# everything above this line passes, and a part carrying chord symbols engraves
+# its diagrams correctly.
+#
+# What happens is upstream. `chord-diagrams` hangs a diagram over every chord
+# symbol the part ALREADY carries, by design: `set-chords` writes the symbols
+# and `chart_style` places them, and a second notion of where a chord sits
+# would fall out of step with the first. Run against a part with no chord
+# symbols it therefore had nothing to do -- and returned {"diagrams": 0} as a
+# SUCCESS, with a new version to show for it. The agent relays a successful op,
+# the reader is told diagrams were added, and the page is unchanged.
+#
+# So an op that cannot do the thing says so, which is this repo's own rule:
+# correctness belongs in the op. The error names the parts that DO carry chord
+# symbols, because "there are none here" and "you asked for the wrong staff"
+# are the two ways to arrive and they need different next steps.
+score = m21stream.Score()
+bare = m21stream.Part()
+bare.partName = "Violin I"
+for number in (1, 2):
+    measure = m21stream.Measure(number=number)
+    if number == 1:
+        measure.append(m21meter.TimeSignature("4/4"))
+    measure.append(m21note.Note("C4", quarterLength=4))
+    bare.append(measure)
+score.append(bare)
+
+charted = m21stream.Part()
+charted.partName = "Guitar"
+for number in (1, 2):
+    measure = m21stream.Measure(number=number)
+    if number == 1:
+        measure.append(m21meter.TimeSignature("4/4"))
+    measure.insert(0, m21harmony.ChordSymbol("G"))
+    measure.append(m21note.Note("G3", quarterLength=4))
+    charted.append(measure)
+score.append(charted)
+
+try:
+    ops.chord_diagrams(score, bare)
+except ValueError as exc:
+    message = str(exc)
+    check("a part with no chord symbols is refused, not silently no-opped", True)
+    check("the refusal names the part asked for", "Violin I" in message, message)
+    check("the refusal names a part that does carry symbols",
+          "Guitar" in message, message)
+    check("the refusal says what to do next",
+          "set-chords" in message, message)
+except Exception as exc:  # noqa: BLE001
+    check("a part with no chord symbols is refused, not silently no-opped",
+          False, f"raised {type(exc).__name__} rather than ValueError: {exc}")
+else:
+    check("a part with no chord symbols is refused, not silently no-opped",
+          False, "the op returned successfully with nothing drawn -- which is "
+                 "what makes the agent say it added diagrams when it did not")
+
+# And the op still WORKS where there is something to draw on: the refusal must
+# not be reachable by a part that has symbols.
+drew = ops.chord_diagrams(score, charted)
+check("a part that does carry chord symbols still gets its diagrams",
+      drew.get("diagrams") == 2, str(drew.get("diagrams")))
+
+# --clear is not a draw and must not be refused: clearing a part that has no
+# diagrams is how a reader undoes a mistake, and it has to work on any staff.
+cleared = ops.chord_diagrams(score, bare, clear=True)
+check("clearing a part with no chord symbols is allowed",
+      cleared.get("cleared") == 0, str(cleared))
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} chord-diagram check(s)")
     for line in FAILURES:

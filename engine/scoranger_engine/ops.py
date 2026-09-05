@@ -1788,6 +1788,36 @@ def chord_diagrams(score, part, tuning: str = "EADGBE", clear: bool = False,
                 cleared += 1
         return {"part": part_label(part), "cleared": cleared}
 
+    # Nothing to hang a diagram on is a REFUSAL, not a successful no-op.
+    #
+    # This op draws over the chord symbols a part ALREADY carries -- set-chords
+    # writes them, chart_style places them, and a second notion of where a
+    # chord sits would fall out of step with the first the moment either moved.
+    # Asked for a part with no symbols it therefore had nothing to do, and used
+    # to return {"diagrams": 0} as a success WITH a new version. The agent
+    # relays a successful op, the reader is told diagrams were added, and the
+    # page is unchanged -- which is exactly what Ali reported in 0.6.10.
+    #
+    # The message names the parts that do carry symbols, because "this score
+    # has no chord symbols at all" and "you asked for the wrong staff" are the
+    # two ways to get here and they need different next steps.
+    if not any(measure.getElementsByClass(m21harmony.ChordSymbol)
+               for measure in measures):
+        charted = [part_label(other)
+                   for other in score.parts
+                   if any(m.getElementsByClass(m21harmony.ChordSymbol)
+                          for m in other.getElementsByClass(stream.Measure))]
+        here = part_label(part)
+        if charted:
+            raise ValueError(
+                f"'{here}' carries no chord symbols, so there is nothing to "
+                f"draw a diagram over. These parts do: {charted}. Either pass "
+                f"one of them, or give '{here}' symbols first with set-chords.")
+        raise ValueError(
+            f"'{here}' carries no chord symbols, and neither does any other "
+            "part, so there is nothing to draw a diagram over. Run analyze to "
+            "get per-bar harmony candidates, then set-chords to write them.")
+
     opens = guitar_tuning(tuning)
     drawn: list[dict] = []
     unplayable: list[dict] = []
