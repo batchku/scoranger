@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The mixer as a window you can pick up.
 ///
@@ -40,8 +41,21 @@ struct MixerWindowLayer: View {
 
     var body: some View {
         GeometryReader { geo in
+            // The container is not always the truth. Measured on iPhone 17 at
+            // accessibility text, this GeometryReader reports ~697pt on a
+            // 402pt screen -- so freeRect, the panel's maxWidth and the
+            // anchored width were all computed from a container wider than the
+            // device, and the list tier overflowed 139.5pt off EACH side while
+            // every `.frame(maxWidth:)` looked like it was capping it. Three
+            // separate attempts at the children changed the height and never
+            // the width, which is what said the width was not theirs to give.
+            //
+            // The window can never be outside the screen whatever the
+            // container claims, so the two are intersected. On iPad the
+            // container is already right and this changes nothing.
             let free = MixerLayout.freeRect(container: geo.size,
                                             safeArea: geo.safeAreaInsets)
+                .intersection(onScreen(geo))
             let tier = MixerLayout.tier(container: geo.size, text: textSize)
             let panel = MixerWindowPanel(
                 playback: playback, tier: tier, picking: $picking,
@@ -94,6 +108,33 @@ struct MixerWindowLayer: View {
         // The mixer is drawn over the score and must not take the score's
         // touches with it: only the panel itself is hit-testable.
         .allowsHitTesting(true)
+    }
+
+    /// The part of this container that is actually on the screen, in the
+    /// container's OWN coordinates.
+    ///
+    /// Both halves matter and only having the first is what left the panel
+    /// 379pt wide and still at x = -131.5. The container here reports ~697pt
+    /// on a 402pt iPhone AND sits at a negative global origin, so clamping the
+    /// SIZE fixed the width while `free.midX` -- computed in container
+    /// coordinates -- still pointed off the left edge.
+    ///
+    /// `geo.frame(in: .global)` gives the offset, so the screen rectangle can
+    /// be expressed locally: its local origin is minus the container's global
+    /// origin. Intersecting with that yields a free rect whose coordinates the
+    /// container understands and whose bounds the screen does.
+    ///
+    /// On iPad the container already matches the screen and this is the
+    /// identity, which is why every iPad measurement is unchanged by it.
+    private func onScreen(_ geo: GeometryProxy) -> CGRect {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        guard let screen = scenes.first?.screen.bounds, screen.width > 0 else {
+            return CGRect(origin: .zero, size: geo.size)
+        }
+        let global = geo.frame(in: .global)
+        return CGRect(x: -global.minX, y: -global.minY,
+                      width: screen.width, height: screen.height)
     }
 
     /// Where the panel sits, before the live drag is added.
@@ -229,9 +270,17 @@ struct MixerWindowPanel<G: Gesture>: View {
             }
             HStack(spacing: 0) {
                 if movable { grabBar }
+                // §2's rule is VERTICAL fixedSize only. Bare `.fixedSize()`
+                // fixes BOTH axes, so the header refused to compress and the
+                // whole panel took its intrinsic width -- measured on iPhone
+                // 17 at accessibility text: 681pt on a 402pt screen, 139.5pt
+                // off each side. A parent cannot compress a child that will
+                // not, so `.frame(maxWidth:)` above could do nothing about it.
                 Text("MIXER").typeRole(.label)
                     .foregroundStyle(Theme.Accent.clayStrong)
-                    .fixedSize()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(2)
                     .padding(.leading, movable ? 0 : Theme.Metric.s12)
                     .allowsHitTesting(false)
                 // The identifier outlives the wording. It said "all voices"
@@ -239,9 +288,14 @@ struct MixerWindowPanel<G: Gesture>: View {
                 // -- but two older tests read `mixer-summary` to check the
                 // mixer says what will be heard, and that contract is about
                 // the element rather than its text.
+                // The summary gives way first: the controls beside it and the
+                // word MIXER are what the header cannot lose.
                 Text(voicesSummary).typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
-                    .fixedSize()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(0)
                     .padding(.leading, Theme.Metric.s8)
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("mixer-summary")
@@ -403,7 +457,7 @@ struct MixerWindowPanel<G: Gesture>: View {
             Text(title).typeRole(.label)
                 .foregroundStyle(Theme.Accent.clayStrong)
                 .multilineTextAlignment(.center)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: MixerLayout.masterButtonMinimum)
                 .padding(.vertical, 4)
@@ -458,14 +512,14 @@ struct MixerWindowPanel<G: Gesture>: View {
         HStack(spacing: Theme.Metric.s8) {
             Text("TEMPO").typeRole(.label)
                 .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
             MixerTempoSlider(playback: playback)
             // A minWidth for "300" at the current text size, not a flat 26pt:
             // the readout is the thing that truncated to "…" on Ali's iPad.
             Text("\(Int(playback.tempoBPM.rounded()))")
                 .typeRole(.data)
                 .foregroundStyle(Theme.Ink.ink)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(minWidth: 30, alignment: .trailing)
                 .accessibilityIdentifier("mixer-tempo-value")
         }
@@ -477,12 +531,12 @@ struct MixerWindowPanel<G: Gesture>: View {
         HStack(spacing: Theme.Metric.s8) {
             Text(clock(playback.beat)).typeRole(.data)
                 .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("mixer-elapsed")
             MixerScrubber(playback: playback)
             Text(clock(playback.timeline.beats)).typeRole(.data)
                 .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("mixer-total")
         }
         .padding(.horizontal, Theme.Metric.s12)

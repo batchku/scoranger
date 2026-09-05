@@ -38,7 +38,7 @@ struct MixerChannelStrip: View {
             .frame(minHeight: MixerLayout.faderIdeal)
             Text("\(fader)").typeRole(.data)
                 .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: MixerLayout.muteRowMinimum - 12)
                 .accessibilityIdentifier("mixer-value-\(part.index)")
                 .accessibilityHidden(true)
@@ -88,16 +88,34 @@ struct MixerChannelRow: View {
                 Text(label).typeRole(.row)
                     .foregroundStyle(Theme.Ink.ink)
                     .lineLimit(2)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.8)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("mixer-label-\(part.index)")
-                MixerSoundChip(playback: playback, part: part, action: onPickSound)
+                MixerSoundChip(playback: playback, part: part,
+                               compressible: true, action: onPickSound)
             }
-            Spacer(minLength: Theme.Metric.s8)
+            // NO layoutPriority here. It was 1, meaning "give this its ideal
+            // width first" -- which on a 402pt phone at accessibility text is
+            // how the row demanded 681pt. The name is the thing that should
+            // give ground, not the thing that takes it.
+            .frame(minWidth: 0, maxWidth: 150, alignment: .leading)
+            Spacer(minLength: Theme.Metric.s4)
+            // 100pt is the spec's ideal, 64 the floor. A minimum that cannot
+            // be met is a minimum that pushes the row off the screen, and on a
+            // 402pt phone at accessibility text there is not 100pt to give.
+            // A CEILING, not just a floor. `MixerHorizontalFader` is a
+            // GeometryReader: it has no intrinsic width and takes everything
+            // offered. Measured on iPhone 17 at accessibility text it claimed
+            // 395.7pt of a row that had 378 to spend, and the row -- and with
+            // it the whole panel -- grew to 665pt on a 402pt screen. A
+            // greedy child in a row with no upper bound is how a panel
+            // overflows a frame that is trying to cap it.
             MixerHorizontalFader(playback: playback, part: part)
-                .frame(minWidth: 100)
+                .frame(minWidth: 56, idealWidth: 100, maxWidth: 140)
             Text("\(fader)").typeRole(.data)
                 .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(minWidth: 22, alignment: .trailing)
                 .accessibilityIdentifier("mixer-value-\(part.index)")
         }
@@ -122,7 +140,7 @@ struct MixerMuteButton: View {
         Button { playback.voices.toggle(part.index) } label: {
             Text("M").typeRole(.label)
                 .foregroundStyle(isOn ? Theme.Ink.ink2 : Theme.Surface.panel)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
                 .frame(minWidth: 26, minHeight: MixerLayout.muteRowMinimum)
                 .background(isOn ? Theme.Surface.well : Theme.Ink.ink2)
@@ -284,6 +302,16 @@ struct MixerHorizontalFader: View {
 struct MixerSoundChip: View {
     @ObservedObject var playback: PlaybackEngine
     let part: PlaybackTimeline.Part
+    /// Whether the chip may give up width.
+    ///
+    /// In a STRIP it may not: the strip's width is the chip's width and the
+    /// name is the only caption there is. In a ROW it shares one line with a
+    /// mute, a name, a fader and a value, and a chip that refuses to compress
+    /// makes the ROW refuse -- measured on iPhone 17 at accessibility text,
+    /// where the list row's intrinsic width came out at 681pt on a 402pt
+    /// screen and hung 139.5pt off BOTH edges. `.frame(maxWidth:)` cannot fix
+    /// that: a parent cannot compress a child that will not.
+    var compressible: Bool = false
     var action: () -> Void
 
     var body: some View {
@@ -295,7 +323,7 @@ struct MixerSoundChip: View {
                     .typeRole(.meta)
                     .foregroundStyle(chosen ? Theme.Accent.clayStrong : Theme.Ink.ink2)
                     .lineLimit(1)
-                    .fixedSize()
+                    .modifier(ChipWidth(compressible: compressible))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7, weight: .semibold))
                     .foregroundStyle(Theme.Ink.ink3)
@@ -476,7 +504,7 @@ struct MixerSoundPicker: View {
             Text(part.name).typeRole(.label)
                 .foregroundStyle(Theme.Ink.ink3)
                 .lineLimit(1)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: Theme.Metric.s8)
             Button(action: onDone) {
                 Image(systemName: "xmark")
@@ -557,7 +585,7 @@ struct MixerSoundPicker: View {
         Button(action: run) {
             Text(title).typeRole(.label)
                 .foregroundStyle(Theme.Accent.clayStrong)
-                .fixedSize()
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 24)
                 .contentShape(Rectangle())
@@ -601,5 +629,21 @@ private extension GeneralMIDI.Bank {
     /// Which family the picker opens on for a channel's current bank.
     var defaultFamily: GeneralMIDI.Family {
         self == .percussion ? .percussion : .piano
+    }
+}
+
+
+/// The sound chip's width rule, as a modifier so the two callers differ by one
+/// argument rather than by a duplicated `Text`.
+private struct ChipWidth: ViewModifier {
+    let compressible: Bool
+    func body(content: Content) -> some View {
+        if compressible {
+            // Shrink a little, then truncate. The full name is on the chip's
+            // accessibility value, which is where a truncated caption survives.
+            AnyView(content.minimumScaleFactor(0.7).truncationMode(.tail))
+        } else {
+            AnyView(content.fixedSize())
+        }
     }
 }
