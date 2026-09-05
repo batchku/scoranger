@@ -11,17 +11,36 @@ import Foundation
 /// which is the same answer the score view already gives itself
 /// (`AppState.displayedArtifact`). One notion of what an artifact is, three
 /// places that show it.
-enum ArtifactHolding: Equatable {
-    /// PDFs only: nothing here has been read into notation yet.
-    case pdf
-    /// Engraved notation only.
-    case notation
-    /// Both, which is what an arrangement looks like AFTER OMR: the PDF stays
-    /// so it can be compared against, and the notation is what is editable.
-    case both
+struct ArtifactHolding: OptionSet, Equatable {
+    let rawValue: Int
+    init(rawValue: Int) { self.rawValue = rawValue }
 
+    /// A PDF the reader brought in.
+    static let pdf = ArtifactHolding(rawValue: 1 << 0)
+    /// A photograph or screenshot of a page.
+    static let image = ArtifactHolding(rawValue: 1 << 1)
+    /// Engraved notation.
+    static let notation = ArtifactHolding(rawValue: 1 << 2)
+
+    /// What an arrangement looks like AFTER OMR: the scan stays so it can be
+    /// compared against, and the notation is what is editable. Kept as a name
+    /// because three call sites and a dozen tests say `.both`, and it means
+    /// exactly what it always did.
+    static let both: ArtifactHolding = [.pdf, .notation]
+
+    /// A SET rather than three cases, because the cases stopped being
+    /// mutually exclusive the moment images arrived. Enumerating them would
+    /// be seven cases to write and seven more the next time something is
+    /// importable; composing them is the same fact with no arithmetic.
+    ///
     /// Whether anything under this tag can be selected, transposed or played.
-    var hasNotation: Bool { self != .pdf }
+    var hasNotation: Bool { contains(.notation) }
+
+    /// Whether everything here is a scan of some sort. This is the question
+    /// the library row asks to draw its scan treatment, and it used to be
+    /// spelled `holding == .pdf` -- which an image-only arrangement fails
+    /// while being exactly as much of a scan.
+    var isScanOnly: Bool { !isEmpty && !hasNotation }
 }
 
 enum ArtifactTag {
@@ -32,11 +51,18 @@ enum ArtifactTag {
     /// "MUSICXML" and not "NOTATION": the reader asked for PDF vs MusicXML in
     /// those words, and MusicXML is what the engine actually stores.
     static func label(_ holding: ArtifactHolding) -> String {
-        switch holding {
-        case .pdf:      return "PDF"
-        case .notation: return "MUSICXML"
-        case .both:     return "PDF + MUSICXML"
-        }
+        words(holding).joined(separator: " + ")
+    }
+
+    /// In the order a reader met them: what they brought in, then what the
+    /// app made of it. "MUSICXML + PDF" would read as though the notation
+    /// came first.
+    private static func words(_ holding: ArtifactHolding) -> [String] {
+        var out: [String] = []
+        if holding.contains(.pdf) { out.append("PDF") }
+        if holding.contains(.image) { out.append("IMAGE") }
+        if holding.contains(.notation) { out.append("MUSICXML") }
+        return out
     }
 
     /// A single artifact kind as a tag, for the score view's own marker: what
@@ -46,27 +72,22 @@ enum ArtifactTag {
     }
 
     static func holding(for kind: ScoreArtifact.Kind) -> ArtifactHolding {
-        kind == .notation ? .notation : .pdf
+        switch kind {
+        case .notation: return .notation
+        case .image:    return .image
+        case .scan:     return .pdf
+        }
     }
 
     /// What a set of files holds. Nil when there are none -- an arrangement
     /// with no versions has nothing to say about itself, and a tag reading
     /// "PDF" over an empty arrangement would be a lie.
     static func holding(files: [String]) -> ArtifactHolding? {
-        var sawNotation = false
-        var sawScan = false
+        var seen: ArtifactHolding = []
         for file in files where !file.isEmpty {
-            switch ScoreArtifact.kind(ofFile: file) {
-            case .notation: sawNotation = true
-            case .scan:     sawScan = true
-            }
+            seen.insert(holding(for: ScoreArtifact.kind(ofFile: file)))
         }
-        switch (sawNotation, sawScan) {
-        case (true, true):   return .both
-        case (true, false):  return .notation
-        case (false, true):  return .pdf
-        case (false, false): return nil
-        }
+        return seen.isEmpty ? nil : seen
     }
 
     /// One arrangement, across its whole history.
@@ -90,12 +111,14 @@ enum ArtifactTag {
     /// I edit this" and "do I still have the original", and two answers read
     /// faster than a phrase joining them. Notation takes the accent chip --
     /// clay is this app's "live" -- and the PDF takes the plain one.
+    /// One chip per fact, never a compound one: the reader is answering two
+    /// questions and two answers read faster than a phrase joining them.
+    ///
+    /// Notation takes the accent chip -- clay is this app's "live", and
+    /// notation is the half that can actually be worked on.
     static func chips(for holding: ArtifactHolding) -> [LibraryRow.Chip] {
-        switch holding {
-        case .pdf:      return [.init(text: "PDF", kind: .plain)]
-        case .notation: return [.init(text: "MUSICXML", kind: .count)]
-        case .both:     return [.init(text: "PDF", kind: .plain),
-                                .init(text: "MUSICXML", kind: .count)]
+        words(holding).map { word in
+            .init(text: word, kind: word == "MUSICXML" ? .count : .plain)
         }
     }
 
@@ -109,6 +132,6 @@ enum ArtifactTag {
     /// The marker states the CONSEQUENCE as well as the format, because "PDF"
     /// alone does not tell a reader why the pencil selects nothing.
     static func markerDetail(_ kind: ScoreArtifact.Kind) -> String {
-        kind == .notation ? "editable" : "not editable"
+        kind.isNotation ? "editable" : "not editable"
     }
 }
