@@ -234,11 +234,17 @@ struct MixerWindowPanel<G: Gesture>: View {
                     .fixedSize()
                     .padding(.leading, movable ? 0 : Theme.Metric.s12)
                     .allowsHitTesting(false)
+                // The identifier outlives the wording. It said "all voices"
+                // and now says "3 of 4 voices", which is the spec's §1 header
+                // -- but two older tests read `mixer-summary` to check the
+                // mixer says what will be heard, and that contract is about
+                // the element rather than its text.
                 Text(voicesSummary).typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
                     .fixedSize()
                     .padding(.leading, Theme.Metric.s8)
                     .allowsHitTesting(false)
+                    .accessibilityIdentifier("mixer-summary")
                 Spacer(minLength: Theme.Metric.s8)
                 collapseButton
                 if movable { parkButton }
@@ -325,12 +331,16 @@ struct MixerWindowPanel<G: Gesture>: View {
         .accessibilityLabel("Close the mixer")
     }
 
-    /// "3 of 4 voices", which replaces "all voices" -- it says something.
+    /// What will be heard, from the model rather than recomputed here.
+    ///
+    /// `PlaybackVoices.summary(in:metronome:)` already said this and the
+    /// rebuild wrote its own version, which lost a product decision the older
+    /// tests encode: every voice off is "metronome only" with the click on and
+    /// "silent" with it off, because claiming a click that is not playing
+    /// sends a reader hunting for a broken speaker. Two notions of one
+    /// sentence is how that kind of thing goes missing.
     private var voicesSummary: String {
-        let on = parts.filter { playback.voices.isOn($0.index) }.count
-        guard !parts.isEmpty else { return "no voices" }
-        return on == parts.count ? "all \(parts.count) voices"
-                                 : "\(on) of \(parts.count) voices"
+        playback.voices.summary(in: parts, metronome: playback.metronome)
     }
 
     private var nextCorner: MixerLayout.Corner {

@@ -136,9 +136,17 @@ final class MixerVisibility: XCTestCase {
         let before = panel.frame
         snap("mixer-before-drag")
 
-        let grip = app.descendants(matching: .any)["mixer-grip"].firstMatch
-        let handle: XCUIElement = grip.exists ? grip : panel
-        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // The HEADER, and no fallback to the panel body. The body having a
+        // drag is exactly what the rebuild removed (MIXER_WINDOW §1.1): its
+        // gesture competed with every mute, fader and chip and lost, which is
+        // why the window felt dead. A test that fell back to the body would
+        // now be asserting the opposite of the design.
+        let header = app.descendants(matching: .any)["mixer-header"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 20),
+                      "no mixer header to pick the window up by")
+        // dx 0.06 is the leading 44pt, where the grab bar is drawn. By
+        // coordinate because §1.1 makes `mixer-grab` accessibility-hidden.
+        let start = header.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5))
         // Up and to the left, well inside the screen so no clamp is involved.
         let target = start.withOffset(CGVector(dx: -160, dy: -160))
 

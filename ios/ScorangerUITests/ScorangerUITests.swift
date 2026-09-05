@@ -3612,7 +3612,7 @@ extension ScorangerUITests {
             shot("mixer-did-not-open")
             XCTFail("the mixer did not open."
                     + " button=\(mixerButton.value as? String ?? "-")"
-                    + " grip=\(app.descendants(matching: .any)["mixer-grip"].firstMatch.exists)"
+                    + " grip=\(app.descendants(matching: .any)["mixer-park"].firstMatch.exists)"
                     + " strip0=\(app.descendants(matching: .any)["strip-mute-0"].firstMatch.exists)")
         }
 
@@ -3718,10 +3718,16 @@ extension ScorangerUITests {
                       "scrubbing did not move the play head")
         shot("mixer-scrubbed")
 
-        // The grip moves it without a drag -- the path for readers who cannot
-        // drag at all, which is the whole reason it is a tap and not only a
-        // handle. Four corners, and back to where it started.
-        let grip = app.descendants(matching: .any)["mixer-grip"].firstMatch
+        // PARK moves it without a drag -- the path for readers who cannot drag
+        // at all, which is the whole reason it is a tap and not only a handle.
+        // Four corners, and back to where it started.
+        //
+        // It was `mixer-grip` until the window rebuild. MIXER_WINDOW §1.1/§1.2
+        // split that one control in two: a grab bar that is NOT a button (a
+        // Button swallows the drag that looks like it belongs to it, which is
+        // why the old panel would not move) and a park button that is. The
+        // behaviour asserted below is the park button's and is unchanged.
+        let grip = app.descendants(matching: .any)["mixer-park"].firstMatch
         var corners: [CGPoint] = [grip.frame.origin]
         var labels: [String] = [grip.value as? String ?? "?"]
         for _ in 0..<4 {
@@ -3750,7 +3756,7 @@ extension ScorangerUITests {
             close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         XCTAssertTrue(waitForDisappearance(
-            of: app.descendants(matching: .any)["mixer-grip"].firstMatch, timeout: 10),
+            of: app.descendants(matching: .any)["mixer-park"].firstMatch, timeout: 10),
                       "the mixer would not close")
         XCTAssertEqual(app.buttons["transport-mixer"].value as? String, "off",
                        "the transport still says the mixer is open")

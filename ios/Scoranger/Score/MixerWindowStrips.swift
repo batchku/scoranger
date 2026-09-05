@@ -33,7 +33,7 @@ struct MixerChannelStrip: View {
             MixerMuteButton(playback: playback, part: part)
             HStack(spacing: MixerLayout.ledInset) {
                 MixerFader(playback: playback, part: part)
-                MixerLED(on: isSounding)
+                MixerLED(on: isSounding, part: part)
             }
             .frame(minHeight: MixerLayout.faderIdeal)
             Text("\(fader)").typeRole(.data)
@@ -140,13 +140,26 @@ struct MixerMuteButton: View {
     }
 }
 
+/// The activity lamp. Not decorative: whether a staff is sounding right now
+/// is the one thing in the strip a non-visual reader cannot get any other
+/// way, so it is an element with a value rather than a hidden circle.
 struct MixerLED: View {
     let on: Bool
+    let part: PlaybackTimeline.Part
+
     var body: some View {
-        Circle()
-            .fill(on ? Theme.Accent.clay : Theme.Line.line2)
-            .frame(width: MixerLayout.ledWidth, height: MixerLayout.ledWidth)
-            .accessibilityHidden(true)
+        ZStack {
+            Circle().fill(on ? Theme.Status.ok : Theme.Line.line2)
+            if on {
+                Circle().stroke(Theme.Status.ok.opacity(0.22), lineWidth: 3)
+                    .frame(width: MixerLayout.ledWidth + 3,
+                           height: MixerLayout.ledWidth + 3)
+            }
+        }
+        .frame(width: MixerLayout.ledWidth, height: MixerLayout.ledWidth)
+        .accessibilityIdentifier("strip-led-\(part.index)")
+        .accessibilityLabel("\(part.name), sounding")
+        .accessibilityValue(on ? "yes" : "no")
     }
 }
 
@@ -192,7 +205,10 @@ struct MixerFader: View {
         .accessibilityElement()
         .accessibilityIdentifier("strip-fader-\(part.index)")
         .accessibilityLabel("\(part.name), level")
-        .accessibilityValue("\(fader)")
+        // "N of 10" and not a bare number: a value with no scale does
+        // not say whether 7 is loud. Read by
+        // testTheMixerOpensWithAStripPerStaff.
+        .accessibilityValue("\(fader) of \(PlaybackGain.maximumFader)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: playback.setFader(fader + 1, channel: part.index)
@@ -245,7 +261,10 @@ struct MixerHorizontalFader: View {
         .accessibilityElement()
         .accessibilityIdentifier("strip-fader-\(part.index)")
         .accessibilityLabel("\(part.name), level")
-        .accessibilityValue("\(fader)")
+        // "N of 10" and not a bare number: a value with no scale does
+        // not say whether 7 is loud. Read by
+        // testTheMixerOpensWithAStripPerStaff.
+        .accessibilityValue("\(fader) of \(PlaybackGain.maximumFader)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: playback.setFader(fader + 1, channel: part.index)
@@ -295,8 +314,17 @@ struct MixerSoundChip: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("strip-sound-\(part.index)")
         .accessibilityLabel("\(part.name), sound")
+        // "automatic" and not "from the staff name": the sound under an
+        // untouched channel comes from the notation's own program where there
+        // was one and from the staff name only where there was not, and a
+        // value naming the wrong one would be a lie in the place a non-visual
+        // reader has to trust. The suffix is a CONTRACT --
+        // testTheMixerChoosesTheSoundAChannelIsPlayedWith reads it -- and the
+        // rebuild dropped it until that test said so.
         .accessibilityValue(GeneralMIDI.name(program: patch.program,
-                                             bank: patch.bank))
+                                             bank: patch.bank)
+                            + (chosen ? ", chosen" : ", automatic"))
+        .accessibilityHint("Opens the list of sounds")
     }
 }
 
@@ -495,33 +523,48 @@ struct MixerSoundPicker: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Three actions, and each is the inverse of something.
+    ///
+    /// AUTO undoes a choice on this channel; ALL AUTO undoes one made across
+    /// the rack; ALL STAVES is the ask the feature came from. A control that
+    /// changes every channel at once and leaves the reader undoing it a strip
+    /// at a time is the create-only trap the house rule names -- which is why
+    /// ALL AUTO exists and why the rebuild dropping it was a regression a test
+    /// caught as "no way back".
     private var footer: some View {
         HStack(spacing: Theme.Metric.s8) {
-            Button { playback.clearInstrument(for: part) } label: {
-                Text("AUTO").typeRole(.label)
-                    .foregroundStyle(Theme.Accent.clayStrong)
-                    .fixedSize()
-                    .frame(minHeight: 24).contentShape(Rectangle())
+            action("AUTO", id: "picker-guess",
+                   label: "Back to the automatic sound") {
+                playback.clearInstrument(for: part)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("picker-auto")
-            .accessibilityLabel("Back to the automatic sound")
-            Spacer(minLength: Theme.Metric.s8)
-            Button {
+            action("ALL AUTO", id: "picker-all-guess",
+                   label: "Every staff back to its automatic sound") {
+                playback.clearInstruments()
+            }
+            Spacer(minLength: Theme.Metric.s4)
+            action("ALL STAVES", id: "picker-all-staves",
+                   label: "Put every staff on this sound") {
                 playback.setInstrumentEverywhere(program: current.program,
                                                  bank: current.bank)
-            } label: {
-                Text("ALL STAVES").typeRole(.label)
-                    .foregroundStyle(Theme.Accent.clayStrong)
-                    .fixedSize()
-                    .frame(minHeight: 24).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("picker-all-staves")
-            .accessibilityLabel("Put every staff on this sound")
         }
-        .padding(.horizontal, Theme.Metric.s12)
+        .padding(.horizontal, Theme.Metric.s8)
         .frame(minHeight: 30)
+    }
+
+    private func action(_ title: String, id: String, label: String,
+                        run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            Text(title).typeRole(.label)
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .fixedSize()
+                .padding(.horizontal, 4)
+                .frame(minHeight: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+        .accessibilityLabel(label)
     }
 
     /// One row. `.fixedSize` and a minimum, like everything else here.
