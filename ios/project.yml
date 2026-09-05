@@ -130,7 +130,7 @@ targets:
         #   0.6.11 a + on the score bar that files this arrangement into set
         #          lists. Pagination (#4) is 0.6.12: its scope is unbounded and
         #          it was not going to hold this.
-        CURRENT_PROJECT_VERSION: 169
+        CURRENT_PROJECT_VERSION: 170
         MARKETING_VERSION: 0.6.11
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
