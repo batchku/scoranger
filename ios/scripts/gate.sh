@@ -127,6 +127,20 @@ for _, ds in json.load(sys.stdin)['devices'].items():
             print(d['udid']); raise SystemExit
 ")
   [[ -n "$udid" ]] || udid=$(xcrun simctl create "$name" "$DEVTYPE" "$RUNTIME")
+  # BOOT IT, and wait until it has finished booting.
+  #
+  # xcodebuild boots a device it is handed, but a device it has never booted
+  # before does not reliably come up in time: the run reaches the first UI test
+  # and dies with CoreSimulator 405 "Invalid device state" on
+  # launchApplicationWithID. Every UI test then fails in seconds, the unit
+  # target passes, and the whole gate is over in three minutes -- which reads
+  # like a broken app rather than a simulator that was not ready.
+  #
+  # This never showed while the pool was shared and permanent, because those
+  # devices had all been booted by some earlier run. Namespacing the pool made
+  # fresh devices normal and turned a latent gap into every run's first
+  # failure. `bootstatus -b` boots if needed and blocks until it is done.
+  xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
   echo "$udid"
 }
 
