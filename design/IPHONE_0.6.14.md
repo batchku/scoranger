@@ -1005,3 +1005,131 @@ Three notes for the build:
 Nothing new. The route (`[ScoreAddress]` → `element(at:)` → frame → highlight)
 is already there per your finding; this section changes **one blend mode, one
 opacity for measure-granularity boxes, and nothing else**.
+
+---
+
+# 12. Single-finger tap arbitration — ruling
+
+## 12.1 Amend, not confirm — and the premise that just became false
+
+`PageTurn` already carries the arbitration table and it is explicit about why a
+finger tap was free (`PageTurn.swift:52`):
+
+> *A finger never selects and never inks, so its tap is free in every mode — a
+> single-finger tap on the page did nothing at all before this.*
+
+§9.1 invalidates exactly that sentence, so the table changes rather than gains a
+row. Update the comment with the rule; a premise that has quietly stopped being
+true is how the mixer's drag died.
+
+**The proposed rule is amended on one point**, because checking the code moved
+my answer: I was about to gate turn zones on zoom, and `PagedCanvas.afterTurn`
+forbids it — *"Zoom PERSISTS — a violinist reading at 180% stays at 180%"*
+(`PagedCanvas.swift:76`). Turning pages while zoomed is designed behaviour, so
+zoom cannot be the separator. It has to be position.
+
+And "keep the outer margins" does not survive measurement. The engraved margin
+is `pageMarginLeft: 120` tenths-mm → 54 engraved points → **21.8pt on screen at
+fit-width portrait**. Half a thumb. There is no margin to keep: at fit the page
+fills the canvas.
+
+## 12.2 The ruling: bottom-anchored corner zones
+
+**Turn zones stop being full-height columns and become bottom-anchored corners.
+Everything else on the canvas selects.**
+
+```
+static let zoneFraction: CGFloat = 0.22          // unchanged
+static let zoneHeightFraction: CGFloat = 0.30    // new
+static let zoneMinHeight: CGFloat = 88           // two hit targets
+static let zoneMinWidth: CGFloat = 64            // narrow split views
+```
+
+| Canvas | Corner zone | Selectable |
+|---|---|---|
+| iPhone portrait 393×635 | 86 × 190 | 86.8% |
+| iPhone landscape 734×284 | 161 × 88 | 86.4% |
+| iPad 13" landscape 1366×820 | 301 × 246 | 86.8% |
+| iPad 11" portrait 834×950 | 183 × 285 | 86.8% |
+| iPad split, narrow 320×700 | 70 × 210 | 86.8% |
+
+Bottom-anchored because that is where a thumb rests on every one of those
+devices, and because it hands back the upper 70% of the outer columns — which
+at fit is the first and last bar of every system except the last.
+
+**Why not hit-test arbitration** (tap an element selects, tap blank paper in the
+outer zone turns), which is the more elegant rule and uses the spatial index
+that already exists: it makes a page turn *conditional on what is engraved under
+the thumb*. A performer's page turn must be reliable in a fixed, learnable
+place, and a rule that works over a rest and fails over a chord is not that.
+
+## 12.3 The hole, stated
+
+At fit, the **last system's outer bars** fall inside the corner zones and cannot
+be tap-selected. Three existing routes reach them, so nothing is stranded:
+
+- zoom past 2× and pan — the bar leaves the corner, and §9.1 wants a note
+  selected at that zoom anyway;
+- lasso, which is armed and positional;
+- tap the measure before it, then the chip's granularity control.
+
+I would rather have that hole than a conditional page turn. If Ali disagrees
+after using it, the lever is `zoneHeightFraction`, not the structure.
+
+## 12.4 The structural instruction — this is the mixer lesson
+
+**One recogniser owns the single-finger tap for the whole canvas, and it
+decides.** Not a turn recogniser and a select recogniser racing, not
+`.simultaneousGesture`, not innermost-wins. That arrangement is exactly what
+left the mixer undraggable for a release, in an arena less crowded than this one.
+
+The decision is a pure function beside the ones already there, testable without
+a screen:
+
+```swift
+enum TapOutcome: Equatable {
+    case turn(Zone)
+    case select(CGPoint)   // canvas point, for the geometry to resolve
+    case clear
+    case none
+}
+
+static func tap(isPencil: Bool, mode: ScoreMode, touchCount: Int,
+                point: CGPoint, canvas: CGSize,
+                movement: CGFloat, elapsed: TimeInterval) -> TapOutcome
+```
+
+Order inside it, and nowhere else:
+
+1. `touchCount > 1` at any moment during the gesture → `.none`. The two-finger
+   undo tap and every pinch must not leave a stray selection behind, and a
+   pinch that began as one finger is the case that will actually happen.
+2. Not `isTap(movement:elapsed:)` → `.none`. Unchanged: 10pt slop, 0.3s.
+3. `mode == .performance` → `.turn` **anywhere on the canvas**. Selection is off
+   in performance, so the whole page is the turn target. This is the escape
+   valve that makes 12.3's hole affordable.
+4. `isPencil` → the existing table, untouched.
+5. Point inside a corner zone → `.turn`.
+6. Otherwise → `.select(point)`; the geometry decides measure or note by zoom
+   (§9.1), and a miss on any addressable element returns `.clear`.
+
+Two checks that fail if this drifts:
+
+- **Disjoint and total**: over a fuzz of canvas sizes and points, every point
+  resolves to exactly one outcome, and the union of the zones plus the
+  selectable region is the whole canvas. This is the test the mixer never had.
+- **No stray selection from a pinch**: a synthesised two-finger sequence whose
+  first touch lands in the centre produces `.none`, not `.select`.
+
+## 12.5 What changes on iPad
+
+This is a behaviour change there too — full-height columns become corners — and
+it should not arrive unannounced. It is unavoidable: Ali's ruling puts finger
+tap-select on iPad as well, so the same arena is crowded on both. The Pencil
+table is untouched, and performance mode still turns from anywhere.
+
+## 12.6 The 12% measure fill
+
+Understood that the frame comes with this wiring. When it lands, send **a bar
+selected in the middle of a dense system at fit, portrait** — density is what
+the 12% call turns on, and a sparse bar will make any value look fine.
