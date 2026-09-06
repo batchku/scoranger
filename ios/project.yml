@@ -134,8 +134,8 @@ targets:
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
         #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
         #          path. Pagination moves to 0.6.14.
-        CURRENT_PROJECT_VERSION: 174
-        MARKETING_VERSION: 0.6.15
+        CURRENT_PROJECT_VERSION: 175
+        MARKETING_VERSION: 0.6.16
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
