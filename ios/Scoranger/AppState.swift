@@ -87,7 +87,17 @@ final class AppState: ObservableObject {
     @Published var selectionPaths: [Int: [CGPoint]] = [:]
     /// The hit-test model for the engraving currently on screen, built from the
     /// same Verovio load that drew it.
-    @Published var geometry: ScoreGeometry?
+    @Published var geometry: ScoreGeometry? {
+        didSet { barPopulations = geometry?.barPopulations ?? [:] }
+    }
+
+    /// How many selectable addresses each bar-on-a-staff holds, cached with
+    /// the geometry that produced it.
+    ///
+    /// Cached because the highlight asks on every zoom step and the answer is
+    /// a walk of every address in the document -- 2724 of them on a nine-page
+    /// quartet -- while it changes only when the engraving does.
+    private(set) var barPopulations: [SelectionMerge.Key: Int] = [:]
     /// What each chord symbol already carries, by address — the chip's starting
     /// point, so a nudge builds on the file rather than on the default.
     @Published var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]

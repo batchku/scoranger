@@ -271,6 +271,28 @@ struct ScoreGeometry {
             .sorted { $0.span.lowerBound < $1.span.lowerBound }
     }
 
+    /// How many selectable addresses each bar-on-a-staff holds.
+    ///
+    /// What "the whole bar is selected" is measured against (§13,
+    /// `SelectionMerge`). Bar-like kinds are excluded for the same reason they
+    /// are excluded everywhere else: a `<measure>` is not a member of itself,
+    /// and it is not selectable, so counting it would make every bar one short
+    /// of complete and nothing would ever merge.
+    ///
+    /// Computed once per selection rather than per element: it is a walk of
+    /// every address in the document, and the highlight is rebuilt on every
+    /// zoom step.
+    var barPopulations: [SelectionMerge.Key: Int] {
+        var counts: [SelectionMerge.Key: Int] = [:]
+        for address in byAddress.keys {
+            guard address.staff > 0,
+                  !ScoreElementKind.barLike.contains(address.kind) else { continue }
+            counts[SelectionMerge.Key(measure: address.measure,
+                                      staff: address.staff), default: 0] += 1
+        }
+        return counts
+    }
+
     func page(_ index: Int) -> ScorePage? {
         pages.first { $0.index == index }
     }

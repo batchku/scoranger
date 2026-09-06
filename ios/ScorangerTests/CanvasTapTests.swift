@@ -23,11 +23,13 @@ final class CanvasTapTests: XCTestCase {
                      elapsed: TimeInterval = 0.1,
                      press: Bool = false,
                      armed: Bool = false,
+                     onPage: Bool = true,
                      hit: Bool = true) -> CanvasTap.Outcome {
         CanvasTap.tap(at: point, in: size ?? canvas, isPencil: isPencil,
                       mode: mode, maxFingers: fingers,
                       movement: movement, elapsed: elapsed,
-                      wasPress: press, lassoArmed: armed, hit: hit)
+                      wasPress: press, lassoArmed: armed,
+                      onPage: onPage, hit: hit)
     }
 
     // MARK: - The fixed order (§12)
@@ -55,7 +57,6 @@ final class CanvasTapTests: XCTestCase {
         XCTAssertEqual(tap(mid(canvas), elapsed: 1.2), .none)
         XCTAssertEqual(tap(CGPoint(x: 5, y: 754), elapsed: 1.2), .none,
                        "a thumb resting in the corner turned the page")
-        XCTAssertEqual(tap(mid(canvas), mode: .performance, elapsed: 1.2), .none)
     }
 
     /// Performance mode turns anywhere: the score has the screen and there is
@@ -64,6 +65,31 @@ final class CanvasTapTests: XCTestCase {
         XCTAssertEqual(tap(mid(canvas), mode: .performance), .turn(.next))
         XCTAssertEqual(tap(CGPoint(x: 20, y: 100), mode: .performance),
                        .turn(.previous))
+        XCTAssertEqual(tap(mid(canvas), mode: .performance, onPage: false),
+                       .turn(.next), "the turn does not need paper under it")
+    }
+
+    /// And a finger HELD there still turns (§13). There is no press in
+    /// performance mode -- selection is off, so a loupe would magnify
+    /// something the reader cannot act on -- which leaves a slow tap.
+    func testAHeldFingerStillTurnsInPerformanceMode() {
+        XCTAssertEqual(tap(mid(canvas), mode: .performance, elapsed: 4),
+                       .turn(.next))
+        XCTAssertEqual(tap(mid(canvas), mode: .performance, movement: 40),
+                       .none, "a drag in performance mode is still a pan")
+    }
+
+    /// A release off the paper cancels: no commit, no clear. The reader who
+    /// slid a press off the page did not choose the emptiness there (§13).
+    func testAReleaseOffThePageCancels() {
+        XCTAssertEqual(tap(mid(canvas), onPage: false), .none)
+        XCTAssertEqual(tap(mid(canvas), onPage: false, hit: false), .none)
+        XCTAssertEqual(tap(mid(canvas), movement: 200, elapsed: 3,
+                           press: true, onPage: false), .none)
+        XCTAssertEqual(tap(CGPoint(x: 5, y: 754), onPage: false),
+                       .turn(.previous),
+                       "the corner turns whether or not paper is under it: at "
+                       + "fit the page does not reach the bottom of the canvas")
     }
 
     /// The Pencil keeps its table untouched: it turns only in performance
@@ -97,7 +123,7 @@ final class CanvasTapTests: XCTestCase {
                            press: true, hit: false), .clear)
         XCTAssertEqual(tap(mid(canvas), mode: .performance, movement: 120,
                            elapsed: 3, press: true), .none,
-                       "performance mode has nothing to select")
+                       "a drag in performance mode is a pan, press flag or not")
         XCTAssertEqual(tap(mid(canvas), fingers: 2, press: true), .none,
                        "a second finger still ends it")
     }

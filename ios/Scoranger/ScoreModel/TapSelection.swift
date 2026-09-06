@@ -90,18 +90,51 @@ enum TapSelection {
     /// loupe's job is to double the current scale, whatever that is.
     static func loupeScale(zoom: CGFloat) -> CGFloat { zoom * 2 }
 
-    /// Shown, except where it would be WRONG rather than merely unhelpful.
+    /// Whether a press may happen at all -- which is the same question as
+    /// whether the loupe may be shown, deliberately answered in ONE place.
     ///
-    /// VoiceOver selects by element and not by point, so a magnifier over a
-    /// touch means nothing there. Two fingers down is a pinch, and a pinch is
-    /// not a selection.
+    /// The two are the same gesture seen from two ends: the press is what the
+    /// reader does and the loupe is what they see while doing it. Two
+    /// predicates would drift, and the drift has a shape -- a press with no
+    /// loupe is a selection committed blind, at the exact resolution the loupe
+    /// exists to supply (§13).
     ///
-    /// A pinch with one finger still down does NOT hide it -- see
-    /// `loupeOpacity`: it freezes and dims instead, because a loupe that
+    /// The four cases where a press is wrong:
+    ///
+    /// - **Performance mode.** Selection is off there, so a loupe would
+    ///   magnify something the reader cannot act on. A still finger past the
+    ///   delay still TURNS, which is what performance mode's whole canvas
+    ///   means.
+    /// - **VoiceOver**, which selects by element and not by point: a magnifier
+    ///   over a touch point means nothing to it.
+    /// - **More than one finger**, which is a pinch.
+    /// - **Ink mode**, where the Pencil is drawing and a stroke is a path, not
+    ///   a point -- a loupe chasing a drawing hand is noise (§9.2).
+    ///
+    /// A pinch with one finger still down does NOT hide an established loupe
+    /// -- see `loupeOpacity`: it freezes and dims, because a loupe that
     /// vanishes and returns reads as a glitch.
-    static func showsLoupe(voiceOver: Bool, fingers: Int,
-                           pinching: Bool) -> Bool {
-        !voiceOver && fingers < 2
+    static func allowsPress(mode: ScoreMode, voiceOver: Bool, fingers: Int,
+                            inking: Bool) -> Bool {
+        mode != .performance && !voiceOver && fingers < 2 && !inking
+    }
+
+    /// The same predicate, named for the end the reader sees.
+    static func showsLoupe(mode: ScoreMode, voiceOver: Bool, fingers: Int,
+                           inking: Bool) -> Bool {
+        allowsPress(mode: mode, voiceOver: voiceOver, fingers: fingers,
+                    inking: inking)
+    }
+
+    /// Whether a touch that has already MOVED may still become a press.
+    ///
+    /// It may not, ever. A finger that travelled more than the tap slop before
+    /// the delay elapsed is panning, and a reader easing a zoomed score across
+    /// the screen moves slowly by definition -- exactly the touch a
+    /// time-only rule would steal and turn into a selection. Once a pan, a pan
+    /// for life; the reader lifts and presses again (§13).
+    static func mayBecomePress(movedBeforeDelay movement: CGFloat) -> Bool {
+        movement <= PageTurn.tapSlop
     }
 
     /// Dimmed while the scale is moving. It holds its last sample and

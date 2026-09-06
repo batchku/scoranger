@@ -61,6 +61,11 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onLoupe: ((LoupeSample?) -> Void)?
     /// A horizontal swipe with no slack left to pan: turn.
     var onSwipeTurn: ((Int) -> Void)?
+    /// What the Pencil means right now, which decides whether a press is
+    /// possible at all (§13, `TapSelection.allowsPress`).
+    var mode: ScoreMode = .read
+    /// VoiceOver selects by element, not by point: no press, no loupe.
+    var voiceOverRunning = false
     /// Selection off, for performance mode.
     var selectionEnabled: Bool = true
     /// `Select` is armed: one finger draws a loop instead of panning (§9.3).
@@ -215,6 +220,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.lasso?.selectionEnabled = selectionEnabled
         context.coordinator.lasso?.fingerSelects = lassoArmed
         context.coordinator.turn?.armed = lassoArmed
+        context.coordinator.turn?.mode = mode
+        context.coordinator.turn?.voiceOverRunning = voiceOverRunning
+        context.coordinator.turn?.inking = annotationActive
         context.coordinator.onCanvasTap = onCanvasTap
         context.coordinator.onLoupe = onLoupe
         context.coordinator.onSwipeTurn = onSwipeTurn
@@ -661,6 +669,12 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     /// and nothing for this recogniser to report (§9.3).
     var armed = false
 
+    /// Everything `TapSelection.allowsPress` needs that the recogniser cannot
+    /// see for itself. The finger count is its own (§13).
+    var mode: ScoreMode = .read
+    var voiceOverRunning = false
+    var inking = false
+
     /// Where the finger is while a press is live, and nil the moment it is
     /// not. The canvas puts the loupe there (§9.2).
     var onPress: ((CGPoint?) -> Void)?
@@ -723,17 +737,24 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     /// and `.began` cancels the pan in flight.
     private func armPress() {
         pressTimer?.invalidate()
-        guard !wasPencil, !armed else { return }
+        guard !wasPencil, !armed, pressAllowed else { return }
         pressTimer = Timer.scheduledTimer(
             withTimeInterval: TapSelection.pressDelay, repeats: false
         ) { [weak self] _ in
-            guard let self, self.view != nil,
-                  self.maxFingers <= 1, self.moved <= PageTurn.tapSlop,
+            guard let self, self.view != nil, self.pressAllowed,
+                  TapSelection.mayBecomePress(movedBeforeDelay: self.moved),
                   self.state == .possible else { return }
             self.wasPress = true
             self.state = .began
             self.onPress?(self.here)
         }
+    }
+
+    /// ONE predicate for the press and the loupe, so they cannot drift into
+    /// a selection committed blind (§13).
+    private var pressAllowed: Bool {
+        TapSelection.allowsPress(mode: mode, voiceOver: voiceOverRunning,
+                                 fingers: maxFingers, inking: inking)
     }
 
     private var here: CGPoint { CGPoint(x: start.x + dx, y: start.y + dy) }

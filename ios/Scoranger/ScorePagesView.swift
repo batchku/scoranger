@@ -130,15 +130,17 @@ struct ScorePagesView: View {
                            onCanvasTap: { touch in
                                canvasTap(touch)
                            },
-                           onLoupe: { sample in
-                               loupe = TapSelection.showsLoupe(
-                                   voiceOver: voiceOverRunning,
-                                   fingers: 1, pinching: false) ? sample : nil
-                           },
+                           // The recogniser has already asked the same
+                           // question -- `allowsPress` -- before raising a
+                           // press at all, so this is the sample arriving,
+                           // not a second policy.
+                           onLoupe: { sample in loupe = sample },
                            onSwipeTurn: { direction in step(by: direction) },
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
                            // offering it
+                           mode: mode,
+                           voiceOverRunning: voiceOverRunning,
                            selectionEnabled: mode != .performance
                                && state.displayedArtifact == .notation,
                            lassoArmed: state.lassoArmed
@@ -734,11 +736,16 @@ struct ScorePagesView: View {
     private func selectedFrames(onPage index: Int) -> [SelectionBox] {
         guard let selection = state.activeSelection,
               let geometry = state.geometry else { return [] }
-        return selection.addresses.compactMap { address in
+        let members: [SelectionMerge.Member] = selection.addresses.compactMap { address in
             guard let element = geometry.element(at: address),
                   element.pageIndex == index else { return nil }
-            return SelectionBox(frame: element.frame, kind: address.kind)
+            return SelectionMerge.Member(address: address, frame: element.frame)
         }
+        // A whole bar is ONE mark, not one per note: multiplied fills compound
+        // where they overlap, so the lightest mark on the page was coming out
+        // the heaviest (§13).
+        return SelectionMerge.boxes(selected: members,
+                                    population: state.barPopulations)
     }
 
     // MARK: selection chip
@@ -1259,11 +1266,6 @@ private struct ContinuousPlayheadLayer: View {
 /// at 12x a 1pt outline is a 12pt band and a 3pt overhang is 36, so a selected
 /// chord came back as one orange blob with no music visible inside it.
 /// One selection box: where it is, and what granularity it marks.
-struct SelectionBox: Equatable {
-    let frame: CGRect
-    let kind: ScoreElementKind
-}
-
 private struct SelectionHighlight: View {
     let frames: [SelectionBox]
     let pageSize: CGSize

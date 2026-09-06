@@ -95,24 +95,60 @@ final class TapSelectionTests: XCTestCase {
         XCTAssertEqual(placed.hit, touch)
     }
 
-    /// Suppressed where it would be wrong rather than merely unhelpful:
-    /// VoiceOver selects by element and not by point, and two fingers down is
-    /// a pinch, which is not a selection (§10.3).
+    /// Suppressed where it would be wrong rather than merely unhelpful
+    /// (§10.3, §13): VoiceOver selects by element and not by point, two
+    /// fingers are a pinch, ink is a path and not a point, and performance
+    /// mode has no selection for the loupe to be precise ABOUT.
     func testTheLoupeIsSuppressedWhereItWouldBeWrong() {
-        XCTAssertFalse(TapSelection.showsLoupe(voiceOver: true, fingers: 1,
-                                               pinching: false))
-        XCTAssertFalse(TapSelection.showsLoupe(voiceOver: false, fingers: 2,
-                                               pinching: false))
-        XCTAssertTrue(TapSelection.showsLoupe(voiceOver: false, fingers: 1,
-                                              pinching: false))
+        XCTAssertFalse(TapSelection.showsLoupe(mode: .read, voiceOver: true,
+                                               fingers: 1, inking: false))
+        XCTAssertFalse(TapSelection.showsLoupe(mode: .read, voiceOver: false,
+                                               fingers: 2, inking: false))
+        XCTAssertFalse(TapSelection.showsLoupe(mode: .read, voiceOver: false,
+                                               fingers: 1, inking: true))
+        XCTAssertFalse(TapSelection.showsLoupe(mode: .performance,
+                                               voiceOver: false, fingers: 1,
+                                               inking: false))
+        XCTAssertTrue(TapSelection.showsLoupe(mode: .read, voiceOver: false,
+                                              fingers: 1, inking: false))
+        XCTAssertTrue(TapSelection.showsLoupe(mode: .edit, voiceOver: false,
+                                              fingers: 1, inking: false))
+    }
+
+    /// ONE predicate, asked from both ends. Two would drift, and the drift has
+    /// a shape: a press with no loupe is a selection committed blind, at the
+    /// exact resolution the loupe exists to supply.
+    func testThePressAndTheLoupeAnswerTheSameQuestion() {
+        for mode in ScoreMode.allCases {
+            for voiceOver in [true, false] {
+                for fingers in [1, 2] {
+                    for inking in [true, false] {
+                        XCTAssertEqual(
+                            TapSelection.allowsPress(mode: mode, voiceOver: voiceOver,
+                                                     fingers: fingers, inking: inking),
+                            TapSelection.showsLoupe(mode: mode, voiceOver: voiceOver,
+                                                    fingers: fingers, inking: inking),
+                            "\(mode) vo=\(voiceOver) fingers=\(fingers) ink=\(inking)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// A finger that already moved is panning, and stays panning. A reader
+    /// easing a zoomed score across the screen moves SLOWLY -- exactly the
+    /// touch a time-only rule would steal.
+    func testATouchThatMovedFirstCanNeverBecomeAPress() {
+        XCTAssertTrue(TapSelection.mayBecomePress(movedBeforeDelay: 0))
+        XCTAssertTrue(TapSelection.mayBecomePress(movedBeforeDelay: 10))
+        XCTAssertFalse(TapSelection.mayBecomePress(movedBeforeDelay: 11))
+        XCTAssertFalse(TapSelection.mayBecomePress(movedBeforeDelay: 300))
     }
 
     /// During a pinch it FREEZES rather than vanishing: it holds its last
     /// sample and dims. Stale music at a changing scale is worse than a
     /// visible pause, and it re-samples when the scale settles.
     func testTheLoupeFreezesDuringAPinchRatherThanDisappearing() {
-        XCTAssertTrue(TapSelection.showsLoupe(voiceOver: false, fingers: 1,
-                                              pinching: true))
         XCTAssertEqual(TapSelection.loupeOpacity(pinching: true), 0.7,
                        accuracy: 0.001)
         XCTAssertEqual(TapSelection.loupeOpacity(pinching: false), 1.0,

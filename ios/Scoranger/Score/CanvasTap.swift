@@ -16,13 +16,14 @@ import Foundation
 ///
 /// 1. more than one finger at ANY moment of the touch -> nothing
 /// 2. the lasso is armed -> nothing; the finger is drawing a loop (§9.3)
-/// 3. it MOVED -> nothing; that was a pan
-/// 4. performance mode -> turn, wherever it landed
+/// 3. performance mode -> a still finger turns, a moved one panned
+/// 4. it MOVED and was not a press -> nothing; that was a pan
 /// 5. Pencil -> the §6 table, unchanged: the lasso and the ink own it
 /// 6. a bottom corner -> turn
-/// 7. anything else -> select what is there, or clear if nothing is
+/// 7. off every page -> nothing; a release off the paper cancels
+/// 8. anything else -> select what is there, or clear if nothing is
 ///
-/// Rule 3 is `PageTurn.isTap` as §12 wrote it: still, and quick. A finger that
+/// Rule 4 is `PageTurn.isTap` as §12 wrote it: still, and quick. A finger that
 /// stays down longer than that is not a slow tap, it is a PRESS -- §9.2's
 /// selecting gesture, where the loupe comes up, the reader slides a little to
 /// place the crosshair, and release commits. It arrives already flagged, and
@@ -32,6 +33,12 @@ import Foundation
 /// watch themselves make, so there is nothing to protect them from; and a
 /// thumb resting in a corner is a press, which is exactly why it must not turn
 /// the page (§6.2).
+///
+/// PERFORMANCE MODE IS THE EXCEPTION, and it is not an inconsistency: there is
+/// no press there at all (`TapSelection.allowsPress`), because selection is off
+/// and a loupe would magnify something the reader cannot act on. So a still
+/// finger held past the delay is not a press, it is a slow tap, and the whole
+/// canvas turns -- which is what performance mode means (§13).
 ///
 /// Zoom is deliberately NOT a separator. Zoom persists across a turn by design
 /// (`PagedCanvas.afterTurn`), so "turns at fit, selects when zoomed" would mean
@@ -102,12 +109,20 @@ enum CanvasTap {
                     mode: ScoreMode, maxFingers: Int,
                     movement: CGFloat, elapsed: TimeInterval,
                     wasPress: Bool = false, lassoArmed: Bool = false,
-                    hit: Bool = true) -> Outcome {
+                    onPage: Bool = true, hit: Bool = true) -> Outcome {
         guard maxFingers <= 1 else { return .none }
         // While the lasso is armed the finger is the lasso's, whole. A tap
         // that also selected would be a second claim on the same touch, which
         // is the thing this file exists to prevent.
         guard !lassoArmed else { return .none }
+        // Performance mode is answered whole, and BEFORE the press rule:
+        // there are no presses there (`TapSelection.allowsPress`), so a still
+        // finger held past the delay is a slow tap and the canvas turns. A
+        // finger that MOVED is a pan, as it is everywhere.
+        if mode == .performance {
+            return movement <= PageTurn.tapSlop
+                ? .turn(half(at: point, in: canvas)) : .none
+        }
         // A PRESS may move: once the loupe is up the touch belongs to the
         // selection and a slide is the reader placing the crosshair, not a
         // pan. Before the press, movement is a pan and means nothing else.
@@ -115,13 +130,14 @@ enum CanvasTap {
         // A press is never a turn, in any region: it is the selecting
         // gesture, and the reader can see under their own fingertip while
         // they make it.
-        let quick = !wasPress && PageTurn.isTap(movement: movement, elapsed: elapsed)
-        if mode == .performance { return quick ? .turn(half(at: point, in: canvas)) : .none }
         if isPencil { return .none }
         if !wasPress {
-            guard quick else { return .none }
+            guard PageTurn.isTap(movement: movement, elapsed: elapsed) else { return .none }
             if let corner = corner(at: point, in: canvas) { return .turn(corner) }
         }
+        // Released off the paper: no commit, and no clear either. The reader
+        // who slid a press off the page did not choose the emptiness there.
+        guard onPage else { return .none }
         return hit ? .select : .clear
     }
 }
@@ -154,6 +170,7 @@ extension CanvasTap {
         tap(at: touch.point, in: touch.canvas, isPencil: touch.isPencil,
             mode: mode, maxFingers: touch.maxFingers,
             movement: touch.movement, elapsed: touch.elapsed,
-            wasPress: touch.wasPress, lassoArmed: lassoArmed, hit: hit)
+            wasPress: touch.wasPress, lassoArmed: lassoArmed,
+            onPage: touch.page != nil, hit: hit)
     }
 }
