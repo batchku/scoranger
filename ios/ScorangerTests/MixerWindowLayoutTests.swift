@@ -187,52 +187,79 @@ final class MixerWindowLayoutTests: XCTestCase {
         }
     }
 
-    // MARK: - §8.7 theHeaderHoldsItsContent, the arithmetic half
+    // MARK: - §12: the panel is sized to its channels
 
-    /// A two-staff arrangement gets a panel at least 280pt wide.
+    /// The reported case, as one assertion: two channels is a 184pt window.
     ///
-    /// This is the whole of Ali's clipping in one assertion. The shipped
-    /// `panelWidth(channels: 2)` is 137pt, the header draws 198.5pt, and the
-    /// 61.5pt difference is off the screen.
-    func testATwoStaffPanelIsAtLeastTheHeaderFloor() {
-        for channels in 1...8 {
-            let width = MixerLayout.panelWidth(channels: channels,
-                                               stripWidth: 64,
-                                               headerFloor: 280,
-                                               freeWidth: 1016,
-                                               compact: false)
-            XCTAssertGreaterThanOrEqual(width, 280,
-                                        "\(channels) channels -> \(width)pt")
-        }
-    }
-
-    /// The floor is a floor, not a fixed width: more strips than it can hold
-    /// still widen the panel.
-    func testTheFloorDoesNotCapAWideRack() {
+    /// This test used to assert the OPPOSITE -- that two channels got at least
+    /// 280pt, the header's floor. That floor was the bug §12 found: the panel
+    /// was full-width because it was anchored and anchored because it was
+    /// full-width, and 280 on a 393pt phone is what made it full-width. The
+    /// header at the floor is now its four 44pt controls and nothing else, so
+    /// the floor is 4 x 44 + 8.
+    func testTwoChannelsIsTheFloorAndTheFloorIsItsFourControls() {
+        XCTAssertEqual(MixerLayout.windowFloor, 184)
         let two = MixerLayout.panelWidth(channels: 2, stripWidth: 64,
-                                         headerFloor: 280, freeWidth: 1016,
-                                         compact: false)
-        let six = MixerLayout.panelWidth(channels: 6, stripWidth: 64,
-                                         headerFloor: 280, freeWidth: 1016,
-                                         compact: false)
-        XCTAssertEqual(two, 280, "two strips should sit at the floor")
-        XCTAssertGreaterThan(six, two, "six strips should exceed it")
+                                         freeWidth: 1016, compact: true)
+        XCTAssertEqual(two, 184, "a two-staff score should be a 184pt window")
     }
 
-    /// And it never exceeds the free rect less 16.
+    /// The ruling's own table, exactly: 2 -> 184, 3 -> 248, 4 -> 313, and 5 or
+    /// more stay at 313 with the rack scrolling inside.
+    func testTheWidthTableFromTheRuling() {
+        func width(_ channels: Int) -> CGFloat {
+            MixerLayout.panelWidth(channels: channels, stripWidth: 64,
+                                   freeWidth: 1016, compact: true)
+        }
+        XCTAssertEqual(width(2), 184)
+        XCTAssertEqual(width(3), 248)
+        XCTAssertEqual(width(4), 313)
+        XCTAssertEqual(width(5), 313, "the fifth strip scrolls, it does not widen")
+        XCTAssertEqual(width(15), 313)
+    }
+
+    /// A wider container shows more strips before it stops widening, but the
+    /// principle is the same: sized to channels, capped by what fits.
+    func testAnIPadWidensFurtherBeforeItCaps() {
+        func width(_ channels: Int, compact: Bool) -> CGFloat {
+            MixerLayout.panelWidth(channels: channels, stripWidth: 64,
+                                   freeWidth: 1016, compact: compact)
+        }
+        XCTAssertGreaterThan(width(6, compact: false), width(4, compact: false),
+                             "six strips on an iPad should be wider than four")
+        XCTAssertEqual(width(9, compact: false), width(6, compact: false),
+                       "past the visible cap the rack scrolls")
+    }
+
+    /// And it never exceeds the room it has, which is the other half of
+    /// "no clipping".
     func testThePanelNeverExceedsTheFreeWidth() {
-        for freeWidth in [320.0, 375.0, 700.0, 834.0, 1016.0, 1360.0] {
+        for freeWidth in [320.0, 375.0, 393.0, 700.0, 834.0, 1016.0, 1360.0] {
             for channels in [1, 2, 4, 6, 12] {
-                let width = MixerLayout.panelWidth(channels: channels,
-                                                   stripWidth: 96,
-                                                   headerFloor: 280,
-                                                   freeWidth: freeWidth,
-                                                   compact: freeWidth < 700)
-                XCTAssertLessThanOrEqual(width, max(freeWidth - 16, 0) + 0.01,
-                                         "\(channels)ch in \(freeWidth)pt "
-                                         + "-> \(width)pt")
+                for strip in [64.0, 80.0, 96.0] {
+                    let width = MixerLayout.panelWidth(
+                        channels: channels, stripWidth: strip,
+                        freeWidth: freeWidth,
+                        compact: MixerLayout.narrowRack(freeWidth: freeWidth,
+                                                        stripWidth: strip))
+                    XCTAssertLessThanOrEqual(
+                        width, max(freeWidth - 16, 0) + 0.01,
+                        "\(channels)ch strip \(strip) in \(freeWidth)pt "
+                        + "-> \(width)pt")
+                }
             }
         }
+    }
+
+    /// The words in the header cost room, so they wait until the rack has
+    /// bought it. At the floor there is no title and no summary -- which is
+    /// what lets the floor BE four controls wide.
+    func testTheHeaderKeepsItsWordsForWhenThereIsRoom() {
+        XCTAssertFalse(MixerLayout.headerShowsTitle(width: MixerLayout.windowFloor))
+        XCTAssertFalse(MixerLayout.headerShowsTitle(width: 247))
+        XCTAssertTrue(MixerLayout.headerShowsTitle(width: 248),
+                      "a three-channel panel has room for the words")
+        XCTAssertTrue(MixerLayout.headerShowsTitle(width: 313))
     }
 
     /// The strip scales with text, between its floor and its ceiling.
@@ -245,26 +272,86 @@ final class MixerWindowLayoutTests: XCTestCase {
                        "never wider than 96")
     }
 
-    // MARK: - §4 the three tiers, chosen by the container
+    /// And it is COMPUTED from the text size, never a literal.
+    func testTheStripWidthIsMeasuredFromTheTextSize() {
+        XCTAssertEqual(MixerLayout.stripWidth(text: .large), 64,
+                       "Large is the 1.0x baseline")
+        XCTAssertGreaterThan(MixerLayout.stripWidth(text: .accessibility1),
+                             MixerLayout.stripWidth(text: .large),
+                             "the strip did not grow with the text")
+    }
 
-    func testTheTierComesFromTheContainerAndTheTextSize() {
-        // regular width, normal text: the floating window
-        XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 1032, height: 1376),
-                                        text: .large), .window)
-        // compact width: anchored, whatever the device is
-        XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 500, height: 900),
-                                        text: .large), .anchored)
-        // a short container: anchored too -- iPhone landscape, or a resized window
-        XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 1000, height: 460),
-                                        text: .large), .anchored)
-        // accessibility text: the list, at ANY width
+    // MARK: - §12: a window, everywhere
+
+    /// THE SMOKING GUN, as a test.
+    ///
+    /// The tier was decided by `container.width < 700 || container.height <
+    /// 500`. An iPhone is 402pt wide in portrait, so the width clause caught
+    /// it; and about 252pt tall in the canvas in landscape, so the height
+    /// clause caught that. The phone was therefore anchored in BOTH
+    /// orientations and had no draggable pixels in either -- which is exactly
+    /// what Ali reported and what the designer half-predicted from the width
+    /// clause alone.
+    ///
+    /// It is a window at every size now, and the raw-width test is gone.
+    func testItIsAWindowAtEveryContainerSize() {
+        let containers = [
+            ("iPhone portrait canvas", CGSize(width: 402, height: 674)),
+            ("iPhone landscape canvas", CGSize(width: 874, height: 252)),
+            ("iPhone SE portrait", CGSize(width: 375, height: 600)),
+            ("iPad split narrow", CGSize(width: 507, height: 900)),
+            ("iPad 13 landscape", CGSize(width: 1376, height: 1032)),
+        ]
+        for (name, size) in containers {
+            XCTAssertEqual(MixerLayout.tier(container: size, text: .large),
+                           .window, "\(name) is not a window")
+        }
+    }
+
+    /// The one tier that is not a window, and it was never about room.
+    func testAnAccessibilitySizeIsAListAtAnyWidth() {
         XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 1376, height: 1032),
                                         text: .accessibility1), .list)
         XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 375, height: 812),
                                         text: .accessibility3), .list)
-        // xxxLarge is still a window; AX1 is the boundary
         XCTAssertEqual(MixerLayout.tier(container: CGSize(width: 1032, height: 1376),
-                                        text: .xxxLarge), .window)
+                                        text: .xxxLarge), .window,
+                       "xxxLarge is still a window; AX1 is the boundary")
+    }
+
+    /// The rack shows four strips or six depending on how many FIT, which is
+    /// the only thing that question was ever deciding.
+    func testTheRackNarrowsByWhatFitsRatherThanByDevice() {
+        XCTAssertTrue(MixerLayout.narrowRack(freeWidth: 393, stripWidth: 64),
+                      "a phone cannot seat six strips")
+        XCTAssertTrue(MixerLayout.narrowRack(freeWidth: 393, stripWidth: 96),
+                      "nor can it at large text, where a strip is 96")
+        // A phone ON ITS SIDE can: 874pt has room for six 96pt strips with
+        // 223 to spare. That is the answer being about ROOM rather than about
+        // what kind of device this is -- the whole point of replacing the
+        // `width < 700` test.
+        XCTAssertFalse(MixerLayout.narrowRack(freeWidth: 874, stripWidth: 96),
+                       "a phone in landscape has room for six strips")
+        XCTAssertFalse(MixerLayout.narrowRack(freeWidth: 1016, stripWidth: 64),
+                       "an iPad can")
+    }
+
+    // MARK: - §12: the phone's height rule
+
+    /// It opens collapsed where expanding it would take most of the canvas.
+    /// Landscape bites; portrait does not.
+    func testItOpensCollapsedWhenItWouldSwallowTheCanvas() {
+        XCTAssertTrue(MixerLayout.opensCollapsed(naturalHeight: 300,
+                                                 canvasHeight: 284),
+                      "landscape: a 300pt panel in a 284pt canvas")
+        XCTAssertFalse(MixerLayout.opensCollapsed(naturalHeight: 300,
+                                                  canvasHeight: 635),
+                       "portrait: 300 of 635 is under the 60% rule")
+        XCTAssertFalse(MixerLayout.opensCollapsed(naturalHeight: 0,
+                                                  canvasHeight: 635))
+        XCTAssertFalse(MixerLayout.opensCollapsed(naturalHeight: 300,
+                                                  canvasHeight: 0),
+                       "an unmeasured canvas decides nothing")
     }
 
     /// A parked corner respects the lanes; a dragged panel does not.

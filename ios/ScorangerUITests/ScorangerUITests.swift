@@ -690,12 +690,23 @@ final class ScorangerUITests: XCTestCase {
 
     /// Home's actions, on the library where they now live (§4C) -- less Ask,
     /// which Ali had removed (#47).
+    ///
+    /// Five of them are two verbs since IPHONE_0.6.14 §14: the three imports
+    /// live in `Import`'s band and the two creations in `New`'s, because five
+    /// permanent buttons is what made the row 56pt wider than a phone. So the
+    /// row carries the verbs, and the variants are one tap inside them --
+    /// which is what this now checks, rather than assuming they are all on the
+    /// row.
     func testTheLibraryCarriesTheMakingActions() {
         XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
                       "the library has no import action")
         XCTAssertTrue(app.buttons["library-new"].exists)
-        XCTAssertTrue(app.buttons["library-new-setlist"].exists)
         XCTAssertFalse(app.buttons["library-ask"].exists, "Ask is back")
+
+        app.buttons["library-new"].tap()
+        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
+                      "New set list is not in the New band")
+        app.buttons["library-new"].tap()   // close it again
         shot("library-action-row")
     }
 
@@ -724,7 +735,14 @@ final class ScorangerUITests: XCTestCase {
                       "no Import button")
         XCTAssertFalse(app.buttons["Cancel"].exists,
                        "something was already presented before Import was tapped")
+        // Import is a verb with three kinds under it since §14: the button
+        // opens the band, and `Score` in the band is the old Import. The claim
+        // this test makes is unchanged -- nothing is asked before the picker.
         app.buttons["library-import"].tap()
+        let score = app.buttons["library-import-score"]
+        XCTAssertTrue(score.waitForExistence(timeout: 20),
+                      "the Import band did not offer Score")
+        score.tap()
 
         XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 20),
                       "tapping Import did not open the file picker")
@@ -2907,8 +2925,11 @@ final class ScorangerUITests: XCTestCase {
     func testNewSetlistAsksForANameThenOffersArrangements() {
 
         app.buttons["segment-setlists"].tap()
-        // New set list is permanently on the action row now; the + that used
-        // to hold it is gone (§4C)
+        // New set list lives in `New`'s band since §14 -- one tap in, and
+        // named in words rather than drawn as three horizontal lines.
+        app.buttons["library-new"].tap()
+        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
+                      "New set list is not in the New band")
         app.buttons["library-new-setlist"].tap()
         // naming happens in a band at the top of the list, not in an alert
         let field = app.textFields["inline-rename-field"]

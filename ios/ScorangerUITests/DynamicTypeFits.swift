@@ -55,7 +55,15 @@ final class DynamicTypeFits: XCTestCase {
             XCTAssertTrue(search.waitForExistence(timeout: 240),
                           "[\(name)] the library never appeared")
             settle(search, still: 0.6)
-            assertFitsOnScreen(["library-search"], in: app, context: "library/\(name)")
+            // The action row too, at these sizes. It is the row Ali found
+            // clipped at both edges on 0.6.14, and `LibraryBarLayout` is
+            // supposed to yield labels until it fits AT THE TEXT SIZE IN
+            // FORCE -- so the sizes above Large are the ones that check the
+            // measurement rather than the arithmetic.
+            assertFitsOnScreen(["library-search", "library-import",
+                                "library-new", "library-sort",
+                                "library-filter", "library-edit"],
+                               in: app, context: "library/\(name)")
             snap("library-\(name)")
 
             // 2. THE SCORE VIEW, where the whole of 0.6.14 lives. Its top bar
