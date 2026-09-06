@@ -99,6 +99,14 @@ struct ContentView: View {
     /// A PHONE ON ITS SIDE, which is the only place both size classes are
     /// compact. It is the case with 130pt of chrome budget rather than 266,
     /// and the one §3 E-B merges the deck for.
+    ///
+    /// IT IS NEVER TRUE TODAY. The app is portrait-only on iPhone, and the
+    /// one line that says so is
+    /// `INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone` in
+    /// project.yml -- which carries the note about what else wakes up when it
+    /// changes. Kept rather than deleted because the layout it chooses is
+    /// designed, built and tested: it is waiting for the orientation, not for
+    /// the code.
     private var isPhoneLandscape: Bool { isCompact && vSize == .compact }
 
     /// Go to the unit holding that page.
