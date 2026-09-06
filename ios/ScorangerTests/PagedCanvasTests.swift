@@ -90,20 +90,26 @@ final class PagedCanvasTests: XCTestCase {
 
     /// At fit a drag has nothing to move, so it is free to mean a turn.
     func testASwipeTurnsWhenThereIsNothingToPan() {
-        XCTAssertTrue(PagedCanvas.swipeMayTurn(zoom: 1.0, atHorizontalLimit: false))
+        XCTAssertTrue(PagedCanvas.swipeMayTurn(zoom: 1.0, atLimitWhenItBegan: false))
     }
 
     /// Zoomed in and mid-page, a drag pans and must not turn -- otherwise the
     /// page flies away from someone reading a notehead.
     func testASwipeDoesNotTurnWhileThereIsStillPageToPan() {
-        XCTAssertFalse(PagedCanvas.swipeMayTurn(zoom: 3, atHorizontalLimit: false))
+        XCTAssertFalse(PagedCanvas.swipeMayTurn(zoom: 3, atLimitWhenItBegan: false))
     }
 
     /// Ali's build-with answer: STOP at the edge. Reaching the limit does not
-    /// roll into a turn by itself -- but once you are there, a further swipe
-    /// is unambiguous.
+    /// roll into a turn by itself -- but once you are already there, a further
+    /// swipe is unambiguous.
+    ///
+    /// WHEN the limit is read is the whole of that distinction, and the call
+    /// site used to read it at the END of the gesture: a single long pan from
+    /// the middle of a zoomed page ends at the limit, so it turned. The
+    /// parameter is named for the moment it must be sampled. Proven at the
+    /// gesture level in `SwipeAtTheEdge`, which is where the sampling lives.
     func testAtTheEdgeASwipeMayTurn() {
-        XCTAssertTrue(PagedCanvas.swipeMayTurn(zoom: 3, atHorizontalLimit: true))
+        XCTAssertTrue(PagedCanvas.swipeMayTurn(zoom: 3, atLimitWhenItBegan: true))
     }
 
     // MARK: - What a turn does to the view

@@ -158,6 +158,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         turn.onPress = { [weak coordinator = context.coordinator] point in
             coordinator?.pressed(point)
         }
+        turn.atLimitNow = { [weak coordinator = context.coordinator] in
+            coordinator?.atHorizontalLimit ?? false
+        }
         context.coordinator.turn = turn
         scroll.addGestureRecognizer(turn)
 
@@ -481,8 +484,9 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
                 // live only when there is no horizontal slack: at fit there is
                 // nothing to pan, so a drag is free to mean a turn
                 guard let scroll,
-                      PagedCanvas.swipeMayTurn(zoom: scroll.zoomScale,
-                                               atHorizontalLimit: atHorizontalLimit)
+                      PagedCanvas.swipeMayTurn(
+                          zoom: scroll.zoomScale,
+                          atLimitWhenItBegan: recognizer.limitAtStart)
                 else { return }
                 onSwipeTurn?(swipe)
                 return
@@ -669,6 +673,14 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     /// and nothing for this recogniser to report (§9.3).
     var armed = false
 
+    /// Was the canvas already hard against its horizontal limit when this
+    /// touch started? Asked once, at touch-down, because asking at the end
+    /// makes every long pan into a turn (`PagedCanvas.swipeMayTurn`).
+    private(set) var limitAtStart = false
+    /// How the recogniser asks. Supplied by the coordinator, which owns the
+    /// scroll view.
+    var atLimitNow: (() -> Bool)?
+
     /// Everything `TapSelection.allowsPress` needs that the recogniser cannot
     /// see for itself. The finger count is its own (§13).
     var mode: ScoreMode = .read
@@ -715,6 +727,7 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         }
         guard let root = view, let touch = touches.first else { return }
         maxFingers = 1
+        limitAtStart = atLimitNow?() ?? false
         start = touch.location(in: root)
         began = touch.timestamp
         moved = 0

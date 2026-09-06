@@ -136,7 +136,29 @@ struct ScorePagesView: View {
                            // press at all, so this is the sample arriving,
                            // not a second policy.
                            onLoupe: { sample in loupe = sample },
-                           onSwipeTurn: { direction in step(by: direction) },
+                           // SWIPE-TO-TURN IS DELIBERATELY NOT WIRED (0.6.14).
+                           //
+                           // It has never run. `TurnTapRecognizer` reset
+                           // itself to `.failed` at the end of every touch, so
+                           // neither the tap nor the swipe ever reached this
+                           // view -- for 332 commits. Repairing the recogniser
+                           // for §12's tap-select brought the swipe back with
+                           // it, and what came back was not finished: the edge
+                           // test was read when the gesture ENDED, so a single
+                           // long pan across a zoomed page turned it (fixed,
+                           // `PagedCanvas.swipeMayTurn`), and behind that the
+                           // page readout does not follow a swipe-turn --
+                           // photographed on an iPad, page 2's music under
+                           // "p. 1 / 9" with the rail still marking page 1.
+                           //
+                           // Turning by TAP is what §12 asked for and it is
+                           // proven on both size classes. Turning by swipe is
+                           // a second way to do the same thing that no build
+                           // has ever offered, so leaving it unwired costs no
+                           // reader anything and ships nothing half-finished.
+                           // The recogniser still reports it and
+                           // `swipeMayTurn` still states the rule, so wiring
+                           // it back is one line plus the readout fix.
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
                            // offering it
@@ -473,6 +495,23 @@ struct ScorePagesView: View {
         // and waits to be asked.
         state.readerTurnedPage()
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
+        // And the readout follows the INDEX, not the scroll.
+        //
+        // `visiblePageIndices` is normally published by the canvas when its
+        // visible rect changes, which is true for a turn at fit -- the new
+        // unit lays out, the rect changes, the counter follows. It is NOT
+        // true after a swipe-turn from a zoomed page: the scroll view is
+        // already where the new unit wants it, nothing moves, nothing is
+        // reported, and the counter goes on naming the page the reader has
+        // just left. Photographed on an iPad: page 2's music on screen under
+        // "p. 1 / 9", with the rail still marking page 1.
+        //
+        // The index is the truth about which unit is shown -- the canvas is
+        // keyed on it -- so the readout is set from it here rather than
+        // waited for.
+        state.visiblePageIndices = PagedCanvas.unit(
+            at: state.pageIndex, pageCount: document.pageCount,
+            spread: state.twoPageSpread)
     }
 
     /// "Take me back", for the strip.

@@ -32,11 +32,22 @@ final class PhoneTapSelection: XCTestCase {
         return app.buttons["score-title"].waitForExistence(timeout: 300)
     }
 
+    /// The engraved page, which is what a SELECTION is aimed at.
     private func canvas() -> XCUIElement {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
             .firstMatch
     }
+
+    /// The scroll view, which is what a TURN is measured against.
+    ///
+    /// The two are not the same rectangle and the difference is the whole of
+    /// §12: the turn zones are corners of the CANVAS, and at fit the page does
+    /// not reach the canvas's bottom -- on an iPad it stops well above it.
+    /// Aiming a corner tap at a fraction of the PAGE therefore lands in the
+    /// middle of the canvas on a large screen, which is how this test passed
+    /// on an iPhone and failed on the gate's iPad.
+    private func surface() -> XCUIElement { app.scrollViews["score-canvas"] }
 
     private func chip() -> XCUIElement { app.staticTexts["selection-chip"] }
     private func counter() -> XCUIElement { app.staticTexts["counter-pages"] }
@@ -101,12 +112,12 @@ final class PhoneTapSelection: XCTestCase {
         // first: the score opens on page one and there is nothing behind it.
         state(chipGone: true)
         let page1 = counter().label
-        page.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
+        surface().coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
         expect(counter(), toChangeFrom: page1,
                "a tap in the bottom-right corner did not turn forward")
         snap("phone-corner-turned")
         let page2 = counter().label
-        page.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
+        surface().coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
         expect(counter(), toChangeFrom: page2,
                "a tap in the bottom-left corner did not turn back")
 
@@ -114,7 +125,7 @@ final class PhoneTapSelection: XCTestCase {
         // until §12; a tap up there must not move the page now.
         state(chipGone: true)
         let stay = counter().label
-        page.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.12)).tap()
+        surface().coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.12)).tap()
         _ = chip().waitForExistence(timeout: 10)
         XCTAssertEqual(counter().label, stay,
                        "the top-left corner still turns the page")
