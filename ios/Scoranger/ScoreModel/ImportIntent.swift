@@ -13,7 +13,25 @@ enum ImportKind: Equatable {
         UTType(filenameExtension: "xml"),
         UTType(filenameExtension: "mid"),
         UTType(filenameExtension: "midi"),
-    ].compactMap { $0 }) + [.pdf]
+    ].compactMap { $0 }) + [.pdf] + imageTypes
+
+    /// The images a photographed score arrives as.
+    ///
+    /// 0.6.13 taught the IMPORT HANDLER about images -- they come in through
+    /// share-in and the inbox and become an IMAGE-tagged piece -- and left
+    /// this list alone. So the one route a reader actually looks for, Files,
+    /// was the one route that greyed them out: Ali's own JPEG, a PNG and every
+    /// screenshot on his iPad, unselectable beside the PDFs.
+    ///
+    /// EXACTLY the three the pipeline takes, and deliberately not the
+    /// `public.image` umbrella. The engine imports four suffixes
+    /// (`workspace.IMAGE_SUFFIXES`, and `ScoreArtifact.imageSuffixes` beside
+    /// it); an umbrella would make a GIF or a TIFF selectable and then refuse
+    /// it after the reader had chosen it, which is the same bug wearing better
+    /// clothes. `ImportContentTypeTests` asserts the relationship in both
+    /// directions -- nothing the app takes is greyed out, and nothing offered
+    /// would be refused -- so widening the engine is what lets this widen.
+    static let imageTypes: [UTType] = [.jpeg, .png, .heic]
 
     /// One or more score files.
     case file

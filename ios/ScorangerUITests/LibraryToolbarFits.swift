@@ -99,16 +99,16 @@ final class LibraryToolbarFits: XCTestCase {
         guard openLibrary(app) else { return XCTFail("the library never appeared") }
 
         app.descendants(matching: .any)["library-import"].firstMatch.tap()
-        for id in ["library-import-score", "library-import-folder",
-                   "library-import-book"] {
+        for id in ["library-import-score", "library-import-photo",
+                   "library-import-folder", "library-import-book"] {
             let element = app.descendants(matching: .any)[id].firstMatch
             XCTAssertTrue(element.waitForExistence(timeout: 20),
                           "\(id) is not in the Import band")
             XCTAssertTrue(element.isHittable, "\(id) is present but not tappable")
         }
         snap("library-import-band")
-        assertFitsOnScreen(["library-import-score", "library-import-folder",
-                            "library-import-book"],
+        assertFitsOnScreen(["library-import-score", "library-import-photo",
+                            "library-import-folder", "library-import-book"],
                            in: app, context: "import band")
 
         // Opening New CLOSES Import: the bands are mutually exclusive, which

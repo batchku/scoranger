@@ -35,6 +35,7 @@ struct LibraryView: View {
     var onCreate: (String) -> Void
     var onImport: () -> Void
     /// A whole exported library: one folder per piece. Planned before it is run.
+    var onImportPhoto: () -> Void = {}
     var onImportFolder: () -> Void = {}
     /// A collection to take arrangements out of, rather than a piece.
     var onImportBook: () -> Void = {}
@@ -424,33 +425,12 @@ struct LibraryView: View {
     private func run(_ action: LibraryQuickAction) {
         switch action {
         case .importScore:  onImport()
+        case .importPhoto:  onImportPhoto()
         case .importFolder: onImportFolder()
         case .importBook:   onImportBook()
         case .new:          creatingName = ""
         case .newSetlist:   segment = .setlists; creatingName = ""
         }
-    }
-
-    @ViewBuilder
-    private func quickButton(_ action: LibraryQuickAction, compact: Bool) -> some View {
-        Button {
-            switch action {
-            case .importScore:  onImport()
-            case .importFolder: onImportFolder()
-            case .importBook:   onImportBook()
-            case .new:          creatingName = ""
-            case .newSetlist:   segment = .setlists; creatingName = ""
-            }
-        } label: {
-            rowButton(action.title, glyph: action.glyph, iconOnly: compact)
-        }
-        .buttonStyle(.plain)
-        // label and identifier, and no children: .ignore -- grouping a button
-        // into its own element puts the identifier on the wrapper and leaves
-        // the state on the button inside it, which is how a dimmed control
-        // came to report itself as enabled.
-        .accessibilityLabel(action.title)
-        .accessibilityIdentifier(action.identifier)
     }
 
     /// One button of the action row: 32pt, bordered, panel fill, no emphasis.

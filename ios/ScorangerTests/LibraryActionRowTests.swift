@@ -10,8 +10,8 @@ final class LibraryActionRowTests: XCTestCase {
     /// exported folder, and a book to take arrangements out of.
     func testTheRowCarriesEveryActionInThePanelsOldOrder() {
         XCTAssertEqual(LibraryQuickAction.ordered,
-                       [.importScore, .importFolder, .importBook,
-                        .new, .newSetlist])
+                       [.importScore, .importPhoto, .importFolder,
+                        .importBook, .new, .newSetlist])
         XCTAssertEqual(LibraryQuickAction.ordered.count,
                        LibraryQuickAction.allCases.count,
                        "an action exists that the row does not show")
@@ -27,9 +27,9 @@ final class LibraryActionRowTests: XCTestCase {
     /// they are, in the same shape as their siblings.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
-                       ["library-import-score", "library-import-folder",
-                        "library-import-book", "library-new-arrangement",
-                        "library-new-setlist"])
+                       ["library-import-score", "library-import-photo",
+                        "library-import-folder", "library-import-book",
+                        "library-new-arrangement", "library-new-setlist"])
         XCTAssertFalse(LibraryQuickAction.allCases
             .contains { $0.identifier.hasPrefix("home-") })
     }

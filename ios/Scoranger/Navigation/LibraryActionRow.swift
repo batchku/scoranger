@@ -8,7 +8,7 @@ import Foundation
 /// compact row of bordered buttons under the search field, deliberately quiet:
 /// the lists are what the screen is for.
 enum LibraryQuickAction: String, CaseIterable, Identifiable {
-    case importScore, importFolder, importBook, new, newSetlist
+    case importScore, importPhoto, importFolder, importBook, new, newSetlist
 
     var id: String { rawValue }
 
@@ -16,14 +16,24 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     /// less Ask, which Ali had removed (#47): the score's own Ask button is
     /// where a question about an arrangement belongs, and the library's copy
     /// was a fourth button that spent most of its life dimmed.
-    static let ordered: [LibraryQuickAction] = [.importScore, .importFolder,
-                                                .importBook, .new, .newSetlist]
+    static let ordered: [LibraryQuickAction] = [.importScore, .importPhoto,
+                                                .importFolder, .importBook,
+                                                .new, .newSetlist]
 
     /// The two verbs these five actions actually are (§14.2). Three flavours
     /// of Import and two of New, which is why five permanent buttons was
     /// always a lot of toolbar for what they are.
-    static let imports: [LibraryQuickAction] = [.importScore, .importFolder,
-                                                .importBook]
+    /// PROVISIONAL PLACEMENT, pending the designer.
+    ///
+    /// Photo sits second, straight after Score, because the two are the same
+    /// act from two places: a photographed page and a filed one both become an
+    /// IMAGE-tagged piece through the same pipeline. There is deliberately no
+    /// separate "image from Files" entry -- since the picker learned the image
+    /// types, Score already takes a JPEG, and a second door onto the same
+    /// picker would be a menu describing the implementation rather than the
+    /// act.
+    static let imports: [LibraryQuickAction] = [.importScore, .importPhoto,
+                                                .importFolder, .importBook]
     static let creations: [LibraryQuickAction] = [.new, .newSetlist]
 
     /// How the action names itself INSIDE its band, where there is room for a
@@ -33,6 +43,7 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     var bandTitle: String {
         switch self {
         case .importScore:  return "Score"
+        case .importPhoto:  return "Photo"
         case .importFolder: return "Folder"
         case .importBook:   return "Book"
         case .new:          return "Arrangement"
@@ -54,6 +65,7 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     var identifier: String {
         switch self {
         case .importScore:  return "library-import-score"
+        case .importPhoto:  return "library-import-photo"
         case .importFolder: return "library-import-folder"
         case .importBook:   return "library-import-book"
         case .new:          return "library-new-arrangement"
@@ -64,6 +76,7 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     var glyph: String {
         switch self {
         case .importScore:  return "arrow.down.to.line"
+        case .importPhoto:  return "photo"
         case .importFolder: return "folder"
         case .importBook:   return "books.vertical"
         case .new:         return "square"
@@ -78,6 +91,7 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         // glyphs (a folder, a stack of books), which is what says what they
         // take. Thirteen characters would not fit the button.
         case .importScore:  return "Import"
+        case .importPhoto:  return "Photo"
         case .importFolder: return "Folder"
         case .importBook:   return "Book"
         case .new:         return "New"
