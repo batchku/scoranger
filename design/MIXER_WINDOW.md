@@ -275,3 +275,103 @@ Each of these fails against the shipped build. That is the point of listing them
    frame. This is the mechanical form of "nothing is cut off".
 7. **`theHeaderHoldsItsContent`** — with a two-staff arrangement, the panel is at
    least 280pt wide and `mixer-close` is inside it.
+
+---
+
+# 12. Compact amendment — the panel floats and is sized to its channels
+
+**§4.2 is withdrawn.** Both reported bugs are that section being implemented
+correctly, so this is my correction and not a misreading of the spec.
+
+§4.2 said: *"full width minus 16pt … not movable — there is nowhere to move it —
+so the grab bar and the park button are both absent"*. That is the empty right
+two-thirds, and it is the dead drag surface. The two are one mistake: **I
+anchored it because it was full-width, and it was full-width because I anchored
+it.** Fix the width and the reason for anchoring disappears.
+
+**Ruling: option (a).** One model everywhere — a floating window, sized to its
+channel count, draggable within the score area, on iPhone exactly as on iPad.
+Narrower, and with one height rule of its own.
+
+## 12.1 Width is a function of the channel count
+
+```
+rack   = 8 padding + 45 master + 1 + n·stripWidth + (n−1) dividers
+floor  = 4 × 44 + 8            = 184     grab · collapse · park · close
+width  = min( max(floor, rack), rack at visibleStripsCompact )
+```
+
+`stripWidth` is `clamp(64 × textScale, 64, 96)` as §2 — computed, never a
+literal. At default text size:
+
+| Channels | Rack | Panel | |
+|---|---|---|---|
+| 1 | 118 | **184** | rack centred, 66pt slack |
+| 2 | 183 | **184** | the reported case — 47% of a 393pt screen |
+| 3 | 248 | **248** | |
+| 4 | 313 | **313** | the compact maximum |
+| 5+ | — | **313** | rack scrolls horizontally |
+
+**Two channels is a 184pt panel, not a 393pt one.** The blank right-hand
+two-thirds and the LED floating in the void both go.
+
+The floor is four 44pt controls and their padding, and at that width the header
+carries *nothing else*: **`MIXER` and the voices summary appear only at 248pt
+and above** (three channels or more). A two-channel panel is labelled by its own
+strips; a title on it would be the thing that forced it wider.
+
+Never below the floor. Four controls at 44pt is not negotiable — the grab bar
+and the park button are how the panel is moved by hand and by VoiceOver, and
+they are the controls this amendment exists to restore.
+
+## 12.2 The grab surface at the floor width
+
+At 184pt the header is exactly its four controls: **there is no inert middle,
+so the grab bar is the leading 44×44 and nothing else.**
+
+Which makes §1.1's rule load-bearing rather than stylistic: **the grab bar is
+not a `Button`.** A plain view with `.contentShape(Rectangle())` carrying
+`DragGesture(minimumDistance: 0)`, with no gesture anywhere on the panel body.
+If the grab bar is a button at this width, the panel has no draggable pixels at
+all — which is how the drag died the first time.
+
+## 12.3 Drag bounds and height
+
+Unchanged from §5, which already covers this: placement is `.corner` or
+`.free(unit point)`, clamped so the panel is **fully inside** the free rect
+(container minus safe area minus 8pt), remapped on rotation and Dynamic Type.
+Parked corners respect `lanesInset`; a panel the reader dragged goes anywhere.
+
+One rule added for phone height: **the panel opens collapsed when its natural
+height exceeds 60% of the canvas.** In landscape the canvas is about 284pt, so
+that is where it bites; collapsed is header + scrubber, and `mixer-collapse`
+expands it. Portrait at 635pt of canvas opens expanded.
+
+## 12.4 Check the width test first — it may be the whole bug
+
+`MixerLayer` decides compact with `geo.size.width < 700`
+(`MixerPanel.swift:807`), and **iPhone landscape is 852pt wide**. So by that
+test the phone is compact in portrait and *regular* in landscape.
+
+If that is what shipped, the panel is **draggable in landscape and pinned in
+portrait**, and one rotation confirms the diagnosis before any code changes.
+Either way the test is wrong: compact is a size class and a container height,
+never a raw width. It is the same defect noted in `IPHONE_0.6.14.md` §0.
+
+## 12.5 Acceptance
+
+The drag has now died twice from two unrelated causes — competing gesture
+recognisers in 0.6.11, a layout branch in 0.6.14 — so the test has to be
+behavioural rather than structural:
+
+1. **`theMixerDragsAtEveryWidth`** — drag `mixer-grab` by (+120, −80) and assert
+   the `mixer` frame moved by that and stayed inside the window. Run it at
+   **compact portrait, compact landscape and regular**. A version of this that
+   only runs at regular width is what let 0.6.14 ship pinned.
+2. **`theMixerIsNoWiderThanItsChannels`** — with a two-channel arrangement the
+   `mixer` frame is ≤ 200pt wide at a 393pt window, and it is wider with four
+   channels than with two.
+3. **`theHeaderSeatsItsControls`** — `mixer-grab`, `mixer-collapse`,
+   `mixer-park` and `mixer-close` all have frames inside the `mixer` frame at
+   the floor width. The window-relative clip test from the selection chip,
+   pointed at four more identifiers.
