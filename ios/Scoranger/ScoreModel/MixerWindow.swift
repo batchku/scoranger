@@ -1,5 +1,6 @@
 import CoreGraphics
 import SwiftUI
+import UIKit
 
 /// The mixer window's geometry: minimums, tiers, placement and clamping.
 ///
@@ -32,6 +33,120 @@ extension MixerLayout {
     static let tempoRowMinimum: CGFloat = 28
     static let scrubberRowMinimum: CGFloat = 32
     static let rackPaddingMinimum: CGFloat = 8
+
+    // MARK: - The knob (§13), which replaces the fader
+
+    /// The knob's face, before scaling. 36 at Large, capped at 56.
+    static let knobFaceFloor: CGFloat = 36
+    static let knobFaceCeiling: CGFloat = 56
+    /// The gap between the face and the edge of its row, both sides.
+    static let knobRowPadding: CGFloat = 8
+    /// The touch target's floor. The ROW is the target, never the face: at
+    /// Large the face is 36 and a 36pt circle is not something to aim at.
+    static let knobRowMinimum: CGFloat = 44
+
+    /// How far the finger travels for one unit of level (§13.3).
+    ///
+    /// A full sweep 0 to 10 is 140pt -- one thumb travel on a phone, and far
+    /// past the 10pt slop that separates a tap from a drag everywhere else in
+    /// the app, so a wobble never changes the level.
+    static let knobPointsPerUnit: CGFloat = 14
+
+    /// The sweep: 270 degrees with the gap at the bottom, 0 at -135 from top
+    /// and 10 at +135.
+    static let knobSweep: Double = 270
+    static let knobStartAngle: Double = -135
+
+    /// The face at a text size. Scaled, never a literal (§13.2).
+    static func knobFace(text size: DynamicTypeSize) -> CGFloat {
+        min(max(TextScale.scaled(knobFaceFloor, size: size), knobFaceFloor),
+            knobFaceCeiling)
+    }
+
+    /// The row the knob sits in, which IS the hit target.
+    static func knobRow(text size: DynamicTypeSize) -> CGFloat {
+        max(knobRowMinimum, knobFace(text: size) + knobRowPadding)
+    }
+
+    /// Where the level sits on the sweep, as an angle from straight up.
+    static func knobAngle(forFader fader: Int) -> Double {
+        let span = Double(PlaybackGain.maximumFader - PlaybackGain.minimumFader)
+        guard span > 0 else { return knobStartAngle }
+        let clamped = min(max(fader, PlaybackGain.minimumFader),
+                          PlaybackGain.maximumFader)
+        let fraction = Double(clamped - PlaybackGain.minimumFader) / span
+        return knobStartAngle + fraction * knobSweep
+    }
+
+    /// The level a drag has reached: RELATIVE to where the finger went down.
+    ///
+    /// Relative and not absolute, which is the whole difference between a
+    /// knob and the fader it replaces. A knob face has no position that means
+    /// "7", so an absolute reading would jump the level to wherever the finger
+    /// landed -- right for a track, wrong for a knob, and the most likely
+    /// explanation for a reader who pulled three channels down and still heard
+    /// four.
+    ///
+    /// Only the VERTICAL component is read, so a diagonal drag still turns the
+    /// knob rather than doing nothing.
+    static func knobFader(from start: Int, translation: CGFloat) -> Int {
+        // `.toNearestOrEven` and not plain `.rounded()`, and the reason is a
+        // contradiction inside §13.3 worth recording rather than silently
+        // choosing a side of.
+        //
+        // The section writes the formula as `Int((-translation / 14).rounded())`
+        // and then gives, as acceptance, "a −7pt drag stays on 7". Those
+        // disagree: 7/14 is exactly 0.5, and Swift's `.rounded()` rounds a half
+        // away from zero, so the plain formula moves the level on half a unit
+        // of travel. The acceptance case is the more specific statement of what
+        // a reader should feel -- half a notch of wobble must not change the
+        // mix -- so it wins, and nearest-or-even is what makes exactly-half
+        // stick while everything else still rounds to the nearest unit.
+        //
+        // Every value in §13.3's own table is exact and so is unaffected: 14pt
+        // is one unit, 42 is three, 98 is seven, 140 is ten.
+        let units = Int((-translation / knobPointsPerUnit).rounded(.toNearestOrEven))
+        return min(max(start + units, PlaybackGain.minimumFader),
+                   PlaybackGain.maximumFader)
+    }
+
+    /// The strip, top to bottom, with the KNOB in place of the fader and its
+    /// value row (§13.1).
+    ///
+    /// Built from the same constants the shipped strip is, so the "+2pt" the
+    /// ruling owns up to is arithmetic rather than a claim: the fader's 30 and
+    /// its 12pt value row (42) become the knob's 44pt row.
+    static func stripHeight(text size: DynamicTypeSize) -> CGFloat {
+        muteHeight + knobRow(text: size) + soundHeight + labelHeight
+            + padding * 2
+    }
+
+    /// What the knob costs against the strip that ships. Positive is taller.
+    static func stripHeightChange(text size: DynamicTypeSize) -> CGFloat {
+        stripHeight(text: size) - rackHeight
+    }
+
+    /// The drawn width of a level, in the mono face the value is printed in.
+    ///
+    /// Measured rather than assumed, for the same reason the library row's
+    /// labels are: a numeral's width at AX3 is not its width at Large, and the
+    /// question this feeds is whether it still fits inside the face.
+    static func knobNumeralWidth(_ text: String,
+                                 text size: DynamicTypeSize) -> CGFloat {
+        let points = TextScale.scaled(11, size: size)
+        let font = UIFont.monospacedSystemFont(ofSize: points, weight: .regular)
+        return (text as NSString)
+            .size(withAttributes: [.font: font]).width.rounded(.up)
+    }
+
+    /// Does the level fit inside the face, or does it need its own row?
+    ///
+    /// It must exist rather than clip (§6.3 rule 1). By §13.2's table it does
+    /// not trigger before AX3.
+    static func knobValueFitsInFace(numeralWidth: CGFloat,
+                                    face: CGFloat) -> Bool {
+        numeralWidth <= face - 12
+    }
 
     /// The fader absorbs the slack and is the first thing to give.
     static let faderIdeal: CGFloat = 44
