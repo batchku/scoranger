@@ -60,7 +60,7 @@ struct ScorePagesView: View {
     @State private var fittedTo: CGSize = .zero
     @State private var fittedDocument: String = ""
 
-    /// Fit to twelve.
+    /// Fit to twelve, ON A PAGE.
     ///
     /// The floor is FIT, not 0.5: the unit on screen is sized to fit the
     /// viewport, so zooming out below 1 would only add ground around it -- and
@@ -69,6 +69,25 @@ struct ScorePagesView: View {
     /// inspected; the page re-rasters at the settled scale.
     private static let zoomRange: ClosedRange<CGFloat> =
         PagedCanvas.minimumZoom...PagedCanvas.maximumZoom
+
+    /// And the range the SCROLL view gets, which is not the same range.
+    ///
+    /// The paragraph above is a paged argument and it was being applied to the
+    /// strip, where it is false: the strip is fitted by HEIGHT and runs off
+    /// the screen sideways, so below 1 there is not ground, there is more
+    /// music. The reader was stopped at one system filling the canvas and
+    /// UIScrollView bounced anything past it straight back -- one cause, and
+    /// the two things Ali described.
+    ///
+    /// `ContinuousTiles.minimumZoom` derives the floor from the strip's own
+    /// fitted height, so it goes as far out as the music allows and no
+    /// further.
+    private func zoomRange(continuous: Bool,
+                           stripHeight: CGFloat) -> ClosedRange<CGFloat> {
+        guard continuous else { return Self.zoomRange }
+        let floor = ContinuousTiles.minimumZoom(fittedStripHeight: stripHeight)
+        return floor...PagedCanvas.maximumZoom
+    }
 
     /// Room the canvas keeps clear at the bottom: 50pt of pill, its 20pt bottom
     /// padding and 12 of breathing room. The pill floats over the canvas and
@@ -193,7 +212,8 @@ struct ScorePagesView: View {
                            },
                            scroller: scroller,
                            onUserScroll: { readerScrolled() },
-                           zoomRange: Self.zoomRange) { settled in
+                           zoomRange: zoomRange(continuous: continuous,
+                                                stripHeight: surface.height)) { settled in
                 // round so small wobbles don't re-raster every gesture
                 // finer steps than before: at 12x, half-scale rounding threw
                 // away most of the resolution the zoom had asked for

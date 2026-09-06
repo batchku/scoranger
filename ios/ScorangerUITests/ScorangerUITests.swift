@@ -3732,7 +3732,7 @@ extension ScorangerUITests {
         // The fader is adjustable, which is also the VoiceOver path.
         let fader = app.descendants(matching: .any)["strip-fader-1"].firstMatch
         XCTAssertTrue(fader.exists, "no fader on the second strip")
-        XCTAssertEqual(fader.value as? String, "7 of 10", "the default is 7")
+        XCTAssertEqual(fader.value as? String, "level 7 of 10", "the default is 7")
 
         // The scrubber seeks. The bar CHIP that rides above the handle can
         // only exist while a finger is down, and XCUITest runs every gesture
