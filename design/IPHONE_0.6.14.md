@@ -1231,3 +1231,116 @@ the window, is exactly the class §6.3 rule 1 names. **The window-relative clip
 test is the general form of that section's per-screen check** — if it is written
 so other screens can adopt it, point §6.3's acceptance test at it rather than
 letting a second one grow beside it.
+
+---
+
+# 14. The library toolbar at compact width — ruling
+
+## 14.1 Measured
+
+Window 393, `sidePadding: 20` each side, so the row has **353pt**. At compact,
+`LibraryActionRow.isCompact` strips labels from the five quick actions but does
+not reduce their number.
+
+| Row | Needs | |
+|---|---|---|
+| 5 icons + `Sort: name` + filter + edit | **407pt** | over by 54 |
+| the same under the *recently changed* sort | **491pt** | over by 138 |
+
+`.frame(width: geo.size.width)` then holds the HStack at 353 while its content
+measures 407, and SwiftUI centres the overflow — **27pt off each edge**, which
+is the reported symptom exactly: the import icon clipped on the left, sort,
+filter and select running off the right. Any fix has to hold for the **longest**
+sort label, not the one that happens to be selected.
+
+## 14.2 None of the three options, because the row is the wrong shape
+
+Horizontal scroll and an overflow menu are both rejected, and two rows is a last
+resort rather than the fix:
+
+- **Horizontal scroll** hides controls behind an invisible affordance, against
+  the 0.4.1 directive, and the first thing off the right is `Edit` — the row's
+  only mode switch.
+- **An overflow `…`** that opens a floating menu is forbidden outright
+  (`NAV_MODAL_FREE_0.4.2`). It could push a screen, but two taps for `Import`
+  is a worse trade than the bug.
+- **Two rows** costs 44pt on a screen where library chrome is already 180 of
+  759pt, and it fixes the symptom while leaving the cause.
+
+The cause is that **five of the seven controls are two verbs**. `importScore`,
+`importFolder` and `importBook` are three flavours of Import; `new` and
+`newSetlist` are two flavours of New. At compact they render as five unlabelled
+squares — and two of those glyphs are `square` and `line.3.horizontal`, which
+name nothing at all.
+
+## 14.3 Ruling: collapse five into two, using the band this row already has
+
+**`[Import ▾] [New ▾] · · · [Sort: …] [Filter] [✓]`**
+
+Import and New each open a `RevealBand` beneath the row listing their variants —
+Score · Folder · Book, and Arrangement · Set list. That is the pattern Sort and
+Filter already use **in this row**, mutually exclusive with them, so it costs no
+new concept, no scroll, no permanent second row and no menu. It also gives the
+three imports readable names instead of three glyphs a reader has to guess.
+
+The variants keep their identifiers (`library-import-folder`,
+`library-import-book`, `library-new-setlist`) so nothing that addresses them
+breaks.
+
+Applies at **every width**. Five occasional actions in a permanent row was
+always a lot of toolbar for what they are; the phone is where it stopped fitting.
+
+## 14.4 Then fit by measurement, with a stated yield order
+
+Collapsing is not sufficient on its own — the long sort label still overflows:
+
+| Row | Needs | |
+|---|---|---|
+| Import/New labelled, short sort | 396pt | over by 43 |
+| **Import/New icons, short sort** | **315pt** | fits, 38 spare |
+| Import/New icons, *recently changed* | 371pt | over by 18 |
+| everything yielded | 245pt | fits, 108 spare |
+
+So it needs the same treatment as the score bar: **a pure `LibraryBarLayout`
+beside `ScoreBarLayout`**, taking the row width and returning what it seats,
+unit-testable without a screen.
+
+**Yield order, first to go:**
+
+1. `Edit` label → icon
+2. `Filter` label → icon
+3. `New` label → icon
+4. `Import` label → icon
+5. `Sort` **short form** — `name · composer · recent · count`, added to
+   `LibrarySort` beside `buttonLabel`. It is still the answer, just said shortly.
+6. `Sort` loses its value entirely: glyph plus `Sort`. Last, because that label
+   being an answer rather than a name is the reason it is written that way.
+
+**Nothing is ever removed.** All seven controls stay present and one tap from
+their action at every width. Only labels yield.
+
+**Two rows is the floor, not the fix:** if step 6 has run and the row still does
+not fit — accessibility text sizes will do this — it wraps to two rows, and at
+AX1 or larger it becomes the vertical list that §6.3 rule 4 already requires of
+every row of more than three controls. That is where two rows belongs: as what
+happens when measurement says nothing else is left, not as the first answer.
+
+## 14.5 Acceptance
+
+Mirror what the score bar's fix needed, since this is the same failure in a
+different row:
+
+1. **`seatsWhatItDraws`** — for every width from 320 to 1366 and every
+   `DynamicTypeSize`, the sum of what `LibraryBarLayout` seats is ≤ the row
+   width. Fails today at 393 by 54pt, and by 138 under the *recently changed*
+   sort.
+2. **`nothingLeavesTheWindow`** — the same window-relative clip test the
+   selection chip just got, pointed at `library-import` and `library-edit`. If
+   that test is written to take any identifier, this costs a line.
+3. **`everyActionSurvives`** — all seven identifiers are reachable at 320pt,
+   through a band where they have moved into one.
+
+One caution from the mixer and the score bar both: `ScoreBarLayout`'s constants
+are 1.0× numbers, which §6.3 rule 3 already flags as mis-fitting above Large.
+Do not copy that mistake here — `LibraryBarLayout` should take the scaled label
+widths, not literals measured at default text size.
