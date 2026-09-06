@@ -12,7 +12,16 @@ import CoreGraphics
 /// up first, so the next thing added to it cannot squeeze out the way out:
 ///
 ///   1. ✕ close          FIXED. Never yields. Without it the score is a trap.
-///   2. Edit, Ask, …     the actions the score view exists for
+///   2. Select ⌖, Ask, … the actions the score view exists for. ⌖ joins them
+///                       in 0.6.14 and does NOT yield, because a phone has no
+///                       Pencil: with ⌖ off the bar there is no way to draw a
+///                       lasso at all, and that is a feature rather than a
+///                       shortcut. It takes Edit's place at the narrow end.
+///   2b. Edit            yields on a phone. Markup is still reachable -- the
+///                       Options screen's own Annotations row opens it and
+///                       says whether it is on -- so this costs two taps, not
+///                       a feature. §3 E-A asked for exactly this and named
+///                       the cost.
 ///   3. OMR progress     only exists while a transcription runs, and while it
 ///                       does it is the only sign in the score view that
 ///                       anything is happening -- so it outranks both
@@ -75,6 +84,19 @@ enum ScoreBarLayout {
         /// The transcription chip at the trailing end of the bar, drawn only
         /// while OMR is actually running (`AppState.omrBusy`).
         var showsOMRProgress: Bool = false
+        /// The pencil that turns markup on.
+        ///
+        /// Yields on a phone, where ⌖ needs the room more: markup has a second
+        /// door (Options -> Annotations, which states its own on/off) and the
+        /// lasso has none.
+        var showsEdit: Bool = true
+        /// The ⌖ that arms Select (§9.3).
+        ///
+        /// Never false. It is in `essentials` rather than in the yield order,
+        /// because on a phone it is the ONLY way to draw a lasso -- the iPad
+        /// reaches one with the Pencil and a phone has no Pencil. Kept as a
+        /// field anyway so `fits` reads as a list of what is on the bar.
+        var showsSelectArm: Bool = true
         /// The "#N" badge: which arrangement of the piece this is.
         var showsNumeral: Bool = true
         /// The second line under the title: piece name and version.
@@ -106,12 +128,19 @@ enum ScoreBarLayout {
         /// same `Fit` from the one measurement `ContentView` owns.
         var optionsCarriesPerformanceToggle: Bool { !showsPerformanceToggle }
         var optionsCarriesTransportToggle: Bool { !showsTransportToggle }
+        /// The Options screen's Annotations row is markup's second door, and
+        /// it is the only one at the widths the bar has yielded the pencil.
+        /// It is on that screen at EVERY width -- unlike the two switches
+        /// above, which are in exactly one place -- because it also says
+        /// whether markup is currently on, which the bar's button shows only
+        /// while the bar has it.
+        var optionsCarriesEdit: Bool { !showsEdit }
     }
 
     /// Measured widths of the bar's parts, so the arithmetic below is legible
     /// rather than a table of magic numbers.
     static let closeWidth: CGFloat = 34
-    static let actionWidth: CGFloat = 34          // Edit, Ask, …
+    static let actionWidth: CGFloat = 34          // Edit, Select, Ask, …
     static let gap: CGFloat = 8
     static let padding: CGFloat = 24              // s12 either side
     static let threeCells: CGFloat = 40 * 3 + 2   // cells plus their dividers
@@ -142,14 +171,26 @@ enum ScoreBarLayout {
     /// that is #60.
     static let titleMinimum: CGFloat = 90
 
-    /// The bar's fixed furniture: the way out, three actions, and their gaps.
+    /// The pencil and the gap before it. The same button as Ask.
+    static let editWidth: CGFloat = actionWidth + gap
+
+    /// The bar's fixed furniture: the way out, ⌖, Ask, …, and their gaps.
+    ///
+    /// THREE actions, and Edit is not one of them any more -- it is counted
+    /// separately by `editWidth` because it is the one that yields. The sum is
+    /// unchanged for a bar that still seats the pencil, so every threshold
+    /// below means what it did before 0.6.14.
     static var essentials: CGFloat {
         padding + closeWidth + actionWidth * 3 + gap * 5
     }
 
-    /// The narrowest the bar can be and still hold ✕, the actions, two layout
+    /// The narrowest the bar can be and still hold ✕, ⌖, Ask, …, two layout
     /// cells and a readable title. Nothing may be seated that takes it below
     /// this: that is #60.
+    ///
+    /// It is the same 371 it was before ⌖ existed, because ⌖ took the pencil's
+    /// place rather than being added beside it. A phone at 393 has 22pt of
+    /// slack and the narrowest common iPhone, 375, has four.
     static var floor: CGFloat { essentials + twoCells + titleMinimum }
 
     /// What the bar shows, given its width and whether a transcription is
@@ -183,7 +224,7 @@ enum ScoreBarLayout {
         // in that band, which is why five discrete widths never found it; the
         // sweep that seats the transcription chip did, because the chip moves
         // every threshold by its own width.
-        let base = essentials + titleMinimum + numeralWidth
+        let base = essentials + editWidth + titleMinimum + numeralWidth
         let forAll = base + threeCells + versionsWidth + switchesWidth
             + addToSetlistWidth
         if barWidth >= forAll { return everything }
@@ -218,6 +259,18 @@ enum ScoreBarLayout {
                              showsTransportToggle: false, showsPerformanceToggle: false)
         if fits(twoCellFit, in: barWidth) { return twoCellFit }
 
+        // Then the PENCIL, and this is the step 0.6.14 added. A phone reaches
+        // markup through Options -> Annotations, which also states whether it
+        // is on; it reaches a lasso through ⌖ and nowhere else, because it has
+        // no Pencil. So the pencil yields and ⌖ stays. §3 E-A asked for this
+        // and named the cost: Edit becomes two taps on the screen where markup
+        // is most wanted.
+        let withoutEdit = Fit(showsVersions: false, layoutCells: 2,
+                              showsTransportToggle: false,
+                              showsPerformanceToggle: false,
+                              showsEdit: false)
+        if fits(withoutEdit, in: barWidth) { return withoutEdit }
+
         // Then the title's COMPANIONS, so the title itself can stay readable.
         // #62: with the version count already yielded, the title block is the
         // only route to the version dropdown -- and it had collapsed to
@@ -230,11 +283,12 @@ enum ScoreBarLayout {
         let withoutSubtitle = Fit(showsVersions: false, layoutCells: 2,
                                   showsTransportToggle: false,
                                   showsPerformanceToggle: false,
+                                  showsEdit: false,
                                   showsSubtitle: false)
         if fits(withoutSubtitle, in: barWidth) { return withoutSubtitle }
         return Fit(showsVersions: false, layoutCells: 2,
                    showsTransportToggle: false, showsPerformanceToggle: false,
-                   showsNumeral: false, showsSubtitle: false)
+                   showsEdit: false, showsNumeral: false, showsSubtitle: false)
     }
 
     /// Whether a bar this wide can seat everything it is being asked to.
@@ -242,6 +296,7 @@ enum ScoreBarLayout {
     static func fits(_ fit: Fit, in width: CGFloat) -> Bool {
         var needed = essentials + titleMinimum
         needed += fit.layoutCells >= 3 ? threeCells : twoCells
+        if fit.showsEdit { needed += editWidth }
         if fit.showsVersions { needed += versionsWidth }
         if fit.showsAddToSetlist { needed += addToSetlistWidth }
         if fit.showsTransportToggle { needed += transportWidth }

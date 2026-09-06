@@ -67,10 +67,12 @@ struct ScoreTopBar: View {
                        alignment: .leading)
             if fit.showsVersions { versionsTrigger }
             Spacer(minLength: Theme.Metric.s8)
-            barButton("pencil", label: "Edit", identifier: "score-edit",
-                      active: mode == .edit) {
-                mode = (mode == .edit) ? .read : .edit
-                annotation.isOn = (mode == .edit)
+            if fit.showsEdit {
+                barButton("pencil", label: "Edit", identifier: "score-edit",
+                          active: mode == .edit) {
+                    mode = (mode == .edit) ? .read : .edit
+                    annotation.isOn = (mode == .edit)
+                }
             }
             selectArm
             barButton("bubble.left", label: "Ask", identifier: "score-ask",

@@ -71,21 +71,11 @@ final class PhoneTapSelection: XCTestCase {
         // 1b. AND THE CHIP FITS. Its longest line -- the hint about holding a
         // finger down -- is wider than a phone, so left to size itself the
         // panel hung off both edges and clipped its own headline, its place
-        // line and "Use in chat". Asserted against the SCREEN, because that
-        // is what the reader is looking at and what the mixer's version of
-        // this bug taught: a panel measured against its own ideal width will
-        // always report that it fits.
-        let screen = app.windows.firstMatch.frame
-        for part in ["selection-chip", "selection-place", "selection-confirm"] {
-            let element = app.descendants(matching: .any)[part].firstMatch
-            guard element.exists else { continue }
-            XCTAssertGreaterThanOrEqual(element.frame.minX, screen.minX,
-                                        "\(part) is clipped off the left edge: "
-                                        + "\(element.frame) in \(screen)")
-            XCTAssertLessThanOrEqual(element.frame.maxX, screen.maxX,
-                                     "\(part) runs off the right edge: "
-                                     + "\(element.frame) in \(screen)")
-        }
+        // line and "Use in chat". Asked in the general form, against the
+        // WINDOW: a panel measured against its own ideal width always reports
+        // that it fits, which is how the mixer's clipping survived a release.
+        assertFitsOnScreen(["selection-chip", "selection-place", "selection-confirm"],
+                           in: app, context: "selection chip, iPhone portrait")
 
         // THE FRAME THE DESIGNER ASKED FOR: a bar selected mid-system, at fit,
         // portrait -- to confirm the 12% measure fill against a dense page.
