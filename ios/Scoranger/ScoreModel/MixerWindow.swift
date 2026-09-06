@@ -45,10 +45,34 @@ extension MixerLayout {
     static let masterColumnWidth: CGFloat = 45
     static let masterButtonMinimum: CGFloat = 22
 
-    /// The panel's width floor when the header has not been measured yet, and
-    /// the floor under any measurement. 280 is what the header needs at
-    /// normal text with room for the three trailing controls.
-    static let headerFloorMinimum: CGFloat = 280
+    /// The panel's width floor: its four header controls, and the padding.
+    ///
+    /// This was 280 -- what the header needed for a title, a voices summary
+    /// and three trailing controls -- and 280 on a 393pt phone is most of the
+    /// screen. MIXER_WINDOW §12 found the loop that made: the panel was
+    /// full-width BECAUSE it was anchored, and anchored BECAUSE it was
+    /// full-width. One mistake wearing two faces.
+    ///
+    /// So the floor is the four controls it cannot do without -- grab,
+    /// collapse, park, close -- and the title and the summary appear only once
+    /// the rack has bought room for them (`headerShowsTitle`). At the floor
+    /// the header IS its controls, with no inert middle to measure.
+    static let windowFloor: CGFloat = controlSide * 4 + padding * 2
+
+    /// Kept under the name the view's `minWidth` already used, now meaning
+    /// the floor above rather than the 280 that caused the bug.
+    static var headerFloorMinimum: CGFloat { windowFloor }
+
+    /// Above this the header can afford its title and its voices summary.
+    ///
+    /// It is the rack at three strips: a three-channel score already needs
+    /// 248pt, so the words cost nothing there. At two channels the panel is at
+    /// its floor and they would be the only reason it was wider.
+    static let headerTitleMinimum: CGFloat = 248
+
+    static func headerShowsTitle(width: CGFloat) -> Bool {
+        width >= headerTitleMinimum
+    }
 
     /// The strip's own width, scaled by text and bounded.
     static let stripWidthFloor: CGFloat = 64
@@ -66,28 +90,54 @@ extension MixerLayout {
         max(minimum, lineHeight + padding)
     }
 
+    /// The text factor this layout scales by. Measured, never a table.
+    static func textScale(_ size: DynamicTypeSize) -> CGFloat {
+        TextScale.factor(size)
+    }
+
+    /// The strip's own width at a text size, which is the form a view wants.
+    static func stripWidth(text size: DynamicTypeSize) -> CGFloat {
+        stripWidth(textScale: textScale(size))
+    }
+
     /// The strip scales with text between 64 and 96 (§2).
     static func stripWidth(textScale: CGFloat) -> CGFloat {
         min(max(stripWidthFloor * textScale, stripWidthFloor), stripWidthCeiling)
     }
 
-    /// The panel's width.
+    /// What the rack needs for `n` strips: its padding, the pinned master
+    /// column and its divider, the strips, and a divider between each pair.
+    static func rackWidth(strips: Int, stripWidth: CGFloat) -> CGFloat {
+        let n = max(1, strips)
+        return padding * 2 + masterColumnWidth + dividerWidth
+            + CGFloat(n) * stripWidth
+            + CGFloat(n - 1) * dividerWidth
+    }
+
+    /// The panel's width: SIZED TO ITS CHANNELS (§12).
     ///
-    /// `headerFloor` is MEASURED by the view and passed in; the floor under it
-    /// is `headerFloorMinimum`. The rack's contribution can exceed the floor,
-    /// which is why this is a `max` and not a fixed width -- a six-strip rack
-    /// still gets its room. Capped at the free rect less 16 so the panel can
-    /// never be asked to be wider than the space it must fit inside.
+    /// Two channels want 184, three 248, four 313; five and more get 313 and
+    /// the rack scrolls inside it. That is the whole ruling, and it is why
+    /// there is no anchored tier any more -- a 184pt window has somewhere to
+    /// go on a 393pt phone, so nothing needs pinning.
+    ///
+    /// The measured header no longer appears here. It was the 0.6.12 fix for a
+    /// panel positioned by a number while drawing wider, and it stops being
+    /// needed once the header at floor width is nothing but its four squares:
+    /// there is no text left in it to outgrow the number.
     static func panelWidth(channels: Int, stripWidth: CGFloat,
-                           headerFloor: CGFloat, freeWidth: CGFloat,
-                           compact: Bool) -> CGFloat {
-        let shown = max(1, min(channels, compact ? visibleStripsCompact
-                                                 : visibleStrips))
-        let rack = padding * 2 + masterColumnWidth + dividerWidth
-            + CGFloat(shown) * stripWidth
-            + CGFloat(max(0, shown - 1)) * dividerWidth
-        let wanted = max(max(headerFloor, headerFloorMinimum), rack)
-        return min(wanted, max(freeWidth - 16, 0))
+                           freeWidth: CGFloat, compact: Bool) -> CGFloat {
+        let cap = compact ? visibleStripsCompact : visibleStrips
+        let shown = max(1, min(channels, cap))
+        let wanted = max(windowFloor, rackWidth(strips: shown,
+                                                stripWidth: stripWidth))
+        // The ceiling is the rack at its visible-strip cap, so a fifteen-staff
+        // score is the same window as a four-staff one with more to scroll.
+        let ceiling = max(windowFloor, rackWidth(strips: cap,
+                                                 stripWidth: stripWidth))
+        // And never wider than the space it must fit inside, which is the
+        // other half of "no clipping".
+        return min(min(wanted, ceiling), max(freeWidth - 16, 0))
     }
 
     // MARK: - The three tiers (§4), chosen by the container
@@ -99,29 +149,54 @@ extension MixerLayout {
     /// and there is no device check to be wrong about a device that does not
     /// exist yet.
     enum Tier: Equatable {
-        /// A floating window that can be picked up (§4.1).
+        /// A floating window that can be picked up (§4.1). Every width.
         case window
-        /// Anchored full-width above the chrome; nowhere to move it, so no
-        /// grab bar and no park button (§4.2).
-        case anchored
         /// One channel per row with a horizontal fader (§4.3). A vertical
         /// fader with 33pt labels is not an object anyone can use.
         case list
     }
 
-    /// Below this the container is compact and the window has nowhere to go.
-    static let compactWidth: CGFloat = 700
-    /// Below this there is not enough height for a window either.
-    static let shortHeight: CGFloat = 500
+    /// Whether the rack shows four strips rather than six.
+    ///
+    /// It is about how many STRIPS fit, which is the only thing it decides --
+    /// not about what kind of device this is. The old test asked
+    /// `container.width < 700`, and an iPhone in landscape is 852 points
+    /// wide: the phone was therefore "compact" in portrait and "regular" on
+    /// its side. That is the same defect IPHONE_0.6.14 §0 found in the score
+    /// view, and it is why the mixer could not be dragged in either
+    /// orientation -- the width clause caught portrait and the height clause
+    /// caught landscape.
+    static func narrowRack(freeWidth: CGFloat, stripWidth: CGFloat) -> Bool {
+        freeWidth - 16 < rackWidth(strips: visibleStrips, stripWidth: stripWidth)
+    }
 
+    /// Which layout the mixer takes.
+    ///
+    /// A WINDOW, everywhere. §12's ruling: the panel is sized to its channels
+    /// -- 184pt at two, 313 at four -- and a window that small has somewhere
+    /// to go on the narrowest phone, so there is nothing left for anchoring to
+    /// solve. The anchored tier is gone rather than left unreachable; a dead
+    /// tier is an invitation to bring it back.
+    ///
+    /// `.list` stays, and it is the one case that was never about room: at an
+    /// accessibility size a vertical fader with 33pt labels is not an object
+    /// anyone can use at any width.
     static func tier(container: CGSize, text: DynamicTypeSize) -> Tier {
-        // Text first: at accessibility sizes the DAW layout stops being
-        // legible at any width, and that outranks how much room there is.
-        if text >= .accessibility1 { return .list }
-        if container.width < compactWidth || container.height < shortHeight {
-            return .anchored
-        }
-        return .window
+        text >= .accessibility1 ? .list : .window
+    }
+
+    /// Does the mixer open COLLAPSED?
+    ///
+    /// The phone rule (§12): where the panel at its natural height would take
+    /// more than 60% of the canvas, it opens as its header and scrubber and
+    /// waits to be expanded. It bites in landscape, whose canvas is about
+    /// 284pt; a 635pt portrait canvas opens expanded.
+    static let collapseAbove: CGFloat = 0.6
+
+    static func opensCollapsed(naturalHeight: CGFloat,
+                               canvasHeight: CGFloat) -> Bool {
+        guard canvasHeight > 0, naturalHeight > 0 else { return false }
+        return naturalHeight > canvasHeight * collapseAbove
     }
 
     // MARK: - Placement (§5)

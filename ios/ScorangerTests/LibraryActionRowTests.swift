@@ -18,12 +18,34 @@ final class LibraryActionRowTests: XCTestCase {
     }
 
     /// The ids move with the actions; `home-*` and `library-add` retire.
+    ///
+    /// Three of the five kept the identifier they had -- §14.3 says so in
+    /// terms. The other two had to change: `importScore` was `library-import`
+    /// and `new` was `library-new`, and those two names now belong to the VERB
+    /// buttons on the row. Two elements under one identifier is a test that
+    /// taps whichever SwiftUI listed first, so the band's items say which kind
+    /// they are, in the same shape as their siblings.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
-                       ["library-import", "library-import-folder",
-                        "library-import-book", "library-new", "library-new-setlist"])
+                       ["library-import-score", "library-import-folder",
+                        "library-import-book", "library-new-arrangement",
+                        "library-new-setlist"])
         XCTAssertFalse(LibraryQuickAction.allCases
             .contains { $0.identifier.hasPrefix("home-") })
+    }
+
+    /// And no action shares an identifier with the verb that opens its band,
+    /// which is the collision the two renames above exist to prevent.
+    func testNoActionCollidesWithItsVerb() {
+        let verbs = Set(LibraryVerb.allCases.map(\.identifier))
+        for action in LibraryQuickAction.allCases {
+            XCTAssertFalse(verbs.contains(action.identifier),
+                           "\(action) shares \(action.identifier) with a verb "
+                           + "button, so a test cannot say which it tapped")
+        }
+        XCTAssertEqual(Set(LibraryQuickAction.allCases.map(\.identifier)).count,
+                       LibraryQuickAction.allCases.count,
+                       "two actions share an identifier")
     }
 
     func testEveryActionHasAGlyphAndAShortLabel() {

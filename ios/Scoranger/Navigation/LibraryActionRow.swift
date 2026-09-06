@@ -42,13 +42,22 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
 
     /// Identifiers move with the actions. The `home-*` ids retire with Home,
     /// and `library-add` with the `+` that used to offer the same two things.
+    /// `library-import-folder`, `library-import-book` and
+    /// `library-new-setlist` keep the identifiers they had -- §14.3 says so in
+    /// terms, and everything that addressed them goes on working.
+    ///
+    /// The other two changed, and had to: `importScore` was `library-import`
+    /// and `new` was `library-new`, which are now the two VERB buttons on the
+    /// row. Two elements with one identifier is a test that taps whichever
+    /// SwiftUI happened to put first -- so the band's own items say which kind
+    /// they are, in the same shape as their siblings.
     var identifier: String {
         switch self {
-        case .importScore:  return "library-import"
+        case .importScore:  return "library-import-score"
         case .importFolder: return "library-import-folder"
         case .importBook:   return "library-import-book"
-        case .new:         return "library-new"
-        case .newSetlist:  return "library-new-setlist"
+        case .new:          return "library-new-arrangement"
+        case .newSetlist:   return "library-new-setlist"
         }
     }
 

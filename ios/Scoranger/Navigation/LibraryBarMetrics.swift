@@ -25,25 +25,11 @@ enum LibraryBarMetrics {
                             preferredContentSizeCategory: category(for: size)))
     }
 
-    /// SwiftUI's size to UIKit's category. Spelled out rather than bridged,
-    /// because the bridge is not public and a wrong guess here would put the
-    /// arithmetic back to being unmeasured.
+    /// SwiftUI's size to UIKit's category lives in `TextScale` -- one
+    /// definition of "how big is the text", so the row's labels and the
+    /// mixer's strips cannot be scaled by two different numbers.
     static func category(for size: DynamicTypeSize) -> UIContentSizeCategory {
-        switch size {
-        case .xSmall:            return .extraSmall
-        case .small:             return .small
-        case .medium:            return .medium
-        case .large:             return .large
-        case .xLarge:            return .extraLarge
-        case .xxLarge:           return .extraExtraLarge
-        case .xxxLarge:          return .extraExtraExtraLarge
-        case .accessibility1:    return .accessibilityMedium
-        case .accessibility2:    return .accessibilityLarge
-        case .accessibility3:    return .accessibilityExtraLarge
-        case .accessibility4:    return .accessibilityExtraExtraLarge
-        case .accessibility5:    return .accessibilityExtraExtraExtraLarge
-        @unknown default:        return .large
-        }
+        TextScale.category(for: size)
     }
 
     /// The icon-only button, square, SCALED.

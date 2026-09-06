@@ -57,8 +57,15 @@ struct MixerWindowLayer: View {
                                             safeArea: geo.safeAreaInsets)
                 .intersection(onScreen(geo))
             let tier = MixerLayout.tier(container: geo.size, text: textSize)
+            let strip = MixerLayout.stripWidth(text: textSize)
+            let panelWidth = MixerLayout.panelWidth(
+                channels: playback.timeline.parts.count,
+                stripWidth: strip, freeWidth: free.width,
+                compact: MixerLayout.narrowRack(freeWidth: free.width,
+                                                stripWidth: strip))
             let panel = MixerWindowPanel(
-                playback: playback, tier: tier, picking: $picking,
+                playback: playback, tier: tier,
+                width: panelWidth, picking: $picking,
                 collapsed: $state.mixerCollapsed,
                 placement: state.mixerPlacement,
                 onClose: { state.mixerOpen = false },
@@ -71,9 +78,13 @@ struct MixerWindowLayer: View {
                 // The floor and the ceiling, both from the free rect: the
                 // panel is never asked to be wider than the space it must fit
                 // inside, which is the other half of "no clipping".
-                .frame(minWidth: min(MixerLayout.headerFloorMinimum,
-                                     max(free.width - 16, 0)))
-                .frame(maxWidth: max(free.width - 16, 0))
+                // Sized to its CHANNELS (§12), not to its header and not to
+                // the screen. This is the whole fix: a two-staff score is a
+                // 184pt window, and a 184pt window has somewhere to go on a
+                // 393pt phone -- so nothing has to be anchored, and the panel
+                // that could not be dragged because it filled the width is
+                // not filling the width.
+                .frame(width: panelWidth)
                 .fixedSize(horizontal: tier == .window, vertical: true)
                 .background {
                     GeometryReader { inner in
@@ -88,15 +99,17 @@ struct MixerWindowLayer: View {
             switch tier {
             case .window:
                 let size = measured == .zero
-                    ? CGSize(width: MixerLayout.headerFloorMinimum,
+                    ? CGSize(width: MixerLayout.windowFloor,
                              height: MixerLayout.collapsedMinimum)
                     : measured
                 let origin = resolved(size: size, free: free)
                 panel.position(x: origin.x + size.width / 2,
                                y: origin.y + size.height / 2)
-            case .anchored, .list:
-                // Nowhere to move it, so it is not moved: full width above
-                // whatever chrome is showing. The anchored-bar pattern from
+            case .list:
+                // The one tier that is not a window, and the one that was
+                // never about room: at an accessibility size the DAW layout
+                // stops being legible at any width. Full width above whatever
+                // chrome is showing -- the anchored-bar pattern from
                 // NAV_MODAL_FREE_0.4.2, not a sheet.
                 panel
                     .frame(width: max(free.width - 8, 0))
@@ -160,7 +173,7 @@ struct MixerWindowLayer: View {
             .onChanged { value in translation = value.translation }
             .onEnded { value in
                 let size = measured == .zero
-                    ? CGSize(width: MixerLayout.headerFloorMinimum,
+                    ? CGSize(width: MixerLayout.windowFloor,
                              height: MixerLayout.collapsedMinimum)
                     : measured
                 let base = MixerLayout.origin(for: state.mixerPlacement,
@@ -199,6 +212,11 @@ struct MixerMeasuredSize: PreferenceKey {
 struct MixerWindowPanel<G: Gesture>: View {
     @ObservedObject var playback: PlaybackEngine
     let tier: MixerLayout.Tier
+    /// The width the panel has been given, so the header can tell whether it
+    /// can afford its words (§12). Passed in rather than measured: the header
+    /// asking its own drawn width is what the 0.6.12 fix had to work around,
+    /// and the width is decided above by `MixerLayout.panelWidth`.
+    var width: CGFloat = MixerLayout.windowFloor
     @Binding var picking: Int?
     @Binding var collapsed: Bool
     let placement: MixerLayout.Placement
@@ -276,13 +294,23 @@ struct MixerWindowPanel<G: Gesture>: View {
                 // 17 at accessibility text: 681pt on a 402pt screen, 139.5pt
                 // off each side. A parent cannot compress a child that will
                 // not, so `.frame(maxWidth:)` above could do nothing about it.
-                Text("MIXER").typeRole(.label)
-                    .foregroundStyle(Theme.Accent.clayStrong)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .layoutPriority(2)
-                    .padding(.leading, movable ? 0 : Theme.Metric.s12)
-                    .allowsHitTesting(false)
+                // THE WORDS APPEAR ONLY WHERE THE RACK HAS BOUGHT THE ROOM
+                // (§12). At the floor -- a two-channel score, 184pt -- the
+                // header is exactly its four 44pt controls and nothing else:
+                // no title, no summary, no inert middle. Those words were the
+                // whole reason the floor used to be 280, and 280 on a phone is
+                // most of the screen, which is what made the panel full-width
+                // and so anchored and so undraggable.
+                if MixerLayout.headerShowsTitle(width: width) {
+                    Text("MIXER").typeRole(.label)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(2)
+                        .padding(.leading, movable ? 0 : Theme.Metric.s12)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("mixer-title")
+                }
                 // The identifier outlives the wording. It said "all voices"
                 // and now says "3 of 4 voices", which is the spec's §1 header
                 // -- but two older tests read `mixer-summary` to check the
@@ -290,7 +318,8 @@ struct MixerWindowPanel<G: Gesture>: View {
                 // the element rather than its text.
                 // The summary gives way first: the controls beside it and the
                 // word MIXER are what the header cannot lose.
-                Text(voicesSummary).typeRole(.meta)
+                if MixerLayout.headerShowsTitle(width: width) {
+                    Text(voicesSummary).typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -299,6 +328,7 @@ struct MixerWindowPanel<G: Gesture>: View {
                     .padding(.leading, Theme.Metric.s8)
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("mixer-summary")
+                }
                 Spacer(minLength: Theme.Metric.s8)
                 collapseButton
                 if movable { parkButton }
