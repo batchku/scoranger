@@ -932,3 +932,76 @@ is not a selection.
 
 Steps 1–4 are the release. Steps 5–6 are what make it good on the device. Step 7
 is what makes the phone worth preferring for practice.
+
+---
+
+# 11. Selection highlight — settled
+
+Both engineer questions are correct. §10.2 item 3 is superseded by this section.
+
+## 11.1 Colour: unchanged, and my token was wrong
+
+`clayTint` at 40% composites to **#FCF5F1 — 1.08:1 against paper**. It is not a
+highlight, it is nothing. Withdrawn.
+
+**The shipped values are right. Do not repaint them.**
+
+| | Token | Opacity | Composite over paper | Ink on it |
+|---|---|---|---|---|
+| Fill, note | `clay` #CC5C2E | **22%** | #F4DBD1 · 1.32:1 | 13.3:1 |
+| Fill, **measure** | `clay` | **12%** | #FBF2EE · 1.15:1 | — |
+| Border, both | `clayStrong` #A8481F | **65%**, 1pt | — | — |
+
+The only change is the **measure** fill. A bar's box is fifty times the area of
+a notehead's, and 22% across a whole bar is a wash rather than a highlight;
+area does the work that opacity does on a small patch, and the border carries
+the definition at both granularities. That one is a judgement call — show me a
+frame with a bar selected on a dense page and I will confirm or move it.
+
+Nothing else changes. The release adds a selection *route*; it should not
+repaint a working visual on the way past.
+
+## 11.2 Layer order: stay an overlay, and multiply
+
+**"Behind the glyph" is withdrawn as a build instruction.** You are right that it
+means compositing under the tiles, and that is not worth a structural change.
+
+**Keep `SelectionHighlight` as an `.overlay`. Give the fill
+`.blendMode(.multiply)`. The border keeps normal blending, drawn on top.**
+
+Multiply over white paper leaves the tint exactly as it is now; multiply over a
+black notehead leaves the notehead black. That is the whole of what "behind the
+glyph" was asking for, with no layer-order change.
+
+And it is not only cheaper — it fixes a live defect. Today's normal-blend fill
+**lightens every notehead it selects**:
+
+| Notehead #1A1917 under a clay@22% box | Result | Contrast vs paper |
+|---|---|---|
+| normal blend (today) | #41281C | **13.6:1** |
+| multiply | #191513 | **18.1:1** |
+
+Selecting a note currently washes it out to a brown. Multiply leaves it at the
+contrast it had unselected, a hair darker. So the answer to "which looks similar
+on paper" is that they do not: the current one is quietly degrading the thing
+being selected, and nobody would notice from a static mockup.
+
+**Sounding and selected together**, which was the constraint: a `clay` notehead
+under a multiplied clay@22% box composites to **#C34F26** against `clay`'s
+#CC5C2E — unmistakably the same clay note, marginally deeper. It still reads as
+a clay notehead inside a tinted box, which is what §10.2 asked for.
+
+Three notes for the build:
+
+- **Fill multiplies, border does not.** A multiplied border crossing a stem or a
+  ledger line darkens it unevenly; the border is an edge and wants its own
+  colour, source-over.
+- Multiply over a **grey scan** darkens slightly more than normal blend does.
+  That is the right direction — a light overlay is what washes out on grey paper.
+- `SelectionInk`'s divide-by-zoom rule is untouched; a blend mode has no size.
+
+## 11.3 What this leaves to build
+
+Nothing new. The route (`[ScoreAddress]` → `element(at:)` → frame → highlight)
+is already there per your finding; this section changes **one blend mode, one
+opacity for measure-granularity boxes, and nothing else**.
