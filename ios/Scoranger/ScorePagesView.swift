@@ -18,7 +18,11 @@ struct ScorePagesView: View {
     /// Settled zoom scale, used ONLY to raise the raster resolution of the
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var rasterZoom: CGFloat = 1.0
+    /// The canvas under the fingertip while a press is live (§9.2).
+    @State private var loupe: LoupeSample?
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverRunning
     /// The viewport in content coordinates, and the rows worth drawing at
     /// depth. Everything else renders at a cheap scale.
     @State private var visibleRect: CGRect = .zero
@@ -124,14 +128,46 @@ struct ScorePagesView: View {
                                                modifierFingerDown: fingerHeld)
                            },
                            onWillReplaceSelection: { state.clearSelection() },
-                           onTurnTap: { point, width, isPencil in
-                               turn(at: point, width: width, isPencil: isPencil)
+                           onCanvasTap: { touch in
+                               canvasTap(touch)
                            },
-                           onSwipeTurn: { direction in step(by: direction) },
+                           // The recogniser has already asked the same
+                           // question -- `allowsPress` -- before raising a
+                           // press at all, so this is the sample arriving,
+                           // not a second policy.
+                           onLoupe: { sample in loupe = sample },
+                           // SWIPE-TO-TURN IS DELIBERATELY NOT WIRED (0.6.14).
+                           //
+                           // It has never run. `TurnTapRecognizer` reset
+                           // itself to `.failed` at the end of every touch, so
+                           // neither the tap nor the swipe ever reached this
+                           // view -- for 332 commits. Repairing the recogniser
+                           // for §12's tap-select brought the swipe back with
+                           // it, and what came back was not finished: the edge
+                           // test was read when the gesture ENDED, so a single
+                           // long pan across a zoomed page turned it (fixed,
+                           // `PagedCanvas.swipeMayTurn`), and behind that the
+                           // page readout does not follow a swipe-turn --
+                           // photographed on an iPad, page 2's music under
+                           // "p. 1 / 9" with the rail still marking page 1.
+                           //
+                           // Turning by TAP is what §12 asked for and it is
+                           // proven on both size classes. Turning by swipe is
+                           // a second way to do the same thing that no build
+                           // has ever offered, so leaving it unwired costs no
+                           // reader anything and ships nothing half-finished.
+                           // The recogniser still reports it and
+                           // `swipeMayTurn` still states the rule, so wiring
+                           // it back is one line plus the readout fix.
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
                            // offering it
+                           mode: mode,
+                           voiceOverRunning: voiceOverRunning,
                            selectionEnabled: mode != .performance
+                               && state.displayedArtifact == .notation,
+                           lassoArmed: state.lassoArmed
+                               && mode != .performance
                                && state.displayedArtifact == .notation,
                            resetPanToken: panToken,
                            annotationActive: annotation.isOn,
@@ -189,6 +225,14 @@ struct ScorePagesView: View {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
                 }
             }
+            // The finger is covering what it is selecting, at every scale
+            // (§9.2). Drawn over the canvas rather than in it, so nothing it
+            // magnifies can magnify the loupe.
+            .overlay {
+                if let loupe {
+                    LoupeView(sample: loupe, safeAreaTop: geo.safeAreaInsets.top)
+                }
+            }
             // The latch. Kept here rather than computed in the body, because a
             // view's body may not write its own state -- and one frame drawn
             // at the previous fit is exactly what is wanted anyway: the frame
@@ -218,7 +262,12 @@ struct ScorePagesView: View {
                 follow(bar: bar, stripScale: stripScale, surface: surface)
             }
         }
-        .overlay(alignment: .top) { selectionChip }
+        // At the BOTTOM of the canvas on a phone (§9.6). At the top it lands
+        // on the first system, which on a portrait phone is a quarter of the
+        // music -- and the chip appears exactly when the reader is looking at
+        // what they just selected. Below the page there is room and nothing
+        // to cover.
+        .overlay(alignment: hSize == .compact ? .bottom : .top) { selectionChip }
         .overlay(alignment: .bottom) { continuousSyncChip }
         .overlay(alignment: .topLeading) {
             TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)
@@ -380,13 +429,46 @@ struct ScorePagesView: View {
         .accessibilityIdentifier("adjust-\(word)")
     }
 
-    /// A finished touch that might be a turn. Who may turn, and in which zone,
-    /// is still PageTurn's answer -- the §6 arbitration table is unchanged.
-    /// What a turn DOES is all that changed: it steps the index.
-    private func turn(at point: CGPoint, width: CGFloat, isPencil: Bool) {
-        guard let zone = PageTurn.turn(isPencil: isPencil, mode: mode, x: point.x,
-                                       width: width, movement: 0, elapsed: 0)
-        else { return }
+    /// What one finished single-finger touch meant.
+    ///
+    /// The decision is `CanvasTap`'s, entirely: this asks once and does what it
+    /// is told. There is no second gesture to lose to, which is the point (§12).
+    private func canvasTap(_ touch: CanvasTap.Touch) {
+        let hit = touch.page.map { state.hasElement(at: $0.unit, onPage: $0.index) } ?? false
+        let outcome = CanvasTap.tap(touch, mode: mode, lassoArmed: state.lassoArmed,
+                                    hit: hit)
+        switch outcome {
+        case .turn(let zone):
+            turn(zone)
+        case .select:
+            guard let page = touch.page else { return }
+            select(at: page.unit, onPage: page.index)
+        case .clear:
+            state.clearSelection()
+        case .none:
+            break
+        }
+    }
+
+    /// The bar, or the note, under the finger.
+    ///
+    /// Which one is the zoom's answer (§9.1): at fit a fingertip covers most of
+    /// a bar and picking one note out of it would be a guess, so the tap takes
+    /// the bar; zoomed in far enough to see a notehead, it takes the note. A
+    /// tap ON an existing selection always means the note, because the reader
+    /// has already said which bar they meant.
+    private func select(at unit: CGPoint, onPage index: Int) {
+        let onSelected = state.selectionContains(unit, onPage: index)
+        switch TapSelection.granularity(atZoom: rasterZoom, onSelected: onSelected) {
+        case .measure:
+            _ = state.selectBar(at: unit, onPage: index, allStaves: false)
+        case .note:
+            _ = state.addToSelection(at: unit, onPage: index)
+        }
+    }
+
+    /// A turn, wherever the decision came from.
+    private func turn(_ zone: PageTurn.Zone) {
         let direction = zone == .next ? 1 : -1
         // No pages to turn in continuous mode: a tap moves the reader on by
         // what is on screen (designer's spec). Performance mode keeps the same
@@ -413,6 +495,23 @@ struct ScorePagesView: View {
         // and waits to be asked.
         state.readerTurnedPage()
         state.pageIndex = PagedCanvas.coalesce(pending: nil, latest: next)
+        // And the readout follows the INDEX, not the scroll.
+        //
+        // `visiblePageIndices` is normally published by the canvas when its
+        // visible rect changes, which is true for a turn at fit -- the new
+        // unit lays out, the rect changes, the counter follows. It is NOT
+        // true after a swipe-turn from a zoomed page: the scroll view is
+        // already where the new unit wants it, nothing moves, nothing is
+        // reported, and the counter goes on naming the page the reader has
+        // just left. Photographed on an iPad: page 2's music on screen under
+        // "p. 1 / 9", with the rail still marking page 1.
+        //
+        // The index is the truth about which unit is shown -- the canvas is
+        // keyed on it -- so the readout is set from it here rather than
+        // waited for.
+        state.visiblePageIndices = PagedCanvas.unit(
+            at: state.pageIndex, pageCount: document.pageCount,
+            spread: state.twoPageSpread)
     }
 
     /// "Take me back", for the strip.
@@ -674,14 +773,24 @@ struct ScorePagesView: View {
     /// The frames of everything selected on one page, in page coordinates.
     /// Addresses are durable across re-renders; the frames are looked up fresh
     /// from whatever geometry is on screen now.
-    private func selectedFrames(onPage index: Int) -> [CGRect] {
+    /// The boxes to draw on one page, each with the KIND it marks.
+    ///
+    /// The kind rides along because a bar's fill is lighter than a notehead's
+    /// (§11): a bar box is about fifty times the area, and the same opacity
+    /// across it is a wash. `SelectionInk.fillOpacity(for:)` is the rule.
+    private func selectedFrames(onPage index: Int) -> [SelectionBox] {
         guard let selection = state.activeSelection,
               let geometry = state.geometry else { return [] }
-        return selection.addresses.compactMap { address in
+        let members: [SelectionMerge.Member] = selection.addresses.compactMap { address in
             guard let element = geometry.element(at: address),
                   element.pageIndex == index else { return nil }
-            return element.frame
+            return SelectionMerge.Member(address: address, frame: element.frame)
         }
+        // A whole bar is ONE mark, not one per note: multiplied fills compound
+        // where they overlap, so the lightest mark on the page was coming out
+        // the heaviest (§13).
+        return SelectionMerge.boxes(selected: members,
+                                    population: state.barPopulations)
     }
 
     // MARK: selection chip
@@ -749,6 +858,12 @@ struct ScorePagesView: View {
                 Text("Hold a finger down to add · tap an element to drop it")
                     .typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
+                    // wrap rather than set the panel's width: this line is the
+                    // longest thing in the chip and on a phone it is wider
+                    // than the screen, so left to itself it decided how wide
+                    // the panel was and the panel hung off BOTH edges -- the
+                    // headline, the place line and "Use in chat" all clipped
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, Theme.Metric.s12)
             .padding(.vertical, Theme.Metric.s8)
@@ -759,6 +874,11 @@ struct ScorePagesView: View {
                     .stroke(Theme.Line.line2, lineWidth: 1)
             }
             .modifier(ChipShadow())
+            // A ceiling on a wide canvas, and a margin on a narrow one. Both
+            // are needed: the ceiling stops it spanning an iPad, the margin
+            // stops it touching the edges of a phone.
+            .frame(maxWidth: Theme.Metric.alertWidth)
+            .padding(.horizontal, Theme.Metric.s12)
             .padding(.top, Theme.Metric.s12)
         }
     }
@@ -1190,8 +1310,9 @@ private struct ContinuousPlayheadLayer: View {
 /// divided by it (`SelectionInk`). Undivided they are what Ali photographed:
 /// at 12x a 1pt outline is a 12pt band and a 3pt overhang is 36, so a selected
 /// chord came back as one orange blob with no music visible inside it.
+/// One selection box: where it is, and what granularity it marks.
 private struct SelectionHighlight: View {
-    let frames: [CGRect]
+    let frames: [SelectionBox]
     let pageSize: CGSize
     /// The scroll view's settled zoom. Same source as the playhead's.
     let zoom: CGFloat
@@ -1205,12 +1326,31 @@ private struct SelectionHighlight: View {
                                                    zoom: zoom)
                 let weight = SelectionInk.onScreen(SelectionInk.highlightWeight,
                                                    zoom: zoom)
-                ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
+                ForEach(Array(frames.enumerated()), id: \.offset) { _, box in
+                    let frame = box.frame
+                    // THE FILL MULTIPLIES; THE BORDER DOES NOT (§11).
+                    //
+                    // Multiply is what "behind the glyph" asked for without
+                    // restructuring the layers: over white paper it leaves the
+                    // tint unchanged, and over a black notehead the notehead
+                    // stays black. The normal-blend fill shipping today washes
+                    // a selected notehead to brown -- #41281C, 13.6:1 against
+                    // paper, where multiply keeps it #191513 at 18.1:1. So it
+                    // fixes a live legibility defect as well as putting the
+                    // tint where it belongs.
+                    //
+                    // The BORDER keeps normal blending: multiplied it would
+                    // darken unevenly wherever it crossed a stem or a staff
+                    // line, and the border is what carries definition once the
+                    // fill lets go.
                     RoundedRectangle(cornerRadius: corner)
-                        .fill(Theme.Accent.clay.opacity(0.22))
+                        .fill(Theme.Accent.clay
+                                .opacity(SelectionInk.fillOpacity(for: box.kind)))
+                        .blendMode(.multiply)
                         .overlay {
                             RoundedRectangle(cornerRadius: corner)
-                                .stroke(Theme.Accent.clayStrong.opacity(0.65),
+                                .stroke(Theme.Accent.clayStrong
+                                            .opacity(SelectionInk.borderOpacity),
                                         lineWidth: weight)
                         }
                         .frame(width: SelectionInk.highlightExtent(

@@ -262,8 +262,14 @@ struct OverlayPanel<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        // A MAXIMUM, not a width (§6.1). At compact there is no room beside
+        // the score for a 460pt panel, so a fixed width draws a panel wider
+        // than the phone and its rows hang 13.7pt off each edge -- measured on
+        // an iPhone 17 Pro, where the Options rows came out 429pt in a 402pt
+        // window. The rule the surface obeys is: at compact width nothing has
+        // a fixed width; it either fills the width or it becomes a screen.
         content()
-            .frame(width: width)
+            .frame(maxWidth: width)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(Theme.Surface.panel)
             .overlay(alignment: edge == .leading ? .trailing : .leading) {

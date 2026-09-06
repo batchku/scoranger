@@ -29,6 +29,28 @@ enum SelectionInk {
     /// A hair of padding, so a notehead's box reads as a highlight rather than
     /// a tight outline.
     static let highlightPadding: CGFloat = 3
+    // MARK: - How strongly the box is filled (§11)
+
+    /// The fill, per granularity. The shipped 22% for anything notehead-sized,
+    /// and 12% for a bar.
+    ///
+    /// Area, not taste: a bar box is roughly fifty times a notehead's, and 22%
+    /// across a whole bar is a wash -- it stops reading as a highlight and
+    /// starts reading as a stain. At 12% the area does the work and the border
+    /// carries the definition.
+    ///
+    /// The designer's first instruction here was `clayTint` at 40%, and it was
+    /// withdrawn: `clayTint` is already a pale clay, so 40% of it composites to
+    /// about 1.08:1 against paper -- invisible. Recorded because the number
+    /// looked like a strengthening and was the opposite.
+    static func fillOpacity(for kind: ScoreElementKind) -> CGFloat {
+        ScoreElementKind.barLike.contains(kind) ? 0.12 : 0.22
+    }
+
+    /// One value at every granularity. The border is what carries definition
+    /// when the fill lets go, so it must not weaken along with it.
+    static let borderOpacity: CGFloat = 0.65
+
     /// A box smaller than this is not a box: a stem or a dot would otherwise be
     /// marked by something too small to see.
     static let highlightMinimum: CGFloat = 6

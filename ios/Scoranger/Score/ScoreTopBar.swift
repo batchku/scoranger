@@ -67,11 +67,14 @@ struct ScoreTopBar: View {
                        alignment: .leading)
             if fit.showsVersions { versionsTrigger }
             Spacer(minLength: Theme.Metric.s8)
-            barButton("pencil", label: "Edit", identifier: "score-edit",
-                      active: mode == .edit) {
-                mode = (mode == .edit) ? .read : .edit
-                annotation.isOn = (mode == .edit)
+            if fit.showsEdit {
+                barButton("pencil", label: "Edit", identifier: "score-edit",
+                          active: mode == .edit) {
+                    mode = (mode == .edit) ? .read : .edit
+                    annotation.isOn = (mode == .edit)
+                }
             }
+            selectArm
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             if fit.showsAddToSetlist { addToSetlistTrigger }
@@ -85,14 +88,23 @@ struct ScoreTopBar: View {
                       active: moreOpen) { moreOpen.toggle(); titleMenuOpen = false }
         }
         .padding(.horizontal, Theme.Metric.s12)
-        .frame(height: Theme.Metric.scoreTopBar)
-        .background {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { barWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, new in barWidth = new }
-            }
-        }
+        // minHeight at the size class's own number: 44 on a phone, 52 on an
+        // iPad (§9.6). A minimum rather than a height, because every label in
+        // the bar scales with Dynamic Type and a fixed height is what cuts
+        // them off (§6.3 rule 1).
+        .frame(minHeight: Theme.Metric.scoreTopBar(compact: hSize == .compact))
+        .fixedSize(horizontal: false, vertical: true)
+        // The width is measured by the SCORE SCREEN's own GeometryReader
+        // (`ContentView.body`) and not here. A `.background` is given the
+        // same size as the content it sits behind, so a bar that overflows
+        // reports its OVERFLOWED width -- and then seats more, because the fit
+        // believes it has the room. It is a loop that settles wherever the
+        // content happens to land: on a 402pt iPhone it seated the numeral,
+        // the pencil and the subtitle, and the title itself collapsed to "S…".
+        //
+        // It is the same mistake the mixer made in a different place. A
+        // surface measured against its own ideal size always reports that it
+        // fits.
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.Line.line).frame(height: 1)
@@ -410,6 +422,34 @@ struct ScoreTopBar: View {
         .accessibilityHint("Switch to another arrangement of this piece")
         .accessibilityAddTraits(arrangementsOpen ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier("score-title")
+    }
+
+    /// Arm the lasso, beside Ask (§9.3).
+    ///
+    /// Tapping needs no mode. A lasso does: a one-finger drag is already pan
+    /// and page turn, and this app separates inputs by mode rather than by a
+    /// guess at timing or distance. On a phone there is no Pencil to carry
+    /// the loop, so the finger needs the mode the Pencil never did.
+    ///
+    /// One tap arms it for a single loop; a second latches it for several.
+    /// The label says which, because a mode the reader cannot see is the one
+    /// that eats their next pan.
+    @ViewBuilder
+    private var selectArm: some View {
+        let arming = state.lassoArming
+        barButton("scope", label: arming.label, identifier: "score-select",
+                  active: arming.isArmed) { state.toggleLasso() }
+            .overlay(alignment: .topTrailing) {
+                // Latched is a different state from armed and has to look
+                // different: the difference is what happens to the NEXT
+                // gesture, and there is nothing else on screen saying so.
+                if arming == .latched {
+                    Circle().fill(Theme.Accent.clayStrong)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -2, y: 2)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 
     private func barButton(_ glyph: String, label: String, identifier: String,

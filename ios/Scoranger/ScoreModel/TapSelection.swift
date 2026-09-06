@@ -1,0 +1,145 @@
+import CoreGraphics
+import Foundation
+
+/// What a tap on the canvas means, and where the loupe goes.
+///
+/// IPHONE_0.6.14 §9.1 and §9.2. Pure, and separate from the canvas, because
+/// both are DECISIONS -- which granularity a scale implies, where a magnifier
+/// belongs relative to a finger -- while the canvas is the wiring that carries
+/// them out. `selectBar` and `addToSelection` already exist in `AppState`;
+/// what did not exist is the rule for choosing between them.
+enum TapSelection {
+
+    /// What one tap selects.
+    enum Granularity: Equatable {
+        /// The bar under the tap, on the staff under the tap.
+        case measure
+        /// The single element under the tap.
+        case note
+    }
+
+    /// Below this a tap means a bar; at it and above, a note.
+    ///
+    /// Not arbitrary: it is the granularity that is both legible and hittable
+    /// at that scale. At fit a notehead is about 3.9pt against a 25pt
+    /// fingertip -- unhittable -- while a bar is a comfortable target. At 2x
+    /// the notehead is 7.8pt and the loupe closes the rest of the gap.
+    ///
+    /// The boundary belongs to `note`: a reader who has zoomed to exactly 2x
+    /// has asked for the finer thing.
+    static let noteZoom: CGFloat = 2
+
+    /// The rule, with §9.1's first override folded in: tapping a bar that is
+    /// ALREADY selected drills into it and takes the note nearest the tap, at
+    /// any zoom. That is the way to a note without zooming, and it is why the
+    /// rule needs no mode and no second control.
+    static func granularity(atZoom zoom: CGFloat,
+                            onSelected: Bool = false) -> Granularity {
+        if onSelected { return .note }
+        return zoom >= noteZoom ? .note : .measure
+    }
+
+    /// How long a finger must be down and still before the loupe comes up.
+    ///
+    /// It is also the moment the touch stops being a pan and becomes a
+    /// selection: §9.2's reader presses, looks, slides a little to place the
+    /// crosshair and releases, and a slide that scrolled the page underneath
+    /// would defeat the whole thing. Before this the finger is ordinary --
+    /// it pans, and a quick tap turns or selects as it always did -- so
+    /// nothing that already worked has to wait for it.
+    ///
+    /// Long enough not to fire under a scroll that starts slowly; short
+    /// enough that a reader holding still is not left wondering.
+    static let pressDelay: TimeInterval = 0.25
+
+    // MARK: - The loupe (§9.2)
+
+    /// The circle's diameter, and how far its centre sits from the touch.
+    ///
+    /// Zoom fixes resolution; it does not fix the finger covering the thing
+    /// being selected, and no amount of zoom will. This is the pattern every
+    /// iOS reader knows from text selection.
+    static let loupeSize: CGFloat = 96
+    static let loupeOffset: CGFloat = 88
+    /// Nearer than this to the safe area and it would be drawn under the
+    /// status bar and the top bar, so it flips below the touch instead.
+    static let loupeFlipMargin: CGFloat = 100
+
+    struct Loupe: Equatable {
+        /// Where the circle is drawn.
+        let centre: CGPoint
+        /// The point under the finger, which the crosshair marks and release
+        /// commits. NOT the circle's centre -- release commits what the
+        /// crosshair is on, so confusing the two would select the wrong thing.
+        let hit: CGPoint
+        /// Whether it had to go below the touch.
+        let flipped: Bool
+    }
+
+    static func loupe(at touch: CGPoint, in bounds: CGSize,
+                      safeAreaTop: CGFloat) -> Loupe {
+        let flipped = touch.y - loupeOffset < safeAreaTop + loupeFlipMargin
+        let y = flipped ? touch.y + loupeOffset : touch.y - loupeOffset
+        // Slide rather than hang off: half a loupe shows half the answer.
+        let half = loupeSize / 2
+        let x = min(max(touch.x, half), max(bounds.width - half, half))
+        return Loupe(centre: CGPoint(x: x, y: y), hit: touch, flipped: flipped)
+    }
+
+    /// Twice what the reader can already see, rather than a fixed power: the
+    /// loupe's job is to double the current scale, whatever that is.
+    static func loupeScale(zoom: CGFloat) -> CGFloat { zoom * 2 }
+
+    /// Whether a press may happen at all -- which is the same question as
+    /// whether the loupe may be shown, deliberately answered in ONE place.
+    ///
+    /// The two are the same gesture seen from two ends: the press is what the
+    /// reader does and the loupe is what they see while doing it. Two
+    /// predicates would drift, and the drift has a shape -- a press with no
+    /// loupe is a selection committed blind, at the exact resolution the loupe
+    /// exists to supply (§13).
+    ///
+    /// The four cases where a press is wrong:
+    ///
+    /// - **Performance mode.** Selection is off there, so a loupe would
+    ///   magnify something the reader cannot act on. A still finger past the
+    ///   delay still TURNS, which is what performance mode's whole canvas
+    ///   means.
+    /// - **VoiceOver**, which selects by element and not by point: a magnifier
+    ///   over a touch point means nothing to it.
+    /// - **More than one finger**, which is a pinch.
+    /// - **Ink mode**, where the Pencil is drawing and a stroke is a path, not
+    ///   a point -- a loupe chasing a drawing hand is noise (§9.2).
+    ///
+    /// A pinch with one finger still down does NOT hide an established loupe
+    /// -- see `loupeOpacity`: it freezes and dims, because a loupe that
+    /// vanishes and returns reads as a glitch.
+    static func allowsPress(mode: ScoreMode, voiceOver: Bool, fingers: Int,
+                            inking: Bool) -> Bool {
+        mode != .performance && !voiceOver && fingers < 2 && !inking
+    }
+
+    /// The same predicate, named for the end the reader sees.
+    static func showsLoupe(mode: ScoreMode, voiceOver: Bool, fingers: Int,
+                           inking: Bool) -> Bool {
+        allowsPress(mode: mode, voiceOver: voiceOver, fingers: fingers,
+                    inking: inking)
+    }
+
+    /// Whether a touch that has already MOVED may still become a press.
+    ///
+    /// It may not, ever. A finger that travelled more than the tap slop before
+    /// the delay elapsed is panning, and a reader easing a zoomed score across
+    /// the screen moves slowly by definition -- exactly the touch a
+    /// time-only rule would steal and turn into a selection. Once a pan, a pan
+    /// for life; the reader lifts and presses again (§13).
+    static func mayBecomePress(movedBeforeDelay movement: CGFloat) -> Bool {
+        movement <= PageTurn.tapSlop
+    }
+
+    /// Dimmed while the scale is moving. It holds its last sample and
+    /// re-samples on the first frame after the scale settles -- the same
+    /// moment the canvas re-rasters. Stale music at a changing scale is worse
+    /// than a visible pause.
+    static func loupeOpacity(pinching: Bool) -> CGFloat { pinching ? 0.7 : 1 }
+}

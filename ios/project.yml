@@ -134,8 +134,8 @@ targets:
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
         #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
         #          path. Pagination moves to 0.6.14.
-        CURRENT_PROJECT_VERSION: 172
-        MARKETING_VERSION: 0.6.13
+        CURRENT_PROJECT_VERSION: 173
+        MARKETING_VERSION: 0.6.14
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -253,6 +253,9 @@ targets:
       - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
       - path: Scoranger/Score/PageTurn.swift
+      # what a single-finger touch on the canvas means -- one pure function, so
+      # it can be fuzzed for disjointness (§12) without a screen
+      - path: Scoranger/Score/CanvasTap.swift
       - path: Scoranger/Score/ScorePosition.swift
       - path: Scoranger/Score/PagedCanvas.swift
       - path: Scoranger/Score/KeyboardInset.swift

@@ -87,7 +87,17 @@ final class AppState: ObservableObject {
     @Published var selectionPaths: [Int: [CGPoint]] = [:]
     /// The hit-test model for the engraving currently on screen, built from the
     /// same Verovio load that drew it.
-    @Published var geometry: ScoreGeometry?
+    @Published var geometry: ScoreGeometry? {
+        didSet { barPopulations = geometry?.barPopulations ?? [:] }
+    }
+
+    /// How many selectable addresses each bar-on-a-staff holds, cached with
+    /// the geometry that produced it.
+    ///
+    /// Cached because the highlight asks on every zoom step and the answer is
+    /// a walk of every address in the document -- 2724 of them on a nine-page
+    /// quartet -- while it changes only when the engraving does.
+    private(set) var barPopulations: [SelectionMerge.Key: Int] = [:]
     /// What each chord symbol already carries, by address — the chip's starting
     /// point, so a nudge builds on the file rather than on the default.
     @Published var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
@@ -398,30 +408,55 @@ final class AppState: ObservableObject {
 
     /// A finished lasso: what it caught, drawn where it was drawn, handed to
     /// chat so the next prompt can refer to it.
-    func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int,
-                         adding: Bool = false) {
-        // the two-finger shortcut adds for this stroke only; the chip's mode is
-        // what the user set and is left alone
-        let mode: SelectionCombine = adding ? .add : combineMode
-        let caught = elements.compactMap(\.address)
+    /// Put addresses into the selection. THE one writer every route goes
+    /// through -- the lasso, a tap, and whatever comes next (§10.2).
+    ///
+    /// The lasso used to be the owner rather than a writer, and the tell was
+    /// `selectionPaths`: the loop it drew was carried as though it were the
+    /// selection. It is not. The selection is the ADDRESSES, drawn from
+    /// geometry by `selectedFrames`; the loop is a receipt for one gesture.
+    /// A route that produces no loop -- a tap -- must therefore clear the old
+    /// one, or a note tapped after a lasso would appear inside a loop that
+    /// caught something else entirely.
+    @discardableResult
+    func select(_ addresses: [ScoreAddress], mode: SelectionCombine = .replace,
+                path: [CGPoint]? = nil, page: Int = 0) -> ScoreSelection? {
         let combined = (selection ?? ScoreSelection(addresses: []))
-            .combining(caught, mode: mode)
+            .combining(addresses, mode: mode)
 
-        switch mode {
-        case .replace:
-            selectionPaths = [page: path]
-        case .add, .subtract:
-            // keep the outlines already drawn: they are what the user built up
-            selectionPaths = selectionPaths.merging([page: path]) { _, new in new }
+        if let path {
+            // A gesture that drew something: keep its outline, and keep the
+            // ones already drawn when it is adding to them.
+            switch mode {
+            case .replace: selectionPaths = [page: path]
+            case .add, .subtract:
+                selectionPaths = selectionPaths.merging([page: path]) { _, new in new }
+            }
+        } else {
+            // A route with no outline of its own. The previous loop described
+            // a different selection and must not be left over this one.
+            selectionPaths = [:]
         }
 
         selection = combined.isEmpty ? nil : combined
         selectionKey = combined.isEmpty ? nil : geometryKey
         if combined.isEmpty { selectionPaths = [:] }
+        return selection
+    }
+
+    func commitSelection(_ elements: [ScoreElement], path: [CGPoint], page: Int,
+                         adding: Bool = false) {
+        // the two-finger shortcut adds for this stroke only; the chip's mode is
+        // what the user set and is left alone
+        let mode: SelectionCombine = adding ? .add : combineMode
+        // Through `select`, like every other route: the lasso contributes the
+        // addresses it caught and the outline it drew, and owns neither.
+        let combined = select(elements.compactMap(\.address), mode: mode,
+                              path: path, page: page)
         // the chip vanishes with the selection, so a mode left set here could
         // never be changed back
         combineMode = SelectionCombine.modeAfter(combineMode,
-                                                 selectionIsEmpty: combined.isEmpty)
+                                                 selectionIsEmpty: combined == nil)
         // Selecting a different symbol WRITES whatever the last one had
         // pending, rather than carrying the pending values onto it.
         retargetAdjustment()
@@ -465,8 +500,8 @@ final class AppState: ObservableObject {
     /// addresses, and what keeps the highlight on the notes rather than
     /// painting a block over the system.
     @discardableResult
-    private func selectBar(at point: CGPoint, onPage index: Int,
-                           allStaves: Bool) -> Bool {
+    func selectBar(at point: CGPoint, onPage index: Int,
+                   allStaves: Bool) -> Bool {
         guard let geometry, let page = geometry.page(index) else { return false }
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let bar = page.element(at: scaled, kinds: ScoreElementKind.barLike)?.address
@@ -494,6 +529,45 @@ final class AppState: ObservableObject {
         selectionPaths = [:]
         combineMode = .replace
         return true
+    }
+
+    // MARK: - The armed lasso (§9.3)
+
+    /// Whether one finger draws a loop. The state machine itself is
+    /// `LassoArming`, which is pure and tested; this is where it lives.
+    @Published var lassoArming: LassoArming = .off
+
+    var lassoArmed: Bool { lassoArming.isArmed }
+
+    func toggleLasso() { lassoArming = lassoArming.tapped }
+
+    /// A loop landed.
+    func lassoFinished() { lassoArming = lassoArming.afterOneLoop }
+
+    /// Is there anything on the page under this point at all?
+    ///
+    /// The finger's tap asks before it acts, so a tap on blank paper can put
+    /// the selection down instead of leaving it standing (§12's `.clear`). It
+    /// is asked BEFORE the decision and handed in as a fact -- a turn that
+    /// depended on what was under the thumb would be unpredictable, which is
+    /// exactly what §12 rejected.
+    func hasElement(at point: CGPoint, onPage index: Int) -> Bool {
+        guard let page = geometry?.page(index) else { return false }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        return page.element(at: scaled) != nil
+            || page.element(at: scaled, kinds: ScoreElementKind.barLike) != nil
+    }
+
+    /// Is the element under this point already selected?
+    ///
+    /// What makes a second tap mean the NOTE rather than the bar again: the
+    /// reader has already said which bar, so the only thing left to say is
+    /// which note in it (§9.1).
+    func selectionContains(_ point: CGPoint, onPage index: Int) -> Bool {
+        guard let selection, let page = geometry?.page(index) else { return false }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        guard let hit = page.element(at: scaled)?.address else { return false }
+        return selection.addresses.contains(hit)
     }
 
     /// Add the one element under the Pencil to the selection.

@@ -1288,11 +1288,26 @@ final class ScorangerUITests: XCTestCase {
 
         // a drag rather than swipeLeft/Right: a flick's inertia makes "did we
         // reach the extreme" depend on how many flicks land before the
-        // deceleration ends, which is not something to assert on
+        // deceleration ends, which is not something to assert on.
+        //
+        // And SHORT drags, in steps, rather than one long one. This test wants
+        // to PAN; one 640pt drag is a swipe, and a swipe against the edge of a
+        // zoomed page is the deliberate second gesture that turns it
+        // (`PagedCanvas.swipeMayTurn`). Reading it as a swipe is correct
+        // behaviour that this test does not mean to ask for -- it turned the
+        // page seven times and then failed looking for a first page that was
+        // no longer on screen. Each step stays under
+        // `TurnTapRecognizer.swipeDistance`, so it is a pan and only a pan.
         func pan(from: CGFloat, to: CGFloat) {
-            let a = score.coordinate(withNormalizedOffset: CGVector(dx: from, dy: 0.5))
-            let b = score.coordinate(withNormalizedOffset: CGVector(dx: to, dy: 0.5))
-            a.press(forDuration: 0.05, thenDragTo: b)
+            let step: CGFloat = 0.05
+            var at = from
+            while abs(at - to) > step {
+                let next = at < to ? at + step : at - step
+                let a = score.coordinate(withNormalizedOffset: CGVector(dx: at, dy: 0.5))
+                let b = score.coordinate(withNormalizedOffset: CGVector(dx: next, dy: 0.5))
+                a.press(forDuration: 0.05, thenDragTo: b)
+                at = next
+            }
         }
 
         func checkRegion(_ what: String) {

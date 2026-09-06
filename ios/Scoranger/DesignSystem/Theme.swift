@@ -238,6 +238,16 @@ enum Theme {
 
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let scoreTopBar: CGFloat = 52
+        /// The same bar on a phone (§9.6). Eight points, taken from the one
+        /// piece of chrome that is on screen in every mode.
+        static let scoreTopBarCompact: CGFloat = 44
+        /// Scrubber and transport as ONE row, on a phone on its side (§3 E-B).
+        static let scoreDeckCompact: CGFloat = 48
+
+        /// The score's top bar at this size class.
+        static func scoreTopBar(compact: Bool) -> CGFloat {
+            compact ? scoreTopBarCompact : scoreTopBar
+        }
         static let scoreTopBarPerformance: CGFloat = 38
         static let thumbStripHeight: CGFloat = 96
         static let transportHeight: CGFloat = 56

@@ -13,6 +13,7 @@ struct ContentView: View {
 
     @EnvironmentObject var state: AppState
     @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.verticalSizeClass) private var vSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The two overlays, which replace the split view's columns.
@@ -95,6 +96,40 @@ struct ContentView: View {
 
     private var isCompact: Bool { hSize == .compact }
 
+    /// A PHONE ON ITS SIDE, which is the only place both size classes are
+    /// compact. It is the case with 130pt of chrome budget rather than 266,
+    /// and the one §3 E-B merges the deck for.
+    private var isPhoneLandscape: Bool { isCompact && vSize == .compact }
+
+    /// Go to the unit holding that page.
+    ///
+    /// A tap on the rail or the scrubber is a page turned BY THE READER just
+    /// as much as a swipe is, so it yields following the same way. It does not
+    /// go through `step(by:)`, which is where the swipe path hooks this -- so
+    /// it needs its own call, or paging from either control would leave the
+    /// score snapping back.
+    ///
+    /// One function, because the rail and the scrubber are two shapes of the
+    /// same act and a second copy would drift from this one.
+    /// The scrubber, when it is riding in the transport's row rather than
+    /// having one of its own. Nil everywhere else, which is what makes the
+    /// deck a merge rather than a duplicate.
+    private var mergedScrubber: AnyView? {
+        guard isPhoneLandscape, state.scoreMode != .performance,
+              !state.layout.isContinuous,
+              let document = state.pdfDocument else { return nil }
+        return AnyView(PageScrubber(pageCount: document.pageCount,
+                                    current: state.visiblePageIndices.first ?? 0,
+                                    onJump: jumpToPage)
+            .background(Color.clear))
+    }
+
+    private func jumpToPage(_ index: Int) {
+        state.readerTurnedPage()
+        state.pageIndex = PagedCanvas.index(forPage: index,
+                                            spread: state.twoPageSpread)
+    }
+
     /// What the top bar can seat at its measured width. Read by the bar and by
     /// Options, which carries what the bar could not.
     private var barFit: ScoreBarLayout.Fit {
@@ -102,9 +137,26 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            scoreBody
-            if let screen = scoreScreen { scoreScreenView(screen) }
+        // A GeometryReader, and not a measurement taken anywhere inside: it is
+        // handed its size by its PARENT and nothing below it can change that.
+        // Every other place this could go is downstream of the bar -- a
+        // `.background` is sized to its content, and a VStack widens to its
+        // widest child -- so an overflowing bar reports its overflow, believes
+        // it has the room, and seats one more control. Measured on an iPhone
+        // 17 Pro: a 402pt screen reporting 411 and seating the numeral and the
+        // subtitle it could not draw, with the title left as "S…".
+        //
+        // The width is also IMPOSED, not only measured. Without the frame the
+        // stack is still free to grow past the screen; with it, the bar has to
+        // fit inside what it was told.
+        GeometryReader { geo in
+            ZStack {
+                scoreBody
+                if let screen = scoreScreen { scoreScreenView(screen) }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .onAppear { barWidth = geo.size.width }
+            .onChange(of: geo.size.width) { _, new in barWidth = new }
         }
     }
 
@@ -263,25 +315,26 @@ struct ContentView: View {
             // strip showed a single thumbnail of the whole score -- true, and
             // useless. The designer's position markers are the right answer and
             // are not built yet; showing nothing is better than showing that.
+            // A PHONE gets a 28pt scrubber where an iPad gets the 96pt rail.
+            // The rail is better where there is room -- a legible thumbnail
+            // says what a page IS, which no tick can -- but 96pt is more than
+            // a third of a phone's whole chrome budget, spent on thumbnails
+            // that at 52x68 show only that a page has staves (§9.6). Neither
+            // screen loses a way to reach a page.
             if state.scoreMode != .performance, !state.layout.isContinuous,
-               let document = state.pdfDocument {
+               isCompact, !isPhoneLandscape, let document = state.pdfDocument {
+                PageScrubber(pageCount: document.pageCount,
+                             current: state.visiblePageIndices.first ?? 0,
+                             onJump: jumpToPage)
+            }
+            if state.scoreMode != .performance, !state.layout.isContinuous,
+               !isCompact, let document = state.pdfDocument {
                 ThumbnailStrip(document: document,
                                current: state.visiblePageIndices,
                                spread: state.twoPageSpread,
                                // straight to the unit holding that page: no
                                // offset arithmetic left to get wrong
-                               onJump: { index in
-                                   // A thumbnail tap is a page turned BY THE
-                                   // READER just as much as a swipe is, so it
-                                   // yields following the same way. It does not
-                                   // go through `step(by:)`, which is where the
-                                   // swipe path hooks this -- so it needs its
-                                   // own call or paging from the rail would
-                                   // leave the score snapping back.
-                                   state.readerTurnedPage()
-                                   state.pageIndex = PagedCanvas.index(
-                                       forPage: index, spread: state.twoPageSpread)
-                               })
+                               onJump: jumpToPage)
             }
             // The TRANSPORT is about the music, not about pages, so it belongs
             // in every mode that has chrome at all. It is revealed the first
@@ -307,7 +360,14 @@ struct ContentView: View {
                               }
                           },
                           mixerOpen: state.mixerOpen,
-                          onMixer: { state.mixerOpen.toggle() })
+                          onMixer: { state.mixerOpen.toggle() },
+                          // A phone on its side carries the scrubber IN the
+                          // transport: two rows are 76 of a 130pt chrome
+                          // budget, one deck is 48 (§3 E-B).
+                          leading: mergedScrubber,
+                          height: isPhoneLandscape
+                              ? Theme.Metric.scoreDeckCompact
+                              : Theme.Metric.transportHeight)
                     // Built when the transport appears, never when the score
                     // opens: writing the MIDI takes music21 a moment and
                     // opening an arrangement must not wait on it.
@@ -497,16 +557,25 @@ struct ContentView: View {
     @ViewBuilder
     private func scorePane(_ score: ScoreDoc) -> some View {
         if let doc = state.pdfDocument, let vid = state.displayedVersionID {
-            if isCompact {
-                ScoreZoomView(document: doc)
-            } else {
-                // The engine is handed in rather than reached through
-                // AppState: AppState publishes nothing when the play head
-                // moves, so a canvas that read it that way would never follow.
-                // Same reason the ink bar observes its controller directly.
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
-                               mode: state.scoreMode, playback: state.playback)
-            }
+            // ONE CANVAS, EVERY SIZE CLASS (IPHONE_0.6.14 §0, §10.4 step 1).
+            //
+            // Compact width used to get `ScoreZoomView`: 36 lines of PDFView
+            // with `autoScales`. Everything the score view IS lived on the
+            // other branch -- Pencil markup, the lasso, selection, the
+            // playhead, the thumbnail rail -- and the phone had none of it,
+            // with a zoom ceiling of 5 rather than the 12 a notehead needs.
+            //
+            // It is not that the phone had a worse canvas; it had a different
+            // one, so every feature built on the real canvas simply did not
+            // exist there and no test could tell. Nothing else in 0.6.14 is
+            // testable until this branch goes.
+            //
+            // The engine is handed in rather than reached through AppState:
+            // AppState publishes nothing when the play head moves, so a canvas
+            // that read it that way would never follow. Same reason the ink
+            // bar observes its controller directly.
+            ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+                           mode: state.scoreMode, playback: state.playback)
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so
             // renderIfNeeded returns at its guard and nothing is ever in

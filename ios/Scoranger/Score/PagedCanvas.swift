@@ -63,12 +63,21 @@ enum PagedCanvas {
 
     /// May a swipe turn the page?
     ///
-    /// Only when there is no horizontal slack -- at fit, or already against the
-    /// unit's edge while zoomed. Ali's build-with recommendation was STOP at
-    /// the edge, so a drag that reaches it does not roll into a turn; the turn
-    /// is a second, deliberate gesture, and the tap zones are always there.
-    static func swipeMayTurn(zoom: CGFloat, atHorizontalLimit: Bool) -> Bool {
-        !canPan(zoom: zoom) || atHorizontalLimit
+    /// Only when there was no horizontal slack WHEN THE GESTURE BEGAN -- at
+    /// fit, or already hard against the unit's edge. Ali's build-with
+    /// recommendation was STOP at the edge, so a drag that reaches it does not
+    /// roll into a turn; the turn is a second, deliberate gesture, and the tap
+    /// zones are always there.
+    ///
+    /// The parameter is named for when it is read because reading it at the
+    /// END is the whole bug: a single long pan from the middle of a zoomed
+    /// page ENDS at the limit, so it turned -- which is precisely the rolling
+    /// this rule exists to forbid. It went unseen because the recogniser that
+    /// reports a swipe never fired at all until 0.6.14; the first thing that
+    /// happened when it was repaired was a zoomed page panning itself seven
+    /// pages forward.
+    static func swipeMayTurn(zoom: CGFloat, atLimitWhenItBegan: Bool) -> Bool {
+        !canPan(zoom: zoom) || atLimitWhenItBegan
     }
 
     /// What a turn does to zoom and pan.
@@ -76,6 +85,12 @@ enum PagedCanvas {
     /// Zoom PERSISTS -- a violinist reading at 180% stays at 180% -- and pan
     /// resets to the top-left of the new unit, which is what turning a paper
     /// page does.
+    ///
+    /// That persistence is also why zoom cannot separate a turn from a
+    /// selection: a reader who turned three pages ago at 180% is still at 180%
+    /// and has long stopped thinking about it, so "turns at fit, selects when
+    /// zoomed" would be the same tap in the same place meaning two things for a
+    /// reason nobody is tracking. §12 separates them by REGION instead.
     static func afterTurn(zoom: CGFloat) -> (zoom: CGFloat, offset: CGPoint) {
         (clamp(zoom: zoom), .zero)
     }

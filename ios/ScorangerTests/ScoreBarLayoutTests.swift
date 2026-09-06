@@ -258,7 +258,11 @@ final class ScoreBarLayoutTests: XCTestCase {
     /// must fit in a width that reserves nothing for a chip.
     func testTheWidestBarReservesNoRoomForAModeChip() {
         let widest = ScoreBarLayout.fit(barWidth: 2000)
-        let withoutAChip = ScoreBarLayout.essentials + ScoreBarLayout.titleMinimum
+        // `editWidth` is counted separately since 0.6.14: ⌖ joined the bar's
+        // fixed actions and the pencil moved out of `essentials` into the
+        // yield order. The sum is the same bar it always was.
+        let withoutAChip = ScoreBarLayout.essentials + ScoreBarLayout.editWidth
+            + ScoreBarLayout.titleMinimum
             + ScoreBarLayout.numeralWidth + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
             + ScoreBarLayout.addToSetlistWidth
@@ -420,5 +424,75 @@ final class VersionsStayReachableTests: XCTestCase {
         let opens: TitleBandLayout.Mode = wide.showsVersions ? .arrangements : .versions
         XCTAssertEqual(opens, .arrangements,
                        "the title should still open arrangements where the count exists")
+    }
+}
+
+/// The ⌖ that arms Select, and the pencil it displaced (0.6.14).
+///
+/// A control was added to this bar and NOT put in its arithmetic, which is
+/// exactly the shape of #60: the bar seated four actions while `essentials`
+/// counted three, and a 393pt phone was 20pt over. These are the tests that
+/// would have caught it.
+final class ScoreBarSelectArmTests: XCTestCase {
+
+    /// Every real width, against the bar's own measurement of itself.
+    private static let widths: [(String, CGFloat)] = [
+        ("iPhone SE portrait", 375),
+        ("iPhone 15 portrait", 393),
+        ("iPhone 17 Pro portrait", 402),
+        ("iPhone landscape", 734),
+        ("iPad split narrow", 507),
+        ("iPad 11 portrait", 834),
+        ("iPad 13 landscape", 1376),
+    ]
+
+    func testWhatTheBarSeatsAlwaysFitsOnIt() {
+        for (name, width) in Self.widths {
+            for busy in [false, true] {
+                let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: busy)
+                XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                              "\(name) at \(width)pt seats a bar it cannot draw "
+                              + "(omr=\(busy)): \(fit)")
+            }
+        }
+    }
+
+    /// ⌖ is not in the yield order at all. On a phone it is the only route to
+    /// a lasso -- there is no Pencil -- so dropping it would drop a feature,
+    /// and this bar only ever drops shortcuts.
+    func testSelectIsOnTheBarAtEveryWidth() {
+        for width in stride(from: 320.0, through: 1400.0, by: 1) {
+            XCTAssertTrue(ScoreBarLayout.fit(barWidth: width).showsSelectArm,
+                          "no way to select at \(width)pt")
+        }
+    }
+
+    /// The pencil yields on a phone, and the Options screen picks markup up at
+    /// exactly those widths. In one place or the other, never neither.
+    func testMarkupIsReachableAtEveryWidth() {
+        for width in stride(from: 320.0, through: 1400.0, by: 1) {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            XCTAssertNotEqual(fit.showsEdit, fit.optionsCarriesEdit,
+                              "markup is in both places, or neither, at \(width)pt")
+        }
+    }
+
+    /// And it does yield: a phone gets ⌖ instead of the pencil, which is the
+    /// trade §3 E-A asked for.
+    func testAPhoneKeepsSelectAndGivesUpThePencil() {
+        let phone = ScoreBarLayout.fit(barWidth: 393)
+        XCTAssertTrue(phone.showsSelectArm)
+        XCTAssertFalse(phone.showsEdit, "the pencil is still on a 393pt bar")
+        let pad = ScoreBarLayout.fit(barWidth: 1376)
+        XCTAssertTrue(pad.showsEdit, "an iPad gave up the pencil it has room for")
+        XCTAssertTrue(pad.showsSelectArm)
+    }
+
+    /// The floor did not move: ⌖ took the pencil's place rather than being
+    /// added beside it, so #60's four points of slack on a 375pt iPhone are
+    /// still there.
+    func testTheFloorStillFitsTheNarrowestPhone() {
+        XCTAssertLessThanOrEqual(ScoreBarLayout.floor, 375,
+                                 "the bar's floor is wider than an iPhone SE")
     }
 }

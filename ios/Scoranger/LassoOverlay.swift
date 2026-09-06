@@ -43,9 +43,19 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     static let fingerStandsInForPencil =
         ProcessInfo.processInfo.arguments.contains("-uiTestPencil")
 
+    /// `Select` is armed from the top bar and one finger draws the loop
+    /// (§9.3). It is the same arrangement as the test stand-in above and
+    /// deliberately the same code path: one finger is the Pencil, two are a
+    /// pinch, and the reader can reposition mid-selection.
+    var fingerSelects = false
+
+    private var fingerIsPencil: Bool {
+        Self.fingerStandsInForPencil || fingerSelects
+    }
+
     private func isPencil(_ touch: UITouch) -> Bool {
         if touch.type == .pencil { return true }
-        guard Self.fingerStandsInForPencil, touch.type == .direct else { return false }
+        guard fingerIsPencil, touch.type == .direct else { return false }
         // The stroke in flight stays the Pencil however many fingers join it.
         // That is the held-finger "add", and it must keep working.
         if drawing == touch { return true }
@@ -177,7 +187,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
     /// recogniser off before its second finger has landed.
     private var freezingTouch: UITouch? {
         if let pencil = down.keys.first(where: { $0.type == .pencil }) { return pencil }
-        guard Self.fingerStandsInForPencil else { return nil }
+        guard fingerIsPencil else { return nil }
         return drawing
     }
 
@@ -247,7 +257,7 @@ final class LassoGestureRecognizer: UIGestureRecognizer {
               LassoGate.lassoBegins(isPencil: true, markupActive: annotationActive),
               // a real Pencil waits for nothing; the stand-in waits a tenth of
               // a second so a pinch's first finger is not read as a stroke
-              !Self.fingerStandsInForPencil
+              touch.type == .pencil
                   || LassoGate.standInMayDraw(heldFor: elapsed(touch))
         else { return }
         report(touch, phase: "moved", began: true)

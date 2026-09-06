@@ -52,14 +52,26 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
     /// The Pencil landed and this stroke replaces the selection.
     var onWillReplaceSelection: (() -> Void)?
-    /// A finished touch that might be a page turn: where it was, how wide the
-    /// canvas is, and whether it was the Pencil. The decision itself is
-    /// PageTurn's -- this only reports (§6).
-    var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+    /// A finished single-finger touch, measured. What it MEANT -- a turn, a
+    /// selection, a clear, or nothing -- is `CanvasTap`'s single answer, and
+    /// the view that knows the mode asks for it (§12).
+    var onCanvasTap: ((CanvasTap.Touch) -> Void)?
+    /// A press is live: the canvas, sampled, and where the finger is on it.
+    /// Nil when the press ends (§9.2).
+    var onLoupe: ((LoupeSample?) -> Void)?
     /// A horizontal swipe with no slack left to pan: turn.
     var onSwipeTurn: ((Int) -> Void)?
+    /// What the Pencil means right now, which decides whether a press is
+    /// possible at all (§13, `TapSelection.allowsPress`).
+    var mode: ScoreMode = .read
+    /// VoiceOver selects by element, not by point: no press, no loupe.
+    var voiceOverRunning = false
     /// Selection off, for performance mode.
     var selectionEnabled: Bool = true
+    /// `Select` is armed: one finger draws a loop instead of panning (§9.3).
+    /// The same code path the Pencil's lasso uses -- one finger stands in for
+    /// it, two still pan and pinch, so the reader can reposition mid-loop.
+    var lassoArmed = false
     /// A page turn happened: reset the pan to the new unit's top-left, keeping
     /// the zoom. That is what turning a paper page does -- a violinist reading
     /// at 180% stays at 180% (§6.1).
@@ -139,6 +151,17 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         let turn = TurnTapRecognizer(target: context.coordinator,
                                      action: #selector(Coordinator.turnTapped(_:)))
         turn.cancelsTouchesInView = false
+        // Recognising must cost the scroll view nothing: without this, a
+        // recogniser that ends can make another fail, and the two that matter
+        // here are the pan and the pinch.
+        turn.delegate = context.coordinator
+        turn.onPress = { [weak coordinator = context.coordinator] point in
+            coordinator?.pressed(point)
+        }
+        turn.atLimitNow = { [weak coordinator = context.coordinator] in
+            coordinator?.atHorizontalLimit ?? false
+        }
+        context.coordinator.turn = turn
         scroll.addGestureRecognizer(turn)
 
         // A Pencil tap: drops one element from the selection. Pencil only,
@@ -198,7 +221,13 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.lasso?.onWillReplaceSelection = onWillReplaceSelection
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.lasso?.selectionEnabled = selectionEnabled
-        context.coordinator.onTurnTap = onTurnTap
+        context.coordinator.lasso?.fingerSelects = lassoArmed
+        context.coordinator.turn?.armed = lassoArmed
+        context.coordinator.turn?.mode = mode
+        context.coordinator.turn?.voiceOverRunning = voiceOverRunning
+        context.coordinator.turn?.inking = annotationActive
+        context.coordinator.onCanvasTap = onCanvasTap
+        context.coordinator.onLoupe = onLoupe
         context.coordinator.onSwipeTurn = onSwipeTurn
         context.coordinator.resetPan(token: resetPanToken)
         context.coordinator.onZoomSettled = onZoomSettled
@@ -220,7 +249,12 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(onZoomSettled: onZoomSettled) }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer)
+            -> Bool { true }
+
         var host: UIHostingController<AnyView>?
         weak var scroll: UIScrollView?
         weak var lasso: LassoGestureRecognizer?
@@ -335,7 +369,34 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         }
 
         var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
-        var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+        var onCanvasTap: ((CanvasTap.Touch) -> Void)?
+        var onLoupe: ((LoupeSample?) -> Void)?
+        weak var turn: TurnTapRecognizer?
+        private var pressSample: UIImage?
+
+        /// Sample the canvas once, then follow the finger over the sample.
+        ///
+        /// Once, because re-drawing the hierarchy on every touchesMoved would
+        /// put a full-screen render in the middle of a gesture. §10.3 accepts
+        /// a held picture anyway -- and a press cannot change what is under it
+        /// except by moving, which moves the window over the same sample.
+        func pressed(_ point: CGPoint?) {
+            guard let point, let scroll else {
+                pressSample = nil
+                onLoupe?(nil)
+                return
+            }
+            if pressSample == nil {
+                let renderer = UIGraphicsImageRenderer(bounds: scroll.bounds)
+                pressSample = renderer.image { _ in
+                    scroll.drawHierarchy(in: scroll.bounds, afterScreenUpdates: false)
+                }
+            }
+            guard let pressSample else { return }
+            onLoupe?(LoupeSample(image: pressSample, touch: point,
+                                 canvas: scroll.bounds.size,
+                                 zoom: scroll.zoomScale))
+        }
         var onSwipeTurn: ((Int) -> Void)?
         private var lastResetToken: Int = -1
         /// Set by `resetPan`, consumed by the next `commit`: the content about
@@ -423,14 +484,24 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
                 // live only when there is no horizontal slack: at fit there is
                 // nothing to pan, so a drag is free to mean a turn
                 guard let scroll,
-                      PagedCanvas.swipeMayTurn(zoom: scroll.zoomScale,
-                                               atHorizontalLimit: atHorizontalLimit)
+                      PagedCanvas.swipeMayTurn(
+                          zoom: scroll.zoomScale,
+                          atLimitWhenItBegan: recognizer.limitAtStart)
                 else { return }
                 onSwipeTurn?(swipe)
                 return
             }
             guard recognizer.state == .ended else { return }
-            onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
+            let hit = LassoGestureRecognizer.page(at: recognizer.landed, in: root)
+            onCanvasTap?(CanvasTap.Touch(
+                point: recognizer.landed,
+                canvas: root.bounds.size,
+                isPencil: recognizer.wasPencil,
+                maxFingers: recognizer.maxFingers,
+                movement: recognizer.movement,
+                elapsed: recognizer.elapsed,
+                wasPress: recognizer.wasPress,
+                page: hit.map { (index: $0.index, unit: $0.unit) }))
         }
 
         var onUserScroll: (() -> Void)?
@@ -559,12 +630,30 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 }
 
 
-/// A touch that ended still and quickly, wherever it was.
+/// A finished single-finger touch, reported wherever and however it ended.
 ///
 /// Deliberately not a `UITapGestureRecognizer`: that one competes with the
 /// others for the same touch, and this must never take a touch away from the
-/// lasso or the scroll. It observes, reports, and always fails -- the decision
-/// about whether it MEANT anything belongs to PageTurn.
+/// lasso or the scroll. What the touch MEANT is `CanvasTap`'s answer, and its
+/// alone (§12).
+///
+/// It used to end every touch by RESETTING ITSELF TO `.failed` in a `defer`,
+/// under the heading "never claim the touch". It never fired, then: a
+/// recogniser that fails sends no action, so the assignment two lines above it
+/// was undone before UIKit could act on it. A finger tap on the outer zone
+/// therefore did nothing at all, on any device, for as long as the rule
+/// existed -- found by instrumenting the recogniser when a tap-select sweep
+/// down a phone page landed nothing at 17 points out of 17.
+///
+/// Not claiming the touch is what `cancelsTouchesInView = false`,
+/// `delaysTouchesBegan = false` and simultaneous recognition are FOR, and all
+/// three are set. Recognising is what makes the action fire.
+///
+/// It reports every single-finger end, including ones that moved or dwelt and
+/// ones that were part of a pinch, because the rule that rejects them is in
+/// the pure function where it can be fuzzed. What is left here is measurement:
+/// where it landed, how far it moved, how long it took, and the most fingers
+/// that were ever down.
 final class TurnTapRecognizer: UIGestureRecognizer {
     private(set) var landed: CGPoint = .zero
     private(set) var wasPencil = false
@@ -572,6 +661,36 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     /// Whether it MAY turn is decided by the caller, which knows about zoom and
     /// slack; this only reports the shape of the gesture.
     private(set) var swipe: Int?
+    /// The most fingers down at any moment of THIS touch. A pinch whose second
+    /// finger lifts first still ends as one finger on the glass, and without
+    /// this it would be indistinguishable from a tap.
+    private(set) var maxFingers = 1
+    private(set) var movement: CGFloat = 0
+    private(set) var elapsed: TimeInterval = 0
+    /// The finger stayed still long enough to raise the loupe.
+    private(set) var wasPress = false
+    /// While the lasso is armed the finger belongs to it: no press, no loupe,
+    /// and nothing for this recogniser to report (§9.3).
+    var armed = false
+
+    /// Was the canvas already hard against its horizontal limit when this
+    /// touch started? Asked once, at touch-down, because asking at the end
+    /// makes every long pan into a turn (`PagedCanvas.swipeMayTurn`).
+    private(set) var limitAtStart = false
+    /// How the recogniser asks. Supplied by the coordinator, which owns the
+    /// scroll view.
+    var atLimitNow: (() -> Bool)?
+
+    /// Everything `TapSelection.allowsPress` needs that the recogniser cannot
+    /// see for itself. The finger count is its own (§13).
+    var mode: ScoreMode = .read
+    var voiceOverRunning = false
+    var inking = false
+
+    /// Where the finger is while a press is live, and nil the moment it is
+    /// not. The canvas puts the loupe there (§9.2).
+    var onPress: ((CGPoint?) -> Void)?
+    private var pressTimer: Timer?
     private var start: CGPoint = .zero
     private var began: TimeInterval = 0
     private var moved: CGFloat = 0
@@ -591,17 +710,72 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let root = view, let touch = touches.first, touches.count == 1 else {
-            state = .failed
+        // A touch CYCLE starts when the glass goes from empty to one finger.
+        // Counting here rather than trusting `reset()`: UIKit resets a failed
+        // recogniser as soon as its own recognition ends, which during a pinch
+        // is while the other finger is still down -- and a count cleared there
+        // would say "one finger" for the rest of the pinch.
+        let down = event.allTouches?.filter {
+            $0.phase != .ended && $0.phase != .cancelled
+        }.count ?? touches.count
+        guard down <= 1 else {
+            maxFingers = max(maxFingers, down)
+            // a second finger ends any press: this is a pinch now
+            endPress()
+            if state == .began || state == .changed { state = .cancelled }
             return
         }
+        guard let root = view, let touch = touches.first else { return }
+        maxFingers = 1
+        limitAtStart = atLimitNow?() ?? false
         start = touch.location(in: root)
         began = touch.timestamp
         moved = 0
         dx = 0
         dy = 0
+        movement = 0
+        elapsed = 0
         swipe = nil
+        wasPress = false
         wasPencil = touch.type == .pencil
+        armPress()
+    }
+
+    /// Raise the loupe if the finger is still there, and still still.
+    ///
+    /// This is the one place the recogniser CLAIMS a touch. Everywhere else it
+    /// fails on purpose, so it can never take a touch from the lasso or the
+    /// scroll -- but a press that let the page scroll under it would make the
+    /// crosshair meaningless, so from here the finger belongs to the selection
+    /// and `.began` cancels the pan in flight.
+    private func armPress() {
+        pressTimer?.invalidate()
+        guard !wasPencil, !armed, pressAllowed else { return }
+        pressTimer = Timer.scheduledTimer(
+            withTimeInterval: TapSelection.pressDelay, repeats: false
+        ) { [weak self] _ in
+            guard let self, self.view != nil, self.pressAllowed,
+                  TapSelection.mayBecomePress(movedBeforeDelay: self.moved),
+                  self.state == .possible else { return }
+            self.wasPress = true
+            self.state = .began
+            self.onPress?(self.here)
+        }
+    }
+
+    /// ONE predicate for the press and the loupe, so they cannot drift into
+    /// a selection committed blind (§13).
+    private var pressAllowed: Bool {
+        TapSelection.allowsPress(mode: mode, voiceOver: voiceOverRunning,
+                                 fingers: maxFingers, inking: inking)
+    }
+
+    private var here: CGPoint { CGPoint(x: start.x + dx, y: start.y + dy) }
+
+    private func endPress() {
+        pressTimer?.invalidate()
+        pressTimer = nil
+        if wasPress { onPress?(nil) }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -610,27 +784,40 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         moved = max(moved, hypot(now.x - start.x, now.y - start.y))
         dx = now.x - start.x
         dy = now.y - start.y
+        if wasPress {
+            state = .changed
+            onPress?(now)                     // the loupe follows the finger
+        } else if moved > PageTurn.tapSlop {
+            pressTimer?.invalidate()          // it was a pan after all
+            pressTimer = nil
+        }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        defer { state = .failed }   // never claim the touch
-        guard let root = view, let touch = touches.first else { return }
-        // a decisive horizontal swipe, by a FINGER: the Pencil's meaning is
+        endPress()
+        guard let root = view, let touch = touches.first else {
+            state = .failed
+            return
+        }
+        landed = touch.location(in: root)
+        movement = moved
+        elapsed = touch.timestamp - began
+        // a decisive horizontal swipe, by ONE FINGER: the Pencil's meaning is
         // settled by mode, and a Pencil drag is a lasso or ink
-        if touch.type != .pencil, abs(dx) >= Self.swipeDistance,
+        if !wasPress, maxFingers <= 1, touch.type != .pencil,
+           abs(dx) >= Self.swipeDistance,
            abs(dx) >= abs(dy) * Self.swipeRatio {
             swipe = dx < 0 ? 1 : -1     // dragging left brings the NEXT page in
-            landed = touch.location(in: root)
             state = .ended
             return
         }
         swipe = nil
-        guard PageTurn.isTap(movement: moved, elapsed: touch.timestamp - began) else { return }
-        landed = touch.location(in: root)
         state = .ended
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        endPress()
+        wasPress = false
         state = .failed
     }
 
@@ -640,5 +827,9 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         dx = 0
         dy = 0
         swipe = nil
+        wasPress = false
+        pressTimer?.invalidate()
+        pressTimer = nil
+        // `maxFingers` is deliberately NOT cleared here -- see touchesBegan.
     }
 }
