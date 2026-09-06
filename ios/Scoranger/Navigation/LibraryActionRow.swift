@@ -19,6 +19,27 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     static let ordered: [LibraryQuickAction] = [.importScore, .importFolder,
                                                 .importBook, .new, .newSetlist]
 
+    /// The two verbs these five actions actually are (§14.2). Three flavours
+    /// of Import and two of New, which is why five permanent buttons was
+    /// always a lot of toolbar for what they are.
+    static let imports: [LibraryQuickAction] = [.importScore, .importFolder,
+                                                .importBook]
+    static let creations: [LibraryQuickAction] = [.new, .newSetlist]
+
+    /// How the action names itself INSIDE its band, where there is room for a
+    /// word and no glyph to lean on. "Import" is the button above it, so the
+    /// band says what KIND -- Score, Folder, Book -- rather than repeating the
+    /// verb three times.
+    var bandTitle: String {
+        switch self {
+        case .importScore:  return "Score"
+        case .importFolder: return "Folder"
+        case .importBook:   return "Book"
+        case .new:          return "Arrangement"
+        case .newSetlist:   return "Set list"
+        }
+    }
+
     /// Identifiers move with the actions. The `home-*` ids retire with Home,
     /// and `library-add` with the `+` that used to offer the same two things.
     var identifier: String {
@@ -52,6 +73,37 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importBook:   return "Book"
         case .new:         return "New"
         case .newSetlist:  return "New set list"
+        }
+    }
+}
+
+/// The two verbs the row's left cluster collapses to (§14.3).
+enum LibraryVerb: String, CaseIterable, Identifiable {
+    case importing, creating
+
+    var id: String { rawValue }
+
+    /// `library-import` and `library-new` keep the identifiers the two
+    /// single-purpose buttons had: they still open the same work, one tap
+    /// further in, and everything that addressed them goes on working.
+    var identifier: String {
+        switch self {
+        case .importing: return "library-import"
+        case .creating:  return "library-new"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .importing: return "Import"
+        case .creating:  return "New"
+        }
+    }
+
+    var glyph: String {
+        switch self {
+        case .importing: return "arrow.down.to.line"
+        case .creating:  return "plus"
         }
     }
 }

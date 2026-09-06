@@ -247,6 +247,10 @@ targets:
       - path: Scoranger/Navigation/AppRoute.swift
       - path: Scoranger/Score/ThumbnailCache.swift
       - path: Scoranger/Navigation/LibraryActionRow.swift
+      # the library row's yield order, and the MEASURED label widths it works
+      # on -- §14.5 says in terms not to copy ScoreBarLayout's 1.0x literals
+      - path: Scoranger/Navigation/LibraryBarLayout.swift
+      - path: Scoranger/Navigation/LibraryBarMetrics.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
       - path: Scoranger/Navigation/Route.swift

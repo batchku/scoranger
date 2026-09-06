@@ -40,6 +40,21 @@ enum LibrarySort: String, CaseIterable, Equatable {
     /// the name of a choice: "Sort: name".
     var buttonLabel: String { label.lowercased() }
 
+    /// The same answer, said shortly (§14.4 step 5).
+    ///
+    /// "Sort: recently changed" is 84pt wider than "Sort: name" on a phone,
+    /// which is most of the reason the row overflowed under one sort and not
+    /// another. This is the fifth thing the row gives up, and it is still the
+    /// ANSWER -- which is why it comes before giving the value up entirely.
+    var shortButtonLabel: String {
+        switch self {
+        case .name:         return "name"
+        case .composer:     return "composer"
+        case .recent:       return "recent"
+        case .arrangements: return "count"
+        }
+    }
+
     var showsAlphabetRail: Bool { self == .name }
 }
 

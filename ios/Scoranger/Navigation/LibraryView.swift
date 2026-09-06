@@ -44,6 +44,29 @@ struct LibraryView: View {
 
     @State private var showSort = false
     @State private var showFilter = false
+    /// The two verb bands (§14.3). Mutually exclusive with Sort and Filter,
+    /// which is what makes them the pattern this row already had rather than
+    /// a new one.
+    @State private var showImport = false
+    @State private var showNew = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// How tall the row's own slot is. It holds one line normally, two when
+    /// the layout has run out of labels to give up, and as many as there are
+    /// controls at an accessibility size -- so it is asked rather than fixed.
+    private var rowHeight: CGFloat {
+        let labels = LibraryBarMetrics.labels(sort: sort, filters: filters.count,
+                                              editing: editing, size: typeSize)
+        let fit = LibraryBarLayout.fit(width: measuredRowWidth, labels: labels,
+                                       accessibilitySize: typeSize.isAccessibilitySize)
+        let line = max(LibraryActionRow.height, labels.iconButton + 12)
+        if fit.list { return line * 5 + LibraryActionRow.gap * 4 }
+        if fit.wraps { return line * 2 + LibraryActionRow.gap }
+        return line
+    }
+
+    /// The width the row was last given, measured by the row itself.
+    @State private var measuredRowWidth: CGFloat = 0
     @State private var scrollTo: String?
     @State private var creatingName: String?
     @State private var selected: Set<String> = []
@@ -204,46 +227,208 @@ struct LibraryView: View {
             SearchField(placeholder: "Search \(segment.title.lowercased())…",
                         text: $search, identifier: "library-search")
             GeometryReader { geo in
-                let compact = LibraryActionRow.isCompact(width: geo.size.width)
-                HStack(spacing: LibraryActionRow.gap) {
-                    ForEach(LibraryQuickAction.ordered) { action in
-                        quickButton(action, compact: compact)
+                // What the row can DRAW, measured at the text size in force.
+                // It used to strip five labels below 700pt and then draw
+                // whatever was left, however wide -- so a phone got five
+                // unlabelled squares AND an overflow off both edges (§14).
+                let labels = LibraryBarMetrics.labels(
+                    sort: sort, filters: filters.count, editing: editing,
+                    size: typeSize)
+                let fit = LibraryBarLayout.fit(
+                    width: geo.size.width, labels: labels,
+                    accessibilitySize: typeSize.isAccessibilitySize)
+                actionRow(fit, labels: labels)
+                    .frame(width: geo.size.width, alignment: .leading)
+                    .onAppear { measuredRowWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, new in
+                        measuredRowWidth = new
                     }
-                    Spacer(minLength: LibraryActionRow.clusterGap)
-                    Button { showSort.toggle(); showFilter = false } label: {
-                        // Sort keeps its value in compact width: its label is
-                        // an ANSWER, not the button's name
-                        rowButton("Sort: \(sort.buttonLabel)", glyph: "arrow.up.arrow.down",
-                                  iconOnly: false)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("library-sort")
-
-                    Button { showFilter.toggle(); showSort = false } label: {
-                        rowButton(filters.isEmpty ? "Filter" : "Filter · \(filters.count)",
-                                  glyph: "line.3.horizontal.decrease",
-                                  iconOnly: compact && filters.isEmpty)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("library-filter")
-
-                    Button { editing.toggle() } label: {
-                        rowButton(editing ? "Done" : "Edit",
-                                  glyph: "checkmark.circle",
-                                  iconOnly: compact, active: editing)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("library-edit")
-                }
-                .frame(width: geo.size.width, height: LibraryActionRow.height)
             }
-            .frame(height: LibraryActionRow.height)
+            .frame(height: rowHeight)
+
+            if showImport { RevealBand { importOptions } }
+            if showNew { RevealBand { newOptions } }
             if showSort { RevealBand { sortOptions } }
             if showFilter { RevealBand { filterOptions } }
         }
         .padding(.horizontal, LibraryActionRow.sidePadding)
         .padding(.top, Theme.Metric.s12)
         .padding(.bottom, LibraryActionRow.spaceBelowRow)
+    }
+
+    /// The row, in whatever shape it fits.
+    ///
+    /// Five of the seven controls were two verbs (§14.2): three flavours of
+    /// Import and two of New, drawn at compact width as five unlabelled
+    /// squares -- two of whose glyphs, a plain square and three lines, name
+    /// nothing at all. They collapse into `Import ▾` and `New ▾`, each opening
+    /// a band beneath the row that lists its variants in words. That is the
+    /// pattern Sort and Filter already use IN THIS ROW, so it costs no new
+    /// concept, no scroll, no menu and no permanent second row.
+    @ViewBuilder
+    private func actionRow(_ fit: LibraryBarLayout.Fit,
+                           labels: LibraryBarLayout.Labels) -> some View {
+        let controls = [LibraryVerb.importing, .creating]
+        if fit.list {
+            // §6.3 rule 4: at an accessibility size a row of more than three
+            // controls is a vertical list.
+            VStack(alignment: .leading, spacing: LibraryActionRow.gap) {
+                ForEach(controls) { verb in verbButton(verb, labelled: true, labels: labels) }
+                sortButton(fit, labels: labels)
+                filterButton(fit, labels: labels)
+                editButton(fit, labels: labels)
+            }
+        } else if fit.wraps {
+            // The FLOOR, not the fix: every label has yielded and it still
+            // does not fit.
+            VStack(alignment: .leading, spacing: LibraryActionRow.gap) {
+                HStack(spacing: LibraryActionRow.gap) {
+                    ForEach(controls) { verb in verbButton(verb, labelled: false, labels: labels) }
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: LibraryActionRow.gap) {
+                    sortButton(fit, labels: labels)
+                    filterButton(fit, labels: labels)
+                    editButton(fit, labels: labels)
+                    Spacer(minLength: 0)
+                }
+            }
+        } else {
+            HStack(spacing: LibraryActionRow.gap) {
+                verbButton(.importing, labelled: fit.importLabelled, labels: labels)
+                verbButton(.creating, labelled: fit.newLabelled, labels: labels)
+                Spacer(minLength: LibraryActionRow.clusterGap)
+                sortButton(fit, labels: labels)
+                filterButton(fit, labels: labels)
+                editButton(fit, labels: labels)
+            }
+        }
+    }
+
+    private func verbButton(_ verb: LibraryVerb, labelled: Bool,
+                            labels: LibraryBarLayout.Labels) -> some View {
+        Button {
+            switch verb {
+            case .importing: toggle(.importing)
+            case .creating:  toggle(.creating)
+            }
+        } label: {
+            rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
+                      active: verb == .importing ? showImport : showNew,
+                      icon: labels.iconButton)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(verb.identifier)
+        .accessibilityLabel(verb.title)
+    }
+
+    private func sortButton(_ fit: LibraryBarLayout.Fit,
+                            labels: LibraryBarLayout.Labels) -> some View {
+        Button { toggle(.sort) } label: {
+            rowButton(sortTitle(fit.sort), glyph: "arrow.up.arrow.down",
+                      iconOnly: false, icon: labels.iconButton)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library-sort")
+    }
+
+    private func sortTitle(_ style: LibraryBarLayout.SortStyle) -> String {
+        switch style {
+        case .full:  return "Sort: \(sort.buttonLabel)"
+        case .short: return "Sort: \(sort.shortButtonLabel)"
+        case .bare:  return "Sort"
+        }
+    }
+
+    private func filterButton(_ fit: LibraryBarLayout.Fit,
+                              labels: LibraryBarLayout.Labels) -> some View {
+        Button { toggle(.filter) } label: {
+            rowButton(filters.isEmpty ? "Filter" : "Filter · \(filters.count)",
+                      glyph: "line.3.horizontal.decrease",
+                      iconOnly: !fit.filterLabelled, icon: labels.iconButton)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library-filter")
+    }
+
+    private func editButton(_ fit: LibraryBarLayout.Fit,
+                            labels: LibraryBarLayout.Labels) -> some View {
+        Button { editing.toggle() } label: {
+            rowButton(editing ? "Done" : "Edit", glyph: "checkmark.circle",
+                      iconOnly: !fit.editLabelled, active: editing,
+                      icon: labels.iconButton)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("library-edit")
+    }
+
+    private enum Band { case importing, creating, sort, filter }
+
+    /// Open one band, closing the rest.
+    ///
+    /// The four are mutually exclusive, as Sort and Filter always were: one
+    /// answer open at a time, and no floating menus
+    /// (NAV_MODAL_FREE_0.4.2). Written as ONE function that clears everything
+    /// and then opens the one asked for -- the first version toggled the band
+    /// and then called a closer that cleared it again, so Sort opened and shut
+    /// in the same tap and its band never appeared.
+    private func toggle(_ band: Band) {
+        let wasOpen: Bool
+        switch band {
+        case .importing: wasOpen = showImport
+        case .creating:  wasOpen = showNew
+        case .sort:      wasOpen = showSort
+        case .filter:    wasOpen = showFilter
+        }
+        showImport = false
+        showNew = false
+        showSort = false
+        showFilter = false
+        guard !wasOpen else { return }
+        switch band {
+        case .importing: showImport = true
+        case .creating:  showNew = true
+        case .sort:      showSort = true
+        case .filter:    showFilter = true
+        }
+    }
+
+    /// What `Import ▾` reveals: the three things it can take, in words. Three
+    /// glyphs a reader has to guess become three names.
+    private var importOptions: some View {
+        HStack(spacing: Theme.Metric.s6) {
+            ForEach(LibraryQuickAction.imports) { action in
+                Button { showImport = false; run(action) } label: {
+                    controlLabel(action.bandTitle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(action.identifier)
+            }
+            Spacer()
+        }
+    }
+
+    private var newOptions: some View {
+        HStack(spacing: Theme.Metric.s6) {
+            ForEach(LibraryQuickAction.creations) { action in
+                Button { showNew = false; run(action) } label: {
+                    controlLabel(action.bandTitle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(action.identifier)
+            }
+            Spacer()
+        }
+    }
+
+    private func run(_ action: LibraryQuickAction) {
+        switch action {
+        case .importScore:  onImport()
+        case .importFolder: onImportFolder()
+        case .importBook:   onImportBook()
+        case .new:          creatingName = ""
+        case .newSetlist:   segment = .setlists; creatingName = ""
+        }
     }
 
     @ViewBuilder
@@ -272,7 +457,8 @@ struct LibraryView: View {
     /// At four buttons in a bar a clay fill would shout, and the accent belongs
     /// to selection and to `#N` (§4C).
     private func rowButton(_ text: String, glyph: String,
-                           iconOnly: Bool, active: Bool = false) -> some View {
+                           iconOnly: Bool, active: Bool = false,
+                           icon: CGFloat = LibraryActionRow.buttonHeight) -> some View {
         HStack(spacing: Theme.Metric.s6) {
             Image(systemName: glyph).font(.system(size: 13, weight: .medium))
             if !iconOnly {
@@ -285,8 +471,12 @@ struct LibraryView: View {
         }
         .foregroundStyle(active ? Theme.Accent.clayStrong : Theme.Ink.ink2)
         .padding(.horizontal, iconOnly ? 0 : LibraryActionRow.buttonPadding)
-        .frame(width: iconOnly ? LibraryActionRow.buttonHeight : nil,
-               height: LibraryActionRow.buttonHeight)
+        // The icon square is SCALED (`LibraryBarMetrics.iconButton`): a flat
+        // 32 clips the glyph inside it at an accessibility size, and told the
+        // row's arithmetic the button never changes width while its content
+        // did (§6.3 rule 2).
+        .frame(width: iconOnly ? icon : nil)
+        .frame(minHeight: icon)
         .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
