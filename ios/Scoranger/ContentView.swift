@@ -497,16 +497,25 @@ struct ContentView: View {
     @ViewBuilder
     private func scorePane(_ score: ScoreDoc) -> some View {
         if let doc = state.pdfDocument, let vid = state.displayedVersionID {
-            if isCompact {
-                ScoreZoomView(document: doc)
-            } else {
-                // The engine is handed in rather than reached through
-                // AppState: AppState publishes nothing when the play head
-                // moves, so a canvas that read it that way would never follow.
-                // Same reason the ink bar observes its controller directly.
-                ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
-                               mode: state.scoreMode, playback: state.playback)
-            }
+            // ONE CANVAS, EVERY SIZE CLASS (IPHONE_0.6.14 §0, §10.4 step 1).
+            //
+            // Compact width used to get `ScoreZoomView`: 36 lines of PDFView
+            // with `autoScales`. Everything the score view IS lived on the
+            // other branch -- Pencil markup, the lasso, selection, the
+            // playhead, the thumbnail rail -- and the phone had none of it,
+            // with a zoom ceiling of 5 rather than the 12 a notehead needs.
+            //
+            // It is not that the phone had a worse canvas; it had a different
+            // one, so every feature built on the real canvas simply did not
+            // exist there and no test could tell. Nothing else in 0.6.14 is
+            // testable until this branch goes.
+            //
+            // The engine is handed in rather than reached through AppState:
+            // AppState publishes nothing when the play head moves, so a canvas
+            // that read it that way would never follow. Same reason the ink
+            // bar observes its controller directly.
+            ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+                           mode: state.scoreMode, playback: state.playback)
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so
             // renderIfNeeded returns at its guard and nothing is ever in
