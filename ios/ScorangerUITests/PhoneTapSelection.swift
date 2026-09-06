@@ -57,12 +57,36 @@ final class PhoneTapSelection: XCTestCase {
         // finger (§9.1), and the chip naming it is the proof the address
         // resolved -- a highlight alone could be drawn over nothing.
         let before = counter().label
-        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        // dy 0.55 rather than the exact middle: a sweep down this page put a
+        // whole-bar REST at 0.45, and a bar holding one rest is a true but
+        // uninformative picture of what a bar selection looks like. 0.55 lands
+        // on a busy bar, which is what the designer needs to judge the fill.
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).tap()
         XCTAssertTrue(chip().waitForExistence(timeout: 20),
                       "a tap in the middle of the page selected nothing")
         XCTAssertEqual(counter().label, before,
                        "a tap in the middle turned the page")
         settle(chip(), still: 0.6)
+
+        // 1b. AND THE CHIP FITS. Its longest line -- the hint about holding a
+        // finger down -- is wider than a phone, so left to size itself the
+        // panel hung off both edges and clipped its own headline, its place
+        // line and "Use in chat". Asserted against the SCREEN, because that
+        // is what the reader is looking at and what the mixer's version of
+        // this bug taught: a panel measured against its own ideal width will
+        // always report that it fits.
+        let screen = app.windows.firstMatch.frame
+        for part in ["selection-chip", "selection-place", "selection-confirm"] {
+            let element = app.descendants(matching: .any)[part].firstMatch
+            guard element.exists else { continue }
+            XCTAssertGreaterThanOrEqual(element.frame.minX, screen.minX,
+                                        "\(part) is clipped off the left edge: "
+                                        + "\(element.frame) in \(screen)")
+            XCTAssertLessThanOrEqual(element.frame.maxX, screen.maxX,
+                                     "\(part) runs off the right edge: "
+                                     + "\(element.frame) in \(screen)")
+        }
+
         // THE FRAME THE DESIGNER ASKED FOR: a bar selected mid-system, at fit,
         // portrait -- to confirm the 12% measure fill against a dense page.
         snap("phone-bar-selected-12pc-fill")

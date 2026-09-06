@@ -806,6 +806,12 @@ struct ScorePagesView: View {
                 Text("Hold a finger down to add · tap an element to drop it")
                     .typeRole(.meta)
                     .foregroundStyle(Theme.Ink.ink3)
+                    // wrap rather than set the panel's width: this line is the
+                    // longest thing in the chip and on a phone it is wider
+                    // than the screen, so left to itself it decided how wide
+                    // the panel was and the panel hung off BOTH edges -- the
+                    // headline, the place line and "Use in chat" all clipped
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, Theme.Metric.s12)
             .padding(.vertical, Theme.Metric.s8)
@@ -816,6 +822,11 @@ struct ScorePagesView: View {
                     .stroke(Theme.Line.line2, lineWidth: 1)
             }
             .modifier(ChipShadow())
+            // A ceiling on a wide canvas, and a margin on a narrow one. Both
+            // are needed: the ceiling stops it spanning an iPad, the margin
+            // stops it touching the edges of a phone.
+            .frame(maxWidth: Theme.Metric.alertWidth)
+            .padding(.horizontal, Theme.Metric.s12)
             .padding(.top, Theme.Metric.s12)
         }
     }
