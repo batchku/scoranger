@@ -52,10 +52,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
     /// The Pencil landed and this stroke replaces the selection.
     var onWillReplaceSelection: (() -> Void)?
-    /// A finished touch that might be a page turn: where it was, how wide the
-    /// canvas is, and whether it was the Pencil. The decision itself is
-    /// PageTurn's -- this only reports (§6).
-    var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+    /// A finished single-finger touch, measured. What it MEANT -- a turn, a
+    /// selection, a clear, or nothing -- is `CanvasTap`'s single answer, and
+    /// the view that knows the mode asks for it (§12).
+    var onCanvasTap: ((CanvasTap.Touch) -> Void)?
     /// A horizontal swipe with no slack left to pan: turn.
     var onSwipeTurn: ((Int) -> Void)?
     /// Selection off, for performance mode.
@@ -198,7 +198,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         context.coordinator.lasso?.onWillReplaceSelection = onWillReplaceSelection
         context.coordinator.lasso?.annotationActive = annotationActive
         context.coordinator.lasso?.selectionEnabled = selectionEnabled
-        context.coordinator.onTurnTap = onTurnTap
+        context.coordinator.onCanvasTap = onCanvasTap
         context.coordinator.onSwipeTurn = onSwipeTurn
         context.coordinator.resetPan(token: resetPanToken)
         context.coordinator.onZoomSettled = onZoomSettled
@@ -335,7 +335,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         }
 
         var onTap: ((Int, CGPoint, Int, Bool) -> Void)?
-        var onTurnTap: ((CGPoint, CGFloat, Bool) -> Void)?
+        var onCanvasTap: ((CanvasTap.Touch) -> Void)?
         var onSwipeTurn: ((Int) -> Void)?
         private var lastResetToken: Int = -1
         /// Set by `resetPan`, consumed by the next `commit`: the content about
@@ -430,7 +430,15 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
                 return
             }
             guard recognizer.state == .ended else { return }
-            onTurnTap?(recognizer.landed, root.bounds.width, recognizer.wasPencil)
+            let hit = LassoGestureRecognizer.page(at: recognizer.landed, in: root)
+            onCanvasTap?(CanvasTap.Touch(
+                point: recognizer.landed,
+                canvas: root.bounds.size,
+                isPencil: recognizer.wasPencil,
+                maxFingers: recognizer.maxFingers,
+                movement: recognizer.movement,
+                elapsed: recognizer.elapsed,
+                page: hit.map { (index: $0.index, unit: $0.unit) }))
         }
 
         var onUserScroll: (() -> Void)?
@@ -559,12 +567,18 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 }
 
 
-/// A touch that ended still and quickly, wherever it was.
+/// A finished single-finger touch, reported wherever and however it ended.
 ///
 /// Deliberately not a `UITapGestureRecognizer`: that one competes with the
 /// others for the same touch, and this must never take a touch away from the
-/// lasso or the scroll. It observes, reports, and always fails -- the decision
-/// about whether it MEANT anything belongs to PageTurn.
+/// lasso or the scroll. It observes, reports, and always fails -- what the
+/// touch MEANT is `CanvasTap`'s answer, and its alone (§12).
+///
+/// It reports every single-finger end, including ones that moved or dwelt and
+/// ones that were part of a pinch, because the rule that rejects them is in
+/// the pure function where it can be fuzzed. What is left here is measurement:
+/// where it landed, how far it moved, how long it took, and the most fingers
+/// that were ever down.
 final class TurnTapRecognizer: UIGestureRecognizer {
     private(set) var landed: CGPoint = .zero
     private(set) var wasPencil = false
@@ -572,6 +586,12 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     /// Whether it MAY turn is decided by the caller, which knows about zoom and
     /// slack; this only reports the shape of the gesture.
     private(set) var swipe: Int?
+    /// The most fingers down at any moment of THIS touch. A pinch whose second
+    /// finger lifts first still ends as one finger on the glass, and without
+    /// this it would be indistinguishable from a tap.
+    private(set) var maxFingers = 1
+    private(set) var movement: CGFloat = 0
+    private(set) var elapsed: TimeInterval = 0
     private var start: CGPoint = .zero
     private var began: TimeInterval = 0
     private var moved: CGFloat = 0
@@ -591,15 +611,27 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard let root = view, let touch = touches.first, touches.count == 1 else {
-            state = .failed
+        // A touch CYCLE starts when the glass goes from empty to one finger.
+        // Counting here rather than trusting `reset()`: UIKit resets a failed
+        // recogniser as soon as its own recognition ends, which during a pinch
+        // is while the other finger is still down -- and a count cleared there
+        // would say "one finger" for the rest of the pinch.
+        let down = event.allTouches?.filter {
+            $0.phase != .ended && $0.phase != .cancelled
+        }.count ?? touches.count
+        guard down <= 1 else {
+            maxFingers = max(maxFingers, down)
             return
         }
+        guard let root = view, let touch = touches.first else { return }
+        maxFingers = 1
         start = touch.location(in: root)
         began = touch.timestamp
         moved = 0
         dx = 0
         dy = 0
+        movement = 0
+        elapsed = 0
         swipe = nil
         wasPencil = touch.type == .pencil
     }
@@ -615,18 +647,18 @@ final class TurnTapRecognizer: UIGestureRecognizer {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         defer { state = .failed }   // never claim the touch
         guard let root = view, let touch = touches.first else { return }
-        // a decisive horizontal swipe, by a FINGER: the Pencil's meaning is
+        landed = touch.location(in: root)
+        movement = moved
+        elapsed = touch.timestamp - began
+        // a decisive horizontal swipe, by ONE FINGER: the Pencil's meaning is
         // settled by mode, and a Pencil drag is a lasso or ink
-        if touch.type != .pencil, abs(dx) >= Self.swipeDistance,
+        if maxFingers <= 1, touch.type != .pencil, abs(dx) >= Self.swipeDistance,
            abs(dx) >= abs(dy) * Self.swipeRatio {
             swipe = dx < 0 ? 1 : -1     // dragging left brings the NEXT page in
-            landed = touch.location(in: root)
             state = .ended
             return
         }
         swipe = nil
-        guard PageTurn.isTap(movement: moved, elapsed: touch.timestamp - began) else { return }
-        landed = touch.location(in: root)
         state = .ended
     }
 
@@ -640,5 +672,6 @@ final class TurnTapRecognizer: UIGestureRecognizer {
         dx = 0
         dy = 0
         swipe = nil
+        // `maxFingers` is deliberately NOT cleared here -- see touchesBegan.
     }
 }

@@ -124,8 +124,8 @@ struct ScorePagesView: View {
                                                modifierFingerDown: fingerHeld)
                            },
                            onWillReplaceSelection: { state.clearSelection() },
-                           onTurnTap: { point, width, isPencil in
-                               turn(at: point, width: width, isPencil: isPencil)
+                           onCanvasTap: { touch in
+                               canvasTap(touch)
                            },
                            onSwipeTurn: { direction in step(by: direction) },
                            // a scan has no geometry to hit-test, so a lasso
@@ -380,13 +380,44 @@ struct ScorePagesView: View {
         .accessibilityIdentifier("adjust-\(word)")
     }
 
-    /// A finished touch that might be a turn. Who may turn, and in which zone,
-    /// is still PageTurn's answer -- the §6 arbitration table is unchanged.
-    /// What a turn DOES is all that changed: it steps the index.
-    private func turn(at point: CGPoint, width: CGFloat, isPencil: Bool) {
-        guard let zone = PageTurn.turn(isPencil: isPencil, mode: mode, x: point.x,
-                                       width: width, movement: 0, elapsed: 0)
-        else { return }
+    /// What one finished single-finger touch meant.
+    ///
+    /// The decision is `CanvasTap`'s, entirely: this asks once and does what it
+    /// is told. There is no second gesture to lose to, which is the point (§12).
+    private func canvasTap(_ touch: CanvasTap.Touch) {
+        let hit = touch.page.map { state.hasElement(at: $0.unit, onPage: $0.index) } ?? false
+        switch CanvasTap.tap(touch, mode: mode, hit: hit) {
+        case .turn(let zone):
+            turn(zone)
+        case .select:
+            guard let page = touch.page else { return }
+            select(at: page.unit, onPage: page.index)
+        case .clear:
+            state.clearSelection()
+        case .none:
+            break
+        }
+    }
+
+    /// The bar, or the note, under the finger.
+    ///
+    /// Which one is the zoom's answer (§9.1): at fit a fingertip covers most of
+    /// a bar and picking one note out of it would be a guess, so the tap takes
+    /// the bar; zoomed in far enough to see a notehead, it takes the note. A
+    /// tap ON an existing selection always means the note, because the reader
+    /// has already said which bar they meant.
+    private func select(at unit: CGPoint, onPage index: Int) {
+        let onSelected = state.selectionContains(unit, onPage: index)
+        switch TapSelection.granularity(atZoom: rasterZoom, onSelected: onSelected) {
+        case .measure:
+            _ = state.selectBar(at: unit, onPage: index, allStaves: false)
+        case .note:
+            _ = state.addToSelection(at: unit, onPage: index)
+        }
+    }
+
+    /// A turn, wherever the decision came from.
+    private func turn(_ zone: PageTurn.Zone) {
         let direction = zone == .next ? 1 : -1
         // No pages to turn in continuous mode: a tap moves the reader on by
         // what is on screen (designer's spec). Performance mode keeps the same
@@ -674,13 +705,18 @@ struct ScorePagesView: View {
     /// The frames of everything selected on one page, in page coordinates.
     /// Addresses are durable across re-renders; the frames are looked up fresh
     /// from whatever geometry is on screen now.
-    private func selectedFrames(onPage index: Int) -> [CGRect] {
+    /// The boxes to draw on one page, each with the KIND it marks.
+    ///
+    /// The kind rides along because a bar's fill is lighter than a notehead's
+    /// (§11): a bar box is about fifty times the area, and the same opacity
+    /// across it is a wash. `SelectionInk.fillOpacity(for:)` is the rule.
+    private func selectedFrames(onPage index: Int) -> [SelectionBox] {
         guard let selection = state.activeSelection,
               let geometry = state.geometry else { return [] }
         return selection.addresses.compactMap { address in
             guard let element = geometry.element(at: address),
                   element.pageIndex == index else { return nil }
-            return element.frame
+            return SelectionBox(frame: element.frame, kind: address.kind)
         }
     }
 
@@ -1190,8 +1226,14 @@ private struct ContinuousPlayheadLayer: View {
 /// divided by it (`SelectionInk`). Undivided they are what Ali photographed:
 /// at 12x a 1pt outline is a 12pt band and a 3pt overhang is 36, so a selected
 /// chord came back as one orange blob with no music visible inside it.
+/// One selection box: where it is, and what granularity it marks.
+struct SelectionBox: Equatable {
+    let frame: CGRect
+    let kind: ScoreElementKind
+}
+
 private struct SelectionHighlight: View {
-    let frames: [CGRect]
+    let frames: [SelectionBox]
     let pageSize: CGSize
     /// The scroll view's settled zoom. Same source as the playhead's.
     let zoom: CGFloat
@@ -1205,12 +1247,31 @@ private struct SelectionHighlight: View {
                                                    zoom: zoom)
                 let weight = SelectionInk.onScreen(SelectionInk.highlightWeight,
                                                    zoom: zoom)
-                ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
+                ForEach(Array(frames.enumerated()), id: \.offset) { _, box in
+                    let frame = box.frame
+                    // THE FILL MULTIPLIES; THE BORDER DOES NOT (§11).
+                    //
+                    // Multiply is what "behind the glyph" asked for without
+                    // restructuring the layers: over white paper it leaves the
+                    // tint unchanged, and over a black notehead the notehead
+                    // stays black. The normal-blend fill shipping today washes
+                    // a selected notehead to brown -- #41281C, 13.6:1 against
+                    // paper, where multiply keeps it #191513 at 18.1:1. So it
+                    // fixes a live legibility defect as well as putting the
+                    // tint where it belongs.
+                    //
+                    // The BORDER keeps normal blending: multiplied it would
+                    // darken unevenly wherever it crossed a stem or a staff
+                    // line, and the border is what carries definition once the
+                    // fill lets go.
                     RoundedRectangle(cornerRadius: corner)
-                        .fill(Theme.Accent.clay.opacity(0.22))
+                        .fill(Theme.Accent.clay
+                                .opacity(SelectionInk.fillOpacity(for: box.kind)))
+                        .blendMode(.multiply)
                         .overlay {
                             RoundedRectangle(cornerRadius: corner)
-                                .stroke(Theme.Accent.clayStrong.opacity(0.65),
+                                .stroke(Theme.Accent.clayStrong
+                                            .opacity(SelectionInk.borderOpacity),
                                         lineWidth: weight)
                         }
                         .frame(width: SelectionInk.highlightExtent(

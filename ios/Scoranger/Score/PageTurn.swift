@@ -9,17 +9,26 @@ import Foundation
 /// amount of timing or distance tells them apart honestly. So they are
 /// separated by mode, and the mode is stated on screen.
 ///
-/// | input                  | read        | edit  | performance |
-/// |------------------------|-------------|-------|-------------|
-/// | finger drag            | pan         | pan   | pan         |
-/// | finger tap, outer zone | TURN        | TURN  | TURN        |
-/// | two-finger tap         | undo ink    | undo  | --          |
-/// | Pencil drag            | lasso       | ink   | TURN        |
-/// | Pencil tap             | add / drop  | --    | TURN        |
+/// | input                     | read        | edit   | performance |
+/// |---------------------------|-------------|--------|-------------|
+/// | finger drag               | pan         | pan    | pan         |
+/// | finger tap, bottom corner | TURN        | TURN   | TURN        |
+/// | finger tap, elsewhere     | SELECT      | SELECT | TURN        |
+/// | two-finger tap            | undo ink    | undo   | --          |
+/// | Pencil drag               | lasso       | ink    | TURN        |
+/// | Pencil tap                | add / drop  | --     | TURN        |
+///
+/// The finger row grew a second entry in 0.6.14 and the arbitration moved with
+/// it: `CanvasTap` resolves the whole row in one pure function, and what is
+/// left here is what a tap IS and the §6 mode table it consults.
 enum PageTurn {
     /// The outer fraction of the canvas, each side, that turns on a tap (§5,
     /// 12.15). 22% of a landscape iPad is a comfortable thumb's reach without
     /// eating the music.
+    ///
+    /// It is a fraction of the WIDTH only. `CanvasTap.zoneHeightFraction`
+    /// anchors it to the bottom as well, which is what made the rest of the
+    /// canvas free to select (§12).
     static let zoneFraction: CGFloat = 0.22
 
     /// A tap is still, and quick. Without both, a slow pan would end as a page
@@ -30,7 +39,10 @@ enum PageTurn {
 
     enum Zone: Equatable { case previous, next, centre }
 
-    /// Which zone a point in the canvas falls in.
+    /// Which zone a point falls in, across the width.
+    ///
+    /// The horizontal half of the rule. `CanvasTap.corner` is the whole of it,
+    /// and is what the canvas asks.
     static func zone(atX x: CGFloat, width: CGFloat) -> Zone {
         guard width > 0 else { return .centre }
         let edge = width * zoneFraction
@@ -46,9 +58,11 @@ enum PageTurn {
 
     /// May THIS input turn a page in THIS mode? The table above, in one place.
     static func mayTurn(isPencil: Bool, mode: ScoreMode) -> Bool {
-        // A finger never selects and never inks, so its tap is free in every
-        // mode -- a single-finger tap on the page did nothing at all before
-        // this (§6.2). The Pencil is free only where nothing else claims it.
+        // A finger MAY turn in every mode -- but only in a bottom corner now,
+        // because since 0.6.14 a finger tap on the rest of the page selects
+        // (Ali's ruling, §12). The two do not compete for a point: the corner
+        // answers first and `CanvasTap` gives the point exactly one meaning.
+        // The Pencil is free only where nothing else claims it.
         isPencil ? mode == .performance : true
     }
 

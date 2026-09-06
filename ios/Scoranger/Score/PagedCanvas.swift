@@ -76,6 +76,12 @@ enum PagedCanvas {
     /// Zoom PERSISTS -- a violinist reading at 180% stays at 180% -- and pan
     /// resets to the top-left of the new unit, which is what turning a paper
     /// page does.
+    ///
+    /// That persistence is also why zoom cannot separate a turn from a
+    /// selection: a reader who turned three pages ago at 180% is still at 180%
+    /// and has long stopped thinking about it, so "turns at fit, selects when
+    /// zoomed" would be the same tap in the same place meaning two things for a
+    /// reason nobody is tracking. §12 separates them by REGION instead.
     static func afterTurn(zoom: CGFloat) -> (zoom: CGFloat, offset: CGPoint) {
         (clamp(zoom: zoom), .zero)
     }

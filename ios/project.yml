@@ -253,6 +253,9 @@ targets:
       - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
       - path: Scoranger/Score/PageTurn.swift
+      # what a single-finger touch on the canvas means -- one pure function, so
+      # it can be fuzzed for disjointness (§12) without a screen
+      - path: Scoranger/Score/CanvasTap.swift
       - path: Scoranger/Score/ScorePosition.swift
       - path: Scoranger/Score/PagedCanvas.swift
       - path: Scoranger/Score/KeyboardInset.swift
