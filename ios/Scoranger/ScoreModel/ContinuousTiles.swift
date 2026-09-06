@@ -103,6 +103,47 @@ enum ContinuousTiles {
     /// actually read ahead in.
     static let maximumMagnification: CGFloat = 2
 
+    // MARK: - How far OUT the strip may be zoomed
+
+    /// The shortest the strip may be drawn, in points.
+    ///
+    /// Ali: in the scroll view he cannot zoom out far enough, and it "snaps
+    /// back when I zoom past a certain limit". Both are one cause. The canvas
+    /// took its zoom range from `PagedCanvas` -- floor 1.0 -- and that floor's
+    /// own reasoning is a PAGED argument: a page is fitted to the viewport, so
+    /// below 1 you would only add ground around it.
+    ///
+    /// In continuous the strip is fitted to its HEIGHT and runs off the screen
+    /// sideways, so zooming out does not add ground: it shows more music. The
+    /// paged floor therefore stopped the reader at one system filling the
+    /// canvas, and UIScrollView rubber-banded anything past it straight back
+    /// -- which is the snap.
+    ///
+    /// 60pt because it is content-derived rather than a taste: a four-staff
+    /// system below about that is a smear rather than music, and the reader
+    /// who wants the SHAPE of a piece is still served by it.
+    static let minimumStripHeight: CGFloat = 60
+
+    /// A backstop under the rule above, so a pathologically tall strip cannot
+    /// produce a scale of nothing.
+    static let absoluteZoomFloor: CGFloat = 0.08
+
+    /// How far out the strip may be zoomed, as a multiple of its fitted scale.
+    ///
+    /// Derived from the strip rather than fixed, and that is the point: a
+    /// four-staff system fitted to 540pt can go to about 0.11 before it hits
+    /// the 60pt floor, while a single voice fitted to 300 stops at 0.2. The
+    /// tall score zooms out further because it has further to go, and neither
+    /// ends up at a size that says nothing.
+    ///
+    /// Never above 1: this only ever lowers the floor. A strip already shorter
+    /// than the minimum is left alone rather than being given a floor above
+    /// its own fit, which would be a canvas that cannot show its own music.
+    static func minimumZoom(fittedStripHeight height: CGFloat) -> CGFloat {
+        guard height > 0 else { return 1 }
+        return min(1, max(minimumStripHeight / height, absoluteZoomFloor))
+    }
+
     /// The scale a fitted PAGE is drawn at in this viewport: surface points per
     /// engraved point.
     ///

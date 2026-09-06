@@ -27,22 +27,32 @@ struct MixerChannelStrip: View {
     /// The staff IS playing when muted -- that is how a reader confirms the
     /// mute works -- so the lamp follows the music and dims with the strip.
     private var isSounding: Bool { part.isSounding(at: playback.beat) }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
+        // THE DIM IS APPLIED PER ROW, NOT TO THE STRIP (§13.4).
+        //
+        // A muted strip goes to 0.42 so the eye passes over it, and the arc
+        // keeps its clay: the level is what the reader comes back to when they
+        // unmute, and a mix they cannot read is a mix they have to rediscover.
+        //
+        // Per row because opacity does not work the other way round. The first
+        // attempt dimmed the whole strip and put the knob back with an opacity
+        // above 1, which SwiftUI clamps before it multiplies -- so the knob
+        // would have dimmed with everything else and the code would have
+        // claimed otherwise.
+        let dim = isOn ? 1 : MixerLayout.mutedOpacity
         VStack(spacing: 0) {
-            MixerMuteButton(playback: playback, part: part)
+            MixerMuteButton(playback: playback, part: part).opacity(dim)
+            // The KNOB, and the value inside its face (§13). The separate
+            // value row is gone -- that is the row the knob spends on itself.
             HStack(spacing: MixerLayout.ledInset) {
-                MixerFader(playback: playback, part: part)
-                MixerLED(on: isSounding, part: part)
+                MixerKnob(playback: playback, part: part)
+                MixerLED(on: isSounding, part: part).opacity(dim)
             }
-            .frame(minHeight: MixerLayout.faderIdeal)
-            Text("\(fader)").typeRole(.data)
-                .foregroundStyle(Theme.Ink.ink3)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(minHeight: MixerLayout.muteRowMinimum - 12)
-                .accessibilityIdentifier("mixer-value-\(part.index)")
-                .accessibilityHidden(true)
+            .frame(minHeight: MixerLayout.knobRow(text: typeSize))
             MixerSoundChip(playback: playback, part: part, action: onPickSound)
+                .opacity(dim)
             // Two lines, and `.fixedSize` so the text decides its own height.
             // It was one line in a 16pt frame, which is where "Accordi…" came
             // from on Ali's two-staff score.
@@ -55,10 +65,10 @@ struct MixerChannelStrip: View {
                 .padding(.horizontal, 2)
                 .accessibilityIdentifier("mixer-label-\(part.index)")
                 .accessibilityHidden(true)
+                .opacity(dim)
         }
         .frame(width: width)
         .padding(.vertical, MixerLayout.rackPaddingMinimum / 2)
-        .opacity(isOn ? 1 : MixerLayout.mutedOpacity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("strip-\(part.index)")
         .accessibilityLabel(part.name)
@@ -181,52 +191,73 @@ struct MixerLED: View {
     }
 }
 
-/// The vertical fader. Fills from the bottom; a tap anywhere jumps to that
-/// notch, which is what keeps it precise now that the travel is short.
-struct MixerFader: View {
+/// The KNOB (§13), which replaces the vertical fader.
+///
+/// A 270-degree arc with the gap at the bottom, the level printed in the face,
+/// and a RELATIVE vertical drag: 14pt of travel is one unit, so a full sweep
+/// is 140pt and a wobble is nothing.
+///
+/// Relative is the whole difference from the fader. A fader track has a
+/// position that means 7; a knob face does not, so reading the finger's
+/// absolute position would jump the level to wherever it landed. On a 30pt
+/// track that was easy to do by accident -- a touch near the middle set the
+/// channel to about 5 rather than nudging it down -- and it is the likeliest
+/// explanation for a reader who pulled three channels down and still heard
+/// four.
+///
+/// Flat, like everything else here: no bevel, no gradient, no shadow (§0).
+struct MixerKnob: View {
     @ObservedObject var playback: PlaybackEngine
     let part: PlaybackTimeline.Part
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The level the finger went down on. The drag is measured from here, not
+    /// from where the finger is.
+    @State private var startFader: Int?
 
     private var fader: Int { playback.voices.fader(part.index) }
 
     var body: some View {
-        GeometryReader { geo in
-            let fraction = MixerLayout.capOffset(forFader: fader)
-            ZStack(alignment: .bottom) {
-                Capsule().fill(Theme.Surface.well)
-                    .frame(width: MixerLayout.faderTrackWidth)
-                Capsule().fill(Theme.Accent.clay)
-                    .frame(width: MixerLayout.faderTrackWidth,
-                           height: geo.size.height * fraction)
-                RoundedRectangle(cornerRadius: 2)
+        let face = MixerLayout.knobFace(text: typeSize)
+        let numeral = MixerLayout.knobNumeralWidth("\(fader)", text: typeSize)
+        let inside = MixerLayout.knobValueFitsInFace(numeralWidth: numeral,
+                                                     face: face)
+        VStack(spacing: 2) {
+            ZStack {
+                Circle()
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
-                    .frame(width: MixerLayout.capSize.width,
-                           height: MixerLayout.capSize.height)
-                    .offset(y: -(geo.size.height - MixerLayout.capSize.height)
-                               * fraction)
+                    .overlay { Circle().strokeBorder(Theme.Line.line2, lineWidth: 1) }
+                arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
+                arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
+                pointer(face: face)
+                if inside { value }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let up = 1 - (value.location.y / max(geo.size.height, 1))
-                        playback.setFader(MixerLayout.fader(forOffset: up),
-                                          channel: part.index)
-                    })
+            .frame(width: face, height: face)
+            // The numeral takes its OWN row rather than being clipped when it
+            // outgrows the face (§13.4, §6.3 rule 1). By §13.2's table that
+            // does not happen before AX3, but it must exist.
+            if !inside { value.frame(minHeight: max(16, numeral * 0 + 16)) }
         }
-        .frame(minHeight: MixerLayout.faderFloor)
+        // THE ROW IS THE HIT TARGET, never the face: at Large the face is 36pt
+        // and a 36pt circle is not something to aim at (§13.2).
+        .frame(maxWidth: .infinity, minHeight: MixerLayout.knobRow(text: typeSize))
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { move in
+                    let start = startFader ?? fader
+                    if startFader == nil { startFader = start }
+                    playback.setFader(
+                        MixerLayout.knobFader(from: start,
+                                              translation: move.translation.height),
+                        channel: part.index)
+                }
+                .onEnded { _ in startFader = nil })
         .accessibilityElement()
+        // KEPT: it is the same control and the tests address it (§13.6).
         .accessibilityIdentifier("strip-fader-\(part.index)")
         .accessibilityLabel("\(part.name), level")
-        // "N of 10" and not a bare number: a value with no scale does
-        // not say whether 7 is loud. Read by
-        // testTheMixerOpensWithAStripPerStaff.
-        .accessibilityValue("\(fader) of \(PlaybackGain.maximumFader)")
+        .accessibilityValue("level \(fader) of \(PlaybackGain.maximumFader)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: playback.setFader(fader + 1, channel: part.index)
@@ -234,6 +265,45 @@ struct MixerFader: View {
             @unknown default: break
             }
         }
+    }
+
+    private var progress: Double {
+        let span = Double(PlaybackGain.maximumFader - PlaybackGain.minimumFader)
+        guard span > 0 else { return 0 }
+        return Double(fader - PlaybackGain.minimumFader) / span
+    }
+
+    /// The level, in the mono face the rest of the app prints numbers in.
+    private var value: some View {
+        Text("\(fader)").typeRole(.data)
+            .foregroundStyle(Theme.Ink.ink)
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+
+    /// A slice of the sweep, as a stroked arc. `trim` is in turns from the
+    /// shape's own zero, so the sweep is expressed as fractions of a circle
+    /// and then rotated to put the gap at the bottom.
+    private func arc(from: Double, to: Double, colour: Color,
+                     face: CGFloat) -> some View {
+        let sweep = MixerLayout.knobSweep / 360
+        return Circle()
+            .trim(from: from * sweep, to: to * sweep)
+            .stroke(colour, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            .rotationEffect(.degrees(MixerLayout.knobStartAngle - 90))
+            .frame(width: face - 3, height: face - 3)
+            .accessibilityHidden(true)
+    }
+
+    /// A line from 0.60r to 0.90r, turned to the level's angle.
+    private func pointer(face: CGFloat) -> some View {
+        let radius = face / 2
+        return Rectangle()
+            .fill(Theme.Ink.ink)
+            .frame(width: 2, height: radius * 0.30)
+            .offset(y: -radius * 0.75)
+            .rotationEffect(.degrees(MixerLayout.knobAngle(forFader: fader)))
+            .accessibilityHidden(true)
     }
 }
 

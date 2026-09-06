@@ -224,6 +224,58 @@ final class MixerWindowBehaviour: XCTestCase {
                                  "the wider panel now hangs off the screen")
     }
 
+    /// THE LABEL AND THE CONTROLS UNDER IT NAME THE SAME PART.
+    ///
+    /// Ali: "I still hear the wrong instruments on the wrong staffs." The
+    /// audio routing is measured per part offline
+    /// (`PlaybackChannelIsolationTests`, `PlaybackInstrumentIsolationTests`),
+    /// but those tests address parts by index and cannot see what the strip
+    /// SAYS. If the strip captioned "Piano (Right Hand)" carried the knob for
+    /// a different part, every offline assertion would still pass and the
+    /// reader would still be turning down the wrong staff.
+    ///
+    /// So this reads the screen: for each strip, the mute, the knob and the
+    /// sound chip all have to belong to the part the label names.
+    func testEachStripsControlsBelongToThePartItNames() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary"]
+        app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        guard openMixer(app) != nil else { return XCTFail(step) }
+
+        let strips = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "strip-"))
+        XCTAssertGreaterThan(strips.count, 0, "no strips in the mixer")
+
+        var checked = 0
+        for index in 0..<12 {
+            let strip = app.descendants(matching: .any)["strip-\(index)"].firstMatch
+            guard strip.exists else { continue }
+            checked += 1
+            // The strip's own accessibility label is the part's name.
+            let name = strip.label
+            XCTAssertFalse(name.isEmpty, "strip \(index) names no part")
+
+            // Each control inside it says the same name. They are separate
+            // elements with their own labels, built from their own `part`, so
+            // agreeing here means they were all handed the same part.
+            for (kind, identifier) in [("knob", "strip-fader-\(index)"),
+                                       ("mute", "strip-mute-\(index)"),
+                                       ("sound", "strip-sound-\(index)")] {
+                let control = app.descendants(matching: .any)[identifier].firstMatch
+                guard control.exists else { continue }
+                XCTAssertTrue(control.label.contains(name),
+                              "strip \(index) is captioned \"\(name)\" but its "
+                              + "\(kind) says \"\(control.label)\" -- the "
+                              + "control under the label belongs to another part")
+            }
+        }
+        XCTAssertGreaterThan(checked, 1,
+                             "only \(checked) strip(s) were checked, so this "
+                             + "says nothing about strips being mixed up")
+        snap("mixer-labels-and-controls")
+    }
+
     /// 3. THE HEADER SEATS ITS CONTROLS.
     ///
     /// At the floor the header is EXACTLY its four 44pt controls, so all four
