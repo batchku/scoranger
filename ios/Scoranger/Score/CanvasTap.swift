@@ -15,13 +15,14 @@ import Foundation
 /// The order is fixed, and each rule is total -- it either answers or passes:
 ///
 /// 1. more than one finger at ANY moment of the touch -> nothing
-/// 2. it MOVED -> nothing; that was a pan
-/// 3. performance mode -> turn, wherever it landed
-/// 4. Pencil -> the §6 table, unchanged: the lasso and the ink own it
-/// 5. a bottom corner -> turn
-/// 6. anything else -> select what is there, or clear if nothing is
+/// 2. the lasso is armed -> nothing; the finger is drawing a loop (§9.3)
+/// 3. it MOVED -> nothing; that was a pan
+/// 4. performance mode -> turn, wherever it landed
+/// 5. Pencil -> the §6 table, unchanged: the lasso and the ink own it
+/// 6. a bottom corner -> turn
+/// 7. anything else -> select what is there, or clear if nothing is
 ///
-/// Rule 2 is `PageTurn.isTap` as §12 wrote it: still, and quick. A finger that
+/// Rule 3 is `PageTurn.isTap` as §12 wrote it: still, and quick. A finger that
 /// stays down longer than that is not a slow tap, it is a PRESS -- §9.2's
 /// selecting gesture, where the loupe comes up, the reader slides a little to
 /// place the crosshair, and release commits. It arrives already flagged, and
@@ -100,8 +101,13 @@ enum CanvasTap {
     static func tap(at point: CGPoint, in canvas: CGSize, isPencil: Bool,
                     mode: ScoreMode, maxFingers: Int,
                     movement: CGFloat, elapsed: TimeInterval,
-                    wasPress: Bool = false, hit: Bool = true) -> Outcome {
+                    wasPress: Bool = false, lassoArmed: Bool = false,
+                    hit: Bool = true) -> Outcome {
         guard maxFingers <= 1 else { return .none }
+        // While the lasso is armed the finger is the lasso's, whole. A tap
+        // that also selected would be a second claim on the same touch, which
+        // is the thing this file exists to prevent.
+        guard !lassoArmed else { return .none }
         // A PRESS may move: once the loupe is up the touch belongs to the
         // selection and a slide is the reader placing the crosshair, not a
         // pan. Before the press, movement is a pan and means nothing else.
@@ -143,10 +149,11 @@ extension CanvasTap {
     }
 
     /// The same decision, for a touch the recogniser handed over.
-    static func tap(_ touch: Touch, mode: ScoreMode, hit: Bool) -> Outcome {
+    static func tap(_ touch: Touch, mode: ScoreMode, lassoArmed: Bool,
+                    hit: Bool) -> Outcome {
         tap(at: touch.point, in: touch.canvas, isPencil: touch.isPencil,
             mode: mode, maxFingers: touch.maxFingers,
             movement: touch.movement, elapsed: touch.elapsed,
-            wasPress: touch.wasPress, hit: hit)
+            wasPress: touch.wasPress, lassoArmed: lassoArmed, hit: hit)
     }
 }

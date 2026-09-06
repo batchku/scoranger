@@ -141,6 +141,9 @@ struct ScorePagesView: View {
                            // offering it
                            selectionEnabled: mode != .performance
                                && state.displayedArtifact == .notation,
+                           lassoArmed: state.lassoArmed
+                               && mode != .performance
+                               && state.displayedArtifact == .notation,
                            resetPanToken: panToken,
                            annotationActive: annotation.isOn,
                            scrollTarget: (scrollToken, scrollTargetX),
@@ -402,7 +405,9 @@ struct ScorePagesView: View {
     /// is told. There is no second gesture to lose to, which is the point (§12).
     private func canvasTap(_ touch: CanvasTap.Touch) {
         let hit = touch.page.map { state.hasElement(at: $0.unit, onPage: $0.index) } ?? false
-        switch CanvasTap.tap(touch, mode: mode, hit: hit) {
+        let outcome = CanvasTap.tap(touch, mode: mode, lassoArmed: state.lassoArmed,
+                                    hit: hit)
+        switch outcome {
         case .turn(let zone):
             turn(zone)
         case .select:

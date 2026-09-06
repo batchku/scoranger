@@ -22,11 +22,12 @@ final class CanvasTapTests: XCTestCase {
                      fingers: Int = 1, movement: CGFloat = 0,
                      elapsed: TimeInterval = 0.1,
                      press: Bool = false,
+                     armed: Bool = false,
                      hit: Bool = true) -> CanvasTap.Outcome {
         CanvasTap.tap(at: point, in: size ?? canvas, isPencil: isPencil,
                       mode: mode, maxFingers: fingers,
                       movement: movement, elapsed: elapsed,
-                      wasPress: press, hit: hit)
+                      wasPress: press, lassoArmed: armed, hit: hit)
     }
 
     // MARK: - The fixed order (§12)
@@ -99,6 +100,17 @@ final class CanvasTapTests: XCTestCase {
                        "performance mode has nothing to select")
         XCTAssertEqual(tap(mid(canvas), fingers: 2, press: true), .none,
                        "a second finger still ends it")
+    }
+
+    /// While `Select` is armed the finger is the lasso's, whole -- including
+    /// in the corners, or arming it would cost the reader a page turn they
+    /// did not ask for.
+    func testAnArmedLassoTakesTheWholeFinger() {
+        XCTAssertEqual(tap(mid(canvas), armed: true), .none)
+        XCTAssertEqual(tap(CGPoint(x: 5, y: 754), armed: true), .none)
+        XCTAssertEqual(tap(mid(canvas), armed: true, hit: false), .none)
+        XCTAssertEqual(tap(mid(canvas), press: true, armed: true), .none)
+        XCTAssertEqual(tap(mid(canvas), mode: .performance, armed: true), .none)
     }
 
     // MARK: - The zones are corners, not columns (§12)

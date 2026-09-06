@@ -521,6 +521,19 @@ final class AppState: ObservableObject {
         return true
     }
 
+    // MARK: - The armed lasso (§9.3)
+
+    /// Whether one finger draws a loop. The state machine itself is
+    /// `LassoArming`, which is pure and tested; this is where it lives.
+    @Published var lassoArming: LassoArming = .off
+
+    var lassoArmed: Bool { lassoArming.isArmed }
+
+    func toggleLasso() { lassoArming = lassoArming.tapped }
+
+    /// A loop landed.
+    func lassoFinished() { lassoArming = lassoArming.afterOneLoop }
+
     /// Is there anything on the page under this point at all?
     ///
     /// The finger's tap asks before it acts, so a tap on blank paper can put

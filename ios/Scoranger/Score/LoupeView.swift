@@ -56,7 +56,14 @@ struct LoupeView: View {
         .opacity(TapSelection.loupeOpacity(pinching: pinching))
         .position(placement.centre)
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        // Not hidden from accessibility, and not for the tests' sake: under
+        // VoiceOver the loupe is never BUILT (`TapSelection.showsLoupe`),
+        // because VoiceOver selects by element and a magnifier over a touch
+        // point means nothing there. So when it exists at all, it is on a
+        // screen someone is looking at.
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("loupe")
+        .accessibilityLabel("Magnifier")
     }
 
     /// What release commits is what the CROSSHAIR is on, not what the finger

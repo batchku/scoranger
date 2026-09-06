@@ -72,6 +72,7 @@ struct ScoreTopBar: View {
                 mode = (mode == .edit) ? .read : .edit
                 annotation.isOn = (mode == .edit)
             }
+            selectArm
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             if fit.showsAddToSetlist { addToSetlistTrigger }
@@ -410,6 +411,34 @@ struct ScoreTopBar: View {
         .accessibilityHint("Switch to another arrangement of this piece")
         .accessibilityAddTraits(arrangementsOpen ? [.isButton, .isSelected] : [.isButton])
         .accessibilityIdentifier("score-title")
+    }
+
+    /// Arm the lasso, beside Ask (§9.3).
+    ///
+    /// Tapping needs no mode. A lasso does: a one-finger drag is already pan
+    /// and page turn, and this app separates inputs by mode rather than by a
+    /// guess at timing or distance. On a phone there is no Pencil to carry
+    /// the loop, so the finger needs the mode the Pencil never did.
+    ///
+    /// One tap arms it for a single loop; a second latches it for several.
+    /// The label says which, because a mode the reader cannot see is the one
+    /// that eats their next pan.
+    @ViewBuilder
+    private var selectArm: some View {
+        let arming = state.lassoArming
+        barButton("scope", label: arming.label, identifier: "score-select",
+                  active: arming.isArmed) { state.toggleLasso() }
+            .overlay(alignment: .topTrailing) {
+                // Latched is a different state from armed and has to look
+                // different: the difference is what happens to the NEXT
+                // gesture, and there is nothing else on screen saying so.
+                if arming == .latched {
+                    Circle().fill(Theme.Accent.clayStrong)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -2, y: 2)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 
     private func barButton(_ glyph: String, label: String, identifier: String,

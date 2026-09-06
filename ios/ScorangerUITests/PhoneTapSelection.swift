@@ -1,0 +1,149 @@
+import XCTest
+
+/// A finger taps a bar, presses to see under itself, and turns a page from a
+/// corner -- on the phone, where all three are new.
+///
+/// design/IPHONE_0.6.14.md §9.1, §9.2, §12. The rules are pure and fuzzed in
+/// `CanvasTapTests`; what a unit test cannot say is whether a real finger on a
+/// real canvas reaches them -- whether the tap arrives at all, whether the
+/// selection lands on the bar under the finger, whether the loupe is drawn
+/// where the reader is looking. So this drives the actual gestures and keeps
+/// the frames.
+final class PhoneTapSelection: XCTestCase {
+
+    private var app: XCUIApplication!
+
+    private func snap(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    private func openAScore() -> Bool {
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
+        let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
+        guard row.waitForExistence(timeout: 180) else { return false }
+        row.tap()
+        let choice = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                  "arrangement-choice-")).firstMatch
+        if choice.waitForExistence(timeout: 60) { settle(choice); choice.tap() }
+        return app.buttons["score-title"].waitForExistence(timeout: 300)
+    }
+
+    private func canvas() -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
+            .firstMatch
+    }
+
+    private func chip() -> XCUIElement { app.staticTexts["selection-chip"] }
+    private func counter() -> XCUIElement { app.staticTexts["counter-pages"] }
+
+    /// ONE launch, every claim: seeding the library is minutes of engine work
+    /// and all of these look at the same opened score.
+    func testAFingerSelectsInTheMiddleAndTurnsFromACorner() {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary"]
+        app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        guard openAScore() else { return XCTFail("the score never opened") }
+        let page = canvas()
+        XCTAssertTrue(page.waitForExistence(timeout: 240), "no engraved canvas")
+        settle(page, still: 0.8)
+
+        // 1. A TAP IN THE MIDDLE SELECTS. At fit that means the bar under the
+        // finger (§9.1), and the chip naming it is the proof the address
+        // resolved -- a highlight alone could be drawn over nothing.
+        let before = counter().label
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(chip().waitForExistence(timeout: 20),
+                      "a tap in the middle of the page selected nothing")
+        XCTAssertEqual(counter().label, before,
+                       "a tap in the middle turned the page")
+        settle(chip(), still: 0.6)
+        // THE FRAME THE DESIGNER ASKED FOR: a bar selected mid-system, at fit,
+        // portrait -- to confirm the 12% measure fill against a dense page.
+        snap("phone-bar-selected-12pc-fill")
+
+        // 2. A TAP IN A BOTTOM CORNER TURNS. Same finger, same canvas, no
+        // mode change -- the region is the whole separator (§12). Forward
+        // first: the score opens on page one and there is nothing behind it.
+        state(chipGone: true)
+        let page1 = counter().label
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
+        expect(counter(), toChangeFrom: page1,
+               "a tap in the bottom-right corner did not turn forward")
+        snap("phone-corner-turned")
+        let page2 = counter().label
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.95)).tap()
+        expect(counter(), toChangeFrom: page2,
+               "a tap in the bottom-left corner did not turn back")
+
+        // 3. THE TOP CORNERS ARE MUSIC. They were full-height turn columns
+        // until §12; a tap up there must not move the page now.
+        state(chipGone: true)
+        let stay = counter().label
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.12)).tap()
+        _ = chip().waitForExistence(timeout: 10)
+        XCTAssertEqual(counter().label, stay,
+                       "the top-left corner still turns the page")
+        snap("phone-top-corner-is-music")
+    }
+
+    /// A PRESS -- the gesture the loupe belongs to -- reaches the selection.
+    ///
+    /// The loupe itself cannot be asserted from here: XCUITest's press blocks
+    /// its own thread for the whole gesture and every XCUI call must be on
+    /// that thread, so nothing can look at the screen while a finger is down.
+    /// Its placement is asserted in `TapSelectionTests` and its drawing is
+    /// verified from frames captured outside the process.
+    ///
+    /// What IS provable here is the rule the loupe made necessary: a finger
+    /// held still for seconds still selects. Under the old rule -- a tap is
+    /// under 0.3s -- this touch meant nothing at all, so the assertion
+    /// discriminates.
+    func testAPressSelectsAfterSecondsOfHolding() {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetLibrary", "-seedTestLibrary"]
+        app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        guard openAScore() else { return XCTFail("the score never opened") }
+        let page = canvas()
+        XCTAssertTrue(page.waitForExistence(timeout: 240), "no engraved canvas")
+        settle(page, still: 0.8)
+
+        let before = counter().label
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            .press(forDuration: 2.5)
+        XCTAssertTrue(chip().waitForExistence(timeout: 20),
+                      "a finger held still for two and a half seconds selected "
+                      + "nothing: the press never reached the selection")
+        XCTAssertEqual(counter().label, before, "a press turned the page")
+        snap("phone-press-selected")
+    }
+
+    // MARK: - waits, never sleeps
+
+    private func expect(_ element: XCUIElement, toChangeFrom old: String,
+                        _ message: String, timeout: TimeInterval = 20) {
+        let changed = NSPredicate(format: "label != %@", old)
+        let done = XCTNSPredicateExpectation(predicate: changed, object: element)
+        XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: timeout), .completed,
+                       message)
+    }
+
+    private func waitFor(_ element: XCUIElement, toExist exists: Bool,
+                         timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "exists == %@", NSNumber(value: exists))
+        let done = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter().wait(for: [done], timeout: timeout) == .completed
+    }
+
+    private func state(chipGone: Bool) {
+        guard chipGone, chip().exists else { return }
+        app.buttons["Clear selection"].firstMatch.tap()
+        _ = waitFor(chip(), toExist: false, timeout: 10)
+    }
+}
