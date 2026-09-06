@@ -18,6 +18,7 @@ struct ScorePagesView: View {
     /// Settled zoom scale, used ONLY to raise the raster resolution of the
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var rasterZoom: CGFloat = 1.0
     /// The canvas under the fingertip while a press is live (§9.2).
     @State private var loupe: LoupeSample?
@@ -239,7 +240,12 @@ struct ScorePagesView: View {
                 follow(bar: bar, stripScale: stripScale, surface: surface)
             }
         }
-        .overlay(alignment: .top) { selectionChip }
+        // At the BOTTOM of the canvas on a phone (§9.6). At the top it lands
+        // on the first system, which on a portrait phone is a quarter of the
+        // music -- and the chip appears exactly when the reader is looking at
+        // what they just selected. Below the page there is room and nothing
+        // to cover.
+        .overlay(alignment: hSize == .compact ? .bottom : .top) { selectionChip }
         .overlay(alignment: .bottom) { continuousSyncChip }
         .overlay(alignment: .topLeading) {
             TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)

@@ -88,14 +88,23 @@ struct ScoreTopBar: View {
                       active: moreOpen) { moreOpen.toggle(); titleMenuOpen = false }
         }
         .padding(.horizontal, Theme.Metric.s12)
-        .frame(height: Theme.Metric.scoreTopBar)
-        .background {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { barWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, new in barWidth = new }
-            }
-        }
+        // minHeight at the size class's own number: 44 on a phone, 52 on an
+        // iPad (§9.6). A minimum rather than a height, because every label in
+        // the bar scales with Dynamic Type and a fixed height is what cuts
+        // them off (§6.3 rule 1).
+        .frame(minHeight: Theme.Metric.scoreTopBar(compact: hSize == .compact))
+        .fixedSize(horizontal: false, vertical: true)
+        // The width is measured by the SCORE SCREEN's own GeometryReader
+        // (`ContentView.body`) and not here. A `.background` is given the
+        // same size as the content it sits behind, so a bar that overflows
+        // reports its OVERFLOWED width -- and then seats more, because the fit
+        // believes it has the room. It is a loop that settles wherever the
+        // content happens to land: on a 402pt iPhone it seated the numeral,
+        // the pencil and the subtitle, and the title itself collapsed to "S…".
+        //
+        // It is the same mistake the mixer made in a different place. A
+        // surface measured against its own ideal size always reports that it
+        // fits.
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.Line.line).frame(height: 1)

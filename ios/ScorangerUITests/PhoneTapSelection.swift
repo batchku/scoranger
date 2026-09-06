@@ -77,6 +77,21 @@ final class PhoneTapSelection: XCTestCase {
         assertFitsOnScreen(["selection-chip", "selection-place", "selection-confirm"],
                            in: app, context: "selection chip, iPhone portrait")
 
+        // 1c. AND THE BAR IS STILL A BAR. `ScoreBarLayout` promises the title
+        // never falls below `titleMinimum`, and the way that promise broke was
+        // the bar measuring ITSELF: an overflowing bar reports its overflow,
+        // believes it has the room, and seats another control -- until the
+        // title is "S…" and nobody can tell which score they are in.
+        //
+        // Asserted on the title's drawn width, which is the symptom (#62), not
+        // on the fit, which the unit tests already hold.
+        let title = app.buttons["score-title"].firstMatch
+        XCTAssertGreaterThan(title.frame.width, 60,
+                             "the title has collapsed to \(title.frame.width)pt: "
+                             + "the bar is seating more than it can draw")
+        assertFitsOnScreen(["score-close", "score-select", "score-ask",
+                            "score-more"], in: app, context: "score bar")
+
         // THE FRAME THE DESIGNER ASKED FOR: a bar selected mid-system, at fit,
         // portrait -- to confirm the 12% measure fill against a dense page.
         snap("phone-bar-selected-12pc-fill")

@@ -155,6 +155,16 @@ struct Transport: View {
     /// went.
     var mixerOpen: Bool = false
     var onMixer: () -> Void = {}
+    /// What rides in the same row, on the left of the controls.
+    ///
+    /// A phone on its side has 130pt of chrome for 372 of height, and the
+    /// scrubber and the transport as two rows spend 76 of it (§3 E-B). Merged
+    /// they are one 48pt deck. It is a slot rather than a `Bool` so that this
+    /// view is not given a second thing to know about: it makes room, it does
+    /// not decide what goes in it.
+    var leading: AnyView?
+    /// The deck's height. Shorter when it is carrying both (§3 E-B).
+    var height: CGFloat = Theme.Metric.transportHeight
 
     var body: some View {
         row
@@ -201,6 +211,11 @@ struct Transport: View {
 
     private var row: some View {
         HStack(spacing: Theme.Metric.s8) {
+            if let leading {
+                leading
+                    .frame(maxWidth: .infinity)
+                Divider().frame(height: 20)
+            }
             stepButton("backward.end", label: "Previous in setlist",
                        id: "transport-prev", enabled: canStep, action: onPrevious)
             stepButton("forward.end", label: "Next in setlist",
@@ -226,7 +241,12 @@ struct Transport: View {
             }
         }
         .padding(.horizontal, Theme.Metric.s12)
-        .frame(height: Theme.Metric.transportHeight)
+        // minHeight, not height: every label in this row scales with Dynamic
+        // Type and a fixed height is what cuts them off (§6.3 rule 1). And
+        // fixedSize with it, or the minimum reads as "take the slack" and the
+        // deck eats the canvas.
+        .frame(minHeight: height)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The reason, and the button that answers it.

@@ -96,6 +96,12 @@ struct ScreenRow: View {
             HStack(spacing: Theme.Metric.s8) {
                 Text(title).typeRole(.row)
                     .foregroundStyle(isDestructive ? Theme.Status.danger : Theme.Ink.ink)
+                    // WRAPS rather than overflowing (§6.3 rule 1). At XXXL
+                    // "Chord symbols" plus its value plus the chevron is wider
+                    // than a phone, and an HStack that cannot fit its children
+                    // draws them outside itself: the rows measured 429pt in a
+                    // 402pt window, 13.7 off each edge.
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: Theme.Metric.s8)
                 if let value {
                     Text(value).typeRole(.data).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
