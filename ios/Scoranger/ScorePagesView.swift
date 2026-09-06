@@ -19,6 +19,9 @@ struct ScorePagesView: View {
     /// rendered pages. Geometry is fixed and the live zoom is UIScrollView's
     /// transform, which is what keeps the canvas from jumping on release.
     @State private var rasterZoom: CGFloat = 1.0
+    /// The canvas under the fingertip while a press is live (§9.2).
+    @State private var loupe: LoupeSample?
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverRunning
     /// The viewport in content coordinates, and the rows worth drawing at
     /// depth. Everything else renders at a cheap scale.
     @State private var visibleRect: CGRect = .zero
@@ -127,6 +130,11 @@ struct ScorePagesView: View {
                            onCanvasTap: { touch in
                                canvasTap(touch)
                            },
+                           onLoupe: { sample in
+                               loupe = TapSelection.showsLoupe(
+                                   voiceOver: voiceOverRunning,
+                                   fingers: 1, pinching: false) ? sample : nil
+                           },
                            onSwipeTurn: { direction in step(by: direction) },
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
@@ -187,6 +195,14 @@ struct ScorePagesView: View {
             .onAppear {
                 if visibleRect == .zero {
                     visibleRect = CGRect(origin: .zero, size: geo.size)
+                }
+            }
+            // The finger is covering what it is selecting, at every scale
+            // (§9.2). Drawn over the canvas rather than in it, so nothing it
+            // magnifies can magnify the loupe.
+            .overlay {
+                if let loupe {
+                    LoupeView(sample: loupe, safeAreaTop: geo.safeAreaInsets.top)
                 }
             }
             // The latch. Kept here rather than computed in the body, because a

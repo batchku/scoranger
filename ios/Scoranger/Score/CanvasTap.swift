@@ -21,13 +21,16 @@ import Foundation
 /// 5. a bottom corner -> turn
 /// 6. anything else -> select what is there, or clear if nothing is
 ///
-/// A TURN also has to be quick (`PageTurn.tapWindow`); a SELECT does not. That
-/// asymmetry is what lets §9.2's loupe exist at all: the reader presses, the
-/// loupe shows what is under the fingertip, they slide a little to place the
-/// crosshair, and release commits -- a gesture that takes as long as it takes.
-/// A turn kept the 0.3s window it always had, so a thumb resting in the corner
-/// still cannot turn the page, which is the failure §6.2 named. Movement is the
-/// separator in both cases, and it did not move.
+/// Rule 2 is `PageTurn.isTap` as §12 wrote it: still, and quick. A finger that
+/// stays down longer than that is not a slow tap, it is a PRESS -- §9.2's
+/// selecting gesture, where the loupe comes up, the reader slides a little to
+/// place the crosshair, and release commits. It arrives already flagged, and
+/// carries its own permission to have moved and to have taken its time.
+///
+/// A press never turns, in any region. It is the one gesture the reader can
+/// watch themselves make, so there is nothing to protect them from; and a
+/// thumb resting in a corner is a press, which is exactly why it must not turn
+/// the page (§6.2).
 ///
 /// Zoom is deliberately NOT a separator. Zoom persists across a turn by design
 /// (`PagedCanvas.afterTurn`), so "turns at fit, selects when zoomed" would mean
@@ -97,13 +100,21 @@ enum CanvasTap {
     static func tap(at point: CGPoint, in canvas: CGSize, isPencil: Bool,
                     mode: ScoreMode, maxFingers: Int,
                     movement: CGFloat, elapsed: TimeInterval,
-                    hit: Bool = true) -> Outcome {
-        guard maxFingers <= 1, movement <= PageTurn.tapSlop else { return .none }
-        let quick = PageTurn.isTap(movement: movement, elapsed: elapsed)
+                    wasPress: Bool = false, hit: Bool = true) -> Outcome {
+        guard maxFingers <= 1 else { return .none }
+        // A PRESS may move: once the loupe is up the touch belongs to the
+        // selection and a slide is the reader placing the crosshair, not a
+        // pan. Before the press, movement is a pan and means nothing else.
+        guard wasPress || movement <= PageTurn.tapSlop else { return .none }
+        // A press is never a turn, in any region: it is the selecting
+        // gesture, and the reader can see under their own fingertip while
+        // they make it.
+        let quick = !wasPress && PageTurn.isTap(movement: movement, elapsed: elapsed)
         if mode == .performance { return quick ? .turn(half(at: point, in: canvas)) : .none }
         if isPencil { return .none }
-        if let corner = corner(at: point, in: canvas) {
-            return quick ? .turn(corner) : .none
+        if !wasPress {
+            guard quick else { return .none }
+            if let corner = corner(at: point, in: canvas) { return .turn(corner) }
         }
         return hit ? .select : .clear
     }
@@ -123,6 +134,9 @@ extension CanvasTap {
         let maxFingers: Int
         let movement: CGFloat
         let elapsed: TimeInterval
+        /// The finger stayed still long enough to raise the loupe, so the
+        /// touch was a selection from that moment on.
+        let wasPress: Bool
         /// The page under the finger and where on it, in unit coordinates.
         /// Nil when the touch landed off every page.
         let page: (index: Int, unit: CGPoint)?
@@ -132,6 +146,7 @@ extension CanvasTap {
     static func tap(_ touch: Touch, mode: ScoreMode, hit: Bool) -> Outcome {
         tap(at: touch.point, in: touch.canvas, isPencil: touch.isPencil,
             mode: mode, maxFingers: touch.maxFingers,
-            movement: touch.movement, elapsed: touch.elapsed, hit: hit)
+            movement: touch.movement, elapsed: touch.elapsed,
+            wasPress: touch.wasPress, hit: hit)
     }
 }

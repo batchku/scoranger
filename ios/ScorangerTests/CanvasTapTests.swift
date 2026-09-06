@@ -21,10 +21,12 @@ final class CanvasTapTests: XCTestCase {
                      isPencil: Bool = false, mode: ScoreMode = .read,
                      fingers: Int = 1, movement: CGFloat = 0,
                      elapsed: TimeInterval = 0.1,
+                     press: Bool = false,
                      hit: Bool = true) -> CanvasTap.Outcome {
         CanvasTap.tap(at: point, in: size ?? canvas, isPencil: isPencil,
                       mode: mode, maxFingers: fingers,
-                      movement: movement, elapsed: elapsed, hit: hit)
+                      movement: movement, elapsed: elapsed,
+                      wasPress: press, hit: hit)
     }
 
     // MARK: - The fixed order (§12)
@@ -46,16 +48,10 @@ final class CanvasTapTests: XCTestCase {
         XCTAssertEqual(tap(mid(canvas), mode: .performance, movement: 40), .none)
     }
 
-    /// A press that never moved SELECTS however long it was held, and never
-    /// TURNS unless it was quick.
-    ///
-    /// §9.2's loupe needs the first half: the reader presses, sees what is
-    /// under the fingertip, and releases when the crosshair is right. §6.2
-    /// needs the second: a thumb resting in a corner must not turn the page.
-    /// Movement separates both from a pan, which is the rule that was always
-    /// doing the work.
-    func testAHeldStillFingerSelectsButNeverTurns() {
-        XCTAssertEqual(tap(mid(canvas), elapsed: 1.2), .select)
+    /// A dwell is not a tap, which is §12 as written. What a long touch DOES
+    /// mean is a press, and a press arrives flagged -- see below.
+    func testADwellIsNotATap() {
+        XCTAssertEqual(tap(mid(canvas), elapsed: 1.2), .none)
         XCTAssertEqual(tap(CGPoint(x: 5, y: 754), elapsed: 1.2), .none,
                        "a thumb resting in the corner turned the page")
         XCTAssertEqual(tap(mid(canvas), mode: .performance, elapsed: 1.2), .none)
@@ -85,6 +81,24 @@ final class CanvasTapTests: XCTestCase {
         XCTAssertEqual(tap(mid(canvas)), .select)
         XCTAssertEqual(tap(CGPoint(x: 10, y: 100)), .select,
                        "the top-left is music, not a turn zone")
+    }
+
+    /// Once the loupe is up the touch is a selection: it may travel, it may
+    /// take as long as it likes, and it never turns a page -- including from
+    /// a corner, where the reader can see exactly what the crosshair is on.
+    func testAPressSelectsWhereverItEnds() {
+        XCTAssertEqual(tap(mid(canvas), movement: 120, elapsed: 3, press: true),
+                       .select)
+        XCTAssertEqual(tap(CGPoint(x: 5, y: 754), movement: 120, elapsed: 3,
+                           press: true), .select,
+                       "a press that ended in a corner turned the page")
+        XCTAssertEqual(tap(mid(canvas), movement: 120, elapsed: 3,
+                           press: true, hit: false), .clear)
+        XCTAssertEqual(tap(mid(canvas), mode: .performance, movement: 120,
+                           elapsed: 3, press: true), .none,
+                       "performance mode has nothing to select")
+        XCTAssertEqual(tap(mid(canvas), fingers: 2, press: true), .none,
+                       "a second finger still ends it")
     }
 
     // MARK: - The zones are corners, not columns (§12)
@@ -144,12 +158,16 @@ final class CanvasTapTests: XCTestCase {
         for _ in 0..<3000 {
             let size = CGSize(width: 200 + next(1200), height: 200 + next(1200))
             let point = CGPoint(x: next(Int(size.width)), y: next(Int(size.height)))
-            let held = seed % 2 == 0
-            let first = tap(point, size: size, elapsed: held ? 1.4 : 0.1)
-            let again = tap(point, size: size, elapsed: held ? 1.4 : 0.1)
+            // vary the gesture too: a quick tap and a press resolve the same
+            // point differently, and BOTH must resolve it to exactly one thing
+            let press = seed % 2 == 0
+            let first = tap(point, size: size, movement: press ? 30 : 0,
+                            elapsed: press ? 1.4 : 0.1, press: press)
+            let again = tap(point, size: size, movement: press ? 30 : 0,
+                            elapsed: press ? 1.4 : 0.1, press: press)
             XCTAssertEqual(first, again,
                            "unstable at \(point) in \(size): \(first) then \(again)")
-            XCTAssertNotEqual(first, .clear,
+            XCTAssertNotEqual(first, CanvasTap.Outcome.clear,
                               "with something under the finger, the selecting "
                               + "region never resolves to a clear")
         }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// What a tap on the canvas means, and where the loupe goes.
 ///
@@ -37,6 +38,19 @@ enum TapSelection {
         if onSelected { return .note }
         return zoom >= noteZoom ? .note : .measure
     }
+
+    /// How long a finger must be down and still before the loupe comes up.
+    ///
+    /// It is also the moment the touch stops being a pan and becomes a
+    /// selection: §9.2's reader presses, looks, slides a little to place the
+    /// crosshair and releases, and a slide that scrolled the page underneath
+    /// would defeat the whole thing. Before this the finger is ordinary --
+    /// it pans, and a quick tap turns or selects as it always did -- so
+    /// nothing that already worked has to wait for it.
+    ///
+    /// Long enough not to fire under a scroll that starts slowly; short
+    /// enough that a reader holding still is not left wondering.
+    static let pressDelay: TimeInterval = 0.25
 
     // MARK: - The loupe (§9.2)
 
