@@ -1133,3 +1133,101 @@ table is untouched, and performance mode still turns from anywhere.
 Understood that the frame comes with this wiring. When it lands, send **a bar
 selected in the middle of a dense system at fit, portrait** — density is what
 the 12% call turns on, and a sparse bar will make any value look fine.
+
+---
+
+# 13. Two rulings after steps 3–4
+
+## 13.1 Measure fill: renderer-only, confirmed — and it is the only safe option
+
+**Confirmed.** Do it in the renderer. Do not put a measure address into the
+selection.
+
+The recommendation is stronger than "cheaper". `ScoreModelBuilder.selectable`
+excludes bar-like kinds as a *fix*, and the comment names the two bugs it
+closed (`ScoreModelBuilder.swift:96`):
+
+> *A `<measure>` element's frame spans the whole bar across every staff, so
+> lassoing three notes caught the measure too and lit up the entire bar (#9),
+> and tapping empty space caught the measure alone and selected the whole bar
+> out of nowhere (#10a). One cause, two symptoms.*
+
+Putting `.measure` back into a selection reopens both. The renderer is not a
+shortcut here, it is the only route that does not regress a shipped fix.
+
+The problem being solved is real and worth stating in the code: **22% fills
+compound where boxes stack.** Two layers composite to 39%, three to 53%. A bar
+of ten notes with overlapping boxes is a mottled patch that is darkest wherever
+the engraving is densest — the opposite of what a highlight should do.
+
+### The rule, precisely
+
+**Per measure, per staff.** For each measure represented in the selection, if
+every selectable address of that measure *on the staves represented* is
+selected, replace those member boxes with **one rectangle: the union of those
+members' own frames**, padded by `SelectionInk.highlightPad`.
+
+Three things that rule is deliberately not:
+
+- **Never the measure element's frame.** `element(at:)` on a bar address returns
+  a rect spanning every staff, and drawing that is #9 again. The union is of the
+  members that are actually selected.
+- **Never one rect across bars.** Several bars selected draw several rects, one
+  each, because the bar is the unit the reader asked for.
+- **Never additive.** The union replaces the member boxes; it does not sit over
+  them, or the compounding comes straight back.
+
+Partial bars keep individual boxes — nine of ten notes is not a bar. Selections
+that accumulate a bar plus a stray note elsewhere draw a rect for the bar and a
+box for the note, which falls out of evaluating per measure.
+
+Border on the union rect (`clayStrong` 65%, 1pt); no border on the members it
+replaced. Fill still multiplies, border still does not (§11.2).
+
+### The value
+
+**12%, and it ships as 12%** — with the frame still owed. It is now a single
+flat layer rather than a compound, so 12% is genuinely 12% (#FBF2EE, 1.15:1
+against paper), and it should read *lighter* than the 22% note boxes beside it:
+same visual weight, larger area. The border carries the definition.
+
+Provisional in one direction only. If the frame says it is too faint, the lever
+is the value; the structure does not change.
+
+## 13.2 Press versus tap: confirmed, with three amendments
+
+**Confirmed.** 0.25s against a 0.3s tap window is a clean split with no
+ambiguous band, and claiming the touch is right — a loupe you cannot slide is a
+loupe that cannot correct the thing it exists to correct.
+
+Three amendments, each closing a case that would otherwise be found on a device:
+
+1. **No press in performance mode.** §12 rule 3 gives the whole canvas to
+   turning there, because selection is off. A performer resting a finger for a
+   quarter-second and getting nothing — no turn, no loupe, since there is
+   nothing to select — is the one failure that mode exists to prevent. In
+   performance, a still finger past 0.25s still turns.
+2. **A finger that has already moved cannot become a press.** If movement
+   exceeds `PageTurn.tapSlop` (10pt) before `pressDelay`, the touch is a pan for
+   the rest of its life. Without this, a slow deliberate pan — finger down,
+   settle, drag — becomes a loupe drag, and slow deliberate panning is what
+   reading a zoomed score is made of.
+3. **No press where the loupe is already suppressed**: more than one touch, ink
+   mode (a stroke is a drag from the first frame), or VoiceOver (§9.2). One
+   predicate for both, so they cannot drift apart.
+
+And one behaviour to define rather than discover: **release outside the page
+cancels** — no commit, no clear. A finger dragged off the paper is a reader
+backing out.
+
+`pressDelay` at 0.25s is snappier than the system's 0.5s long-press and than
+iOS's own text loupe. With amendment 2 in place I would ship it and watch;
+if it proves twitchy on a device the lever is the constant, not the design.
+
+## 13.3 The chip clipping
+
+Good catch, and the right fix: a control sized to its longest line, 1.5pt over
+the window, is exactly the class §6.3 rule 1 names. **The window-relative clip
+test is the general form of that section's per-screen check** — if it is written
+so other screens can adopt it, point §6.3's acceptance test at it rather than
+letting a second one grow beside it.
