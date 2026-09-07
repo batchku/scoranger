@@ -175,6 +175,11 @@ def main() -> int:
             # reported somewhere other than a bar, and no less loudly for it
             "chatMessages[",     # the agent's failure belongs in the transcript
             "payload =",         # the DEBUG chat inbox answers in its result file
+            "=FAILED(",          # the test seed answers in `seedOutcome`, which
+                                 # is what a UI test reads to find out WHICH of
+                                 # the seeding ops failed; there is no reader to
+                                 # show a bar to, because nothing but the test
+                                 # harness ever runs it
             "Task.sleep"))       # a retry: the last attempt throws
         if not spoken and body:
             silent.append(f"line {i + 1} in {enclosing_func(lines, i)}()")
