@@ -49,6 +49,12 @@
 # whichever way the gate is run; serial would hide it until CI or a slower Mac
 # found it again.
 #
+# ONE EXCEPTION, and it is not a hiding place: see SERIAL below. A handful of
+# tests wait on the embedded Python engine to finish a DELETE, and four workers
+# calling that engine at once is contention rather than a race -- there is
+# nothing to fix in the test, and no timeout that is honest. Those run after
+# the pool, one at a time, and are counted and can still fail the gate.
+#
 # Usage:
 #   scripts/gate.sh                    # 4 workers
 #   scripts/gate.sh -j 6               # 6 workers
@@ -86,6 +92,28 @@ SKIP=(
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
   # gate has no reason to be running. Neither asserts.
   -skip-testing:ScorangerUITests/TopBarShot
+)
+
+# THE DELETION CLASS, WHICH RUNS SERIALLY.
+#
+# A delete goes through the embedded Python engine, and four workers all
+# calling it at once is contention rather than slowness: measured at 25-32
+# seconds on a quiet machine and past 210 under four workers, where it failed.
+# testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted has now cost three
+# release gates that way.
+#
+# The tempting fix is a bigger timeout, and it is the wrong one: it leaves the
+# contention in place and buys a pass with a number. These tests run OUTSIDE
+# the pool instead, one at a time on one simulator, after the parallel phase --
+# so the thing that made them fail is gone rather than tolerated.
+#
+# They are still enumerated, still counted, and still fail the gate: `expected`
+# includes them and the results pass reads their bundle beside the workers'.
+# Skipping is not what this is.
+SERIAL=(
+  ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted
+  ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast
+  ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton
 )
 
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"
@@ -183,9 +211,11 @@ xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
 # they are dealt one at a time. Slowest first, longest-processing-time greedy,
 # using the durations the last run recorded -- an unknown test is assumed
 # median, so a new test is never the thing that unbalances the run.
-python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv <<'PY'
+printf '%s\n' "${SERIAL[@]}" > "$OUT/serial.txt"
+python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv "$OUT/serial.txt" <<'PY'
 import json, sys, os, collections
 tests_json, workers, out, durfile = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+serial_file = sys.argv[5]
 
 # enabledTests only: -skip-testing is honoured by the enumeration, and the
 # sweeps it skips turn up under disabledTests in the same file.
@@ -198,7 +228,13 @@ for value in json.load(open(tests_json)).get("values", []):
 if not ids:
     sys.exit("no tests enumerated")
 
-ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/"))
+# The deletion class runs on its own, after the pool -- see SERIAL in the
+# shell above. Held out of the shards, still counted in `expected`.
+serial = set()
+if os.path.exists(serial_file):
+    serial = {line.strip() for line in open(serial_file) if line.strip()}
+serial &= ids
+ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/") and i not in serial)
 unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/"))
 
 dur = {}
@@ -226,9 +262,12 @@ for n, (s, l) in enumerate(zip(shards, load), 1):
     with open(os.path.join(out, f"shard-{n}.txt"), "w") as f:
         f.write("\n".join(s) + "\n")
     print(f"    worker {n}: {len(s)} entries, ~{l:.0f}s predicted")
-print(f"    {len(ui)} UI tests + {len(unit)} unit tests enumerated")
+print(f"    {len(ui)} UI tests + {len(unit)} unit tests enumerated"
+      + (f" + {len(serial)} serial" if serial else ""))
+with open(os.path.join(out, "serial.txt"), "w") as f:
+    f.write("\n".join(sorted(serial)) + ("\n" if serial else ""))
 with open(os.path.join(out, "expected.txt"), "w") as f:
-    f.write(f"{len(ui) + len(unit)}\n")
+    f.write(f"{len(ui) + len(unit) + len(serial)}\n")
 PY
 
 EXPECTED=$(cat "$OUT/expected.txt")
@@ -253,6 +292,22 @@ for n in $(seq 1 "$WORKERS"); do
   [[ "$pid" == 0 ]] && continue
   if ! wait "$pid"; then echo "    worker $n FAILED"; fail=1; fi
 done
+# THE SERIAL PHASE. One simulator, one test at a time, after the pool has
+# finished -- so the engine is not being called by anything else.
+SERIAL_TESTS=()
+while read -r t; do [[ -n "$t" ]] && SERIAL_TESTS+=("$t"); done < "$OUT/serial.txt"
+if (( ${#SERIAL_TESTS[@]} > 0 )); then
+  echo "==> ${#SERIAL_TESTS[@]} serial tests, one at a time (the deletion class)"
+  serial_args=()
+  for t in "${SERIAL_TESTS[@]}"; do serial_args+=("-only-testing:$t"); done
+  if ! xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
+        -destination "platform=iOS Simulator,id=${udids[0]}" \
+        -resultBundlePath "$OUT/serial.xcresult" \
+        "${serial_args[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/serial.log" 2>&1; then
+    echo "    serial phase FAILED"; fail=1
+  fi
+fi
+
 ELAPSED=$(( $(date +%s) - START ))
 
 # Did they actually RUN? Two xcodebuild runs on one simulator report success
@@ -264,17 +319,22 @@ import json, subprocess, sys, os
 out, workers, expected, durfile = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 total = passed = failed = skipped = 0
 durations = {}
-for n in range(1, workers + 1):
-    path = os.path.join(out, f"worker-{n}.xcresult")
+bundles = [(f"worker {n}", os.path.join(out, f"worker-{n}.xcresult"))
+           for n in range(1, workers + 1)]
+serial_bundle = os.path.join(out, "serial.xcresult")
+if os.path.exists(serial_bundle):
+    bundles.append(("serial", serial_bundle))
+for label, path in bundles:
+    n = label
     if not os.path.exists(path):
-        print(f"    worker {n}: NO RESULT BUNDLE"); continue
+        print(f"    {label}: NO RESULT BUNDLE"); continue
     s = json.loads(subprocess.check_output(
         ["xcrun", "xcresulttool", "get", "test-results", "summary",
          "--path", path, "--format", "json"]))
     t = s.get("totalTestCount", 0)
     total += t; passed += s.get("passedTests", 0)
     failed += s.get("failedTests", 0); skipped += s.get("skippedTests", 0)
-    print(f"    worker {n}: {t} tests, {s.get('failedTests',0)} failed")
+    print(f"    {label}: {t} tests, {s.get('failedTests',0)} failed")
     try:
         tests = json.loads(subprocess.check_output(
             ["xcrun", "xcresulttool", "get", "test-results", "tests",

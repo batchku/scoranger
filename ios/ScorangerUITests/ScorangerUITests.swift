@@ -535,14 +535,15 @@ final class ScorangerUITests: XCTestCase {
     /// -- and that signal is on the far side of an engine round trip. The
     /// second gives only the redraw after it a short budget.
     ///
-    /// The ceiling on the first phase is deliberately large and is NOT a
-    /// guess at how long a delete takes. A delete on a quiet machine lands in
-    /// about 25 seconds; the same delete under four gate workers all calling
-    /// the embedded engine has been measured past 210, which is contention
-    /// rather than slowness. The ceiling exists to stop an infinite hang, not
-    /// to express an expectation -- so it is set well above anything observed
-    /// and the WAIT is on the signal, which is what gate.sh's own header asks
-    /// for.
+    /// The ceiling is a BACKSTOP against an infinite hang and nothing else.
+    /// It is 180, unchanged, which is five times the 25-32 seconds a delete
+    /// takes on a quiet machine -- so it is not what makes this pass.
+    ///
+    /// It was briefly raised to 420 to survive four workers all calling the
+    /// embedded engine at once, and that was the wrong fix: it left the
+    /// contention in place and bought a pass with a number. The contention is
+    /// gone instead -- these tests run outside the parallel pool, one at a
+    /// time (`SERIAL` in gate.sh) -- so the original ceiling is ample again.
     ///
     /// It returns a reason rather than a bool so the failure names the phase.
     /// This test has cost two release gates, both times reported as "still in
@@ -558,7 +559,7 @@ final class ScorangerUITests: XCTestCase {
     }
 
     private func waitForDelete(of row: XCUIElement,
-                               signal: TimeInterval = 420,
+                               signal: TimeInterval = 180,
                                redraw: TimeInterval = 30) -> DeleteOutcome {
         // Both, because which of the two a SwiftUI overlay exposes is not
         // ours to decide: the bar carries the identifier and the Undo inside
@@ -585,7 +586,7 @@ final class ScorangerUITests: XCTestCase {
     /// Kept under the old name for the other callers, now that the one that
     /// diagnoses uses the outcome.
     private func waitForDeleteToLand(of row: XCUIElement,
-                                     signal: TimeInterval = 420,
+                                     signal: TimeInterval = 180,
                                      redraw: TimeInterval = 30) -> Bool {
         waitForDelete(of: row, signal: signal, redraw: redraw) == .landed
     }
