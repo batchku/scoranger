@@ -68,21 +68,16 @@ struct PhotoImport: UIViewControllerRepresentable {
             }
         }
 
-        /// One picked item, as a file the import pipeline will accept.
+        /// One picked item, copied out as a file.
         ///
-        /// The provider hands back the asset in its ORIGINAL format, and an
-        /// iPhone's camera roll is full of HEIC while a screenshot is PNG --
-        /// both fine. What is not guaranteed is that everything in a library
-        /// is one of the four the engine takes, so anything else is
-        /// transcoded rather than handed over to be refused. That is the same
-        /// rule the file picker follows by declaring only the types the
-        /// pipeline accepts (`ImportKind.imageTypes`); here the umbrella
-        /// cannot be narrowed, so the file is converted instead.
+        /// No conversion here: anything the engine will not take is
+        /// normalised at the SHARED entry point (`ScanImage.normalised`, from
+        /// `AppState.receiveFile`), because a picture from the camera roll and
+        /// a picture from Files are the same thing once there is a file --
+        /// §15 ruling 1, and a conversion on one route only is the drift it
+        /// forbids.
         static func file(from provider: NSItemProvider) async -> URL? {
-            guard let original = await copy(from: provider) else { return nil }
-            let suffix = original.pathExtension.lowercased()
-            if ScoreArtifact.imageSuffixes.contains(suffix) { return original }
-            return transcodeToPNG(original)
+            await copy(from: provider)
         }
 
         private static func copy(from provider: NSItemProvider) async -> URL? {
@@ -113,18 +108,5 @@ struct PhotoImport: UIViewControllerRepresentable {
             }
         }
 
-        /// Anything the engine does not take, in something it does.
-        private static func transcodeToPNG(_ url: URL) -> URL? {
-            guard let data = try? Data(contentsOf: url),
-                  let image = UIImage(data: data),
-                  let png = image.pngData() else { return nil }
-            let converted = url.deletingPathExtension().appendingPathExtension("png")
-            do {
-                try png.write(to: converted)
-                return converted
-            } catch {
-                return nil
-            }
-        }
     }
 }

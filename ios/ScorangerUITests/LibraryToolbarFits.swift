@@ -99,7 +99,7 @@ final class LibraryToolbarFits: XCTestCase {
         guard openLibrary(app) else { return XCTFail("the library never appeared") }
 
         app.descendants(matching: .any)["library-import"].firstMatch.tap()
-        for id in ["library-import-score", "library-import-photo",
+        for id in ["library-import-score", "library-import-photos",
                    "library-import-folder", "library-import-book"] {
             let element = app.descendants(matching: .any)[id].firstMatch
             XCTAssertTrue(element.waitForExistence(timeout: 20),
@@ -107,7 +107,7 @@ final class LibraryToolbarFits: XCTestCase {
             XCTAssertTrue(element.isHittable, "\(id) is present but not tappable")
         }
         snap("library-import-band")
-        assertFitsOnScreen(["library-import-score", "library-import-photo",
+        assertFitsOnScreen(["library-import-score", "library-import-photos",
                             "library-import-folder", "library-import-book"],
                            in: app, context: "import band")
 

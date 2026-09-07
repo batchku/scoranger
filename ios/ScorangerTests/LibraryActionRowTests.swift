@@ -10,7 +10,7 @@ final class LibraryActionRowTests: XCTestCase {
     /// exported folder, and a book to take arrangements out of.
     func testTheRowCarriesEveryActionInThePanelsOldOrder() {
         XCTAssertEqual(LibraryQuickAction.ordered,
-                       [.importScore, .importPhoto, .importFolder,
+                       [.importScore, .importPhotos, .importFolder,
                         .importBook, .new, .newSetlist])
         XCTAssertEqual(LibraryQuickAction.ordered.count,
                        LibraryQuickAction.allCases.count,
@@ -27,7 +27,7 @@ final class LibraryActionRowTests: XCTestCase {
     /// they are, in the same shape as their siblings.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
-                       ["library-import-score", "library-import-photo",
+                       ["library-import-score", "library-import-photos",
                         "library-import-folder", "library-import-book",
                         "library-new-arrangement", "library-new-setlist"])
         XCTAssertFalse(LibraryQuickAction.allCases

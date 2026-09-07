@@ -23,15 +23,17 @@ enum ImportKind: Equatable {
     /// was the one route that greyed them out: Ali's own JPEG, a PNG and every
     /// screenshot on his iPad, unselectable beside the PDFs.
     ///
-    /// EXACTLY the three the pipeline takes, and deliberately not the
-    /// `public.image` umbrella. The engine imports four suffixes
-    /// (`workspace.IMAGE_SUFFIXES`, and `ScoreArtifact.imageSuffixes` beside
-    /// it); an umbrella would make a GIF or a TIFF selectable and then refuse
-    /// it after the reader had chosen it, which is the same bug wearing better
-    /// clothes. `ImportContentTypeTests` asserts the relationship in both
-    /// directions -- nothing the app takes is greyed out, and nothing offered
-    /// would be refused -- so widening the engine is what lets this widen.
-    static let imageTypes: [UTType] = [.jpeg, .png, .heic]
+    /// The three the engine takes by name, AND the umbrella (§15).
+    ///
+    /// The umbrella was the open question: the engine imports four suffixes,
+    /// so offering `public.image` would let a GIF or a TIFF past the grey and
+    /// into a failed import. The ruling keeps the umbrella, and what makes it
+    /// truthful is that the PIPELINE normalises rather than the picker
+    /// narrowing -- `ScanImage.normalised` converts anything the engine will
+    /// not take into something it will, at the one entry point both routes go
+    /// through. So the picker can offer every picture the reader can see,
+    /// because every picture the reader can see now imports.
+    static let imageTypes: [UTType] = [.jpeg, .png, .heic, .image]
 
     /// One or more score files.
     case file

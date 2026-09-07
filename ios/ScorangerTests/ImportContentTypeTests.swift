@@ -46,22 +46,68 @@ final class ImportContentTypeTests: XCTestCase {
         }
     }
 
-    /// The picker offers NOTHING the pipeline would then refuse.
+    /// §15's own assertion, in one line: the array that greys images out now
+    /// includes them.
+    func testFilesOfferPictures() {
+        let declared = Set(ImportKind.file.contentTypes.map(\.identifier))
+        XCTAssertTrue(declared.isSuperset(of: ["public.jpeg", "public.png",
+                                               "public.heic", "public.image"]),
+                      "the picker still greys pictures out: \(declared.sorted())")
+    }
+
+    /// BOTH IMAGE ROUTES END IN THE SAME PIPELINE (§15 ruling 1).
     ///
-    /// The other half, and the reason `public.image` is not among the declared
-    /// types. An umbrella would make a GIF or a TIFF selectable, and the
-    /// engine takes four image suffixes -- so the reader would get past the
-    /// grey and into a failed import, which is the same bug wearing better
-    /// clothes. When the engine widens, this test is what says the picker may
-    /// widen with it.
+    /// A picture from Files and a picture from the camera roll are the same
+    /// thing once there is a file, and this is the guard against them drifting
+    /// into two. `receiveFile` sends anything that is not notation down the
+    /// scan path -- so an image and a PDF take the identical branch, and a
+    /// change that special-cased one would fail here.
+    func testAnImageImportsLikeAScan() {
+        for picture in ["page.jpg", "page.jpeg", "page.png", "page.heic",
+                        "IMG_0421.HEIC", "Screenshot.PNG"] {
+            let kind = ScoreArtifact.kind(ofFile: picture)
+            XCTAssertEqual(kind, .image, "\(picture) is not seen as a picture")
+            XCTAssertFalse(kind.isNotation,
+                           "\(picture) would take the notation path, not the "
+                           + "scan path a PDF takes")
+        }
+        // The same branch, reached by the thing it has to match.
+        XCTAssertFalse(ScoreArtifact.kind(ofFile: "scan.pdf").isNotation)
+        // And notation is still notation, so "same pipeline" has not become
+        // "one pipeline for everything".
+        for notation in ["piece.musicxml", "piece.mxl", "piece.mid"] {
+            XCTAssertTrue(ScoreArtifact.kind(ofFile: notation).isNotation)
+        }
+    }
+
+    /// The umbrella is safe because the PIPELINE normalises, not because the
+    /// picker narrows. Anything the engine will not take is converted at the
+    /// one entry point both routes share.
+    func testTheUmbrellaIsMadeSafeByNormalising() {
+        // Already acceptable: handed back untouched, no needless rewrite.
+        let jpeg = FileManager.default.temporaryDirectory
+            .appending(path: "already.jpg")
+        XCTAssertEqual(ScanImage.normalised(jpeg), jpeg)
+        // Not an image at all: refused, rather than a blank page in the
+        // library that nobody can tell from a failed load.
+        let nonsense = FileManager.default.temporaryDirectory
+            .appending(path: "not-an-image-\(UUID().uuidString).tiff")
+        try? Data("not an image".utf8).write(to: nonsense)
+        XCTAssertNil(ScanImage.normalised(nonsense))
+    }
+
+    /// The picker offers nothing the pipeline would then refuse -- and since
+    /// §15 the umbrella is included, so the claim is carried by
+    /// `ScanImage.normalised` rather than by the list being short.
+    ///
+    /// Each declared image type is either one the engine takes by name, or the
+    /// umbrella, which normalising makes good. A type that was neither would
+    /// be a picture a reader could choose and nothing could import.
     func testThePickerOffersNothingThePipelineWouldRefuse() {
         let accepted = ScoreArtifact.imageSuffixes
         for type in ImportKind.file.contentTypes where type.conforms(to: .image) {
+            if type == .image { continue }   // the umbrella, normalised
             let suffixes = Set(type.tags[.filenameExtension] ?? [])
-            XCTAssertFalse(suffixes.isEmpty,
-                           "\(type.identifier) names no file extension, so it "
-                           + "is an umbrella and cannot be checked against "
-                           + "what the engine takes")
             XCTAssertFalse(suffixes.isDisjoint(with: accepted),
                            "\(type.identifier) is selectable but none of its "
                            + "extensions \(suffixes.sorted()) is one the "

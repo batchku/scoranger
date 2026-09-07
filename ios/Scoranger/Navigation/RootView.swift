@@ -160,13 +160,17 @@ struct RootView: View {
             PhotoImport(onPicked: { urls in
                 showPhotoImport = false
                 guard !urls.isEmpty else {
-                    state.notice = "That photo could not be read."
+                    state.notice = "That picture could not be read."
                     return
                 }
-                // The SAME entry point a file uses, so a photographed page
-                // becomes an IMAGE-tagged piece exactly as a shared-in one
-                // does.
-                for url in urls { state.receiveFile(at: url, intoPiece: nil) }
+                // SEVERAL PHOTOS ARE ONE ARRANGEMENT OF n PAGES (§15 ruling
+                // 2), in the order they were picked -- somebody photographing
+                // a score is photographing a piece, and PHPicker hands its
+                // results back in selection order, which is page order.
+                //
+                // Files multi-select is unchanged and still means n
+                // arrangements: there, n files really are n things.
+                state.receivePhotographedPages(urls)
                 segment = .pieces
             }, onCancel: { showPhotoImport = false })
             .ignoresSafeArea()
@@ -360,7 +364,7 @@ struct RootView: View {
                     // like. Asking first put a modal-shaped question in front
                     // of the one thing the button exists to do.
                     onImport: { importIntent.ask(for: .file) },
-                    onImportPhoto: { showPhotoImport = true },
+                    onImportPhotos: { showPhotoImport = true },
                     onImportFolder: { importIntent.ask(for: .folder) },
                     onImportBook: { importIntent.ask(for: .book) },
                     onSettings: {

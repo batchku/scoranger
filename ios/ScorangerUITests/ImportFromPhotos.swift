@@ -31,11 +31,36 @@ final class ImportFromPhotos: XCTestCase {
         settle(search, still: 0.8)
 
         app.descendants(matching: .any)["library-import"].firstMatch.tap()
-        let photo = app.descendants(matching: .any)["library-import-photo"].firstMatch
+        let photo = app.descendants(matching: .any)["library-import-photos"].firstMatch
         XCTAssertTrue(photo.waitForExistence(timeout: 20),
-                      "Photo is not in the Import band")
+                      "Photos is not in the Import band")
         XCTAssertTrue(photo.isHittable)
-        snap("import-band-with-photo")
+        snap("import-band-with-photos")
+
+        // §15's order and its divider: Score and Photos are one arrangement
+        // out of one thing; Folder and Book are a collection. And every row
+        // carries its subtitle, which is what keeps Score findable for a
+        // picture that is already in Files.
+        for (identifier, expected) in [("library-import-score", "Score"),
+                                       ("library-import-photos", "Photos"),
+                                       ("library-import-folder", "Folder"),
+                                       ("library-import-book", "Book")] {
+            let row = app.descendants(matching: .any)[identifier].firstMatch
+            XCTAssertTrue(row.exists, "\(expected) is missing from the band")
+            XCTAssertTrue(row.label.contains(expected),
+                          "\(identifier) says \"\(row.label)\"")
+        }
+        let score = app.descendants(matching: .any)["library-import-score"].firstMatch
+        let photos = app.descendants(matching: .any)["library-import-photos"].firstMatch
+        let folder = app.descendants(matching: .any)["library-import-folder"].firstMatch
+        XCTAssertLessThan(score.frame.minY, photos.frame.minY,
+                          "Photos should sit under Score")
+        XCTAssertLessThan(photos.frame.minY, folder.frame.minY,
+                          "Folder should sit under Photos")
+        // The subtitle is on the row, so the row's label carries it.
+        XCTAssertTrue(score.label.lowercased().contains("picture"),
+                      "Score does not say it takes a picture, which is what "
+                      + "makes it findable for one: \"\(score.label)\"")
 
         photo.tap()
         // PHPicker runs OUT OF PROCESS, so it is not part of this app's
@@ -46,7 +71,7 @@ final class ImportFromPhotos: XCTestCase {
         let appeared = cancel.waitForExistence(timeout: 20)
             || gallery.wait(for: .runningForeground, timeout: 20)
         XCTAssertTrue(appeared,
-                      "tapping Photo did not present the photo picker")
+                      "tapping Photos did not present the photo picker")
         snap("photo-picker-open")
 
         if cancel.exists { cancel.tap() }
