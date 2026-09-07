@@ -15,8 +15,9 @@ import XCTest
 /// mostly about sameness: the same identifiers, the same wording, the same way
 /// out, whichever entrance was used.
 ///
-/// They run on a phone deliberately: it is the width where the bar offers
-/// nothing, so ⋯ is the only route there is.
+/// At phone width the bar offers nothing at all, so ⋯ is the only route there
+/// is; on an iPad the "+" is also on the bar. The row is asserted at whatever
+/// width the test happens to run, because the ruling puts it at every width.
 final class SetlistFromTheScore: XCTestCase {
 
     private func openScore(_ app: XCUIApplication) {
@@ -61,11 +62,11 @@ final class SetlistFromTheScore: XCTestCase {
         let app = XCUIApplication()
         openScore(app)
 
-        // the premise: at this width the bar has no "+", so this row is the
-        // only route from the music
-        XCTAssertFalse(app.buttons["score-add-setlist"].exists,
-                       "this test is pointless if the bar already offers it here")
-
+        // The row is there at EVERY width -- that is the ruling, and it is why
+        // this asserts nothing about the bar. An earlier version asserted the
+        // bar had no "+", which is true on a phone, false on the iPad the gate
+        // runs on, and contradicts §16 either way: a menu whose contents move
+        // with the width is the thing being fixed.
         openOptions(app)
         let row = setlistsRow(app)
         XCTAssertTrue(row.waitForExistence(timeout: 20),

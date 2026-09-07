@@ -150,7 +150,8 @@ for prerequisite in \
   "$PWD/../testdata/app-samples:the sample scores the app seeds its library from" \
   "$PWD/Vendor/Python.xcframework:the embedded Python" \
   "$PWD/Vendor/verovio:the engraver" \
-  "$PWD/../engine/.venv/bin/python:the engine venv"
+  "$PWD/../engine/.venv/bin/python:the engine venv" \
+  "$PWD/../.env:the OpenRouter key baked into the build (Settings reports which key is in use, and a build with none takes a different branch)"
 do
   path="${prerequisite%%:*}"
   what="${prerequisite#*:}"

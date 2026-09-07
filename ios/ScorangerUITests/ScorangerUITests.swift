@@ -1777,12 +1777,17 @@ final class ScorangerUITests: XCTestCase {
         }
         // and the key fields say which key is actually in use, rather than
         // showing an empty box that means two different things
+        // CONTAINS[c], not CONTAINS. The third branch of keyStatus reads "No
+        // key: this build has none built in", with a capital N, so a
+        // case-sensitive "no key" could never match it -- and that branch is
+        // only reached by a build with no baked key, which is why the hole sat
+        // here unseen until one was built in a worktree without a .env.
         XCTAssertTrue(app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS %@", "built into this build")).count > 0
+            NSPredicate(format: "label CONTAINS[c] %@", "built into this build")).count > 0
             || app.staticTexts.containing(
-                NSPredicate(format: "label CONTAINS %@", "saved key")).count > 0
+                NSPredicate(format: "label CONTAINS[c] %@", "saved key")).count > 0
             || app.staticTexts.containing(
-                NSPredicate(format: "label CONTAINS %@", "no key")).count > 0,
+                NSPredicate(format: "label CONTAINS[c] %@", "no key")).count > 0,
             "the key fields do not say which key is in use")
         shot("settings-labelled")
         closeSettings()
