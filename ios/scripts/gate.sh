@@ -123,6 +123,18 @@ ENGINE_SERIAL=(
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
+  # The two audio sweeps, for a different reason from the three above: not
+  # engine contention but MEMORY. Each walks the whole General MIDI catalogue
+  # -- 128 melodic programs on three keys, then every drum kit -- and each of
+  # those is an offline CoreAudio render reading a patch out of a 31MB sound
+  # bank. The test already drains an autorelease pool per program, which is
+  # what stopped it crashing the first two times; it crashed again here, on
+  # the worker that also carries all 1148 unit tests, and passes solo in 1.5
+  # seconds. Four workers each holding a sound bank and a PCM buffer is the
+  # cliff, so this one goes over it alone. The assertions are untouched --
+  # same programs, same keys, same silence threshold.
+  "ScorangerTests/PlaybackInstrumentGraphTests/testEveryMelodicProgramActuallyMakesASound()"
+  "ScorangerTests/PlaybackInstrumentGraphTests/testEveryDrumKitActuallyMakesASound()"
 )
 
 # ---------------------------------------------------------------- preflight
