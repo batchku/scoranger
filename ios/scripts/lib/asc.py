@@ -269,6 +269,22 @@ def cmd_ensure_profile(args: argparse.Namespace) -> int:
     return 0
 
 
+def beta_states(build_id: str) -> dict:
+    """internalBuildState / externalBuildState for a build, or {} if unavailable.
+
+    `processingState` alone is not proof a build is usable, and twice it was
+    reported as one. Builds 174 and 176 both read VALID minutes after upload --
+    directly from this API -- and both later read INVALID with BOTH beta states
+    still stuck on PROCESSING. So VALID is a reading that can decay: Apple's
+    pipeline keeps working after it, and what says the work FINISHED is the
+    build reaching IN_BETA_TESTING.
+    """
+    try:
+        return get(f"builds/{build_id}/buildBetaDetail")["data"]["attributes"]
+    except Exception:
+        return {}
+
+
 def cmd_wait_build(args: argparse.Namespace) -> int:
     """Block until a build number shows up in App Store Connect."""
     apps = get(f"apps?filter[bundleId]={args.bundle_identifier}").get("data", [])
@@ -281,10 +297,20 @@ def cmd_wait_build(args: argparse.Namespace) -> int:
                      f"&filter[version]={args.version}").get("data", [])
         if builds:
             a = builds[0]["attributes"]
-            print(f"build {args.version}: {a.get('processingState')}"
+            state = a.get("processingState")
+            beta = beta_states(builds[0]["id"])
+            internal = beta.get("internalBuildState", "?")
+            print(f"build {args.version}: {state} / {internal}"
                   f" (uploaded {a.get('uploadedDate')})")
-            if a.get("processingState") in ("VALID", "FAILED", "INVALID"):
-                return 0 if a.get("processingState") == "VALID" else 1
+            if state in ("FAILED", "INVALID"):
+                return 1
+            # VALID is necessary and not sufficient -- see beta_states. Waiting
+            # for IN_BETA_TESTING is what makes "the build is on TestFlight"
+            # a claim that does not decay ten minutes later.
+            if state == "VALID" and internal == "IN_BETA_TESTING":
+                return 0
+            if state == "VALID" and internal == "PROCESSING":
+                print("      VALID but still processing for beta; waiting")
         time.sleep(args.interval)
     print(f"build {args.version} did not register within {args.timeout}s. "
           "Apple sometimes lags; check App Store Connect directly.")
@@ -299,7 +325,10 @@ def cmd_latest_builds(args: argparse.Namespace) -> int:
                  "&sort=-uploadedDate").get("data", [])
     for b in builds:
         a = b["attributes"]
+        beta = beta_states(b["id"])
         print(f"  build {a['version']:>5}  {a['processingState']:<10}"
+              f"  {beta.get('internalBuildState', '?'):<22}"
+              f"  {beta.get('externalBuildState', '?'):<28}"
               f"  uploaded {a.get('uploadedDate','')}")
     return 0
 
