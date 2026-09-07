@@ -192,18 +192,28 @@ struct ContentView: View {
                                push: { optionsSection = $0 },
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
-                               // The checklist is the title band's, so the
-                               // options panel closes on the way -- the same
-                               // hand-off the "+" makes from the bar, arriving
-                               // at the same place.
-                               onSetlists: {
-                                   scoreScreen = nil
-                                   optionsSection = nil
-                                   titleMenuMode = .setlists
-                                   state.titleMenuOpen = true
-                               })
+                               onSetlists: { scoreScreen = .setlists })
                 .background(Theme.Surface.ground)
                 .accessibilityIdentifier("score-options")
+        case .setlists:
+            // The pieces list's own screen (Route.setlistsFor -> this same
+            // view), pushed from here because the score's stack is keyed by
+            // ScoreScreen and not by Route. Nothing about it is re-implemented:
+            // the checklist, the inline "New set list" that files this
+            // arrangement into what it makes, and the wording are all the ones
+            // a reader met coming the other way.
+            if let score = state.selectedScore {
+                // No identifier on the container, deliberately. An
+                // accessibilityIdentifier applied to a whole Screen lands on
+                // its first element and REPLACES the one already there --
+                // PieceScreen's back button reports `screen-piece-<slug>` and
+                // not `screen-back` for exactly that reason. Naming this one
+                // would have made the two entrances differ in the tree, which
+                // is the one thing §16 is trying to avoid.
+                SetlistsForScreen(slug: score.slug,
+                                  onBack: { scoreScreen = .options })
+                    .background(Theme.Surface.ground)
+            }
         case .details:
             if let score = state.selectedScore {
                 Screen(title: "Details", backLabel: "Options",

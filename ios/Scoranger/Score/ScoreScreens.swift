@@ -10,6 +10,10 @@ enum ScoreScreen: Hashable {
     case options
     case optionsSection(String)
     case details
+    /// The set list checklist -- the SAME screen the pieces list pushes
+    /// (Route.setlistsFor), rendered here because the score's stack is keyed by
+    /// this enum and not by Route (§16). One behaviour, two entrances.
+    case setlists
     case settings
     case chatModel
 }
@@ -35,10 +39,9 @@ struct ScoreOptionsScreen: View {
     var push: (String) -> Void
     var onSettings: () -> Void
     var onDetails: () -> Void
-    /// Open the set list checklist, which is the title band's and not this
-    /// screen's -- the same route `onDetails` and `onSettings` take, and for
-    /// the same reason: the checklist already exists and a second copy of it
-    /// would be a second thing to keep in step.
+    /// Push the set list checklist -- the pieces list's own SetlistsForScreen,
+    /// which is what makes this a second entrance rather than a second screen
+    /// (§16). Takes the route `onDetails` and `onSettings` take.
     var onSetlists: () -> Void = {}
 
     /// The format currently being written, so its row can say so: engraving a
@@ -149,40 +152,39 @@ struct ScoreOptionsScreen: View {
             // and NOTHING ELSE -- which is what made a second list necessary.
             // The section body below is kept: "All N versions" in the dropdown
             // still pushes it.
-            // Set lists (0.6.18, Ali). The "+" on the bar opens this same
-            // checklist -- and is the FIRST thing the bar yields as it
-            // narrows, so on a phone it is never there at all
-            // (ScoreBarLayoutTests asserts exactly that). The reasoning when it
-            // was made to yield was that "the library's set list picker still
-            // offers the same operation, so this costs a shortcut rather than a
-            // feature"; Ali's report is that leaving the score to file it is
-            // not the same thing, and he is right -- a reader deciding a set is
-            // looking at the music while they decide.
-            //
-            // Unconditional, unlike the transport switch above. That switch is
-            // in one place at a time because a switch showing its own state,
-            // twice, reads as two switches; this is a row that opens a picker,
-            // and the whole complaint being answered is a control that was
-            // there at one width and gone at another.
-            ScreenRow(title: "Set lists",
-                      // stated in the row's own grammar: every value here is a
-                      // lowercase answer ("on", "nothing selected"), while the
-                      // same sentence is the + button's accessibility value
-                      // where it stands alone and is capitalised
-                      value: state.selectedScore.map { score in
-                          let sentence = SetlistMembership.summary(
-                              for: score.slug, in: state.manifest?.setlists ?? [])
-                          return sentence.prefix(1).lowercased() + sentence.dropFirst()
-                      },
-                      identifier: "more-setlists") {
-                onSetlists()
-            }
             ScreenRow(title: "Piece & arrangement details",
                       value: state.selectedScore.flatMap { score in
                           state.placement(of: score.slug)?.piece.name
                       },
                       identifier: "more-details") {
                 onDetails()
+            }
+            // Set lists (§16, Ali). The "+" on the bar opens the same
+            // membership -- and is the FIRST control the bar yields as it
+            // narrows, so on a phone it is never there at all
+            // (ScoreBarLayoutTests has asserted exactly that since the day it
+            // was made to yield). The reasoning then was written down: "the
+            // library's set list picker still offers the same operation, so
+            // this costs a shortcut rather than a feature." True about the
+            // operation, wrong about the reader -- someone deciding what goes
+            // in a set is looking at the music while they decide.
+            //
+            // It PUSHES the pieces list's own screen, and that is the ruling:
+            // not a popover (the app has none, and this is not the place to
+            // introduce one), not a band, and not a second copy of the
+            // checklist. Both entrances land on SetlistsForScreen, so the
+            // membership, the wording and the way out are one thing.
+            //
+            // Grouped with details and filing, above Share & export: these
+            // three rows are about where this arrangement SITS and who it
+            // belongs to, and the two below are about the app.
+            ScreenRow(title: "Set lists",
+                      value: state.selectedScore.map { score in
+                          SetlistMembership.rowValue(
+                              for: score.slug, in: state.manifest?.setlists ?? [])
+                      },
+                      identifier: "more-setlists") {
+                onSetlists()
             }
             ScreenRow(title: "Share & export", value: "MusicXML · MIDI · PDF",
                       identifier: "more-export") {

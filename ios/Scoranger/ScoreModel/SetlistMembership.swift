@@ -77,6 +77,21 @@ enum SetlistMembership {
     /// "No set lists yet" and "In no set lists" are different facts and are
     /// said differently: one means there is nothing to add to, the other means
     /// there is and this arrangement is in none of them.
+    /// The value a "Set lists" ROW shows, as PieceScreen has always shown it.
+    ///
+    /// Named a single set list rather than counting to one: "Friday night" says
+    /// more than "1 set list", and the row has the width for it. Shared because
+    /// the score's Options screen shows the same row leading to the same screen
+    /// (§16), and two spellings of one answer is how the two entrances would
+    /// start disagreeing about what the reader is looking at.
+    static func rowValue(for scoreSlug: String, in setlists: [SetlistDoc]) -> String {
+        let holding = setlists.filter { $0.arrangements.contains(scoreSlug) }
+        if holding.isEmpty { return "none" }
+        return holding.count == 1 ? holding[0].name : "\(holding.count) set lists"
+    }
+
+    /// The same fact as a SENTENCE, for the "+" button's accessibility value,
+    /// where it stands on its own with no row title in front of it.
     static func summary(for scoreSlug: String, in setlists: [SetlistDoc]) -> String {
         guard !setlists.isEmpty else { return "No set lists yet" }
         let count = setlists.filter { $0.arrangements.contains(scoreSlug) }.count

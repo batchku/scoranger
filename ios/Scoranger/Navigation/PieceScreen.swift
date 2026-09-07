@@ -335,11 +335,11 @@ struct ArrangementScreen: View {
 
     private var pieceName: String? { state.placement(of: score.slug)?.piece.name }
 
+    /// Shared with the score's Options screen, which leads to the same screen
+    /// by the same name (§16).
     private var setlistSummary: String {
-        let holding = (state.manifest?.setlists ?? [])
-            .filter { $0.arrangements.contains(score.slug) }
-        if holding.isEmpty { return "none" }
-        return holding.count == 1 ? holding[0].name : "\(holding.count) set lists"
+        SetlistMembership.rowValue(for: score.slug,
+                                   in: state.manifest?.setlists ?? [])
     }
 
     private var deleteWarning: String {
