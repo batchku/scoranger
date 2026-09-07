@@ -360,8 +360,11 @@ struct ScoreOptionsScreen: View {
             case "Selection & chat":
                 ScreenRow(title: "Clear selection", leads: false,
                           identifier: "selection-clear") { state.clearSelection(); onBack() }
-                note(mode.pencilMeaning + ". Hold a finger down while drawing to add "
-                     + "to the selection; tap an element to drop it.")
+                // The mode used to be named here -- "Pencil: select" -- and
+                // that label is what Ali asked off every screen. The guidance
+                // under it is the part worth keeping.
+                note("Hold a finger down while drawing to add to the "
+                     + "selection; tap an element to drop it.")
             case "Transpose":
                 ScreenRow(title: "Up a semitone", leads: false,
                           identifier: "transpose-up") { state.transpose(semitones: 1); onBack() }

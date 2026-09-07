@@ -94,13 +94,4 @@ enum ScoreMode: String, CaseIterable, Equatable {
         case .performance: return "Performance"
         }
     }
-
-    /// What the top bar says the Pencil is for.
-    var pencilMeaning: String {
-        switch self {
-        case .read:        return "Pencil: select"
-        case .edit:        return "Pencil: ink"
-        case .performance: return "Pencil: turn"
-        }
-    }
 }
