@@ -47,6 +47,11 @@ So:
   `check_chord_diagrams.py` and `check_guitar_tab.py` (the guitar work: the
   shapes against a published chart, the tab against the open strings, and both
   renderers against one golden fragment),
+  `check_privacy_manifests.py` (every embedded framework that links OpenSSL
+  carries an accurate PrivacyInfo.xcprivacy -- Apple refused EXTERNAL
+  TestFlight distribution of 0.6.15 with ITMS-91061 for _hashlib and _ssl, and
+  a warning only becomes a rejection at beta App Review, which internal
+  testing never reaches),
   `check_playback.py` (the MIDI and the bar map describe the same performance),
   and `check_bar_frames.py` (the rectangle the geometry reports for measure N
   IS the Nth bar -- Verovio nests a slur inside the measure it starts in, and a

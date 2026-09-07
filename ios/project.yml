@@ -62,6 +62,11 @@ targets:
       - name: Install Python stdlib
         script: |
           set -e
+          # Before install_python turns the .so files into frameworks: the
+          # privacy manifests OpenSSL's two extension modules need, dropped
+          # where utils.sh's own hook will move them in and sign them
+          # (ITMS-91061 -- see scripts/seed_privacy_manifests.sh).
+          bash "$PROJECT_DIR/scripts/seed_privacy_manifests.sh"
           source "$PROJECT_DIR/Vendor/Python.xcframework/build/utils.sh"
           install_python Vendor/Python.xcframework app app_packages
         basedOnDependencyAnalysis: false
