@@ -527,21 +527,67 @@ final class ScorangerUITests: XCTestCase {
     ///
     /// The long budget is a backstop, not a wait: this returns as soon as
     /// either signal lands, so a fast machine pays nothing for it.
-    private func waitForDeleteToLand(of row: XCUIElement,
-                                     signal: TimeInterval = 180,
-                                     redraw: TimeInterval = 30) -> Bool {
+    /// Wait for a delete to LAND, and say which half failed if it does not.
+    ///
+    /// Two phases, because they fail for different reasons and a single
+    /// boolean cannot tell them apart. The first waits for the app's own
+    /// signal that the work RETURNED -- the undo bar, or the row simply gone
+    /// -- and that signal is on the far side of an engine round trip. The
+    /// second gives only the redraw after it a short budget.
+    ///
+    /// The ceiling on the first phase is deliberately large and is NOT a
+    /// guess at how long a delete takes. A delete on a quiet machine lands in
+    /// about 25 seconds; the same delete under four gate workers all calling
+    /// the embedded engine has been measured past 210, which is contention
+    /// rather than slowness. The ceiling exists to stop an infinite hang, not
+    /// to express an expectation -- so it is set well above anything observed
+    /// and the WAIT is on the signal, which is what gate.sh's own header asks
+    /// for.
+    ///
+    /// It returns a reason rather than a bool so the failure names the phase.
+    /// This test has cost two release gates, both times reported as "still in
+    /// the library after deleting it" -- which is true of an engine that never
+    /// answered and of a list that never redrew, and those are not the same
+    /// bug.
+    private enum DeleteOutcome: Equatable {
+        case landed
+        /// The engine never answered: no undo bar, and the row is still there.
+        case noSignal(waited: TimeInterval)
+        /// It answered, and the list did not redraw.
+        case noRedraw
+    }
+
+    private func waitForDelete(of row: XCUIElement,
+                               signal: TimeInterval = 420,
+                               redraw: TimeInterval = 30) -> DeleteOutcome {
         // Both, because which of the two a SwiftUI overlay exposes is not
         // ours to decide: the bar carries the identifier and the Undo inside
         // it is unambiguously a button.
         let undoBar = app.otherElements["undo-bar"]
         let undoButton = app.buttons["undo-delete"]
-        let deadline = Date().addingTimeInterval(signal)
+        let started = Date()
+        let deadline = started.addingTimeInterval(signal)
+        var sawSignal = false
         while Date() < deadline {
-            if !row.exists { return true }
-            if undoBar.exists || undoButton.exists { break }
+            if !row.exists { return .landed }
+            if undoBar.exists || undoButton.exists {
+                sawSignal = true
+                break
+            }
             usleep(200_000)
         }
-        return waitForDisappearance(of: row, timeout: redraw)
+        guard sawSignal else {
+            return .noSignal(waited: Date().timeIntervalSince(started))
+        }
+        return waitForDisappearance(of: row, timeout: redraw) ? .landed : .noRedraw
+    }
+
+    /// Kept under the old name for the other callers, now that the one that
+    /// diagnoses uses the outcome.
+    private func waitForDeleteToLand(of row: XCUIElement,
+                                     signal: TimeInterval = 420,
+                                     redraw: TimeInterval = 30) -> Bool {
+        waitForDelete(of: row, signal: signal, redraw: redraw) == .landed
     }
 
     // MARK: - The score view's own chrome (NAVIGATION_SYSTEM.md §4.5)
@@ -2273,10 +2319,24 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(delete.waitForExistence(timeout: 10),
                       "no way to delete it from the screen that tells you it is broken")
         delete.tap()
-        if app.buttons["Delete"].waitForExistence(timeout: 10) { app.buttons["Delete"].tap() }
+        // NO confirmation step here, and waiting for one cost this test ten
+        // seconds on every run: `Delete this arrangement` calls
+        // `state.deleteScore` and closes the screen (ContentView), so the work
+        // starts on the tap. The line that waited for a "Delete" button was
+        // waiting for something the app has never shown.
 
-        XCTAssertTrue(waitForDeleteToLand(of: broken),
-                      "the broken arrangement is still in the library after deleting it")
+        switch waitForDelete(of: broken) {
+        case .landed:
+            break
+        case .noSignal(let waited):
+            XCTFail("the engine never answered the delete: no undo bar and the "
+                    + "row still there after \(Int(waited))s. On a quiet "
+                    + "machine this lands in about 25s.")
+        case .noRedraw:
+            XCTFail("the delete landed -- the undo bar appeared -- and the "
+                    + "library did not redraw: the broken arrangement is still "
+                    + "in the list.")
+        }
         shot("version-less-arrangement-deleted")
     }
 
