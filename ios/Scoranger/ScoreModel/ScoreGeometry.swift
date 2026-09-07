@@ -311,3 +311,30 @@ struct ScoreGeometry {
 private extension CGRect {
     var area: CGFloat { width * height }
 }
+
+extension ScoreGeometry {
+
+    /// How many systems each page holds, in page order.
+    ///
+    /// The observable #4 needs, and the reason it is on the geometry rather
+    /// than in a test: a page COUNT cannot tell a collapsed layout from a
+    /// short piece that genuinely fits. Ali's screenshot reads "p. 1 / 1" on
+    /// a folk tune, where one page may be right and one SYSTEM is not.
+    ///
+    /// Built from `BarPosition`, so it groups by the rule the playhead
+    /// already trusts rather than a second one.
+    var systemsPerPage: [Int] {
+        pages.map { BarPosition.systems(of: BarPosition.bars(onPage: $0)).count }
+    }
+
+    /// The same, as one line a test can read off the screen.
+    ///
+    /// Test-only scaffolding, surfaced under `-geometryProbe` and by nothing
+    /// else -- the same shape as the seed flags. It exists because the app is
+    /// the only place the iOS engrave path runs, and the engine's own Verovio
+    /// already answers this question in Python: the two counts have to be
+    /// compared to know whether a collapse is the renderer or the app.
+    var probeDescription: String {
+        "pages=\(pages.count) systems=\(systemsPerPage.map(String.init).joined(separator: ","))"
+    }
+}

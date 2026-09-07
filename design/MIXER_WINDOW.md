@@ -278,6 +278,46 @@ Each of these fails against the shipped build. That is the point of listing them
 
 ---
 
+## 9. Notes from the build (0.6.12, build 171 — VALID)
+
+Shipped and verified on iPad Pro 13-inch (full gate, 1121/1121), iPad mini,
+iPad Air 11-inch and iPhone 17 — 9/9 mixer suites each, both orientations,
+three text sizes. Ali's two faults are measured fixed: the header drags the
+window 88.4pt live, a fader drag moves it 0.0pt while changing its level, and
+the two-channel panel went from 27pt off the right edge to 7.5pt of slack.
+
+Three things for the designer, all **low priority** and none blocking:
+
+### 9.1 §1.1 and §8.4 cannot both hold
+
+§1.1 makes `mixer-grab` `.accessibilityHidden(true)` — right, it duplicates
+the park button and VoiceOver cannot drag — while §8.4 asks a UI test to drag
+`mixer-grab`. An accessibility-hidden element is not in the tree XCTest
+queries, so the two contradict.
+
+§1.1 was kept and the test drags the header's leading 44pt by coordinate,
+which is where the grab bar is drawn. If §8.4 should be authoritative instead,
+the grab bar needs to be visible to accessibility with no traits, and the
+reason §1.1 gives for hiding it needs an answer.
+
+### 9.2 The strip kept its `strip-*` identifiers
+
+§8.5 and §8.6 name `mixer-fader-0`, `mixer-value-0`, `mixer-label-0` and
+`mixer-sound-0`. Three of those are NEW and are exactly as specified. The
+other three already existed as `strip-mute-N`, `strip-fader-N` and
+`strip-sound-N`, with 23 references across 7 UI test files, and renaming buys
+nothing a reader can see. Say if the consistency is worth the churn.
+
+### 9.3 The expanded panel is 249pt, not 232
+
+§2 predicts 44 + 128 + 28 + 32 = 232 at normal text. Measured on a two-staff
+score at normal text: **249.5pt**. The difference is the rows taking their
+text's real line height rather than the estimate — `.data` is 13.13pt at
+normal size, not the 12 the old fixed row assumed, and that surplus lands in
+four rows.
+
+The collapse control still buys it back: 76pt collapsed, as specified.
+
 # 12. Compact amendment — the panel floats and is sized to its channels
 
 **§4.2 is withdrawn.** Both reported bugs are that section being implemented
