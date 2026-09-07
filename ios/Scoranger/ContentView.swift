@@ -191,7 +191,17 @@ struct ContentView: View {
                                },
                                push: { optionsSection = $0 },
                                onSettings: { scoreScreen = .settings },
-                               onDetails: { scoreScreen = .details })
+                               onDetails: { scoreScreen = .details },
+                               // The checklist is the title band's, so the
+                               // options panel closes on the way -- the same
+                               // hand-off the "+" makes from the bar, arriving
+                               // at the same place.
+                               onSetlists: {
+                                   scoreScreen = nil
+                                   optionsSection = nil
+                                   titleMenuMode = .setlists
+                                   state.titleMenuOpen = true
+                               })
                 .background(Theme.Surface.ground)
                 .accessibilityIdentifier("score-options")
         case .details:
