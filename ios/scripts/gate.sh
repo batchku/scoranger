@@ -114,10 +114,15 @@ SKIP=(
 # assigned to it reads as "true" to the `[[ -n "$SERIAL" ]]` that chooses the
 # whole-suite serial path -- which ran the entire gate on one simulator and
 # looked, from outside, exactly like a gate that had hung.
+# WITH the trailing "()", because that is how the enumeration spells a test
+# and the hold-out is an intersection against it. Without them the set came
+# out empty, the three stayed in the shards, no serial bundle was written, and
+# the gate went green having done none of this -- a fix that reported success
+# by doing nothing, which is worse than the flake it was meant to remove.
 ENGINE_SERIAL=(
-  ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted
-  ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast
-  ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton
+  "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
+  "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
+  "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
 )
 
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"
@@ -237,7 +242,14 @@ if not ids:
 serial = set()
 if os.path.exists(serial_file):
     serial = {line.strip() for line in open(serial_file) if line.strip()}
+missing = serial - ids
+if missing:
+    sys.exit("serial list names tests that were not enumerated -- check the "
+             "identifiers, including the trailing '()':\n  "
+             + "\n  ".join(sorted(missing)))
 serial &= ids
+if not serial:
+    sys.exit("the serial list is empty after matching the enumeration")
 ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/") and i not in serial)
 unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/"))
 
