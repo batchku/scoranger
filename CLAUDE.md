@@ -140,8 +140,19 @@ scor adjust-element <score> --part X [--kind harm|diagram|tab]
   # each renderer carries them across itself.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:
-  # six holes top to bottom, a 7th verse "+" for the overblown octave. Notes the
-  # whistle cannot play are reported, not faked.
+  # six holes top to bottom, a 7th verse "+" for the overblown octave.
+  # A whistle's range is two octaves and its tonic again at the top -- a D
+  # whistle plays D4 to D6 -- and EVERY note in it gets a diagram whatever its
+  # accidental is spelled as. Both halves of that were bugs Ali photographed as
+  # "missing tablature": the chart was keyed by the pitch's NAME, so a D# found
+  # no entry while the E-flat it is played identically to found one (and every
+  # other enharmonic failed the same way, which OMR and transposition produce
+  # freely); and the top D was treated as out of range, which is the top note
+  # of a great many tunes. A fingering is a fact about a SOUNDING pitch -- one
+  # hole pattern per semitone, twelve of them -- so that is how it is looked up
+  # (WHISTLE_D_BY_SEMITONE, derived from the published chart, not retyped).
+  # Notes genuinely outside the range are REPORTED with their bars, not faked
+  # and not silently dropped; nothing is drawn on the page for them.
   # The notation stores letters (X covered, O open, / half) and both renderers
   # draw them as circles — filled, hollow, half-filled — keyed on the `wf` lyric
   # tag: render.py::_fingering_diagrams and ios/Scoranger/FingeringDiagrams.swift,

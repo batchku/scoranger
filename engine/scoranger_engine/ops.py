@@ -1561,6 +1561,37 @@ WHISTLE_D_FINGERINGS = {
 
 WHISTLE_KEYS = {"D": "D4", "C": "C4", "E-": "E-4", "F": "F4", "G": "G4", "A": "A4"}
 
+# The same chart, keyed by SEMITONES above the whistle's own tonic, which is
+# how it is looked up.
+#
+# Ali's screenshot: diagrams under most notes and none under three of them,
+# circled, "missing tablature". Keying the chart by the pitch's NAME is why. A
+# fingering is a fact about a sounding pitch -- one hole pattern per semitone,
+# twelve of them -- and D# is the same six holes as E-flat, played with the same
+# finger. Asked for a D# the chart had no entry, so the note was reported as
+# having "no standard fingering" and left bare, and every enharmonic spelling
+# failed the same way: G-, A-, A#, D-, B#, C-, E#, F-. Optical recognition and
+# transposition both produce those spellings freely, which is how a run of
+# ordinary notes ends up with holes in it.
+#
+# Derived from the chart above rather than typed out again: the published fact
+# has one home, and a transcription error here could not be seen.
+WHISTLE_D_BY_SEMITONE = {
+    int(m21pitch.Pitch(f"{name}4").ps - m21pitch.Pitch("D4").ps) % 12: pattern
+    for name, pattern in WHISTLE_D_FINGERINGS.items()
+}
+assert len(WHISTLE_D_BY_SEMITONE) == 12, "every semitone of the octave has a fingering"
+
+# How far above its lowest note a whistle plays: two octaves, and then the
+# tonic again at the top.
+#
+# The top D of a D whistle is all six holes covered and blown hard, and it is in
+# every tutor book -- it is also the top note of a great many tunes, so leaving
+# it out put a gap on a common note. Above it (the third-octave E and beyond)
+# is possible on some instruments and not standard on any, so those stay
+# reported rather than guessed at.
+WHISTLE_TOP_SEMITONE = 24
+
 
 def _whistle_symbols(pattern: str) -> list[str]:
     table = {"x": COVERED, "o": OPEN, "h": HALF}
@@ -1626,8 +1657,6 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         raise ValueError(f"No fingering chart for a {whistle_key} whistle. "
                          f"Have: {sorted(WHISTLE_KEYS)}")
     lowest = m21pitch.Pitch(WHISTLE_KEYS[key])
-    # the transposition from a D whistle's chart to this whistle's
-    shift = m21interval.Interval(noteStart=m21pitch.Pitch("D4"), noteEnd=lowest)
 
     written = 0
     displaced = 0
@@ -1636,24 +1665,24 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         pitches = n.pitches if isinstance(n, m21chord.Chord) else [n.pitch]
         # a whistle plays one note at a time; the top of a chord is the tune
         sounding = max(pitches)
-        # express the pitch on the D chart this whistle is a transposition of
-        as_d = sounding.transpose(shift.reverse()) if shift.semitones else sounding
-        # Which octave of the *instrument*, not of the staff: a D whistle's
-        # first octave runs D4 to C#5, so C#5 is the top of the low octave and
-        # is not overblown. Octave numbers change at C, which is why measuring
-        # from the whistle's lowest note is the only thing that works.
-        steps = int(round(as_d.ps - m21pitch.Pitch("D4").ps))
-        octave_offset = steps // 12
-        pattern = WHISTLE_D_FINGERINGS.get(as_d.name)
-        if pattern is None or steps < 0 or octave_offset not in (0, 1):
+        # How far above the instrument's own lowest note, in semitones. Measured
+        # from the whistle's tonic and not from the staff: a D whistle's first
+        # octave runs D4 to C#5, so C#5 is the top of the LOW octave and is not
+        # overblown, while octave numbers change at C. And measured in
+        # semitones rather than looked up by name, so a D# finds the E-flat
+        # fingering it shares -- see WHISTLE_D_BY_SEMITONE.
+        steps = int(round(sounding.ps - lowest.ps))
+        if steps < 0 or steps > WHISTLE_TOP_SEMITONE:
             unplayable.append({
                 "measure": n.measureNumber,
                 "pitch": sounding.nameWithOctave,
-                "why": "outside the whistle's two octaves" if pattern
-                       else f"no standard fingering for {as_d.name}",
+                "why": f"outside a {key} whistle's range "
+                       f"({lowest.nameWithOctave} to "
+                       f"{lowest.transpose(WHISTLE_TOP_SEMITONE).nameWithOctave})",
             })
             n.lyrics = make_room(n)
             continue
+        pattern = WHISTLE_D_BY_SEMITONE[steps % 12]
         if any(parse_tab_label(str(ly.identifier or "")) is not None
                for ly in n.lyrics):
             displaced += 1
@@ -1665,7 +1694,7 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         # open hole.
         for hole, symbol in enumerate(_whistle_symbols(pattern), start=1):
             n.addLyric(symbol, lyricNumber=hole, lyricIdentifier=WHISTLE_LYRIC_TAG)
-        if octave_offset == 1:
+        if steps >= 12:
             n.addLyric("+", lyricNumber=7, lyricIdentifier=WHISTLE_LYRIC_TAG)
         written += 1
 

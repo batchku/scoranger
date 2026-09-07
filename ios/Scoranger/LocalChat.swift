@@ -281,7 +281,7 @@ struct LocalChat {
                                     required: ["part"]),
                  op: "chord-diagrams", rename: [:]),
         ToolSpec(name: "penny_whistle_fingerings",
-                 description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). Notes the whistle cannot play are reported. Set clear=true to remove them.",
+                 description: "Write penny-whistle fingerings under every note of a part, engraved in the notation as stacked hole diagrams (X covered, O open, / half-hole, + overblown octave). A whistle's range is two octaves and the tonic again at the top (a D whistle: D4 to D6), and EVERY note in it gets a diagram whatever its accidental is spelled as. Notes above or below that range get none and are listed in the result as out of range, with their bar numbers — relay those to the user rather than re-running, because running it again will not change them. Set clear=true to remove them.",
                  parameters: params(["part": str("the part to fingerings"),
                                      "whistle": str("the whistle's key, D by default"),
                                      "clear": bool("remove the fingerings instead")],
