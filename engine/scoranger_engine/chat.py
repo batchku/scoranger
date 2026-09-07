@@ -57,7 +57,13 @@ Working rules:
    part from #3" means pull_part from that ref. '#N' never means a version or a
    measure. If no numbered list is in context, say the arrangement isn't filed
    under a piece yet rather than guessing.
-7. Accidentals ARE yours to control, and the tools are clean_accidentals (a
+7. A HARMONY LINE stays in the key. "A third above", "a sixth below",
+   "harmonise it" are diatonic: use transpose_diatonic, which moves by scale
+   degrees and leaves the key signature alone. Plain `transpose` is chromatic
+   and changes key -- right for "put this in D", wrong for a harmony. Never
+   answer that scale-degree transposition within a key is unsupported; it is
+   transpose_diatonic.
+8. Accidentals ARE yours to control, and the tools are clean_accidentals (a
    whole part or score) and set_accidental (named notes: add, remove, show,
    hide, colour). If a reader says a part has accidentals that are already in
    the key signature, or is cluttered or hard to read, run clean_accidentals on
@@ -121,9 +127,19 @@ def remove_parts(ctx: RunContext[str], parts: list[str]) -> dict:
 
 def transpose(ctx: RunContext[str], interval: str, parts: list[str] | None = None,
               from_measure: int | None = None, to_measure: int | None = None) -> dict:
-    """Transpose the whole score (or given parts) by a named interval ('M2', 'm-3', 'P8') or
-    semitone count ('-3'). Set from_measure/to_measure (inclusive) to transpose only that
-    measure range — required when the user targets a highlighted passage."""
+    """CHROMATIC transposition: shift by a fixed interval and CHANGE KEY.
+
+    Use this when the user wants the music in a DIFFERENT key — "put this in D",
+    "a whole step up so I can sing it", "transpose for B-flat clarinet". Every pitch
+    moves by the same interval and the key signature is rewritten to match.
+
+    Do NOT use this for a harmony line. "A third above", "a sixth below", "harmonise
+    it" mean the notes must stay IN THE CURRENT KEY, and this tool cannot do that —
+    it would take a G major tune a sixth down into B-flat major. Use
+    transpose_diatonic for those.
+
+    `interval` is a named interval ('M2', 'm-3', 'P8') or a semitone count ('-3').
+    Set from_measure/to_measure (inclusive) for a measure range."""
     return _apply(ctx.deps, "transpose",
                   {"interval": interval, "parts": parts,
                    "from_measure": from_measure, "to_measure": to_measure},
@@ -141,6 +157,53 @@ def transpose_elements(ctx: RunContext[str], interval: str, elements: list[str])
     return _apply(ctx.deps, "transpose-elements",
                   {"interval": interval, "elements": elements},
                   lambda s: ops.transpose_elements(s, interval, elements))
+
+
+def transpose_diatonic(ctx: RunContext[str], degrees: str, parts: list[str] | None = None,
+                       from_measure: int | None = None, to_measure: int | None = None,
+                       key: str | None = None) -> dict:
+    """DIATONIC transposition: move by SCALE DEGREES and STAY IN THE KEY.
+
+    This is the tool for a harmony line. "Down a sixth", "a third above the melody",
+    "harmonise this in thirds", "add a second violin part below" — all of them mean
+    the new line must sit in the same key as the tune, so the key signature does not
+    change and no accidentals appear that were not there before. Some of the sixths
+    come out major and some minor, exactly as the key requires; that is what makes it
+    sound like a harmony rather than a modulation.
+
+    `degrees` is a signed generic interval — the number a musician says. -6 is down a
+    sixth, 3 is up a third, -3 down a third, 8 up an octave. Names work too:
+    'down a sixth'. There is no zeroth interval; a unison is 1.
+
+    To write a harmony line as a NEW part, first copy the melody part (pull_part from
+    the current version) and then run this on the copy — this tool moves the notes of
+    the parts you name, it does not add a staff.
+
+    `key`: only needed when the staff carries no key signature (common in scanned
+    scores) — the tool refuses rather than guessing, and tells you so. Give 'G', 'e'
+    for e minor, 'Bb'.
+
+    The result reports any note that was OUTSIDE the key (a chromatic passing note has
+    no scale degree, so the tool has to make a choice there); relay those bars to the
+    user if there are any."""
+    return _apply(ctx.deps, "transpose-diatonic",
+                  {"degrees": degrees, "parts": parts, "key": key,
+                   "from_measure": from_measure, "to_measure": to_measure},
+                  lambda s: ops.transpose_diatonic(s, degrees, parts,
+                                                   from_measure, to_measure, key))
+
+
+def transpose_diatonic_elements(ctx: RunContext[str], degrees: str, elements: list[str],
+                                key: str | None = None) -> dict:
+    """Move ONLY the given elements by scale degrees, staying in the key.
+
+    The selection form of transpose_diatonic, and the same rule applies as for
+    transpose_elements: use this — never transpose_diatonic with a measure range —
+    whenever the user refers to a selection and the context lists selected element
+    addresses. Pass them unchanged ('s1/m15/l1/note#3')."""
+    return _apply(ctx.deps, "transpose-diatonic-elements",
+                  {"degrees": degrees, "elements": elements, "key": key},
+                  lambda s: ops.transpose_diatonic_elements(s, degrees, elements, key))
 
 
 def respell(ctx: RunContext[str], prefer: str = "flats", parts: list[str] | None = None,
@@ -454,7 +517,7 @@ def assign_to_piece(ctx: RunContext[str], piece_name: str) -> dict:
 
 
 TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
-         transpose_elements,
+         transpose_elements, transpose_diatonic, transpose_diatonic_elements,
          respell, clean_accidentals, set_accidental, set_rehearsal,
          change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,

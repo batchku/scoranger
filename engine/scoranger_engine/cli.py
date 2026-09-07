@@ -100,6 +100,24 @@ def cmd_transpose(a):
     _mutate(a.score, score, "transpose", {"interval": a.interval, "parts": a.parts}, details)
 
 
+def cmd_transpose_diatonic(a):
+    score = _load(a.score, None)
+    names = _split_parts(a.parts) if a.parts else None
+    details = ops.transpose_diatonic(score, a.degrees, names,
+                                     a.from_measure, a.to_measure, a.key)
+    _mutate(a.score, score, "transpose-diatonic",
+            {"degrees": a.degrees, "parts": a.parts, "key": a.key,
+             "from_measure": a.from_measure, "to_measure": a.to_measure}, details)
+
+
+def cmd_transpose_diatonic_elements(a):
+    score = _load(a.score, None)
+    addresses = [t.strip() for t in a.elements.split(",") if t.strip()]
+    details = ops.transpose_diatonic_elements(score, a.degrees, addresses, a.key)
+    _mutate(a.score, score, "transpose-diatonic-elements",
+            {"degrees": a.degrees, "elements": addresses, "key": a.key}, details)
+
+
 def cmd_transpose_elements(a):
     score = _load(a.score, None)
     addresses = [t.strip() for t in a.elements.split(",") if t.strip()]
@@ -511,6 +529,29 @@ def main() -> None:
     s.add_argument("--interval", required=True, help="e.g. M2, m3, P4, -M2, P8")
     s.add_argument("--parts")
     s.set_defaults(fn=cmd_transpose)
+
+    s = sub.add_parser("transpose-diatonic",
+                       help="Move by SCALE DEGREES, staying in the key "
+                            "(a harmony line, not a modulation)")
+    s.add_argument("score")
+    s.add_argument("--degrees", required=True,
+                   help="signed generic interval: -6 is down a sixth, 3 up a third. "
+                        "Names work too: 'down a sixth'")
+    s.add_argument("--parts")
+    s.add_argument("--from-measure", type=int)
+    s.add_argument("--to-measure", type=int)
+    s.add_argument("--key", help="the key to count degrees in, when the staff "
+                                 "carries no signature (e.g. G, e, Bb)")
+    s.set_defaults(fn=cmd_transpose_diatonic)
+
+    s = sub.add_parser("transpose-diatonic-elements",
+                       help="Move ONLY the named elements by scale degrees, in key")
+    s.add_argument("score")
+    s.add_argument("--degrees", required=True)
+    s.add_argument("--elements", required=True,
+                   help="comma-separated addresses, e.g. 's1/m15/l1/note#0'")
+    s.add_argument("--key")
+    s.set_defaults(fn=cmd_transpose_diatonic_elements)
 
     s = sub.add_parser("delete-piece", help="Delete a piece (a piece holding nothing cannot exist)")
     s.add_argument("piece")

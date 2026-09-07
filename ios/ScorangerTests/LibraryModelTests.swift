@@ -245,12 +245,6 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(LibrarySegment.setlists.title, "Setlists")
         XCTAssertEqual(LibrarySegment.books.title, "Books")
     }
-
-    func testEveryModeSaysWhatThePencilDoes() {
-        XCTAssertEqual(ScoreMode.read.pencilMeaning, "Pencil: select")
-        XCTAssertEqual(ScoreMode.edit.pencilMeaning, "Pencil: ink")
-        XCTAssertEqual(ScoreMode.performance.pencilMeaning, "Pencil: turn")
-    }
 }
 
 /// Tags on a piece: shown as chips, and findable by typing.

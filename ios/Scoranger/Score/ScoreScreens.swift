@@ -10,6 +10,10 @@ enum ScoreScreen: Hashable {
     case options
     case optionsSection(String)
     case details
+    /// The set list checklist -- the SAME screen the pieces list pushes
+    /// (Route.setlistsFor), rendered here because the score's stack is keyed by
+    /// this enum and not by Route (§16). One behaviour, two entrances.
+    case setlists
     case settings
     case chatModel
 }
@@ -35,6 +39,10 @@ struct ScoreOptionsScreen: View {
     var push: (String) -> Void
     var onSettings: () -> Void
     var onDetails: () -> Void
+    /// Push the set list checklist -- the pieces list's own SetlistsForScreen,
+    /// which is what makes this a second entrance rather than a second screen
+    /// (§16). Takes the route `onDetails` and `onSettings` take.
+    var onSetlists: () -> Void = {}
 
     /// The format currently being written, so its row can say so: engraving a
     /// PDF of a long score takes a moment and a dead row reads as a dead app.
@@ -150,6 +158,33 @@ struct ScoreOptionsScreen: View {
                       },
                       identifier: "more-details") {
                 onDetails()
+            }
+            // Set lists (§16, Ali). The "+" on the bar opens the same
+            // membership -- and is the FIRST control the bar yields as it
+            // narrows, so on a phone it is never there at all
+            // (ScoreBarLayoutTests has asserted exactly that since the day it
+            // was made to yield). The reasoning then was written down: "the
+            // library's set list picker still offers the same operation, so
+            // this costs a shortcut rather than a feature." True about the
+            // operation, wrong about the reader -- someone deciding what goes
+            // in a set is looking at the music while they decide.
+            //
+            // It PUSHES the pieces list's own screen, and that is the ruling:
+            // not a popover (the app has none, and this is not the place to
+            // introduce one), not a band, and not a second copy of the
+            // checklist. Both entrances land on SetlistsForScreen, so the
+            // membership, the wording and the way out are one thing.
+            //
+            // Grouped with details and filing, above Share & export: these
+            // three rows are about where this arrangement SITS and who it
+            // belongs to, and the two below are about the app.
+            ScreenRow(title: "Set lists",
+                      value: state.selectedScore.map { score in
+                          SetlistMembership.rowValue(
+                              for: score.slug, in: state.manifest?.setlists ?? [])
+                      },
+                      identifier: "more-setlists") {
+                onSetlists()
             }
             ScreenRow(title: "Share & export", value: "MusicXML · MIDI · PDF",
                       identifier: "more-export") {
@@ -360,8 +395,11 @@ struct ScoreOptionsScreen: View {
             case "Selection & chat":
                 ScreenRow(title: "Clear selection", leads: false,
                           identifier: "selection-clear") { state.clearSelection(); onBack() }
-                note(mode.pencilMeaning + ". Hold a finger down while drawing to add "
-                     + "to the selection; tap an element to drop it.")
+                // The mode used to be named here -- "Pencil: select" -- and
+                // that label is what Ali asked off every screen. The guidance
+                // under it is the part worth keeping.
+                note("Hold a finger down while drawing to add to the "
+                     + "selection; tap an element to drop it.")
             case "Transpose":
                 ScreenRow(title: "Up a semitone", leads: false,
                           identifier: "transpose-up") { state.transpose(semitones: 1); onBack() }

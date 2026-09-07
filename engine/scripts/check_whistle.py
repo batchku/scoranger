@@ -25,12 +25,13 @@ Run: engine/.venv/bin/python engine/scripts/check_whistle.py
 """
 
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from music21 import harmony as m21harmony  # noqa: E402
-from music21 import meter, note as m21note, stream  # noqa: E402
+from music21 import converter, meter, note as m21note, stream  # noqa: E402
 
 from scoranger_engine import ops  # noqa: E402
 
@@ -94,10 +95,41 @@ expect("B-4", "XOXXXO")
 expect("E-4", "XXXXX/")
 expect("G#4", "XXX/OO")
 
+# The TOP of the range, which was wrong here before it was wrong on Ali's
+# page. This asserted that D6 -- the tonic two octaves up -- was outside the
+# instrument. It is not: it is all six holes covered and blown hard, it is in
+# every tutor book, and it is the top note of a great many tunes, so treating
+# it as out of range put a gap under a note players use constantly.
+expect("D6",  "XXXXXX", overblown=True)
+# Above it is where the honest line falls. The third-octave E is possible on
+# some instruments and standard on none, so it is reported rather than guessed.
+expect_unplayable("E6")
+
 # outside the instrument
 expect_unplayable("C4")            # below the low D
-expect_unplayable("D6")            # above the second octave
 expect_unplayable("A3")
+
+# THE SAME PITCH, SPELLED THE OTHER WAY.
+#
+# Ali's screenshot: diagrams under most notes and none under three of them,
+# circled, "missing tablature". The chart was keyed by the pitch's NAME, so a
+# D# found no entry -- and was reported as having no standard fingering -- while
+# the E-flat it is played identically to found one. Every enharmonic failed the
+# same way, and optical recognition and transposition both produce those
+# spellings freely, which is how a run of ordinary notes ends up with holes in
+# it. A fingering is a fact about a SOUNDING pitch: one hole pattern per
+# semitone, twelve of them.
+for flat, sharp in (("E-4", "D#4"), ("F#4", "G-4"), ("G#4", "A-4"),
+                    ("B-4", "A#4"), ("C#5", "D-5"), ("C5", "B#4"),
+                    ("B4", "C-5"), ("F4", "E#4"), ("E4", "F-4")):
+    left, left_over, left_ok = fingering(flat)
+    right, right_over, right_ok = fingering(sharp)
+    if not (left == right and left_over == right_over and left_ok and right_ok):
+        FAILURES.append(f"{flat} and {sharp} are the same pitch and must be the "
+                        f"same fingering: {left} vs {right}")
+    print(f"  ok   {flat} and {sharp} are one fingering: {left}"
+          if left == right and left_ok and right_ok
+          else f"  FAIL {flat} {left} != {sharp} {right}")
 
 # A C whistle is the same chart transposed down a tone, so its home scale is
 # C major: all covered is C, and the flattened seventh (B flat) takes the same
@@ -173,6 +205,86 @@ note(f"and clearing a tab that is not there takes nothing either: {tab_cleared}"
 mine = ops.whistle_fingerings(score, part, "D", clear=True)
 note(f"clearing its own fingerings takes them: {mine}",
      mine["cleared"] == 3 and not any(n.lyrics for n in tunes))
+
+# ---------------------------------------------- every note, over a whole part
+#
+# The assertion Ali asked for, and the one the per-pitch checks above could not
+# make: a diagram under EVERY note of a whistle part, and the count to prove it.
+# His screenshot had diagrams under most notes and gaps under three, and every
+# check here passed at the time, because each one asked about a pitch it had
+# thought to name. This one asks about all of them at once:
+#
+#     notes fingered + notes reported unplayable == notes on the staff
+#
+# Over a real write and read, because that is the score the app holds: nothing
+# in this app is ever engraved from a stream built in memory.
+def round_tripped(score):
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "whistle.musicxml"
+        score.write("musicxml", fp=str(path))
+        return converter.parse(str(path), forceSource=True)
+
+
+# A tune in the shape of the ones this is for: D major, up to the top D, with
+# the spellings optical recognition and transposition actually produce.
+TUNE = ["D4", "E4", "F#4", "G4", "A4", "B4", "C#5", "D5",
+        "E5", "F#5", "G5", "A5", "B5", "C#6", "D6", "D5",
+        "D#4", "A#4", "G-4", "A-4", "D-5", "B#4",       # enharmonics
+        "F4", "C5", "E-4", "G#4",                        # the cross- and half-holes
+        "A3", "E6"]                                      # genuinely out of range
+
+whole = stream.Score()
+whole_part = stream.Part()
+for index in range(0, len(TUNE), 4):
+    measure = stream.Measure(number=index // 4 + 1)
+    if index == 0:
+        measure.append(meter.TimeSignature("4/4"))
+    for pitch in TUNE[index:index + 4]:
+        measure.append(m21note.Note(pitch, quarterLength=1))
+    whole_part.append(measure)
+whole.append(whole_part)
+
+whole_report = ops.whistle_fingerings(whole, whole_part, "D")
+reloaded = round_tripped(whole)
+reloaded_part = next(iter(reloaded.parts))
+staff_notes = [n for n in reloaded_part.recurse().notes
+               if not isinstance(n, m21harmony.Harmony)]
+
+
+def has_full_fingering(n):
+    """Six holes on this note, tagged as fingerings."""
+    holes = [ly for ly in n.lyrics
+             if str(ly.identifier or "") == ops.WHISTLE_LYRIC_TAG
+             and (ly.number or 0) <= 6]
+    return len(holes) == 6 and all(ly.text in (ops.COVERED, ops.OPEN, ops.HALF)
+                                   for ly in holes)
+
+
+drawn = [n for n in staff_notes if has_full_fingering(n)]
+bare = [n for n in staff_notes if not has_full_fingering(n)]
+reported = {(u["measure"], u["pitch"]) for u in whole_report["unplayable"]}
+
+print(f"\n  whole part: {len(staff_notes)} notes on the staff, {len(drawn)} fingered, "
+      f"{whole_report['unplayable_count']} reported out of range "
+      f"({', '.join(sorted(p for _, p in reported)) or 'none'})")
+note(f"the part survived the round trip whole: {len(staff_notes)} notes",
+     len(staff_notes) == len(TUNE))
+note(f"every note is either fingered or reported: "
+     f"{len(drawn)} + {whole_report['unplayable_count']} of {len(staff_notes)}",
+     len(drawn) + whole_report["unplayable_count"] == len(staff_notes))
+note(f"and the bare ones are exactly the reported ones: "
+     f"{[n.pitch.nameWithOctave for n in bare]}",
+     len(bare) == whole_report["unplayable_count"]
+     and all((n.measureNumber, n.pitch.nameWithOctave) in reported for n in bare))
+note(f"the only notes without a diagram are the two out of range: {sorted(reported)}",
+     {p for _, p in reported} == {"A3", "E6"})
+note("the top D is fingered rather than reported",
+     all(u["pitch"] != "D6" for u in whole_report["unplayable"]))
+note("and the overblown mark survives the write, on the notes above the octave",
+     all(any(ly.number == 7 and str(ly.identifier or "") == ops.WHISTLE_LYRIC_TAG
+             for ly in n.lyrics)
+         for n in staff_notes
+         if n.pitch.ps >= ops.m21pitch.Pitch("D5").ps and has_full_fingering(n)))
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} fingering(s) wrong")

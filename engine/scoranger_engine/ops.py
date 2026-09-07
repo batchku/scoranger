@@ -11,6 +11,7 @@ from music21 import chord as m21chord
 from music21 import clef as m21clef
 from music21 import instrument as m21instrument
 from music21 import interval as m21interval
+from music21 import key as m21key
 from music21 import note as m21note
 from music21 import pitch as m21pitch
 from music21 import stream
@@ -554,6 +555,308 @@ def transpose(score, interval_str: str, names: list[str] | None = None,
             "scope": scope,
             "chord_diagrams_cleared": clear_stale_diagrams(score, names),
             "redundant_accidentals_hidden": cleaned["hidden"]}
+
+
+# ------------------------------------------------------- diatonic transposition
+#
+# The chromatic `transpose` above moves every pitch by a fixed number of
+# semitones, which moves the KEY with it: a G major tune shifted down eight
+# semitones is a B major tune, and its key signature changes to say so. That is
+# the right answer for "put this in a singable key" and the wrong one for
+# "write me a harmony line a sixth below".
+#
+# A diatonic transposition moves by SCALE DEGREES and stays in the key. Down a
+# sixth in G major sends G to B, A to C, B to D, D to F# -- so some of those
+# sixths are major and some are minor, the key signature never changes, and
+# nothing accidental appears on the page. Asked for the same thing chromatically
+# the arrangement agent had to answer that it could not be done, which is what
+# this exists to fix.
+#
+# music21 has the primitive (`GenericInterval.transposePitchKeyAware`), and the
+# work here is the three things around it:
+#
+#   - **Which key.** Read per part from the key signature ON ITS OWN STAFF, so a
+#     transposing instrument is judged by its WRITTEN key, exactly as
+#     `normalize_accidentals` judges it. Tracked measure by measure, because a
+#     key change mid-piece changes the answer from that bar on. A signature
+#     carries no mode, and asking for the major is safe: a natural minor holds
+#     the same seven pitches as its relative major, so both give the same
+#     degrees. Where there is NO signature at all (optical recognition often
+#     drops it) the op refuses and names `--key`, rather than guessing C and
+#     silently writing a wrong line.
+#
+#   - **Notes outside the key.** A chromatic note has no scale degree, so it has
+#     to be handled by a rule rather than by the primitive. music21's rule is
+#     to carry the alteration along -- in G major a D# down a sixth becomes
+#     F##, which is theoretically exact and unwritable. So a result needing a
+#     double accidental is respelled to its single-accidental enharmonic, and
+#     every note that was outside the key is REPORTED with its bar, because the
+#     op made a choice there and the reader is the one who can judge it.
+#
+#   - **What prints.** Pitches moved, so `normalize_accidentals` recomputes the
+#     accidentals against the key they landed in -- the key they started in,
+#     here, which is the point.
+
+# 'sixth' and 'third' as the reader says them, because the agent is handed the
+# reader's own words and an ordinal is cheaper to accept than to get wrong.
+GENERIC_DEGREE_WORDS = {
+    "unison": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+    "seventh": 7, "octave": 8, "eighth": 8, "ninth": 9, "tenth": 10,
+    "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14,
+    "fifteenth": 15, "double octave": 15,
+}
+
+
+def parse_generic_degrees(text) -> int:
+    """A signed generic interval number: 6 is up a sixth, -6 down a sixth.
+
+    Accepts what the reader says as well as what the machine wants: '-6',
+    'down a sixth', '3rd up', 'octave'. There is no zeroth interval -- a unison
+    is 1 -- so 0 is an error and not a no-op.
+    """
+    s = str(text).strip().lower()
+    if not s:
+        raise ValueError("no interval given: -6 is down a sixth, 3 is up a third")
+    sign = -1 if re.search(r"\bdown\b|\bbelow\b|^-", s) else 1
+    body = re.sub(r"\b(up|down|above|below|a|an|the|by)\b", " ", s).strip(" +-")
+    number = None
+    if m := re.search(r"\d+", body):
+        number = int(m.group())
+    else:
+        for word, value in GENERIC_DEGREE_WORDS.items():
+            if word in body:
+                number = value
+                break
+    if number is None:
+        raise ValueError(
+            f"cannot read {text!r} as a diatonic interval. Give a signed number "
+            "of scale steps (-6 is down a sixth, 3 is up a third) or a name "
+            "('down a sixth').")
+    if number == 0:
+        raise ValueError("there is no zeroth interval; a unison is 1")
+    return sign * number
+
+
+def _key_signatures_of(container) -> list:
+    """The key signatures in this container, voices included."""
+    return list(container.recurse().getElementsByClass(m21key.KeySignature))
+
+
+def _as_key(signature):
+    """A KeySignature read as a Key.
+
+    A signature does not say whether it is major or minor, and for this purpose
+    it does not have to: a natural minor holds the same seven pitch classes as
+    its relative major, so the scale degrees come out the same either way. A
+    Key already knows its own mode and is passed through.
+    """
+    if isinstance(signature, m21key.Key):
+        return signature
+    return signature.asKey("major")
+
+
+def _part_key_at_start(part, override: str | None):
+    """The key the part begins in, or None if nothing says.
+
+    `override` wins over the notation, because a score whose signature optical
+    recognition dropped is exactly the case the flag is for.
+    """
+    if override:
+        return _named_key(override)
+    found = _key_signatures_of(part)
+    return _as_key(found[0]) if found else None
+
+
+def _named_key(text):
+    """A key from what a person typed: 'G', 'e', 'Bb', 'E- minor'.
+
+    music21 wants 'B-' where readers write 'Bb', and lower case for minor.
+    Tried as given first, so anything music21 already understands is untouched.
+    """
+    raw = str(text).strip()
+    for candidate in (raw, re.sub(r"(?<=[A-Ga-g])b", "-", raw)):
+        try:
+            return m21key.Key(candidate)
+        except Exception:
+            continue
+    raise ValueError(f"cannot read {text!r} as a key. Try 'G', 'e' for e minor, "
+                     "'B-' or 'Bb', 'f#'.")
+
+
+def _diatonic_pitch(p, generic, key_obj):
+    """One pitch moved by scale degrees, and what had to be decided about it.
+
+    Returns (new pitch, outside_the_key, respelled).
+    """
+    in_key = p.pitchClass in {q.pitchClass for q in key_obj.pitches}
+    moved = generic.transposePitchKeyAware(p, key_obj)
+    respelled = False
+    # F## in G major is the exact answer and not a writable one. Its
+    # single-accidental enharmonic says the same thing on a page a player can
+    # read; anything still needing two accidentals after the swap is left as it
+    # is, because a wrong note is worse than an ugly one.
+    if moved.accidental is not None and abs(moved.accidental.alter) >= 2:
+        alternative = moved.getEnharmonic()
+        if alternative.accidental is None or abs(alternative.accidental.alter) < 2:
+            moved, respelled = alternative, True
+    return moved, not in_key, respelled
+
+
+def _move_note_diatonically(n, generic, key_obj, chromatic: list) -> int:
+    """Move every pitch of one note or chord. Returns how many pitches moved."""
+    pitches = list(n.pitches)
+    if not pitches:
+        return 0
+    out = []
+    for p in pitches:
+        moved, outside, respelled = _diatonic_pitch(p, generic, key_obj)
+        if outside:
+            chromatic.append({"measure": n.measureNumber,
+                              "pitch": p.nameWithOctave,
+                              "became": moved.nameWithOctave,
+                              "respelled": respelled})
+        out.append(moved)
+    if isinstance(n, m21chord.Chord):
+        n.pitches = tuple(out)
+    else:
+        n.pitch = out[0]
+    return len(out)
+
+
+def _diatonic_over_measures(part, generic, override, from_measure, to_measure,
+                            chromatic: list) -> tuple[int, str]:
+    """Transpose a part's notes, tracking the key measure by measure.
+
+    The running key is what makes a key change mid-piece come out right: from
+    that bar on, the degrees are counted in the new key.
+    """
+    from music21 import harmony as m21harmony
+
+    running = _part_key_at_start(part, override)
+    lo = from_measure if from_measure is not None else 1
+    moved = 0
+    for measure in part.recurse().getElementsByClass(stream.Measure):
+        for signature in _key_signatures_of(measure):
+            running = _as_key(signature) if not override else running
+        if measure.number < lo:
+            continue
+        if to_measure is not None and measure.number > to_measure:
+            continue
+        if running is None:
+            raise ValueError(
+                f"{part_label(part)} has no key signature, so it has no scale "
+                "degrees to move by. Give one with --key (e.g. --key G, --key e), "
+                "or use chromatic `transpose` if a semitone shift is what you want.")
+        for n in measure.recurse().notes:
+            if isinstance(n, m21harmony.Harmony):
+                continue  # a chord SYMBOL is a Chord in music21; it is not on the staff
+            moved += _move_note_diatonically(n, generic, running, chromatic)
+    return moved, (running.name if running is not None else "")
+
+
+def transpose_diatonic(score, degrees, names: list[str] | None = None,
+                       from_measure: int | None = None, to_measure: int | None = None,
+                       key_name: str | None = None) -> dict:
+    """Move parts by SCALE DEGREES, staying in the key.
+
+    `degrees` is signed and generic: -6 is down a sixth, 3 is up a third. The
+    key signature is not touched, and the sixths come out major or minor as the
+    key requires -- which is what makes this a harmony line and not a
+    modulation. See the note above this function for the three decisions it
+    makes.
+    """
+    steps = parse_generic_degrees(degrees)
+    generic = m21interval.GenericInterval(steps)
+    targets = find_parts(score, names) if names else list(score.parts)
+    chromatic: list[dict] = []
+    moved = 0
+    keys = []
+    for part in targets:
+        count, key_used = _diatonic_over_measures(
+            part, generic, key_name, from_measure, to_measure, chromatic)
+        moved += count
+        if key_used and key_used not in keys:
+            keys.append(key_used)
+    cleaned = normalize_accidentals(score, names)
+    out = {"degrees": steps,
+           "interval": generic.niceName,
+           "direction": "down" if steps < 0 else "up",
+           "key": keys[0] if len(keys) == 1 else keys,
+           "key_signature_changed": False,
+           "scope": [part_label(p) for p in targets] if names else "all parts",
+           "notes_moved": moved,
+           "outside_the_key": chromatic[:20],
+           "outside_the_key_count": len(chromatic),
+           "chord_diagrams_cleared": clear_stale_diagrams(score, names),
+           "redundant_accidentals_hidden": cleaned["hidden"]}
+    if from_measure is not None or to_measure is not None:
+        out["measures"] = f"{from_measure or 1}-{to_measure if to_measure is not None else 'end'}"
+    return out
+
+
+def transpose_diatonic_elements(score, degrees, addresses: list,
+                                key_name: str | None = None) -> dict:
+    """The same move, applied ONLY to the named elements.
+
+    Exists for the same reason `transpose_elements` does: a selection degraded
+    to a measure range moves every note in the bar, and a harmony line written
+    over a lassoed phrase is exactly when that would be noticed.
+    """
+    steps = parse_generic_degrees(degrees)
+    generic = m21interval.GenericInterval(steps)
+    found = resolve_elements(score, addresses)
+    if not found["resolved"]:
+        raise AddressError(
+            "none of those elements are in this score: "
+            + "; ".join(m["why"] for m in found["missing"][:3]))
+    chromatic: list[dict] = []
+    moved = 0
+    touched_parts = []
+    keys = []
+    for _text, owner, pitch_index, _kind in found["resolved"]:
+        if isinstance(owner, m21note.Rest):
+            continue
+        holder = owner.getContextByClass(stream.Part)
+        if holder is not None and not any(holder is p for p in touched_parts):
+            touched_parts.append(holder)
+        if key_name:
+            key_obj = _named_key(key_name)
+        else:
+            signature = owner.getContextByClass(m21key.KeySignature)
+            if signature is None:
+                raise ValueError(
+                    "those notes are on a staff with no key signature, so they "
+                    "have no scale degrees to move by. Give one with --key, or "
+                    "use chromatic `transpose-elements` for a semitone shift.")
+            key_obj = _as_key(signature)
+        if key_obj.name not in keys:
+            keys.append(key_obj.name)
+        pitches = list(owner.pitches)
+        if pitch_index is None:
+            moved += _move_note_diatonically(owner, generic, key_obj, chromatic)
+        else:
+            p = pitches[pitch_index]
+            new, outside, respelled = _diatonic_pitch(p, generic, key_obj)
+            if outside:
+                chromatic.append({"measure": owner.measureNumber,
+                                  "pitch": p.nameWithOctave,
+                                  "became": new.nameWithOctave,
+                                  "respelled": respelled})
+            pitches[pitch_index] = new
+            owner.pitches = tuple(pitches)
+            moved += 1
+    hidden = sum(_normalize_part(p).get("hidden", 0) for p in touched_parts)
+    return {"degrees": steps,
+            "interval": generic.niceName,
+            "direction": "down" if steps < 0 else "up",
+            "key": keys[0] if len(keys) == 1 else keys,
+            "key_signature_changed": False,
+            "elements_transposed": moved,
+            "elements_requested": len(addresses),
+            "outside_the_key": chromatic[:20],
+            "outside_the_key_count": len(chromatic),
+            "redundant_accidentals_hidden": hidden,
+            "missing": found["missing"]}
 
 
 def respell(score, prefer: str = "flats", names: list[str] | None = None,
@@ -1258,6 +1561,37 @@ WHISTLE_D_FINGERINGS = {
 
 WHISTLE_KEYS = {"D": "D4", "C": "C4", "E-": "E-4", "F": "F4", "G": "G4", "A": "A4"}
 
+# The same chart, keyed by SEMITONES above the whistle's own tonic, which is
+# how it is looked up.
+#
+# Ali's screenshot: diagrams under most notes and none under three of them,
+# circled, "missing tablature". Keying the chart by the pitch's NAME is why. A
+# fingering is a fact about a sounding pitch -- one hole pattern per semitone,
+# twelve of them -- and D# is the same six holes as E-flat, played with the same
+# finger. Asked for a D# the chart had no entry, so the note was reported as
+# having "no standard fingering" and left bare, and every enharmonic spelling
+# failed the same way: G-, A-, A#, D-, B#, C-, E#, F-. Optical recognition and
+# transposition both produce those spellings freely, which is how a run of
+# ordinary notes ends up with holes in it.
+#
+# Derived from the chart above rather than typed out again: the published fact
+# has one home, and a transcription error here could not be seen.
+WHISTLE_D_BY_SEMITONE = {
+    int(m21pitch.Pitch(f"{name}4").ps - m21pitch.Pitch("D4").ps) % 12: pattern
+    for name, pattern in WHISTLE_D_FINGERINGS.items()
+}
+assert len(WHISTLE_D_BY_SEMITONE) == 12, "every semitone of the octave has a fingering"
+
+# How far above its lowest note a whistle plays: two octaves, and then the
+# tonic again at the top.
+#
+# The top D of a D whistle is all six holes covered and blown hard, and it is in
+# every tutor book -- it is also the top note of a great many tunes, so leaving
+# it out put a gap on a common note. Above it (the third-octave E and beyond)
+# is possible on some instruments and not standard on any, so those stay
+# reported rather than guessed at.
+WHISTLE_TOP_SEMITONE = 24
+
 
 def _whistle_symbols(pattern: str) -> list[str]:
     table = {"x": COVERED, "o": OPEN, "h": HALF}
@@ -1323,8 +1657,6 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         raise ValueError(f"No fingering chart for a {whistle_key} whistle. "
                          f"Have: {sorted(WHISTLE_KEYS)}")
     lowest = m21pitch.Pitch(WHISTLE_KEYS[key])
-    # the transposition from a D whistle's chart to this whistle's
-    shift = m21interval.Interval(noteStart=m21pitch.Pitch("D4"), noteEnd=lowest)
 
     written = 0
     displaced = 0
@@ -1333,24 +1665,24 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         pitches = n.pitches if isinstance(n, m21chord.Chord) else [n.pitch]
         # a whistle plays one note at a time; the top of a chord is the tune
         sounding = max(pitches)
-        # express the pitch on the D chart this whistle is a transposition of
-        as_d = sounding.transpose(shift.reverse()) if shift.semitones else sounding
-        # Which octave of the *instrument*, not of the staff: a D whistle's
-        # first octave runs D4 to C#5, so C#5 is the top of the low octave and
-        # is not overblown. Octave numbers change at C, which is why measuring
-        # from the whistle's lowest note is the only thing that works.
-        steps = int(round(as_d.ps - m21pitch.Pitch("D4").ps))
-        octave_offset = steps // 12
-        pattern = WHISTLE_D_FINGERINGS.get(as_d.name)
-        if pattern is None or steps < 0 or octave_offset not in (0, 1):
+        # How far above the instrument's own lowest note, in semitones. Measured
+        # from the whistle's tonic and not from the staff: a D whistle's first
+        # octave runs D4 to C#5, so C#5 is the top of the LOW octave and is not
+        # overblown, while octave numbers change at C. And measured in
+        # semitones rather than looked up by name, so a D# finds the E-flat
+        # fingering it shares -- see WHISTLE_D_BY_SEMITONE.
+        steps = int(round(sounding.ps - lowest.ps))
+        if steps < 0 or steps > WHISTLE_TOP_SEMITONE:
             unplayable.append({
                 "measure": n.measureNumber,
                 "pitch": sounding.nameWithOctave,
-                "why": "outside the whistle's two octaves" if pattern
-                       else f"no standard fingering for {as_d.name}",
+                "why": f"outside a {key} whistle's range "
+                       f"({lowest.nameWithOctave} to "
+                       f"{lowest.transpose(WHISTLE_TOP_SEMITONE).nameWithOctave})",
             })
             n.lyrics = make_room(n)
             continue
+        pattern = WHISTLE_D_BY_SEMITONE[steps % 12]
         if any(parse_tab_label(str(ly.identifier or "")) is not None
                for ly in n.lyrics):
             displaced += 1
@@ -1362,7 +1694,7 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         # open hole.
         for hole, symbol in enumerate(_whistle_symbols(pattern), start=1):
             n.addLyric(symbol, lyricNumber=hole, lyricIdentifier=WHISTLE_LYRIC_TAG)
-        if octave_offset == 1:
+        if steps >= 12:
             n.addLyric("+", lyricNumber=7, lyricIdentifier=WHISTLE_LYRIC_TAG)
         written += 1
 

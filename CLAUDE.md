@@ -42,6 +42,8 @@ So:
   a usable v001), `check_workflows.py` (ten end-to-end user journeys),
   `check_structure.py` and `check_whistle.py` (notation),
   `check_addresses.py` (a selection-scoped op touches only what was selected),
+  `check_diatonic.py` (a harmony line stays in the key, and the chromatic
+  transposition beside it still modulates -- the contrast is the check),
   `check_chord_diagrams.py` and `check_guitar_tab.py` (the guitar work: the
   shapes against a published chart, the tab against the open strings, and both
   renderers against one golden fragment),
@@ -65,6 +67,33 @@ scor versions <score>                   # version history with the op that made 
 scor keep-parts <score> --parts "Violin I,Viola"
 scor remove-parts <score> --parts "Piano"
 scor transpose <score> --interval M2 [--parts "..."]     # m2/M2/P4/P5/-M2/P8...
+scor transpose-diatonic <score> --degrees -6 [--parts "..."] [--from-measure N] [--to-measure M] [--key G]
+scor transpose-diatonic-elements <score> --degrees -6 --elements "s1/m15/l1/note#0"
+  # move by SCALE DEGREES and stay in the key: -6 is down a sixth, 3 up a third.
+  # This is a HARMONY LINE. `transpose` above is chromatic -- it shifts every
+  # pitch by the same interval and rewrites the key signature, so a G major tune
+  # a sixth down comes back in B-flat major. Asked for a violin line a sixth
+  # below the tune the arrangement agent answered that diatonic scale-degree
+  # transposition was "not supported by the notation toolset", and it was right.
+  # The sixths come out major or minor as the key requires (three of one and
+  # four of the other across an octave), and no accidental appears that was not
+  # already there.
+  # Three decisions it makes, all in check_diatonic.py:
+  #   - WHICH KEY, per staff and tracked measure by measure, so a key change
+  #     partway through counts degrees in the new key from that bar on. A
+  #     signature carries no mode and does not need to: a natural minor holds
+  #     the same seven pitches as its relative major. A staff with NO signature
+  #     is refused by name -- `--key G` is the fix -- rather than guessed as C.
+  #   - NOTES OUTSIDE THE KEY have no scale degree. music21 carries the
+  #     alteration and hands back F## in G major, which is exact and unwritable,
+  #     so a double accidental is respelled to its enharmonic and every such
+  #     note is REPORTED with its bar. The op made a choice there; the reader is
+  #     who can judge it.
+  #   - SCOPE: the -elements form exists for the same reason transpose-elements
+  #     does. A selection degraded to a measure range moves the whole bar.
+  # It moves notes; it does not add a staff. To write a harmony line as a new
+  # part, `pull-part` the melody from the current version first, then run this
+  # on the copy.
 scor transpose-elements <score> --interval M2 --elements "s1/m15/l1/note#0,s1/m15/l1/note#1"
   # transpose ONLY those elements. An address is staff/measure/layer/kind#ordinal,
   # as the iPad's lasso produces it from Verovio's MEI. Use this, never a measure
@@ -111,8 +140,19 @@ scor adjust-element <score> --part X [--kind harm|diagram|tab]
   # each renderer carries them across itself.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:
-  # six holes top to bottom, a 7th verse "+" for the overblown octave. Notes the
-  # whistle cannot play are reported, not faked.
+  # six holes top to bottom, a 7th verse "+" for the overblown octave.
+  # A whistle's range is two octaves and its tonic again at the top -- a D
+  # whistle plays D4 to D6 -- and EVERY note in it gets a diagram whatever its
+  # accidental is spelled as. Both halves of that were bugs Ali photographed as
+  # "missing tablature": the chart was keyed by the pitch's NAME, so a D# found
+  # no entry while the E-flat it is played identically to found one (and every
+  # other enharmonic failed the same way, which OMR and transposition produce
+  # freely); and the top D was treated as out of range, which is the top note
+  # of a great many tunes. A fingering is a fact about a SOUNDING pitch -- one
+  # hole pattern per semitone, twelve of them -- so that is how it is looked up
+  # (WHISTLE_D_BY_SEMITONE, derived from the published chart, not retyped).
+  # Notes genuinely outside the range are REPORTED with their bars, not faked
+  # and not silently dropped; nothing is drawn on the page for them.
   # The notation stores letters (X covered, O open, / half) and both renderers
   # draw them as circles — filled, hollow, half-filled — keyed on the `wf` lyric
   # tag: render.py::_fingering_diagrams and ios/Scoranger/FingeringDiagrams.swift,

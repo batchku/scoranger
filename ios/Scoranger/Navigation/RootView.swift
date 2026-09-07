@@ -23,6 +23,21 @@ struct RootView: View {
     @State private var libraryPath: [Route] = []
     @State private var scoreOpen = false
 
+    /// Whether the app is frontmost, for ScreenWake. The idle timer is an
+    /// application-wide flag, so the app's claim on the screen is dropped on
+    /// the way out and taken again on the way back.
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// The one place the three facts meet. `scoreOpen` rather than
+    /// `state.selectedScore != nil`: a score stays selected while the reader
+    /// is back in the library -- that is what makes returning to it cheap --
+    /// so selection is not the same question as whether anybody is reading.
+    private var screenShouldStayLit: Bool {
+        ScreenWake.shouldStayLit(readingScore: scoreOpen,
+                                 playing: state.playback.isPlaying,
+                                 appActive: scenePhase == .active)
+    }
+
     @State private var librarySearch = ""
     @State private var segment: LibrarySegment = .pieces
     @State private var sort: LibrarySort = .name
@@ -116,6 +131,26 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
+        // The screen stays lit while a score is being read, and goes back to
+        // the system's own timer everywhere else (ScreenWake). All three facts
+        // are visible here and nowhere else: the library and the score are
+        // siblings in this ZStack, and the transport belongs to AppState.
+        .onChange(of: screenShouldStayLit, initial: true) { _, lit in
+            UIApplication.shared.isIdleTimerDisabled = lit
+            // The rule is unit-tested; that the FLAG follows it is not
+            // observable from a test bundle with no host app, so the wiring is
+            // verified by driving the app and reading this back. NSLog rather
+            // than print, because a GUI app's stdout does not reach the
+            // unified log and print would leave nothing to read:
+            //   xcrun simctl spawn <udid> log stream \
+            //     --predicate 'eventMessage CONTAINS "SCREEN-WAKE"'
+            NSLog("SCORANGER-SCREEN-WAKE idleTimerDisabled=%@ reading=%@ playing=%@ active=%@",
+                  String(describing: UIApplication.shared.isIdleTimerDisabled),
+                  String(describing: scoreOpen),
+                  String(describing: state.playback.isPlaying),
+                  String(describing: scenePhase == .active))
+        }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .task {
             // reclaim anything whose undo window passed while the app was shut
             await state.sweepDeleted()

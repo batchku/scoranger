@@ -123,7 +123,59 @@ ENGINE_SERIAL=(
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
+  # The two audio sweeps, for a different reason from the three above: not
+  # engine contention but MEMORY. Each walks the whole General MIDI catalogue
+  # -- 128 melodic programs on three keys, then every drum kit -- and each of
+  # those is an offline CoreAudio render reading a patch out of a 31MB sound
+  # bank. The test already drains an autorelease pool per program, which is
+  # what stopped it crashing the first two times; it crashed again here, on
+  # the worker that also carries all 1148 unit tests, and passes solo in 1.5
+  # seconds. Four workers each holding a sound bank and a PCM buffer is the
+  # cliff, so this one goes over it alone. The assertions are untouched --
+  # same programs, same keys, same silence threshold.
+  "ScorangerTests/PlaybackInstrumentGraphTests/testEveryMelodicProgramActuallyMakesASound()"
+  "ScorangerTests/PlaybackInstrumentGraphTests/testEveryDrumKitActuallyMakesASound()"
 )
+
+# ---------------------------------------------------------------- preflight
+#
+# The gitignored things a worktree does not inherit. `git worktree add` brings
+# the tracked files and nothing else, and three of the four prerequisites here
+# are ignored on purpose because they are large or machine-specific:
+#
+#   testdata/       the sample scores the app SEEDS ITS LIBRARY FROM. A build
+#                   phase copies testdata/app-samples/* into the bundle as
+#                   samples-seed/, and with the directory absent it copies
+#                   nothing, silently: the app starts, the engine starts, the
+#                   database is created, and the library stays empty. Every UI
+#                   test that opens a score then waits out its full timeout and
+#                   fails on a message about a row or a piece or a book, which
+#                   reads exactly like a broken branch. It cost a full gate and
+#                   two wrong diagnoses -- stale simulators, then machine load
+#                   -- before anybody looked in the app bundle.
+#   ios/Vendor/     Python.xcframework, Verovio, the soundfonts.
+#   engine/.venv/   the interpreter the checks and the vendoring script run on.
+#
+# Checked before the build, because every one of them fails LATE and looks like
+# something else.
+for prerequisite in \
+  "$PWD/../testdata/app-samples:the sample scores the app seeds its library from" \
+  "$PWD/Vendor/Python.xcframework:the embedded Python" \
+  "$PWD/Vendor/verovio:the engraver" \
+  "$PWD/../engine/.venv/bin/python:the engine venv" \
+  "$PWD/../.env:the OpenRouter key baked into the build (Settings reports which key is in use, and a build with none takes a different branch)"
+do
+  path="${prerequisite%%:*}"
+  what="${prerequisite#*:}"
+  if [[ ! -e "$path" ]]; then
+    echo "gate: MISSING $what" >&2
+    echo "      $path" >&2
+    echo "      It is gitignored, so a fresh worktree does not have it. Link or" >&2
+    echo "      copy it from the main checkout, e.g.:" >&2
+    echo "        ln -s /path/to/scoranger/testdata $PWD/../testdata" >&2
+    exit 1
+  fi
+done
 
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"
 RUNTIME=$(xcrun simctl list runtimes -j \

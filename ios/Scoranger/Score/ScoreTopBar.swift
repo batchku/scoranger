@@ -114,14 +114,17 @@ struct ScoreTopBar: View {
     /// Performance mode collapses the bar to a strip (§4.5, N10): the score
     /// gets the screen, and the only things left are the way out and a
     /// statement of what mode you are in.
+    ///
+    /// It said what the Pencil was for, too, until Ali asked for that label
+    /// gone from every size class and both devices -- for the second time. It
+    /// is a reminder and not a feature: what mode you are in is the word
+    /// PERFORMANCE beside it.
     private var performanceBar: some View {
         HStack(spacing: Theme.Metric.s8) {
             barButton("xmark", label: "Leave performance mode",
                       identifier: "score-close") { mode = .read }
             Text("PERFORMANCE").typeRole(.label)
                 .foregroundStyle(Theme.Accent.clayStrong)
-            Text(ScoreMode.performance.pencilMeaning).typeRole(.meta)
-                .foregroundStyle(Theme.Ink.ink3)
             Spacer()
             // A transcription started before the reader went into performance
             // mode is still running, and this bar was the one place with no
