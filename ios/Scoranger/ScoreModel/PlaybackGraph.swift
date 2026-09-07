@@ -123,8 +123,7 @@ final class PlaybackGraph {
     func setInstrument(program: UInt8, bank: GeneralMIDI.Bank,
                        channel: Int) -> Bool {
         guard samplers.indices.contains(channel) else { return false }
-        let loaded = loadInstrument(samplers[channel], program: program,
-                                    bankMSB: bank.msb)
+        let loaded = reseat(channel: channel, program: program, bank: bank)
         // The failure list is a live fact about the graph, not a log of what
         // happened during load: a channel that has just been given a sound
         // that works is no longer a channel with no sound.
@@ -142,6 +141,148 @@ final class PlaybackGraph {
             setInstrument(program: sound.program, bank: sound.bank,
                           channel: part.index)
         }
+    }
+
+    /// Re-seat one channel's sound WITHOUT writing to the sampler that is
+    /// rendering: a fresh unit is loaded off-graph and swapped in for it.
+    ///
+    /// `loadSoundBankInstrument` REPLACES a sampler's sample data and is not
+    /// documented as real-time safe. Called while a voice sounds, it swaps the
+    /// buffers that voice is walking and the render thread reads memory that is
+    /// no longer there:
+    ///
+    ///     EXC_BAD_ACCESS (SIGSEGV) at 0x...ffffc -- four bytes below a
+    ///     MALLOC_SMALL region -- in
+    ///       ProcessMono <- Oscillator::Process <- VoiceZone::Process
+    ///       <- SamplerNote::Render
+    ///
+    /// TestFlight 0.6.14 (173), reported as "Crash on playback": the reader
+    /// changed an instrument in the mixer while the music ran. No Scoranger
+    /// frame appears in the crashing thread, because the fault is a dangling
+    /// sample pointer held by a voice rather than a bad call of ours.
+    ///
+    /// **THE SAMPLER FOR A CHANNEL IS NOT STABLE ACROSS THIS CALL.** Nothing
+    /// may cache `samplers[i]`; read it again after any instrument change. That
+    /// is the price of the fix and it is the whole reason it is written down
+    /// here: five assertions in `PlaybackTimbreTests` measured a node that had
+    /// been detached under them, and read as "the flute is silent".
+    ///
+    /// THREE CHEAPER FIXES WERE TRIED AND MEASURED. All three touch the live
+    /// sampler and all three broke something a test already guarded:
+    ///
+    ///   - **A program change.** Inert. With or without bank select this
+    ///     sampler's output is bit-identical afterwards (similarity 1.0 to
+    ///     1e-6, iOS 26.5): `loadSoundBankInstrument` pins ONE preset per unit
+    ///     and this is not a multi-preset bank player.
+    ///     `testAProgramChangeDoesNotRePatchALoadedSampler` keeps the number.
+    ///   - **Disconnect, load, reconnect.** Stops the music. The sequencer's
+    ///     track targets this node, so taking it out of the graph halts the
+    ///     transport and leaves the score silent.
+    ///   - **All Sound Off, or `reset()`, before the load.** Silences the
+    ///     sequencer's own playback on every channel --
+    ///     `PlaybackInstrumentIsolationTests` renders four parts and got four
+    ///     silences.
+    ///
+    /// So nothing is done TO the rendering unit. A new sampler is attached,
+    /// loaded while nothing pulls it, connected, given the channel's fader, and
+    /// named as its track's destination; only then is the old one detached.
+    /// Attach, connect and detach are graph operations AVAudioEngine
+    /// serialises against its own rendering -- the guarantee
+    /// `loadSoundBankInstrument` does not offer.
+    ///
+    /// What the reader loses is the tail of a note already ringing on the
+    /// channel being changed. The transport, the clock and the play head are
+    /// untouched, which is what the picker wanted.
+    ///
+    /// NOT DEMONSTRATED BY A TEST, and worth saying plainly. The unit suite
+    /// renders manually, pulling frames on the calling thread, so there is no
+    /// concurrent render to race with. A real-time reproduction was written --
+    /// engine running for real, four voices held per channel, instruments
+    /// re-seated under them twelve rounds deep -- and it passed against the
+    /// code that crashed, three runs out of three: the device faults inside
+    /// `libEmbeddedSystemAUs.dylib` and the simulator does not use that
+    /// sampler. It was deleted rather than kept, because a test that cannot
+    /// fail is worse than no test. What stands behind this is the crash log and
+    /// the absence of a real-time-safety guarantee; what the tests hold is that
+    /// the music keeps playing, the mapping stays put, and the sound changes.
+    /// Re-seat one channel's sound with the sequencer held still, because
+    /// replacing sample data underneath a sounding voice is a crash.
+    ///
+    /// `loadSoundBankInstrument` REPLACES a sampler's sample data and is not
+    /// documented as real-time safe. Called while a voice sounds, it swaps the
+    /// buffers that voice is walking and the render thread reads memory that is
+    /// no longer there:
+    ///
+    ///     EXC_BAD_ACCESS (SIGSEGV) at 0x...ffffc -- four bytes below a
+    ///     MALLOC_SMALL region -- in
+    ///       ProcessMono <- Oscillator::Process <- VoiceZone::Process
+    ///       <- SamplerNote::Render
+    ///
+    /// TestFlight 0.6.14 (173), reported as "Crash on playback": the reader
+    /// changed an instrument in the mixer while the music ran. No Scoranger
+    /// frame appears in the crashing thread, because the fault is a dangling
+    /// sample pointer held by a voice rather than a bad call of ours.
+    ///
+    /// So the sequencer stops generating voices for the length of the load and
+    /// is put back on the beat it was on. The reader hears a hesitation on that
+    /// channel; the play head does not move and the transport does not restart.
+    ///
+    /// FOUR OTHER FIXES WERE TRIED AND MEASURED ON THE iOS 26.5 RUNTIME. They
+    /// are written down because every one of them is the obvious idea, and each
+    /// costs an evening to rediscover:
+    ///
+    ///   - **A program change.** Inert. With or without bank select this
+    ///     sampler's output is bit-identical afterwards (similarity 1.0 to
+    ///     1e-6): `loadSoundBankInstrument` pins ONE preset per unit and this
+    ///     is not a multi-preset bank player.
+    ///     `testAProgramChangeDoesNotRePatchALoadedSampler` keeps the number.
+    ///   - **Disconnect the node, load, reconnect.** Stops the music. The
+    ///     sequencer's track targets this node, so taking it out of the graph
+    ///     halts the transport and leaves the score silent.
+    ///   - **All Sound Off (CC 120), or `reset()`, then load, node left in
+    ///     place.** Silences the sequencer's playback on every channel;
+    ///     `PlaybackInstrumentIsolationTests` renders four parts and got four
+    ///     silences.
+    ///   - **Attach a fresh sampler, load it off-graph, re-point the track,
+    ///     detach the old one.** The cleanest on paper -- the rendering unit is
+    ///     never written to -- and `AVAudioSequencer` refuses it: assigning
+    ///     `destinationAudioUnit` while playing throws -10852. It also breaks
+    ///     the invariant that a channel's sampler identity is stable, which
+    ///     three tests in `PlaybackTimbreTests` rely on.
+    ///
+    /// NOT DEMONSTRATED BY A TEST, and worth saying plainly. The unit suite
+    /// renders manually, pulling frames on the calling thread, so there is no
+    /// concurrent render to race with and the crash cannot be reproduced. A
+    /// real-time version was written -- engine running for real, four voices
+    /// held per channel, instruments re-seated under them twelve rounds deep --
+    /// and it passed against the code that crashed, three runs out of three:
+    /// the device faults inside `libEmbeddedSystemAUs.dylib` and the simulator
+    /// does not use that sampler. It was deleted rather than kept, because a
+    /// test that cannot fail is worse than no test. What stands behind this fix
+    /// is the crash log and the absence of a real-time-safety guarantee; what
+    /// the tests hold is that the music keeps playing, from the same beat, and
+    /// that the sound actually changes.
+    private func reseat(channel: Int, program: UInt8,
+                        bank: GeneralMIDI.Bank) -> Bool {
+        let sampler = samplers[channel]
+        guard engine.isRunning, let sequencer, sequencer.isPlaying else {
+            // Nothing is generating voices, so there is nothing to race: the
+            // plain load, which is what the graph build and the catalogue
+            // tests take.
+            return loadInstrument(sampler, program: program, bankMSB: bank.msb)
+        }
+        // Held in place, not restarted, so the reader hears a hesitation on one
+        // channel rather than a jump. Measured: `stop()` leaves
+        // `currentPositionInBeats` where it was and `start()` resumes from it,
+        // so the assignment below changes nothing today -- it is kept because
+        // that behaviour is not documented, and a test asserting the play head
+        // is held cannot fail while it is implicit.
+        let beat = sequencer.currentPositionInBeats
+        sequencer.stop()
+        let loaded = loadInstrument(sampler, program: program, bankMSB: bank.msb)
+        sequencer.currentPositionInBeats = beat
+        try? sequencer.start()
+        return loaded
     }
 
     /// Put one program on one sampler, out of the bundled bank.

@@ -131,6 +131,15 @@ final class PlaybackTimbreTests: XCTestCase {
     /// Magnitude spectrum of a Hann-windowed real signal, via Accelerate.
     /// Hann because a note is not periodic in 4096 samples and the leakage of
     /// a rectangular window smears the partials this test is looking at.
+    /// Loudness, for "did this channel go silent" rather than "did its timbre
+    /// change". A channel left disconnected is not a different sound; it is no
+    /// sound, and similarity cannot tell the difference.
+    private func rms(_ signal: [Float]) -> Double {
+        guard !signal.isEmpty else { return 0 }
+        let sum = signal.reduce(0.0) { $0 + Double($1) * Double($1) }
+        return (sum / Double(signal.count)).squareRoot()
+    }
+
     private func spectrum(_ signal: [Float]) -> [Double] {
         let n = window
         var input = signal
@@ -319,6 +328,101 @@ final class PlaybackTimbreTests: XCTestCase {
 
     /// The other half of Ali's report: "changing instruments does nothing."
     /// One sampler, one key, a program change between the two notes.
+    /// Changing instrument on a RUNNING graph leaves the channel audible and
+    /// re-patched.
+    ///
+    /// The crash this guards (TestFlight 0.6.14 build 173, "Crash on
+    /// playback") was a dangling sample pointer: `loadSoundBankInstrument`
+    /// replaced the buffers a sounding voice was walking. The fix stops the
+    /// sequencer for the length of the load (`PlaybackGraph.reseat`), and the
+    /// two ways to get that wrong are both silent failures -- a channel taken
+    /// out of the graph and not put back, or a transport that never resumes.
+    ///
+    /// It fails 22 assertions across this suite against a channel left
+    /// disconnected. It does NOT fail against the code that crashed: manual
+    /// rendering pulls frames on this thread, so there is no concurrent render
+    /// to race with and the fault cannot be reproduced here. The ordering is
+    /// what is asserted; the race is what the ordering removes.
+    func testChangingInstrumentWhileRunningKeepsTheChannelAudible() throws {
+        let graph = try graph()
+        // The sequencer must be PLAYING, or `reseat` takes its stopped-graph
+        // path and this measures the plain load instead of the fix.
+        graph.sequencer?.prepareToPlay()
+        try graph.sequencer?.start()
+        XCTAssertEqual(graph.sequencer?.isPlaying, true,
+                       "the live path is the one under test")
+
+        XCTAssertTrue(graph.setInstrument(program: 40, bank: .melodic, channel: 0))
+        let violin = try note(graph.engine, on: graph.samplers[0])
+        XCTAssertGreaterThan(rms(violin), 0.0001, "the violin should sound at all")
+
+        XCTAssertTrue(graph.setInstrument(program: 47, bank: .melodic, channel: 0))
+        let timpani = try note(graph.engine, on: graph.samplers[0])
+
+        XCTAssertGreaterThan(rms(timpani), 0.0001,
+                             "the channel went silent after a live change")
+        XCTAssertLessThan(similarity(spectrum(violin), spectrum(timpani)), 0.9,
+                          "the reload did not take effect on a running graph")
+    }
+
+    /// Many changes in a row, on every channel, while the graph runs.
+    ///
+    /// One change can pass by luck. This walks the picker the way a reader
+    /// hunting for a sound does and asserts every channel is still audible at
+    /// the end -- a leaked disconnect or a sequencer that stopped shows up here
+    /// as a dead channel rather than as a crash on somebody's iPhone.
+    func testRepeatedLiveInstrumentChangesLeaveEveryChannelAudible() throws {
+        let graph = try graph()
+        graph.sequencer?.prepareToPlay()
+        try graph.sequencer?.start()
+        XCTAssertEqual(graph.sequencer?.isPlaying, true,
+                       "the live path is the one under test")
+        let programs: [UInt8] = [0, 40, 47, 73, 24, 56, 12]
+        for channel in graph.samplers.indices {
+            for program in programs {
+                XCTAssertTrue(graph.setInstrument(program: program, bank: .melodic,
+                                                  channel: channel),
+                              "program \(program) refused on channel \(channel)")
+                _ = try note(graph.engine, on: graph.samplers[channel])
+            }
+        }
+        for channel in graph.samplers.indices {
+            XCTAssertGreaterThan(rms(try note(graph.engine, on: graph.samplers[channel])),
+                                 0.0001,
+                                 "channel \(channel) is silent after "
+                                 + "\(programs.count) live changes")
+        }
+    }
+
+    /// A program change does NOT re-patch this sampler, bank loaded or not.
+    /// Measured, because it is the obvious fix for the 0.6.14 crash and it does
+    /// not work: `loadSoundBankInstrument` pins one preset per unit, so a
+    /// picker wired to a program change would silently do nothing.
+    ///
+    /// This is a record of the platform's behaviour, and it is meant to fail if
+    /// that behaviour ever changes -- at which point `PlaybackGraph.reseat` can
+    /// stop pausing the sequencer and the music need not hesitate at all.
+    func testAProgramChangeDoesNotRePatchALoadedSampler() throws {
+        let graph = try graph()
+        XCTAssertTrue(graph.setInstrument(program: 40, bank: .melodic, channel: 0))
+        let loaded = spectrum(try note(graph.engine, on: graph.samplers[0]))
+
+        graph.samplers[0].sendProgramChange(47, bankMSB: GeneralMIDI.Bank.melodic.msb,
+                                            bankLSB: PlaybackSound.bankLSB,
+                                            onChannel: 0)
+        XCTAssertEqual(similarity(loaded, spectrum(try note(graph.engine,
+                                                            on: graph.samplers[0]))),
+                       1.0, accuracy: 1e-6,
+                       "bank-select program change re-patched the sampler -- if this "
+                       + "now works, reseat can go back to a program change")
+
+        graph.samplers[0].sendProgramChange(47, onChannel: 0)
+        XCTAssertEqual(similarity(loaded, spectrum(try note(graph.engine,
+                                                            on: graph.samplers[0]))),
+                       1.0, accuracy: 1e-6,
+                       "plain program change re-patched the sampler")
+    }
+
     func testAProgramChangeChangesWhatComesOut() throws {
         let graph = try graph()
         let sampler = graph.samplers[0]
