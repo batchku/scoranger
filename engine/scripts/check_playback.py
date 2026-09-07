@@ -442,6 +442,106 @@ def main() -> int:
     versions = (call("versions", score=slug).get("result") or {}).get("versions") or []
     check("playing made no new version", len(versions) == 1, str(len(versions)))
 
+    # ------------------------------------------------ a chord chart is not music
+    #
+    # A ChordSymbol is a Chord in music21, so the MIDI writer sounded one. On
+    # Ali's own arrangement that was a whole phantom voice: `Acc. Chords` is a
+    # names-only staff -- `strip-notes` empties a staff and keeps its chart --
+    # holding 0 notes and 135 symbols, and the performance came out with 485
+    # note-ons in exactly the symbols' pitch range while the page showed no
+    # notes on that staff at all. He reported it as the mixer's controls not
+    # matching the voices, and hearing accordion chords out of an empty staff
+    # is a fair way to describe that.
+    #
+    # Built the same shape here rather than leaning on his file: one staff of
+    # notes, one staff of symbols only.
+    from music21 import clef as m21clef
+    from music21 import harmony as m21harmony
+    from music21 import midi as m21midi
+    from music21 import key as m21key
+    from music21 import meter as m21meter
+    from music21 import note as m21note
+    from music21 import stream as m21stream
+
+    chart = m21stream.Score()
+    tune = m21stream.Part(id="Tune")
+    tune.partName = "Tune"
+    names = m21stream.Part(id="Chords")
+    names.partName = "Chart"
+    for bar in (1, 2):
+        played_bar = m21stream.Measure(number=bar)
+        chart_bar = m21stream.Measure(number=bar)
+        if bar == 1:
+            for holder, staff_clef in ((played_bar, m21clef.TrebleClef()),
+                                       (chart_bar, m21clef.TrebleClef())):
+                holder.append(m21meter.TimeSignature("4/4"))
+                holder.append(m21key.Key("F"))
+                holder.append(staff_clef)
+        for step in ("F4", "G4", "A4", "B-4"):
+            played_bar.append(m21note.Note(step, quarterLength=1))
+        # the chart: symbols and RESTS, which is what strip-notes leaves
+        chart_bar.append(m21harmony.ChordSymbol("F"))
+        chart_bar.append(m21note.Rest(quarterLength=4))
+        tune.append(played_bar)
+        names.append(chart_bar)
+    chart.append(tune)
+    chart.append(names)
+
+    performed, chart_timeline = ops.playback_timeline(chart)
+    with tempfile.TemporaryDirectory() as tmp:
+        chart_midi = Path(tmp) / "chart.mid"
+        performed.write("midi", fp=str(chart_midi))
+        midi_file = m21midi.MidiFile()
+        midi_file.open(str(chart_midi))
+        midi_file.read()
+        midi_file.close()
+        sounded = [len([e for e in track.events
+                        if e.isNoteOn() and e.velocity > 0])
+                   for track in midi_file.tracks]
+
+    # the chart staff still HAS its symbols on the page
+    kept = len(list(names.recurse().getElementsByClass(m21harmony.Harmony)))
+    check("the chart stays on the page -- playback is a reading, not a version",
+          kept == 2, f"{kept} symbols")
+    check("the tune sounds", any(count == 8 for count in sounded), str(sounded))
+    check("and the names-only staff sounds NOTHING",
+          sum(count for count in sounded if count != 8) == 0, str(sounded))
+    chart_channels = {p["name"]: p for p in chart_timeline["parts"]}
+    check("the silent staff still gets a channel, because it is on the page",
+          set(chart_channels) == {"Tune", "Chart"}, str(sorted(chart_channels)))
+    check("and its activity lamp never lights",
+          not (chart_channels.get("Chart", {}).get("sounding") or []),
+          str(chart_channels.get("Chart", {}).get("sounding")))
+    # a symbol on a staff that DOES have notes must not silence the notes
+    mixed_played, _ = ops.playback_timeline(chart)
+    mixed = [p for p in mixed_played.parts if p.partName == "Tune"]
+    # And the clef, which is what lets the mixer tell two staves of one name
+    # apart. A grand staff is ONE part that music21 splits in two, both
+    # answering "Piano", so without this the strips read "Piano" and "Piano".
+    check("each channel reports the clef its staff is written in",
+          all(p.get("clef") for p in chart_timeline["parts"]),
+          str([p.get("clef") for p in chart_timeline["parts"]]))
+
+    # And a staff with NO clef reports none rather than guessing one: the
+    # label falls back to an ordinal, which is honest, where an invented clef
+    # would name a staff after something the page does not show.
+    bare = m21stream.Score()
+    bare_part = m21stream.Part(id="Bare")
+    bare_part.partName = "Voice"
+    bare_bar = m21stream.Measure(number=1)
+    bare_bar.append(m21meter.TimeSignature("4/4"))
+    bare_bar.append(m21note.Note("C4", quarterLength=4))
+    bare_part.append(bare_bar)
+    bare.append(bare_part)
+    _, bare_timeline = ops.playback_timeline(bare)
+    check("a staff with no clef of its own reports none rather than guessing",
+          bare_timeline["parts"][0].get("clef") is None,
+          str(bare_timeline["parts"][0].get("clef")))
+
+    check("a staff's own notes survive the symbol removal",
+          bool(mixed) and len(mixed[0].recurse().notes) == 8,
+          str(len(mixed[0].recurse().notes)) if mixed else "no part")
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)}")
