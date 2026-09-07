@@ -41,6 +41,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,11 +108,20 @@ def frameworks_needing_a_manifest(app: Path) -> list[Path]:
     return needing
 
 
-apps = sorted(ROOT.glob("ios/DerivedData*/Build/Products/*/Scoranger.app"))
+# The NEWEST build, and its age printed. Sorted by path this picked whichever
+# app sorted last, which in a worktree that has built before is a fossil from
+# an earlier version -- and a fossil answers this question wrongly in both
+# directions: a stale app without the manifests reports a failure already
+# fixed, and a stale app WITH them would report a pass the current tree has
+# not earned.
+apps = sorted((ROOT.glob("ios/DerivedData*/Build/Products/*/Scoranger.app")),
+              key=lambda p: p.stat().st_mtime)
 if apps:
     app = apps[-1]
+    age_seconds = time.time() - app.stat().st_mtime
     needing = frameworks_needing_a_manifest(app)
-    print(f"\n  built app: {app.relative_to(ROOT)}")
+    print(f"\n  built app: {app.relative_to(ROOT)} "
+          f"(built {age_seconds / 3600:.1f}h ago)")
     note(f"the frameworks linking OpenSSL are the ones we know about: "
          f"{[f.stem for f in needing]}",
          {f.stem for f in needing} == {m.stem for m in manifests})
