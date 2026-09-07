@@ -116,8 +116,31 @@ def frameworks_needing_a_manifest(app: Path) -> list[Path]:
 # not earned.
 apps = sorted((ROOT.glob("ios/DerivedData*/Build/Products/*/Scoranger.app")),
               key=lambda p: p.stat().st_mtime)
+# How new a build has to be to be evidence: newer than the things that decide
+# what it should contain. A build made BEFORE the manifests existed cannot be
+# expected to carry them, and failing on it says nothing except that a build
+# cache is old -- noise that teaches people to ignore this check. A build made
+# AFTER them and missing one is the actual failure.
+SOURCES_OF_TRUTH = [*manifests, SEED, PROJECT]
+CHANGED_AT = max((p.stat().st_mtime for p in SOURCES_OF_TRUTH if p.exists()),
+                 default=0.0)
+
+evidence = None
+if not apps:
+    print("\n  --   no built app anywhere under ios/DerivedData*.")
 if apps:
-    app = apps[-1]
+    newest = apps[-1]
+    age_hours = (time.time() - newest.stat().st_mtime) / 3600
+    if newest.stat().st_mtime >= CHANGED_AT:
+        evidence = newest
+    else:
+        print(f"\n  --   the newest build ({newest.relative_to(ROOT)}, "
+              f"{age_hours:.1f}h old) predates the\n       manifests, so it is "
+              f"not evidence either way. Rebuild, or rely on the deploy,\n"
+              f"       which reads the archive it is about to upload.")
+
+if evidence is not None:
+    app = evidence
     age_seconds = time.time() - app.stat().st_mtime
     needing = frameworks_needing_a_manifest(app)
     print(f"\n  built app: {app.relative_to(ROOT)} "
@@ -157,9 +180,9 @@ else:
     # reads the archive it is about to upload and refuses on a missing
     # manifest. What is asserted here instead is that the enforcement is still
     # there, which is the part that could quietly disappear.
-    print("\n  --   no built app to inspect, so the bundle itself was not "
-          "checked here.\n       The archive is checked by the deploy, "
-          "unconditionally; that it does\n       so is asserted below.")
+    print("       The bundle itself was therefore not checked here. The archive "
+          "IS checked by\n       the deploy, unconditionally; that it does so "
+          "is asserted below.")
 
 DEPLOY = ROOT / "ios" / "scripts" / "deploy_testflight.sh"
 deploy = DEPLOY.read_text() if DEPLOY.is_file() else ""
