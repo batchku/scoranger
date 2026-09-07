@@ -138,6 +138,42 @@ ARCHIVED_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
   || die "archive says build $ARCHIVED_BUILD but project.yml says $BUILD_NUMBER"
 say "archived build $ARCHIVED_BUILD"
 
+# --------------------------------------------------- privacy manifests, sealed
+#
+# The ONE place this can be checked against a build that is actually going to
+# Apple. Apple refused external distribution of 0.6.15 with ITMS-91061 for
+# _hashlib.framework and _ssl.framework: OpenSSL is on the list of commonly
+# used third-party SDKs, and every SDK on it must carry a PrivacyInfo.xcprivacy
+# at its bundle root. Internal testing never noticed, because a warning only
+# becomes a rejection at beta App Review, which is what external groups go
+# through.
+#
+# Read off the BINARIES rather than from a list: any framework carrying OpenSSL
+# symbols needs the file, so a payload upgrade that adds a third such module is
+# caught here rather than by an email from Apple three days later.
+ARCHIVED_APP="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+MISSING_MANIFESTS=()
+for framework in "$ARCHIVED_APP"/Frameworks/*.framework; do
+  [[ -d "$framework" ]] || continue
+  name=$(basename "$framework" .framework)
+  binary="$framework/$name"
+  [[ -f "$binary" ]] || continue
+  if nm -a "$binary" 2>/dev/null \
+       | grep -qE "BORINGSSL|openssl_grpc|OPENSSL_|EVP_[A-Za-z]"; then
+    if [[ ! -f "$framework/PrivacyInfo.xcprivacy" ]]; then
+      MISSING_MANIFESTS+=("$name")
+    fi
+  fi
+done
+if (( ${#MISSING_MANIFESTS[@]} )); then
+  die "these archived frameworks link OpenSSL and carry no privacy manifest: ${MISSING_MANIFESTS[*]}.
+     Apple will warn ITMS-91061 and refuse EXTERNAL TestFlight distribution.
+     Add ios/PrivacyManifests/<module>.xcprivacy and rebuild -- the build seeds
+     them into the payload and utils.sh signs them in
+     (scripts/seed_privacy_manifests.sh)."
+fi
+say "privacy manifests present on every OpenSSL framework in the archive"
+
 # ------------------------------------------------------- export and upload
 say "exporting and uploading to TestFlight"
 rm -rf "$EXPORT_DIR"
