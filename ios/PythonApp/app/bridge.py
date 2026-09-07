@@ -437,6 +437,13 @@ def _dispatch(op, a):
     if op == "transpose-elements":
         return _mutate(s, op, a, lambda sc: ops.transpose_elements(
             sc, str(a["interval"]), list(a["elements"])))
+    if op == "transpose-diatonic":
+        return _mutate(s, op, a, lambda sc: ops.transpose_diatonic(
+            sc, a["degrees"], a.get("parts"),
+            a.get("from_measure"), a.get("to_measure"), a.get("key")))
+    if op == "transpose-diatonic-elements":
+        return _mutate(s, op, a, lambda sc: ops.transpose_diatonic_elements(
+            sc, a["degrees"], list(a["elements"]), a.get("key")))
     if op == "respell":
         return _mutate(s, op, a, lambda sc: ops.respell(
             sc, a.get("prefer", "flats"), a.get("parts"),

@@ -45,6 +45,12 @@ struct LocalChat {
     part from #3" means pull_part from that ref. '#N' never means a version or a \
     measure. If no numbered list is in context, say the arrangement isn't filed \
     under a piece yet rather than guessing.
+    7. A HARMONY LINE stays in the key. "A third above", "a sixth below", \
+    "harmonise it" are diatonic: use transpose_diatonic, which moves by scale \
+    degrees and leaves the key signature alone. Plain `transpose` is chromatic \
+    and changes key -- right for "put this in D", wrong for a harmony. Never \
+    answer that scale-degree transposition within a key is unsupported; it is \
+    transpose_diatonic.
     Answer concisely; the user sees the score update live.
     """
 
@@ -107,13 +113,29 @@ struct LocalChat {
                  parameters: params(["parts": strArr("part names to remove")], required: ["parts"]),
                  op: "remove-parts", rename: [:]),
         ToolSpec(name: "transpose",
-                 description: "Transpose the whole score (or given parts) by a named interval ('M2', 'm-3', 'P8') or semitone count ('-3'). Set from_measure/to_measure (inclusive) to transpose only that measure range — required when the user targets a highlighted passage.",
+                 description: "CHROMATIC transposition: shift by a fixed interval and CHANGE KEY. Use it when the music should end up in a DIFFERENT key — \"put this in D\", \"a whole step up so I can sing it\", \"transpose for B-flat clarinet\". Every pitch moves by the same interval and the key signature is rewritten to match. Do NOT use it for a harmony line: \"a third above\", \"a sixth below\", \"harmonise it\" mean the notes must stay IN THE CURRENT KEY, which this cannot do — use transpose_diatonic. `interval` is a named interval ('M2', 'm-3', 'P8') or a semitone count ('-3'). Set from_measure/to_measure (inclusive) for a measure range.",
                  parameters: params(["interval": str("interval or semitone count"),
                                      "parts": strArr("optional part names; omit for all"),
                                      "from_measure": int("optional first measure of the range (inclusive)"),
                                      "to_measure": int("optional last measure of the range (inclusive)")],
                                     required: ["interval"]),
                  op: "transpose", rename: [:]),
+        ToolSpec(name: "transpose_diatonic",
+                 description: "DIATONIC transposition: move by SCALE DEGREES and STAY IN THE KEY. This is the tool for a harmony line — \"down a sixth\", \"a third above the melody\", \"harmonise this in thirds\", \"a second violin part below\". The key signature does not change and no accidentals appear that were not there before; some of the sixths come out major and some minor, exactly as the key requires, which is what makes it a harmony rather than a modulation. `degrees` is the number a musician says, signed: -6 is down a sixth, 3 up a third, 8 up an octave; 'down a sixth' works too. A unison is 1 and there is no zeroth. It moves the notes of the parts you name — it does not add a staff, so to write the harmony as a NEW part, pull_part the melody from the current version first and run this on the copy. `key` is only needed when the staff carries no key signature (common in scans): the tool refuses rather than guessing, and says so. Relay any note the result reports as OUTSIDE the key.",
+                 parameters: params(["degrees": str("signed scale steps: -6 is down a sixth, 3 up a third"),
+                                     "parts": strArr("optional part names; omit for all"),
+                                     "from_measure": int("optional first measure of the range (inclusive)"),
+                                     "to_measure": int("optional last measure of the range (inclusive)"),
+                                     "key": str("optional key to count degrees in, e.g. 'G', 'e', 'Bb' — only when the staff has no key signature")],
+                                    required: ["degrees"]),
+                 op: "transpose-diatonic", rename: [:]),
+        ToolSpec(name: "transpose_diatonic_elements",
+                 description: "Move ONLY the given elements by scale degrees, staying in the key. Use this — never transpose_diatonic with a measure range — whenever the user refers to a selection and the context lists selected element addresses. Pass them unchanged ('s1/m15/l1/note#3').",
+                 parameters: params(["degrees": str("signed scale steps: -6 is down a sixth"),
+                                     "elements": strArr("element addresses from the selection, unchanged"),
+                                     "key": str("optional key, when the staff has no key signature")],
+                                    required: ["degrees", "elements"]),
+                 op: "transpose-diatonic-elements", rename: [:]),
         ToolSpec(name: "respell",
                  description: "Respell accidentals enharmonically: prefer='flats' turns G# into Ab (right for flat keys like F minor); prefer='sharps' does the reverse. Key signatures untouched. Set from_measure/to_measure (inclusive) to respell only that measure range.",
                  parameters: params(["prefer": str("'flats' or 'sharps' (default flats)"),
@@ -275,7 +297,12 @@ struct LocalChat {
                  op: "assign-piece", rename: ["piece_name": "piece"]),
     ]
 
-    private static var toolsJSON: [[String: Any]] {
+    /// The tool list as the model receives it. Not private: a test reads it to
+    /// assert the feature is actually OFFERED on device. An op can exist in the
+    /// engine, in the bridge and in chat.py and still be unreachable from the
+    /// iPad, which is how `transpose_diatonic` would have shipped as a CLI-only
+    /// feature after Ali asked for it by name.
+    static var toolsJSON: [[String: Any]] {
         tools.map { t in
             ["type": "function",
              "function": ["name": t.name, "description": t.description, "parameters": t.parameters]]
@@ -293,64 +320,6 @@ struct LocalChat {
     enum Event {
         case toolStarted(title: String)
         case toolFinished(detail: String?)   // e.g. "→ v005"
-    }
-
-    /// Friendly checklist titles for tool calls.
-    static func stepTitle(name: String, argsJSON: String) -> String {
-        let args = (try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8)) as? [String: Any]) ?? [:]
-        func s(_ key: String) -> String? { args[key] as? String }
-        switch name {
-        case "get_score_info": return "Reading the score"
-        case "list_versions": return "Checking version history"
-        case "analyze_harmony": return "Analyzing the harmony"
-        case "transpose": return "Transposing \(s("interval") ?? "")"
-        case "respell": return "Respelling with \(s("prefer") ?? "flats")"
-        case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
-        case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
-        case "set_structure":
-            let what = s("kind") ?? "mark"
-            if s("remove") == "true" { return "Removing the \(what)" }
-            if let to = s("move_to") { return "Moving the \(what) to bar \(to)" }
-            return "Adding \(what) at bar \(s("measure") ?? "?")"
-        case "adjust_element":
-            let what = s("kind") == "diagram" ? "chord diagram" : "chord name"
-            if s("reset") == "true" { return "Putting the \(what) back" }
-            if let size = s("size") { return "Setting the \(what) to \(size)pt" }
-            return "Moving the \(what)"
-        case "guitar_tablature":
-            return s("clear") == "true"
-                ? "Removing the tab from \(s("part") ?? "the part")"
-                : "Writing tab under \(s("part") ?? "the part")"
-        case "guitar_chord_diagrams":
-            return s("clear") == "true"
-                ? "Removing chord diagrams from \(s("part") ?? "the part")"
-                : "Drawing chord diagrams over \(s("part") ?? "the part")"
-        case "penny_whistle_fingerings":
-            return s("clear") == "true"
-                ? "Removing whistle fingerings from \(s("part") ?? "the part")"
-                : "Writing whistle fingerings under \(s("part") ?? "the part")"
-        case "set_metadata":
-            if let t = s("title") { return "Titling the arrangement \u{201C}\(t)\u{201D}" }
-            return "Updating the arrangement's credits"
-        case "change_clef": return "Setting \(s("part") ?? "part") to \(s("clef") ?? "") clef"
-        case "keep_parts", "remove_parts":
-            let parts = (args["parts"] as? [String])?.joined(separator: ", ") ?? ""
-            return name == "keep_parts" ? "Keeping only \(parts)" : "Removing \(parts)"
-        case "merge_parts": return "Merging into \(s("new_name") ?? "one staff")"
-        case "split_bass": return "Splitting bass and chords"
-        case "octave_shift": return "Octave shift: \(s("part") ?? "part")"
-        case "check_range": return "Checking range of \(s("part") ?? "part")"
-        case "set_chords": return "Writing chord symbols"
-        case "chart_style": return "Applying chart styling"
-        case "pull_part": return "Pulling \(s("part") ?? "part") from \(s("from_ref") ?? "source")"
-        case "absorb_part": return "Folding \(s("source") ?? "part") into \(s("target") ?? "part")"
-        case "flatten_voices": return "Flattening voices in \(s("part") ?? "part")"
-        case "consolidate_ties": return "Cleaning up ties"
-        case "limit_part": return "Limiting \(s("part") ?? "part") for playability"
-        case "simplify_repeats": return "Simplifying repeated bass notes"
-        default:
-            return name.replacingOccurrences(of: "_", with: " ").capitalized
-        }
     }
 
     /// One chat turn against the on-device engine. `historyJSON` is the JSON
@@ -415,7 +384,7 @@ struct LocalChat {
                 let name = fn?["name"] as? String ?? ""
                 let argsRaw = fn?["arguments"] as? String ?? "{}"
                 if let onEvent {
-                    let title = Self.stepTitle(name: name, argsJSON: argsRaw)
+                    let title = ChatSteps.stepTitle(name: name, argsJSON: argsRaw)
                     await MainActor.run { onEvent(.toolStarted(title: title)) }
                 }
                 let resultText = await dispatch(slug: slug, name: name, argsJSON: argsRaw)
