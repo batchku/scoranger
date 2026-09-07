@@ -49,7 +49,7 @@
 # whichever way the gate is run; serial would hide it until CI or a slower Mac
 # found it again.
 #
-# ONE EXCEPTION, and it is not a hiding place: see SERIAL below. A handful of
+# ONE EXCEPTION, and it is not a hiding place: see ENGINE_SERIAL below. A handful of
 # tests wait on the embedded Python engine to finish a DELETE, and four workers
 # calling that engine at once is contention rather than a race -- there is
 # nothing to fix in the test, and no timeout that is honest. Those run after
@@ -110,7 +110,11 @@ SKIP=(
 # They are still enumerated, still counted, and still fail the gate: `expected`
 # includes them and the results pass reads their bundle beside the workers'.
 # Skipping is not what this is.
-SERIAL=(
+# NOT `SERIAL`: that name is taken by the --serial FLAG above, and an array
+# assigned to it reads as "true" to the `[[ -n "$SERIAL" ]]` that chooses the
+# whole-suite serial path -- which ran the entire gate on one simulator and
+# looked, from outside, exactly like a gate that had hung.
+ENGINE_SERIAL=(
   ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted
   ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast
   ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton
@@ -211,7 +215,7 @@ xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
 # they are dealt one at a time. Slowest first, longest-processing-time greedy,
 # using the durations the last run recorded -- an unknown test is assumed
 # median, so a new test is never the thing that unbalances the run.
-printf '%s\n' "${SERIAL[@]}" > "$OUT/serial.txt"
+printf '%s\n' "${ENGINE_SERIAL[@]}" > "$OUT/serial.txt"
 python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv "$OUT/serial.txt" <<'PY'
 import json, sys, os, collections
 tests_json, workers, out, durfile = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
@@ -228,7 +232,7 @@ for value in json.load(open(tests_json)).get("values", []):
 if not ids:
     sys.exit("no tests enumerated")
 
-# The deletion class runs on its own, after the pool -- see SERIAL in the
+# The deletion class runs on its own, after the pool -- see ENGINE_SERIAL in the
 # shell above. Held out of the shards, still counted in `expected`.
 serial = set()
 if os.path.exists(serial_file):
@@ -292,7 +296,7 @@ for n in $(seq 1 "$WORKERS"); do
   [[ "$pid" == 0 ]] && continue
   if ! wait "$pid"; then echo "    worker $n FAILED"; fail=1; fi
 done
-# THE SERIAL PHASE. One simulator, one test at a time, after the pool has
+# THE ENGINE-SERIAL PHASE. One simulator, one test at a time, after the pool has
 # finished -- so the engine is not being called by anything else.
 SERIAL_TESTS=()
 while read -r t; do [[ -n "$t" ]] && SERIAL_TESTS+=("$t"); done < "$OUT/serial.txt"
