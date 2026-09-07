@@ -125,6 +125,45 @@ ENGINE_SERIAL=(
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
 )
 
+# ---------------------------------------------------------------- preflight
+#
+# The gitignored things a worktree does not inherit. `git worktree add` brings
+# the tracked files and nothing else, and three of the four prerequisites here
+# are ignored on purpose because they are large or machine-specific:
+#
+#   testdata/       the sample scores the app SEEDS ITS LIBRARY FROM. A build
+#                   phase copies testdata/app-samples/* into the bundle as
+#                   samples-seed/, and with the directory absent it copies
+#                   nothing, silently: the app starts, the engine starts, the
+#                   database is created, and the library stays empty. Every UI
+#                   test that opens a score then waits out its full timeout and
+#                   fails on a message about a row or a piece or a book, which
+#                   reads exactly like a broken branch. It cost a full gate and
+#                   two wrong diagnoses -- stale simulators, then machine load
+#                   -- before anybody looked in the app bundle.
+#   ios/Vendor/     Python.xcframework, Verovio, the soundfonts.
+#   engine/.venv/   the interpreter the checks and the vendoring script run on.
+#
+# Checked before the build, because every one of them fails LATE and looks like
+# something else.
+for prerequisite in \
+  "$PWD/../testdata/app-samples:the sample scores the app seeds its library from" \
+  "$PWD/Vendor/Python.xcframework:the embedded Python" \
+  "$PWD/Vendor/verovio:the engraver" \
+  "$PWD/../engine/.venv/bin/python:the engine venv"
+do
+  path="${prerequisite%%:*}"
+  what="${prerequisite#*:}"
+  if [[ ! -e "$path" ]]; then
+    echo "gate: MISSING $what" >&2
+    echo "      $path" >&2
+    echo "      It is gitignored, so a fresh worktree does not have it. Link or" >&2
+    echo "      copy it from the main checkout, e.g.:" >&2
+    echo "        ln -s /path/to/scoranger/testdata $PWD/../testdata" >&2
+    exit 1
+  fi
+done
+
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"
 RUNTIME=$(xcrun simctl list runtimes -j \
   | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and "iOS" in r["name"]]; print(sorted(rs, key=lambda r: [int(x) for x in r["version"].split(".")])[-1]["identifier"])')
