@@ -35,6 +35,7 @@ struct LibraryView: View {
     var onCreate: (String) -> Void
     var onImport: () -> Void
     /// A whole exported library: one folder per piece. Planned before it is run.
+    var onImportPhotos: () -> Void = {}
     var onImportFolder: () -> Void = {}
     /// A collection to take arrangements out of, rather than a piece.
     var onImportBook: () -> Void = {}
@@ -396,15 +397,33 @@ struct LibraryView: View {
     /// What `Import ▾` reveals: the three things it can take, in words. Three
     /// glyphs a reader has to guess become three names.
     private var importOptions: some View {
-        HStack(spacing: Theme.Metric.s6) {
+        // ROWS, not a line of chips (§15). Each carries the one line that says
+        // what it takes -- and that line is what keeps Score findable for a
+        // picture already in Files, now that a picture has no row of its own.
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(LibraryQuickAction.imports) { action in
                 Button { showImport = false; run(action) } label: {
-                    controlLabel(action.bandTitle)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(action.bandTitle).typeRole(.row)
+                            .foregroundStyle(Theme.Ink.ink)
+                        Text(action.bandSubtitle).typeRole(.meta)
+                            .foregroundStyle(Theme.Ink.ink3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, Theme.Metric.s6)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(action.identifier)
+                // The rule after Photos IS the meaning: above it, one
+                // arrangement out of one thing; below it, a collection.
+                if action == LibraryQuickAction.importsDividerAfter {
+                    Rectangle().fill(Theme.Line.line)
+                        .frame(height: 1)
+                        .padding(.vertical, Theme.Metric.s6)
+                }
             }
-            Spacer()
         }
     }
 
@@ -424,33 +443,12 @@ struct LibraryView: View {
     private func run(_ action: LibraryQuickAction) {
         switch action {
         case .importScore:  onImport()
+        case .importPhotos: onImportPhotos()
         case .importFolder: onImportFolder()
         case .importBook:   onImportBook()
         case .new:          creatingName = ""
         case .newSetlist:   segment = .setlists; creatingName = ""
         }
-    }
-
-    @ViewBuilder
-    private func quickButton(_ action: LibraryQuickAction, compact: Bool) -> some View {
-        Button {
-            switch action {
-            case .importScore:  onImport()
-            case .importFolder: onImportFolder()
-            case .importBook:   onImportBook()
-            case .new:          creatingName = ""
-            case .newSetlist:   segment = .setlists; creatingName = ""
-            }
-        } label: {
-            rowButton(action.title, glyph: action.glyph, iconOnly: compact)
-        }
-        .buttonStyle(.plain)
-        // label and identifier, and no children: .ignore -- grouping a button
-        // into its own element puts the identifier on the wrapper and leaves
-        // the state on the button inside it, which is how a dimmed control
-        // came to report itself as enabled.
-        .accessibilityLabel(action.title)
-        .accessibilityIdentifier(action.identifier)
     }
 
     /// One button of the action row: 32pt, bordered, panel fill, no emphasis.

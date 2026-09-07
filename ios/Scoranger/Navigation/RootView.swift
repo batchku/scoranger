@@ -42,6 +42,8 @@ struct RootView: View {
     /// already shipped once. The three ACTIONS remain; they set this and share
     /// a single presenter.
     @State private var importIntent = ImportIntent()
+    /// The camera roll's own picker, which is not a document picker.
+    @State private var showPhotoImport = false
 
     /// Settings is a panel docked at the trailing edge, not a screen that
     /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
@@ -150,6 +152,28 @@ struct RootView: View {
                 }
             }
             #endif
+        }
+        // The camera roll, which Files cannot reach. A sheet of its own
+        // rather than a fourth `ImportKind`: PHPicker is not a document
+        // picker and shares none of `fileImporter`'s presentation.
+        .sheet(isPresented: $showPhotoImport) {
+            PhotoImport(onPicked: { urls in
+                showPhotoImport = false
+                guard !urls.isEmpty else {
+                    state.notice = "That picture could not be read."
+                    return
+                }
+                // SEVERAL PHOTOS ARE ONE ARRANGEMENT OF n PAGES (§15 ruling
+                // 2), in the order they were picked -- somebody photographing
+                // a score is photographing a piece, and PHPicker hands its
+                // results back in selection order, which is page order.
+                //
+                // Files multi-select is unchanged and still means n
+                // arrangements: there, n files really are n things.
+                state.receivePhotographedPages(urls)
+                segment = .pieces
+            }, onCancel: { showPhotoImport = false })
+            .ignoresSafeArea()
         }
         // ONE presenter for all three actions -- see ImportKind.
         .fileImporter(isPresented: Binding(get: { importIntent.isPresented },
@@ -340,6 +364,7 @@ struct RootView: View {
                     // like. Asking first put a modal-shaped question in front
                     // of the one thing the button exists to do.
                     onImport: { importIntent.ask(for: .file) },
+                    onImportPhotos: { showPhotoImport = true },
                     onImportFolder: { importIntent.ask(for: .folder) },
                     onImportBook: { importIntent.ask(for: .book) },
                     onSettings: {

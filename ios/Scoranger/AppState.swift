@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import PDFKit
 import SwiftUI
 
@@ -1675,7 +1676,66 @@ final class AppState: ObservableObject {
     /// A file handed to us by the system (share sheet / "Open in").
     /// `piece` files the resulting arrangement under that piece (the sidebar's
     /// per-piece import); nil leaves it unfiled.
+    /// Photographed pages: ONE arrangement of n pages, in the order picked
+    /// (§15 ruling 2).
+    ///
+    /// Not n arrangements. Somebody photographing a score is photographing a
+    /// piece, and the pages come back in selection order, which is the only
+    /// ordering anyone could mean by tapping four pages of one chart.
+    ///
+    /// One page stays a picture, so it lands as an IMAGE arrangement exactly
+    /// as a shared-in photograph does. Several become one document, because a
+    /// multi-page thing in this library IS one -- and it then behaves like any
+    /// other scan: it opens as it is, takes markup, and reads through
+    /// make-editable.
+    ///
+    /// A reader who picked pages of DIFFERENT pieces gets one draft rather
+    /// than being interrogated up front, and the notice says where to undo
+    /// that -- the Book screen already splits a collection into arrangements,
+    /// so there is nothing new to learn and nothing lost.
+    func receivePhotographedPages(_ urls: [URL]) {
+        guard let first = urls.first else { return }
+        guard urls.count > 1 else {
+            receiveFile(at: first, intoPiece: nil)
+            return
+        }
+        let pages = urls.compactMap { try? Data(contentsOf: $0) }
+        guard pages.count == urls.count,
+              let document = ScanImage.pdf(fromPages: pages) else {
+            notice = "Those pictures could not be read."
+            return
+        }
+        let name = first.deletingPathExtension().lastPathComponent
+        let file = FileManager.default.temporaryDirectory
+            .appending(path: "\(name)-\(urls.count)-pages.pdf")
+        do {
+            try document.write(to: file)
+        } catch {
+            notice = "Those pictures could not be saved."
+            return
+        }
+        receiveFile(at: file, intoPiece: nil)
+        notice = "\(urls.count) pages imported as one arrangement, in the "
+               + "order you picked them. If they were different pieces, open "
+               + "it under Books to split them."
+    }
+
     func receiveFile(at url: URL, intoPiece piece: String? = nil) {
+        // ONE PIPELINE for both image routes (§15 ruling 1). A picture from
+        // Files and a picture from the camera roll are the same thing once
+        // there is a file, so the normalisation that makes the picker's
+        // `public.image` umbrella truthful happens HERE rather than in either
+        // picker -- a conversion on one route only is the drift the ruling
+        // forbids.
+        var url = url
+        if ScoreArtifact.kind(ofFile: url.lastPathComponent) == .image
+            || UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+            guard let usable = ScanImage.normalised(url) else {
+                notice = "That picture could not be read."
+                return
+            }
+            url = usable
+        }
         if !ScoreArtifact.kind(ofFile: url.lastPathComponent).isNotation {
             // A scan comes in AS A SCAN -- a PDF or a photograph of a page.
             // It opens and takes markup immediately,

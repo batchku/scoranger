@@ -40,6 +40,64 @@ enum ScanImage {
     /// Nil for bytes that are not an image, rather than a blank page: a blank
     /// page in the library is indistinguishable from a score that failed to
     /// load, and the reader would have no way to tell which they had.
+    /// The pages of one photographed arrangement, in the order they were
+    /// picked, as a single document (§15 ruling 2).
+    ///
+    /// Several photos are ONE arrangement of n pages, not n arrangements:
+    /// somebody photographing a score is photographing a piece. PHPicker hands
+    /// results back in selection order, and selection order is page order --
+    /// which is the only ordering anyone could mean when they tap four pages
+    /// of the same chart.
+    ///
+    /// Each page keeps its OWN proportions, for the reason one page does: a
+    /// photograph is not A4, and forcing a common page size would letterbox
+    /// every page that did not match the first.
+    static func pdf(fromPages pages: [Data]) -> Data? {
+        let images = pages.compactMap(UIImage.init(data:))
+            .filter { $0.size.width > 0 && $0.size.height > 0 }
+        guard !images.isEmpty else { return nil }
+        // The renderer needs a bounds; each page overrides it with its own.
+        let first = CGRect(origin: .zero, size: images[0].size)
+        let renderer = UIGraphicsPDFRenderer(bounds: first)
+        return renderer.pdfData { context in
+            for image in images {
+                let bounds = CGRect(origin: .zero, size: image.size)
+                context.beginPage(withBounds: bounds, pageInfo: [:])
+                image.draw(in: bounds)
+            }
+        }
+    }
+
+    /// An image file the engine will accept, whatever the reader chose.
+    ///
+    /// The picker offers the `public.image` umbrella (§15), so a GIF, a TIFF
+    /// or anything else the system can decode can arrive here -- and the
+    /// engine imports four suffixes. Rather than narrowing what may be
+    /// offered, anything outside those four is written out as PNG.
+    ///
+    /// It lives at the SHARED entry point on purpose (§15 ruling 1): a file
+    /// from Files and a file from the camera roll are the same thing once
+    /// there is a file, and a conversion that happened on only one of those
+    /// routes would be exactly the drift the ruling forbids.
+    ///
+    /// Returns the URL unchanged when it is already acceptable, and nil when
+    /// the bytes are not an image at all -- which is a refusal the caller can
+    /// report, rather than a blank page in the library.
+    static func normalised(_ url: URL) -> URL? {
+        let suffix = url.pathExtension.lowercased()
+        if ScoreArtifact.imageSuffixes.contains(suffix) { return url }
+        guard let data = try? Data(contentsOf: url),
+              let image = UIImage(data: data),
+              let png = image.pngData() else { return nil }
+        let converted = url.deletingPathExtension().appendingPathExtension("png")
+        do {
+            try png.write(to: converted)
+            return converted
+        } catch {
+            return nil
+        }
+    }
+
     static func pdf(from data: Data) -> Data? {
         guard !data.isEmpty, let image = UIImage(data: data),
               image.size.width > 0, image.size.height > 0 else { return nil }
