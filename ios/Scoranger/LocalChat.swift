@@ -56,14 +56,18 @@ struct LocalChat {
 
     enum ChatError: Error, LocalizedError {
         case missingKey
-        case http(Int, String)
-        case badResponse(String)
+        /// The provider refused, in its own words -- read out of whatever
+        /// envelope it arrived in, and never handed over as JSON. This replaced
+        /// `http(Int, String)` and `badResponse(String)`, both of which printed
+        /// the response body at the reader: what Ali saw was
+        /// `Unexpected OpenRouter response: {"error":{"message":"Corrupted
+        /// thought signature.","code":400}}`.
+        case provider(ChatWire.Fault)
         case network(URLError)
         var errorDescription: String? {
             switch self {
             case .missingKey: return "No OpenRouter API key — none baked into this build; add one in Settings."
-            case .http(let code, let body): return "OpenRouter HTTP \(code): \(body.prefix(300))"
-            case .badResponse(let why): return "Unexpected OpenRouter response: \(why)"
+            case .provider(let fault): return fault.readable
             case .network(let error):
                 return "Couldn't reach OpenRouter: \(error.localizedDescription) "
                     + "(tried 4 times on fresh connections). Check Wi-Fi, and any "
@@ -356,7 +360,12 @@ struct LocalChat {
         var messages: [[String: Any]]
         if let historyJSON, let data = historyJSON.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            messages = parsed
+            // A reasoning signature is worth keeping only inside the turn that
+            // minted it, where the model is continuing its own chain of
+            // thought. Carried into the NEXT turn it can only fail -- and when
+            // it does the provider answers "Corrupted thought signature." and
+            // the whole turn dies with the arrangement half-applied.
+            messages = ChatWire.withoutReasoning(parsed)
             // keep the system context current (siblings may have changed)
             if messages.first?["role"] as? String == "system" {
                 messages[0]["content"] = system
@@ -455,8 +464,10 @@ struct LocalChat {
          .cannotFindHost, .dnsLookupFailed].contains(error.code)
     }
 
-    private func complete(model: String, messages: [[String: Any]],
-                          allowTools: Bool = true) async throws -> [String: Any] {
+    /// One request, with the key handling and the transient-network retry.
+    /// Returns whatever came back; judging it is `complete`'s business.
+    private func send(model: String, messages: [[String: Any]],
+                      allowTools: Bool) async throws -> (Data, Int) {
         // stored key if present, baked-in default otherwise; a 401 self-heals
         // below by falling back to the baked key
         let storedKey = KeychainStore.openRouterKey
@@ -505,17 +516,56 @@ struct LocalChat {
             }
             break
         }
-        guard code == 200 else {
-            throw ChatError.http(code, String(data: data, encoding: .utf8) ?? "")
+        return (data, code)
+    }
+
+    /// One assistant message, with the provider's refusals handled.
+    ///
+    /// The two recoveries are in ChatWire's own notes. Briefly: a rejected
+    /// reasoning signature is retried ONCE with every signature stripped, which
+    /// is the recovery `runLoop` already applies to history a turn later; and a
+    /// busy provider is waited out twice. Everything else is the reader's to
+    /// know about, in a sentence.
+    private func complete(model: String, messages initialMessages: [[String: Any]],
+                          allowTools: Bool = true) async throws -> [String: Any] {
+        var messages = initialMessages
+        var strippedReasoning = false
+        var busyAttempt = 0
+        while true {
+            let (data, code) = try await send(model: model, messages: messages,
+                                              allowTools: allowTools)
+            if let fault = ChatWire.fault(in: data, status: code) {
+                // the body belongs in the log, which is where it always
+                // belonged, and nowhere near the transcript
+                print("SCORANGER-CHAT-FAULT \(fault.kind) HTTP \(code): "
+                      + (String(data: data, encoding: .utf8)?.prefix(400) ?? "<unreadable>"))
+                switch fault.kind {
+                case .staleReasoning where !strippedReasoning
+                        && ChatWire.carriesReasoning(messages):
+                    strippedReasoning = true
+                    messages = ChatWire.withoutReasoning(messages)
+                    print("SCORANGER-CHAT-FAULT retrying without reasoning state")
+                    continue
+                case .busy where busyAttempt < 2:
+                    busyAttempt += 1
+                    try await Task.sleep(for: .seconds(busyAttempt * 2))
+                    continue
+                default:
+                    throw ChatError.provider(fault)
+                }
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = obj["choices"] as? [[String: Any]],
+                  var assistant = choices.first?["message"] as? [String: Any] else {
+                print("SCORANGER-CHAT-UNPARSEABLE HTTP \(code): "
+                      + (String(data: data, encoding: .utf8)?.prefix(400) ?? "<unreadable>"))
+                throw ChatError.provider(
+                    ChatWire.Fault(kind: .other, providerMessage: "", status: code))
+            }
+            // normalize: some providers send content: null with tool_calls
+            if assistant["content"] is NSNull { assistant["content"] = "" }
+            return assistant
         }
-        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = obj["choices"] as? [[String: Any]],
-              var assistant = choices.first?["message"] as? [String: Any] else {
-            throw ChatError.badResponse(String(data: data, encoding: .utf8)?.prefix(300).description ?? "")
-        }
-        // normalize: some providers send content: null with tool_calls
-        if assistant["content"] is NSNull { assistant["content"] = "" }
-        return assistant
     }
 }
 
