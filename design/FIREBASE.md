@@ -1605,6 +1605,57 @@ reorder and the owner should hear it in those words.
 The band layer (§6.3, §0.6), presence, page-follow, public links (recommended
 never), a web client, and the hosted agent loop from `ARCHITECTURE.md`.
 
+### 11.9 What 0.7.0 actually shipped, and what it does not
+
+Written after the fact, against the code, because §11.3 to §11.6 were planned
+as four TestFlight builds and the owner asked for one: *"build all of these
+necessary features for sharing playlists into the first 7.0 build."* So 0.7.0
+is the whole of 0.7.2 through 0.7.5 and this records where that leaves things.
+
+**Built and enforced.** The Firebase project, billing, Firestore, Storage and
+Auth (Google and Apple). The security rules, deployed and verified
+byte-identical against what is in `firebase/firestore.rules` and
+`firebase/storage.rules`, with 44 emulator assertions behind them
+(`firebase/rules.test.mjs`, `engine/scripts/check_rules.py`). `claimInvite` and
+`removeMember`, deployed and ACTIVE in `us-west1`, which are the only writes to
+a membership map that exist. The cap of twelve, enforced transactionally in the
+Function and again in the rules so it cannot be side-stepped at creation.
+
+**Built, and verifiable only with two accounts on two devices.** Everything in
+`ios/Scoranger/Account/`: creating a shared set list, adding an entry as a copy
+under `shared/{setlistId}/{entryId}/`, reordering by fractional index,
+inviting, claiming by link, per-participant ink in both directions, and reading
+an entry by importing this device's copy. Every DECISION these make is tested
+locally and every RULE they will meet is tested against the emulator; that the
+calls themselves succeed is not, and cannot be, without the owner's
+credentials. This is stated plainly rather than counted as done.
+
+**Deliberately not built, and the owner should know it was a choice.**
+
+- **The OMR service still uses the baked header key.** §11.4 called moving it
+  to a verified Firebase ID token with a per-user page cap "not optional", and
+  that judgement stands for a band: a shared key with no attribution is not a
+  posture to keep once more than one account exists. It is not a sharing
+  feature, it is a separate Cloud Run service, and it does not gate anything in
+  this build -- so it was left, said out loud, rather than half-done in the
+  same night as the sharing work. **It is the first thing 0.7.1 should do.**
+- **The continuous strip draws no shared ink.** The overlay is wired into the
+  paged view only. A reader in continuous mode sees their own marks and not the
+  band's, with no notice, which is the worse half of that gap.
+- **Presence, page-follow and the band layer** stay where §0.6 and the list
+  above put them.
+
+**The stop condition of §12.8 has not been met and is not met by this build.**
+A terms of service does not exist and the rights gate has not been read by
+anyone who is not an engineer. The owner settled the copyright posture for his
+own use -- *"what I have is mine and i've purchased them. They should not be
+shared with everyone who gets the app; i'll share it with my son for playing
+together using shared playlists"* -- and the design answers exactly that: named
+people only, capped at twelve, no public link at any path, and books and
+sources refused a share path outright. **That covers a household. It does not
+cover a band, and it does not cover strangers.** Before this reaches anybody
+outside the household, §12.8 is a gate and not a caveat.
+
 ### 11.8 What must not be done before the owner says so
 
 Recorded here because the sequence above is a plan and not a licence:
