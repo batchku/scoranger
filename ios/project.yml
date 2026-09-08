@@ -163,8 +163,15 @@ targets:
         #          name shown as one strip, and the OMR progress fix deployed
         #          at last. Cut from 0.6.19 and NOT from dev, which carries
         #          0.7's sharing work
-        CURRENT_PROJECT_VERSION: 180
-        MARKETING_VERSION: 0.6.20
+        #   0.6.21 the EXTERNAL-ready build: 0.6.20's fixes, and no score
+        #          bundled in the binary. 180 shipped carrying four
+        #          copyrighted score files; this is the first build that does
+        #          not, and the first Ali can add external testers to
+        #          (design/FIREBASE.md §0.11)
+        # 181 is claimed by dev's 0.7.0 line and was never uploaded; a build
+        # number never goes backwards and must not collide, so this is 182.
+        CURRENT_PROJECT_VERSION: 182
+        MARKETING_VERSION: 0.6.21
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
