@@ -64,14 +64,27 @@ enum SharedOrder {
     /// a key that puts the row back exactly where it was. The neighbours have
     /// to come from the list with the row already taken out of it.
     ///
-    /// `offset` is -1 or +1. Returns nil when the move would leave the list,
-    /// so the caller writes nothing rather than clamping to a no-op write.
-    static func neighbours(moving index: Int, by offset: Int,
+    /// `offset` is -1 or +1. Returns nil when the move would leave the list, or
+    /// when `key` is not in it -- so the caller writes nothing rather than
+    /// clamping to a write that reorders nothing.
+    ///
+    /// **It takes the moving row's KEY and sorts the list itself, and that is
+    /// the whole point of the signature.** It used to take an INDEX into a list
+    /// it assumed was already in order, and a fuzz test found what that costs:
+    /// write a new key back at the row's old index without re-sorting, and the
+    /// list stops being sorted, and the next call hands `between` a lower bound
+    /// GREATER than its upper bound -- `between("x", "w")` returned `"xi"`,
+    /// which satisfies neither. The app happens never to do that, because the
+    /// snapshot listener re-sorts on every change; the trap was that nothing
+    /// said so and nothing complained. An unstated precondition that returns
+    /// plausible garbage instead of nil is worse than one that crashes.
+    static func neighbours(moving key: String, by offset: Int,
                            in keys: [String]) -> (before: String?, after: String?)? {
-        guard keys.indices.contains(index) else { return nil }
+        let sorted = keys.sorted()
+        guard let index = sorted.firstIndex(of: key) else { return nil }
         let landing = index + offset
-        guard keys.indices.contains(landing) else { return nil }
-        var without = keys
+        guard sorted.indices.contains(landing) else { return nil }
+        var without = sorted
         without.remove(at: index)
         return (landing > 0 ? without[landing - 1] : nil,
                 landing < without.count ? without[landing] : nil)

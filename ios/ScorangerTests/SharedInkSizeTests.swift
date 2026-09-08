@@ -77,13 +77,38 @@ final class SharedInkSizeTests: XCTestCase {
     /// The budget is what is asserted against, not the raw limit: Firestore
     /// counts field names and the document path too, so a payload that exactly
     /// filled the limit would be a document that fails.
+    ///
+    /// Two fixtures, because the first one I wrote asserted the wrong answer
+    /// and the implementation was right. Three pages of *half the budget plus
+    /// one* do not give two that fit: the second already overflows. Kept as its
+    /// own case below, because getting that backwards is easy and the number it
+    /// produces is the whole point of the function.
     func testPagesThatDoNotFitAreNamedFromTheFrontOfTheScore() {
-        let big = Data(count: SharedInk.payloadBudget / 2 + 1)
+        // A shade under half each, so pages 1 and 2 fit together and 3 cannot.
+        let big = Data(count: SharedInk.payloadBudget / 2 - 1)
         let pages: [Int: Data] = [1: big, 2: big, 3: big]
         XCTAssertFalse(SharedInk.fits(pages))
-        // Pages 1 and 2 fit; 3 does not. Lowest page first, because that is
-        // where a rehearsal starts.
+        // Lowest page first, because that is where a rehearsal starts.
         XCTAssertEqual(SharedInk.pagesOverBudget(pages), [3])
+    }
+
+    func testJustOverHalfTheBudgetMeansOnlyOnePageFits() {
+        let big = Data(count: SharedInk.payloadBudget / 2 + 1)
+        let pages: [Int: Data] = [1: big, 2: big, 3: big]
+        XCTAssertEqual(SharedInk.pagesOverBudget(pages), [2, 3])
+    }
+
+    /// A page that cannot fit even on its own is skipped, and the pages after
+    /// it still go.
+    ///
+    /// A deliberate choice, and the comment on `pagesOverBudget` used to claim
+    /// the opposite -- that the pages which fit are always the ones at the
+    /// front. They are not, when a single page is bigger than the whole
+    /// budget: dropping every later page as well would lose markup for nothing.
+    func testOneEnormousPageDoesNotTakeTheRestOfTheScoreWithIt() {
+        let pages: [Int: Data] = [1: Data(count: SharedInk.payloadBudget + 1),
+                                  2: Data(count: 32)]
+        XCTAssertEqual(SharedInk.pagesOverBudget(pages), [1])
     }
 
     func testAnEmptyLayerFitsAndCostsNothing() {

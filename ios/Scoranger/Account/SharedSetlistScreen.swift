@@ -145,10 +145,9 @@ struct SharedSetlistScreen: View {
     /// document (§6.5), which is what lets two people move different entries at
     /// the same time without either move being lost.
     private func move(_ entry: SharedSetlists.Entry, by offset: Int) {
-        let list = shared.entries
-        guard let at = list.firstIndex(of: entry),
-              let landing = SharedOrder.neighbours(moving: at, by: offset,
-                                                   in: list.map(\.order))
+        guard let landing = SharedOrder.neighbours(
+                moving: entry.order, by: offset,
+                in: shared.entries.map(\.order))
         else { return }
         Task {
             do {

@@ -95,6 +95,9 @@ final class SharedSetlists: ObservableObject {
     private var inkListener: ListenerRegistration?
     /// Which entry's ink is open, so a save can be pushed to the right place.
     private var openEntry: (setlist: String, entry: String)?
+    /// Whose memberships the listener is watching, so a repeated `onAppear`
+    /// does not pay for the query again.
+    private var watchingFor: String?
 
     private var db: Firestore { Firestore.firestore() }
     private var storage: Storage { Storage.storage() }
@@ -111,6 +114,13 @@ final class SharedSetlists: ObservableObject {
     /// outright by the deployed rules, and this is why.
     func watchMemberships() {
         guard let uid else { return }   // nil until Firebase is up, by design
+        // Already watching is not a reason to watch again. `onAppear` fires
+        // every time the library's set-list segment comes back, and a listener
+        // torn down and re-established is billed as a brand-new query (§5.1) --
+        // which for an app whose whole point is working offline is the cost
+        // that matters.
+        guard setlistsListener == nil || watchingFor != uid else { return }
+        watchingFor = uid
         setlistsListener?.remove()
         setlistsListener = db.collection("memberships")
             .whereField("userId", isEqualTo: uid)
@@ -122,6 +132,30 @@ final class SharedSetlists: ObservableObject {
                 } ?? []
                 Task { await self.loadSetlists(ids) }
             }
+    }
+
+    /// Signing out stops everything and forgets everything.
+    ///
+    /// Not tidiness: without it the memberships listener outlives the account
+    /// it was opened for. It keeps billing, and it keeps publishing the
+    /// previous person's set lists into `setlists` -- so the next reader of
+    /// this iPad, signed in as themselves or not at all, would be shown
+    /// somebody else's shared music. `Setlist.role` would return nil for them
+    /// and the rows would be unopenable, which is the failure looking like a
+    /// bug instead of like a leak.
+    func signedOut() {
+        setlistsListener?.remove(); setlistsListener = nil
+        entriesListener?.remove(); entriesListener = nil
+        inkListener?.remove(); inkListener = nil
+        watchingFor = nil
+        openEntry = nil
+        setlists = []
+        entries = []
+        ink = [:]
+        inkWidths = [:]
+        inkPagesOverBudget = []
+        isStale = false
+        trouble = nil
     }
 
     private func loadSetlists(_ ids: [String]) async {

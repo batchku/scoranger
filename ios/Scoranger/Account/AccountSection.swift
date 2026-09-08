@@ -9,6 +9,9 @@ import SwiftUI
 /// section is what they would find if they went looking.
 struct AccountSection: View {
     @EnvironmentObject var signIn: SignIn
+    /// Only to let go of its listeners on the way out. Signed in or out, this
+    /// section shows nothing about shared set lists.
+    @EnvironmentObject var shared: SharedSetlists
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -99,7 +102,16 @@ struct AccountSection: View {
                 .accessibilityIdentifier("account-private-address")
         }
 
-        PanelButton(title: "Sign out", identifier: "sign-out") { signIn.signOut() }
+        PanelButton(title: "Sign out", identifier: "sign-out") {
+            // Both, and in this order: the shared set lists have to let go of
+            // their listeners before the account they were opened for is gone,
+            // or they keep publishing the previous person's music.
+            shared.signedOut()
+            signIn.signOut()
+            // Any markup being pushed was going to a set list this iPad can no
+            // longer read.
+            DrawingStore.shared.onSave = nil
+        }
 
         // The promise, in the place a person would worry about it.
         Text("Signing out keeps your library on this iPad. Nothing is deleted.")

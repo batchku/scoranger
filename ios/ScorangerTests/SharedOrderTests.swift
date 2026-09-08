@@ -154,63 +154,112 @@ final class SharedOrderTests: XCTestCase {
     func testMovingARowDownActuallyMovesIt() {
         var keys = SharedOrder.spread(count: 4)          // A B C D
         let moved = 1                                     // B
-        let landing = SharedOrder.neighbours(moving: moved, by: 1, in: keys)!
-        let key = SharedOrder.between(landing.before, landing.after)
-        keys[moved] = key
+        let landing = SharedOrder.neighbours(moving: keys[moved], by: 1, in: keys)!
+        keys[moved] = SharedOrder.between(landing.before, landing.after)
         // B now sorts third: A C B D.
-        let order = keys.enumerated().sorted { $0.element < $1.element }.map(\.offset)
-        XCTAssertEqual(order, [0, 2, 1, 3])
+        XCTAssertEqual(order(of: keys), [0, 2, 1, 3])
     }
 
     func testMovingARowUpActuallyMovesIt() {
         var keys = SharedOrder.spread(count: 4)
         let moved = 2                                     // C
-        let landing = SharedOrder.neighbours(moving: moved, by: -1, in: keys)!
+        let landing = SharedOrder.neighbours(moving: keys[moved], by: -1, in: keys)!
         keys[moved] = SharedOrder.between(landing.before, landing.after)
-        let order = keys.enumerated().sorted { $0.element < $1.element }.map(\.offset)
-        XCTAssertEqual(order, [0, 2, 1, 3])
+        XCTAssertEqual(order(of: keys), [0, 2, 1, 3])
     }
 
     func testMovingTheFirstRowDownAndTheLastRowUpBothLand() {
         var keys = SharedOrder.spread(count: 3)
-        let down = SharedOrder.neighbours(moving: 0, by: 1, in: keys)!
+        let down = SharedOrder.neighbours(moving: keys[0], by: 1, in: keys)!
         keys[0] = SharedOrder.between(down.before, down.after)
-        XCTAssertEqual(keys.enumerated().sorted { $0.element < $1.element }.map(\.offset),
-                       [1, 0, 2])
+        XCTAssertEqual(order(of: keys), [1, 0, 2])
 
         keys = SharedOrder.spread(count: 3)
-        let up = SharedOrder.neighbours(moving: 2, by: -1, in: keys)!
+        let up = SharedOrder.neighbours(moving: keys[2], by: -1, in: keys)!
         keys[2] = SharedOrder.between(up.before, up.after)
-        XCTAssertEqual(keys.enumerated().sorted { $0.element < $1.element }.map(\.offset),
-                       [0, 2, 1])
+        XCTAssertEqual(order(of: keys), [0, 2, 1])
     }
 
     /// Off the end is nil, not a clamp: the caller writes nothing at all,
     /// rather than sending a write that reorders nothing.
     func testAMoveOffEitherEndIsRefusedRatherThanClamped() {
         let keys = SharedOrder.spread(count: 3)
-        XCTAssertNil(SharedOrder.neighbours(moving: 0, by: -1, in: keys))
-        XCTAssertNil(SharedOrder.neighbours(moving: 2, by: 1, in: keys))
-        XCTAssertNil(SharedOrder.neighbours(moving: 9, by: 1, in: keys))
-        XCTAssertNil(SharedOrder.neighbours(moving: 0, by: 1, in: ["a"]))
+        XCTAssertNil(SharedOrder.neighbours(moving: keys[0], by: -1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: keys[2], by: 1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: "not-in-the-list", by: 1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: "a", by: 1, in: ["a"]))
     }
 
-    /// Moving every row down in turn, then every row up in turn, reverses
-    /// nothing and loses nothing: after a hundred one-place moves the keys are
-    /// still strictly ordered and still distinct.
-    func testAHundredMovesKeepTheKeysOrderedAndDistinct() {
-        var keys = SharedOrder.spread(count: 8)
-        var generator = SystemRandomNumberGenerator()
-        for _ in 0..<100 {
-            let at = Int.random(in: 0..<keys.count, using: &generator)
-            let by = Bool.random(using: &generator) ? 1 : -1
-            guard let landing = SharedOrder.neighbours(moving: at, by: by, in: keys)
-            else { continue }
-            let key = SharedOrder.between(landing.before, landing.after)
-            if let before = landing.before { XCTAssertTrue(key > before) }
-            if let after = landing.after { XCTAssertTrue(key < after) }
-            keys[at] = key
-            XCTAssertEqual(Set(keys).count, keys.count, "two entries share a key")
+    /// The trap the signature was changed to remove.
+    ///
+    /// This took an INDEX into a list it assumed was sorted. Hand it a list
+    /// that is not, and it read the wrong neighbours and returned a lower bound
+    /// GREATER than its upper bound -- `between("x", "w")` answered `"xi"`,
+    /// which is above both. The fuzz test below found it in six moves; nothing
+    /// in the type said the list had to be sorted, and nothing complained.
+    ///
+    /// It sorts the list itself now, so an out-of-order list is not a
+    /// different answer, it is the same answer.
+    func testAnUnsortedListIsSortedRatherThanBelieved() {
+        let ordered = SharedOrder.spread(count: 4)
+        let jumbled = [ordered[2], ordered[0], ordered[3], ordered[1]]
+        for key in ordered {
+            for by in [-1, 1] {
+                XCTAssertEqual(SharedOrder.neighbours(moving: key, by: by, in: jumbled).map { "\($0.before ?? "-")/\($0.after ?? "-")" },
+                               SharedOrder.neighbours(moving: key, by: by, in: ordered).map { "\($0.before ?? "-")/\($0.after ?? "-")" },
+                               "the order the keys arrive in must not change the answer")
+            }
         }
+    }
+
+    /// Two hundred one-place moves, and the keys stay strictly ordered and
+    /// distinct throughout.
+    ///
+    /// SEEDED, not random. The first version of this used
+    /// `SystemRandomNumberGenerator` and failed on the gate with a sequence
+    /// nobody could reproduce -- a fuzz test whose failures cannot be replayed
+    /// reports a bug and withholds the evidence. Five fixed seeds cover the
+    /// same ground and a failure is a value that can be typed back in.
+    func testTwoHundredMovesKeepTheKeysOrderedAndDistinct() {
+        for seed in UInt64(1)...5 {
+            var generator = Seeded(seed)
+            var keys = SharedOrder.spread(count: 8)
+            for step in 0..<200 {
+                let moving = keys[Int.random(in: 0..<keys.count, using: &generator)]
+                let by = Bool.random(using: &generator) ? 1 : -1
+                guard let landing = SharedOrder.neighbours(moving: moving, by: by,
+                                                           in: keys) else { continue }
+                let key = SharedOrder.between(landing.before, landing.after)
+                let where_ = "seed \(seed) step \(step): between(\(landing.before ?? "nil"), \(landing.after ?? "nil")) = \(key)"
+                if let before = landing.before { XCTAssertTrue(key > before, where_) }
+                if let after = landing.after { XCTAssertTrue(key < after, where_) }
+                keys[keys.firstIndex(of: moving)!] = key
+                XCTAssertEqual(Set(keys).count, keys.count,
+                               "two entries share a key -- \(where_)")
+            }
+        }
+    }
+
+    /// Sorted positions of the keys, so a test can say "B is third now"
+    /// without caring what the keys are.
+    private func order(of keys: [String]) -> [Int] {
+        keys.enumerated().sorted { $0.element < $1.element }.map(\.offset)
+    }
+}
+
+/// A generator whose sequence can be typed back in.
+///
+/// xorshift64, seeded. It exists because a fuzz test that cannot replay its
+/// own failure is a bug report with the evidence withheld.
+private struct Seeded: RandomNumberGenerator {
+    private var state: UInt64
+    init(_ seed: UInt64) {
+        state = seed &* 6364136223846793005 &+ 1442695040888963407
+    }
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
     }
 }

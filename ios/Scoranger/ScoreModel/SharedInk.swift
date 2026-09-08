@@ -50,8 +50,11 @@ enum SharedInk {
     static func pagesOverBudget(_ pages: [Int: Data]) -> [Int] {
         var running = 0
         var over: [Int] = []
-        // Lowest page first, so the ones that fit are the ones at the front of
-        // the score -- which is where a rehearsal starts.
+        // Lowest page first, so early pages get the budget: a rehearsal starts
+        // at the front of the score. GREEDY rather than a strict prefix,
+        // though -- a page too big to fit even alone is skipped and the pages
+        // after it still go, because dropping the rest of the score along with
+        // it would lose markup for nothing.
         for page in pages.keys.sorted() {
             let bytes = pages[page]?.count ?? 0
             if running + bytes > payloadBudget {

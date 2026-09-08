@@ -61,6 +61,50 @@ final class DrawingStoreTests: XCTestCase {
             .map { $0.lastPathComponent })
     }
 
+    // MARK: - a shared set list's markup is not this migration's business
+
+    /// A shared entry's markup is keyed on the ENTRY, which is already the same
+    /// string on every device and has no older spelling to migrate from.
+    ///
+    /// The reason this is a test and not a comment: an arrangement a reader
+    /// names "Shared" slugs to `shared`, and then a shared key and a local one
+    /// differ only by whether the next component is an entry id or a version
+    /// id. Give that score a version whose id happens to match an entry id and
+    /// the migration would re-file a band's markup under one person's local
+    /// arrangement -- where the other members would never see it again, and
+    /// where nothing would report it missing.
+    func testASharedEntrysMarkupIsLeftWhereItIs() {
+        let entry = "01ENTRY"
+        store.save(aDrawing(), for: "shared/\(entry)/01VID/p0")
+
+        // The pathological library: a score actually slugged `shared`, whose
+        // version id IS the entry id.
+        let moved = store.migrateKeys(manifest: manifest([
+            score(slug: "shared", uid: "01SCOREUID",
+                  versions: [version(entry, label: "v001")]),
+        ]))
+
+        XCTAssertFalse(store.drawing(for: "shared/\(entry)/01VID/p0").strokes.isEmpty,
+                       "the band's markup moved out from under the set list")
+        XCTAssertTrue(filenames.contains("shared_\(entry)_01VID_p0.pkdrawing"))
+        XCTAssertEqual(moved, 0, "nothing in this library needed migrating")
+    }
+
+    /// And a LOCAL arrangement still migrates while a shared key sits beside
+    /// it, so the hold-out is a filter and not an early return.
+    func testALocalArrangementStillMigratesAlongsideSharedMarkup() {
+        store.save(aDrawing(), for: "shared/01ENTRY/01VID/p0")
+        store.save(aDrawing(), for: "jig/v002/p0")
+
+        let moved = store.migrateKeys(manifest: manifest([
+            score(slug: "jig", uid: "jig", versions: [version("01VID", label: "v002")]),
+        ]))
+
+        XCTAssertEqual(moved, 1)
+        XCTAssertFalse(store.drawing(for: "jig/01VID/p0").strokes.isEmpty)
+        XCTAssertFalse(store.drawing(for: "shared/01ENTRY/01VID/p0").strokes.isEmpty)
+    }
+
     // MARK: - the two hops
 
     /// The version hop alone: markup filed under `v002` is found under the id.

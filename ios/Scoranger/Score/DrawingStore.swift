@@ -117,6 +117,17 @@ final class DrawingStore {
         var files = Set(((try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: nil)) ?? []).map { $0.lastPathComponent })
         var moved = 0
+        // A shared set list entry's markup is keyed on the ENTRY, which is
+        // already the same string on every device and has no older spelling to
+        // migrate from. Held out explicitly rather than left to chance: an
+        // arrangement a reader names "Shared" slugs to `shared`, and then a
+        // shared key and a local one differ only by whether the next component
+        // is an entry id or a version id. Nothing collides today; this is what
+        // stops it becoming a way to lose a band's markup later.
+        files = files.filter {
+            !SharedEntryCopies.isShared(namespace:
+                $0.replacingOccurrences(of: "_", with: "/"))
+        }
         for score in manifest.scores {
             // every name this score's markup could have been filed under
             var namespaces = [score.slug]
