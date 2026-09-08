@@ -119,6 +119,17 @@ SKIP=(
 # out empty, the three stayed in the shards, no serial bundle was written, and
 # the gate went green having done none of this -- a fix that reported success
 # by doing nothing, which is worse than the flake it was meant to remove.
+# THE PATTERN, now that this list has grown three times in one day: every
+# addition has been a UI test that WAITS ON AN ENGINE CALL -- a delete, a
+# manifest read for the piece screen, a playback timeline for the mixer -- and
+# each passed solo in half the time it was given. Four workers is
+# over-subscribed for that class, not for the suite.
+#
+# So this list is a targeted remedy and not a growing pile of flakes, and the
+# structural alternatives are recorded in BACKLOG.md rather than guessed at
+# here: fewer workers costs every run, and an engine-aware scheduler that let
+# one engine call be in flight at a time would let the rest stay parallel.
+# Adding a fourth entry without reading that note is the mistake to avoid.
 ENGINE_SERIAL=(
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
@@ -136,6 +147,12 @@ ENGINE_SERIAL=(
   # AND meaningful. That one FAILS when it runs alone, so serialising it would
   # only have turned every gate red.
   "ScorangerUITests/ScorangerUITests/testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder()"
+  # The mixer's strips come from the playback timeline, which is another engine
+  # call. Solo it passes in ~27s, twice out of twice; under four workers it
+  # found ZERO strips and said so rather than passing vacuously -- the
+  # assertion "only 0 strip(s) were checked, so this says nothing about strips
+  # being mixed up" is why this surfaced as a failure instead of a false green.
+  "ScorangerUITests/MixerWindowBehaviour/testEachStripsControlsBelongToThePartItNames()"
   # The two audio sweeps, for a different reason from the three above: not
   # engine contention but MEMORY. Each walks the whole General MIDI catalogue
   # -- 128 melodic programs on three keys, then every drum kit -- and each of

@@ -701,3 +701,33 @@ and the test itself.
 Worth doing because this test is the observable for issue #4 (pagination
 collapse). While it can pass for the wrong reason, nothing it says about #4 can
 be believed either way.
+
+## The gate's four workers are over-subscribed for engine-backed UI tests
+
+`ENGINE_SERIAL` in `ios/scripts/gate.sh` grew three times on 2026-09-08, and
+every addition had the same shape: a UI test that WAITS ON A CALL INTO THE
+EMBEDDED PYTHON ENGINE, timing out under four workers and passing solo in
+roughly half the time it was allowed.
+
+- the deletion class -- a delete through the engine; 25-32s solo, past 210s
+  under load (the original entries)
+- `testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder` -- waits for the
+  piece screen to list its arrangements, a manifest read; 36s solo, 117s and a
+  timeout under load
+- `testEachStripsControlsBelongToThePartItNames` -- waits for mixer strips,
+  which come from a playback timeline; 27s solo, found ZERO strips under load
+
+**It is one contention class, not three flakes**, and serialising each is a
+targeted remedy that works but lengthens the serial tail every time. Two
+structural fixes, neither attempted:
+
+1. **An engine-aware scheduler.** Let at most one engine call be in flight
+   across the whole gate -- a lock the test host takes around the ops that
+   contend -- so everything else stays parallel. This is the right shape,
+   because the contended resource is the engine and not the host.
+2. **Fewer workers**, which costs every run to fix a subset of tests, and
+   would have to be measured against the ~29 minute wall clock before being
+   worth it.
+
+Worth doing when the serial phase starts dominating the gate, or the next time
+a test is added to `ENGINE_SERIAL`. Not urgent while the tail is six tests.
