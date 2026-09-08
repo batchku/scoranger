@@ -395,8 +395,10 @@ struct SharedSetlistScreen: View {
                     // Colour first, because it is how their marks are told
                     // apart on the page (§6.3).
                     Circle()
-                        .fill(InkLayers.colour(slot: InkLayers.colourSlot(
-                            for: uid, participants: Array(setlist.members.keys))))
+                        .fill(Color(hex: InkLayers.colour(slot:
+                            InkLayers.colourSlot(for: uid,
+                                                 participants: Array(setlist.members.keys),
+                                                 slots: InkLayers.palette.count))))
                         .frame(width: 12, height: 12)
                     Text(uid == signIn.account?.uid ? "You" : shortened(uid))
                         .typeRole(.body).foregroundStyle(Theme.Ink.ink)

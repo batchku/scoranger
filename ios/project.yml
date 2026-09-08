@@ -395,6 +395,15 @@ targets:
       # pencil marks and silence (design/FIREBASE.md §13.3)
       - path: Scoranger/Score/DrawingStore.swift
       - path: Scoranger/Score/PageTurn.swift
+      # The two pieces of the sharing work that are pure and therefore testable
+      # here: what an invitation link is (and, more to the point, what it is
+      # NOT -- `onOpenURL` is one door for AirDropped bundles, PDFs and Google's
+      # sign-in callback too), and which shared entry a saved drawing belongs
+      # to, read off the key it was saved under. Neither imports Firebase, which
+      # is why they are separate files from `SharedSetlists`: this bundle has no
+      # host app and cannot link it (design/FIREBASE.md §6.3).
+      - path: Scoranger/Account/SharedInviteLink.swift
+      - path: Scoranger/Account/SharedEntryCopies.swift
       # what a single-finger touch on the canvas means -- one pure function, so
       # it can be fuzzed for disjointness (§12) without a screen
       - path: Scoranger/Score/CanvasTap.swift

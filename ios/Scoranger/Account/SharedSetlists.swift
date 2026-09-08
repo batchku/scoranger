@@ -25,17 +25,39 @@ import Foundation
 @MainActor
 final class SharedSetlists: ObservableObject {
 
+    /// Who is signed in, or nil.
+    ///
+    /// **The `FirebaseApp` guard is not defensive, it is load-bearing.**
+    /// `Auth.auth()` TRAPS when no app has been configured -- it does not
+    /// return nil and it does not throw -- and in this app nothing configures
+    /// Firebase until somebody presses a sign-in button (§0.2). So every path
+    /// that asks who is signed in has to be safe to ask before anyone ever
+    /// has, and the only thing standing between that and a crash on a
+    /// signed-out launch would otherwise be the order the views happen to
+    /// render in.
+    /// `nonisolated` because `Setlist` is a value type read from wherever it
+    /// happens to be held, and Firebase Auth's own cached user is safe to read
+    /// off any thread. Isolating it to the main actor made a struct's computed
+    /// `isOwner` uncallable, which is where it is most needed.
+    nonisolated static var currentUid: String? {
+        guard FirebaseApp.app() != nil else { return nil }
+        return Auth.auth().currentUser?.uid
+    }
+
     struct Setlist: Identifiable, Equatable {
         let id: String
         let name: String
         let ownerId: String
         let members: [String: String]
         var role: SetlistRole? {
-            guard let uid = Auth.auth().currentUser?.uid,
+            guard let uid = SharedSetlists.currentUid,
                   let raw = members[uid] else { return nil }
             return SetlistRole(rawValue: raw)
         }
-        var isOwner: Bool { ownerId == Auth.auth().currentUser?.uid }
+        var isOwner: Bool {
+            guard let uid = SharedSetlists.currentUid else { return false }
+            return ownerId == uid
+        }
     }
 
     struct Entry: Identifiable, Equatable {
@@ -77,7 +99,7 @@ final class SharedSetlists: ObservableObject {
     private var db: Firestore { Firestore.firestore() }
     private var storage: Storage { Storage.storage() }
     private var functions: Functions { Functions.functions(region: "us-west1") }
-    private var uid: String? { Auth.auth().currentUser?.uid }
+    private var uid: String? { Self.currentUid }
 
     // MARK: - what I am in
 
@@ -88,7 +110,7 @@ final class SharedSetlists: ObservableObject {
     /// same constraint the rule enforces. Listing `setlists` is refused
     /// outright by the deployed rules, and this is why.
     func watchMemberships() {
-        guard let uid, FirebaseApp.app() != nil else { return }
+        guard let uid else { return }   // nil until Firebase is up, by design
         setlistsListener?.remove()
         setlistsListener = db.collection("memberships")
             .whereField("userId", isEqualTo: uid)

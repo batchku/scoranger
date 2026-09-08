@@ -93,6 +93,14 @@
 				<string>com.googleusercontent.apps.185895597142-9s57s8gj4murutf1fg6ffrhel2itaaj0</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.irllabs.scoranger.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>scoranger</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>

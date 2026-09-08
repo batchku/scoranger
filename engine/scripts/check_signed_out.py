@@ -251,12 +251,61 @@ def nothing_configures_firebase_at_launch() -> None:
           "every signed-out reader takes")
 
 
+def firebase_clients_stay_in_one_folder() -> None:
+    """Nothing outside `Account/` may reach for a Firebase client.
+
+    Not tidiness. `Auth.auth()`, `Firestore.firestore()`, `Storage.storage()`
+    and `Functions.functions()` all TRAP when no `FirebaseApp` has been
+    configured -- they do not return nil and they do not throw -- and in this
+    app nothing configures Firebase until somebody presses a sign-in button.
+
+    So every one of those calls is a crash on a signed-out launch unless it is
+    guarded, and keeping them in one folder is what makes "is it guarded?" a
+    question with a readable answer. Spread through the views it becomes a
+    property of the order SwiftUI happens to render in, which is not a property
+    anybody can check.
+
+    Found by reading the code rather than by a crash: `SharedSetlists.uid` was
+    `Auth.auth().currentUser?.uid` with no guard, reachable only because the
+    band that renders it happens to test for an account first.
+    """
+    print("\nno view can trap by asking Firebase a question")
+    clients = re.compile(r"\b(Auth\s*\.\s*auth|Firestore\s*\.\s*firestore"
+                         r"|Storage\s*\.\s*storage|Functions\s*\.\s*functions)\b")
+    swift = sorted((ROOT / "ios/Scoranger").rglob("*.swift"))
+    offenders = sorted(
+        str(p.relative_to(ROOT)) for p in swift
+        if clients.search(strip_comments(p.read_text()))
+        and "/Account/" not in str(p))
+    check(not offenders,
+          "only ios/Scoranger/Account/ may reach for a Firebase client "
+          f"(they trap when Firebase is not up); found: {offenders}")
+
+    # And inside Account/, the ONE accessor that asks who is signed in is
+    # guarded. Every other path in that folder reads through it.
+    store = ROOT / "ios/Scoranger/Account/SharedSetlists.swift"
+    check(store.exists(), "the shared setlist store exists to scan")
+    if store.exists():
+        source = store.read_text()
+        check("guard FirebaseApp.app() != nil else { return nil }" in source,
+              "SharedSetlists.currentUid guards on FirebaseApp before calling "
+              "Auth.auth(), which traps when nothing has configured Firebase")
+        body = strip_comments(source)
+        # Two: the guarded accessor, and the sign-out/listener plumbing that
+        # runs only behind it. A third is a path that skipped the accessor.
+        uses = len(re.findall(r"Auth\s*\.\s*auth", body))
+        check(uses <= 2,
+              f"Auth.auth() appears {uses} times in SharedSetlists.swift; "
+              "every path should read through the guarded `currentUid`")
+
+
 def main() -> int:
     a_signed_out_library_pays_nothing()
     the_default_repository_is_the_plain_one()
     the_library_identity_drags_nothing_in()
     the_engine_cannot_acquire_a_cloud_dependency()
     nothing_configures_firebase_at_launch()
+    firebase_clients_stay_in_one_folder()
 
     print()
     if FAILURES:
