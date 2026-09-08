@@ -43,7 +43,33 @@ CERT_TTL_S = 3600
 
 
 class Unverified(Exception):
-    """The token was present and did not check out. Never a reason to 500."""
+    """The token was present and did not check out. Never a reason to 500.
+
+    A CLIENT problem: a stale token, a forged one, one minted for another
+    project. Answering 401 is right, because the client can fix it by
+    refreshing.
+    """
+
+
+class CannotVerify(Exception):
+    """This SERVER is not able to verify any token at all.
+
+    A different failure with a different remedy, and keeping them apart is the
+    whole reason this class exists. `FIREBASE_PROJECT_ID` unset, or the RSA
+    extra missing, means nothing can be checked -- and refusing the request
+    would then break OMR for every signed-in reader the moment the app started
+    sending tokens, before the env var reached the service. Which is exactly
+    what would have happened: the app sends a bearer token as soon as somebody
+    signs in, and the deploy that teaches the service which project to trust is
+    a separate step.
+
+    So this falls back to the shared API key and labels the job
+    `unattributed`. That is NOT the silent downgrade `actor_for` refuses: a
+    client cannot cause this state, cannot detect it, and gains nothing from
+    it -- the key is still required. What it costs is attribution, which is
+    already absent for every signed-out job, and the boot log and every
+    refusal say so loudly.
+    """
 
 
 def _certificates() -> dict[str, str]:
@@ -69,13 +95,13 @@ def verify_id_token(token: str) -> dict:
     Without both, "verified" means only "signed by Google for somebody".
     """
     if not PROJECT_ID:
-        raise Unverified("FIREBASE_PROJECT_ID is not set, so no token can be "
-                         "checked against a project")
+        raise CannotVerify("FIREBASE_PROJECT_ID is not set, so no token can be "
+                           "checked against a project")
     try:
         import jwt
         from jwt import PyJWKClient  # noqa: F401  (import proves the extra is installed)
     except ImportError as e:
-        raise Unverified(f"token verification needs PyJWT[crypto]: {e}") from e
+        raise CannotVerify(f"token verification needs PyJWT[crypto]: {e}") from e
 
     try:
         header = jwt.get_unverified_header(token)
@@ -128,8 +154,19 @@ def actor_for(bearer: str | None, api_key_ok: bool) -> tuple[str, str, str | Non
       spend under a clean label.
     """
     if bearer:
-        claims = verify_id_token(bearer)
-        return f"uid:{claims['sub']}", "verified", claims.get("email")
+        try:
+            claims = verify_id_token(bearer)
+            return f"uid:{claims['sub']}", "verified", claims.get("email")
+        except CannotVerify as e:
+            # The server's fault, not the caller's. Do not punish a signed-in
+            # reader for a missing env var -- take the job on the shared key
+            # and say, every time, that it went unattributed and why.
+            if not api_key_ok:
+                raise
+            print(f"omr-service: CANNOT VERIFY TOKENS ({e}) -- job accepted "
+                  f"UNATTRIBUTED on the shared key. Set FIREBASE_PROJECT_ID.",
+                  flush=True)
+            return "anonymous", "unattributed", None
     if api_key_ok:
         return "anonymous", "unattributed", None
     raise Unverified("no bearer token and no valid API key")

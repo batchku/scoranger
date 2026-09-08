@@ -82,6 +82,48 @@ def a_bad_token_is_refused_and_never_downgraded() -> None:
         identity.verify_id_token = real
 
 
+def a_misconfigured_server_does_not_break_signed_in_readers() -> None:
+    """The regression this separation exists to prevent.
+
+    The app sends a bearer token the moment somebody signs in. The deploy that
+    tells the service which Firebase project to trust is a SEPARATE step. In
+    between -- and that window is real, not hypothetical -- every signed-in
+    reader's PDF import would have answered 401 while signed-out imports kept
+    working, because the code treated "I cannot verify anything" the same as
+    "your token is forged".
+
+    They are different failures with different remedies and only one of them is
+    the caller's fault.
+    """
+    print("\na server that cannot verify still takes the job, unattributed")
+    import identity
+
+    saved = identity.PROJECT_ID
+    identity.PROJECT_ID = ""            # the un-deployed env var
+    try:
+        actor, trust, email = identity.actor_for("a.real.token", api_key_ok=True)
+        check(actor == "anonymous" and trust == "unattributed",
+              f"a signed-in job is accepted unattributed; got {actor!r}/{trust!r}")
+
+        # But it is NOT a way in: no key, no job, token or not.
+        try:
+            identity.actor_for("a.real.token", api_key_ok=False)
+            check(False, "a token was accepted with no API key while the "
+                         "server could not verify anything")
+        except identity.CannotVerify:
+            check(True, "with no API key it still refuses -- the fallback is "
+                        "to the key, not to nothing")
+    finally:
+        identity.PROJECT_ID = saved
+
+    # And the two failures are genuinely distinct types, so no future edit can
+    # collapse them back together by accident.
+    check(not issubclass(identity.CannotVerify, identity.Unverified)
+          and not issubclass(identity.Unverified, identity.CannotVerify),
+          "CannotVerify and Unverified are unrelated types: a server problem "
+          "must not be catchable as a client problem")
+
+
 def a_signed_out_job_is_labelled_unattributed() -> None:
     print("\nno account means unattributed, which is not the same as broken")
     import identity
@@ -128,8 +170,8 @@ def the_audience_and_issuer_are_checked() -> None:
     identity.PROJECT_ID = ""
     try:
         identity.verify_id_token("x.y.z")
-        check(False, "a missing FIREBASE_PROJECT_ID still verified a token")
-    except identity.Unverified:
+        check(False, "a missing FIREBASE_PROID still verified a token")
+    except identity.CannotVerify:
         check(True, "with no FIREBASE_PROJECT_ID set, nothing verifies -- it "
                     "cannot silently accept everything")
 
@@ -174,6 +216,7 @@ def polling_is_not_billed() -> None:
 def main() -> int:
     a_signed_in_job_is_billed_to_a_uid()
     a_bad_token_is_refused_and_never_downgraded()
+    a_misconfigured_server_does_not_break_signed_in_readers()
     a_signed_out_job_is_labelled_unattributed()
     the_audience_and_issuer_are_checked()
     every_finished_job_emits_one_usage_record()
