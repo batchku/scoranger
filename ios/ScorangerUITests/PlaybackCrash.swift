@@ -101,5 +101,84 @@ final class PlaybackCrash: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground,
                        "the app crashed while a press held the loupe open "
                        + "during playback")
+
+        // STAGE 4: THE MIXER, OPEN AND WORKED, WHILE IT PLAYS.
+        //
+        // Every channel muted and unmuted and faded under the running
+        // performance, and the sound picker opened on one of them -- which
+        // reloads a patch into a sampler the sequencer is feeding.
+        let mixer = app.buttons["transport-mixer"].firstMatch
+        if mixer.waitForExistence(timeout: 20) {
+            mixer.tap()
+            let strips = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "strip-"))
+            snap(app, "mixer-open-while-playing")
+            for round in 0..<3 {
+                for index in 0..<min(strips.count, 6) {
+                    guard app.state == .runningForeground else {
+                        snap(app, "crashed-working-the-mixer")
+                        return XCTFail("the app died working strip \(index) "
+                                       + "on round \(round) while playing")
+                    }
+                    let mute = app.descendants(matching: .any)["strip-mute-\(index)"]
+                    if mute.exists, mute.isHittable { mute.tap() }
+                }
+            }
+            // the instrument picker, which swaps a patch mid-performance
+            let chip = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                      "strip-sound-")).firstMatch
+            if chip.exists, chip.isHittable {
+                chip.tap()
+                snap(app, "sound-picker-while-playing")
+                let choice = app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                                          "sound-")).firstMatch
+                if choice.waitForExistence(timeout: 10), choice.isHittable {
+                    choice.tap()
+                }
+            }
+            XCTAssertEqual(app.state, .runningForeground,
+                           "the app crashed with the mixer open and worked "
+                           + "during playback")
+        }
+
+        // STAGE 5: SCRUBBING WHILE IT PLAYS, with the mixer still up.
+        //
+        // The scrubber moves the PAGE while the play head is moving the music,
+        // so the two are competing to say what the canvas shows -- and page
+        // follow is watching both.
+        let scrubber = app.descendants(matching: .any)["page-scrubber"].firstMatch
+        if scrubber.waitForExistence(timeout: 20) {
+            for dx in [0.9, 0.1, 0.55, 0.99, 0.01] {
+                guard app.state == .runningForeground else {
+                    snap(app, "crashed-scrubbing")
+                    return XCTFail("the app died scrubbing to dx=\(dx) while playing")
+                }
+                scrubber.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.5)).tap()
+            }
+            snap(app, "scrubbed-while-playing")
+        }
+
+        // STAGE 6: all of it at once -- tap the music, hold the loupe, scrub,
+        // with the mixer open and the performance still running.
+        for round in 0..<3 {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4)).tap()
+            if scrubber.exists {
+                scrubber.coordinate(withNormalizedOffset:
+                    CGVector(dx: 0.3 + 0.2 * Double(round), dy: 0.5)).tap()
+            }
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.6))
+                .press(forDuration: 1.0)
+            guard app.state == .runningForeground else {
+                snap(app, "crashed-everything-at-once")
+                return XCTFail("the app died on round \(round) of tap + scrub "
+                               + "+ loupe with the mixer open, while playing")
+            }
+        }
+        snap(app, "everything-at-once")
+        XCTAssertEqual(app.state, .runningForeground,
+                       "the app crashed under the whole interaction set during "
+                       + "playback")
     }
 }

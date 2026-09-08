@@ -121,13 +121,43 @@ struct PlaybackVoices: Equatable, Codable {
 /// is a caption.
 enum PlaybackChannels {
 
+    /// What each strip is CALLED, given that two staves can share a name.
+    ///
+    /// A grand staff is one MusicXML part; music21 splits it into two staves
+    /// and both answer "Piano". The engine reports the name exactly as the
+    /// page spells it, duplicates and all, on purpose -- a strip that calls
+    /// itself something the page does not is a strip nobody can match to a
+    /// staff. So the disambiguation happens here, in the display.
+    ///
+    /// By CLEF where the clefs differ, because that is what the reader sees:
+    /// "Piano · treble" and "Piano · bass" name the two halves of a grand
+    /// staff the way a musician would. By ordinal only where they do not --
+    /// two "Voice" staves both in treble are genuinely alike, and 1 and 2 at
+    /// least say which is higher up the page.
+    ///
+    /// The NAME is untouched either way: `canCarry` and every op still compare
+    /// what the engine reported.
     static func labels(for parts: [PlaybackTimeline.Part]) -> [String] {
         var total: [String: Int] = [:]
         for part in parts { total[part.name, default: 0] += 1 }
+
+        // Within one repeated name, is the clef enough to tell them apart?
+        var clefsFor: [String: [String?]] = [:]
+        for part in parts { clefsFor[part.name, default: []].append(part.clef) }
+        var clefDistinguishes: [String: Bool] = [:]
+        for (name, clefs) in clefsFor {
+            let named = clefs.compactMap { $0 }
+            clefDistinguishes[name] = named.count == clefs.count
+                && Set(named).count == clefs.count
+        }
+
         var seen: [String: Int] = [:]
         return parts.map { part in
             guard (total[part.name] ?? 0) > 1 else { return part.name }
             seen[part.name, default: 0] += 1
+            if clefDistinguishes[part.name] == true, let clef = part.clef {
+                return "\(part.name) · \(clef)"
+            }
             return "\(part.name) \(seen[part.name]!)"
         }
     }

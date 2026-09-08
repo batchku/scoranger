@@ -68,6 +68,18 @@ struct PlaybackTimeline: Decodable, Equatable {
         /// -- every staff optical recognition labels "Voice". Nil is honest:
         /// the player picks its own default rather than the engine guessing.
         let program: Int?
+        /// The clef this staff opens in ("treble", "bass", ...), or nil.
+        ///
+        /// Not decoration: a grand staff is ONE MusicXML part, music21 splits
+        /// it into two staves, and both answer to the same part name -- so the
+        /// mixer showed "Piano" twice, correct per staff and impossible to
+        /// match to the page. The name is left exactly as the page spells it
+        /// (that is a deliberate engine decision, duplicates and all); this is
+        /// what lets the LABEL say which of the two a strip is.
+        ///
+        /// Optional and defaulted, so a timeline written by an older engine
+        /// still decodes rather than failing the whole performance.
+        let clef: String?
 
         /// When this staff is making a noise, as MERGED [start, end] pairs in
         /// quarter notes. The mixer's activity LED reads it.
@@ -84,11 +96,12 @@ struct PlaybackTimeline: Decodable, Equatable {
         var sounding: [[Double]] = []
 
         init(index: Int, name: String, instrument: String?, program: Int?,
-             sounding: [[Double]] = []) {
+             clef: String? = nil, sounding: [[Double]] = []) {
             self.index = index
             self.name = name
             self.instrument = instrument
             self.program = program
+            self.clef = clef
             self.sounding = sounding
         }
 
@@ -99,7 +112,7 @@ struct PlaybackTimeline: Decodable, Equatable {
         // failed the whole decode. That is the wrong failure for a field the
         // engine only recently began emitting.
         private enum CodingKeys: String, CodingKey {
-            case index, name, instrument, program, sounding
+            case index, name, instrument, program, clef, sounding
         }
 
         init(from decoder: Decoder) throws {
@@ -108,6 +121,7 @@ struct PlaybackTimeline: Decodable, Equatable {
             name = try box.decode(String.self, forKey: .name)
             instrument = try box.decodeIfPresent(String.self, forKey: .instrument)
             program = try box.decodeIfPresent(Int.self, forKey: .program)
+            clef = try box.decodeIfPresent(String.self, forKey: .clef)
             sounding = try box.decodeIfPresent([[Double]].self, forKey: .sounding) ?? []
         }
     }

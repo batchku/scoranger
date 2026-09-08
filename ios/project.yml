@@ -151,23 +151,28 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        # PORTRAIT-ONLY ON IPHONE, and this line is the whole of it.
+        # LANDSCAPE ON IPHONE, which Ali has now asked for.
         #
-        # Three pieces of designed-and-built behaviour are unreachable while
-        # it says this, and all three come back by adding
-        # LandscapeLeft/LandscapeRight here and nothing else:
+        # This one line was the whole of portrait-only, and it woke three
+        # pieces of already-built behaviour that could never run before:
         #
         #   - the merged landscape deck (ContentView.isPhoneLandscape, which
-        #     can never be true today)
-        #   - IPHONE_0.6.14 §3 E-B, the 734x372 landscape score view
+        #     could never be true)
+        #   - IPHONE_0.6.14 §3 E-B, the landscape score view
         #   - MIXER_WINDOW §12's compact-landscape drag leg, which
-        #     MixerWindowBehaviour asks for and reports as declined
+        #     MixerWindowBehaviour asked for and reported as declined
         #
-        # Left as it is deliberately, pending Ali's ruling: turning it on
-        # means every screen has to hold at 874x402, which is a release of its
-        # own rather than a line. The dead code is harmless until then and is
-        # written to wake up when this changes.
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
+        # The line was cheap and the consequence is not: every screen now has
+        # to hold at 874x402, where the WIDTH is more generous than any
+        # portrait phone and the HEIGHT is less than half of one. Chrome is
+        # what breaks -- a 52pt bar, a transport and a scrubber are a third of
+        # 402 -- so LandscapeFits asserts every screen against the real window
+        # in both orientations rather than trusting that a line was enough.
+        #
+        # Upside down is still out: a phone rotated 180 is a phone somebody
+        # dropped, and it is the one orientation with the Dynamic Island at
+        # the bottom.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
       configs:
         # Release signs manually with the local distribution identity that
