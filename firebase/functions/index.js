@@ -17,10 +17,13 @@ const db = getFirestore();
 // transactionally -- the rules refuse every client write to the membership map,
 // so this Function is the only way in.
 //
-// ELEVEN: the owner states the limit as an inequality, "groups of UNDER 12
-// people" and "the <12-member cap". Keep this in step with
-// SetlistPermission.membershipCap, which carries the reasoning.
-const MEMBERSHIP_CAP = 11;
+// TWELVE, meaning twelve people in a group INCLUDING the owner. The owner
+// states the limit as an inequality -- "groups of UNDER 12 people", "the
+// <12-member cap" -- and has confirmed that max 12 including the owner is the
+// intent. This value is what the DEPLOYED function enforces and it has not
+// changed; keep SetlistPermission.membershipCap in step with it, and note that
+// this is the copy that binds. The client's constant is advisory.
+const MEMBERSHIP_CAP = 12;
 
 /// Claim an invitation. The only way to become a member.
 exports.claimInvite = onCall({ region: "us-west1" }, async (request) => {

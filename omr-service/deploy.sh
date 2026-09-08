@@ -21,6 +21,19 @@
 #   polls and Cloud Run's default throttling freezes background work when no
 #   request is in flight, which turns a 40s conversion into 3.5 minutes.
 #
+# ONE-TIME, BEFORE THE FIRST DEPLOY THAT CARRIES PER-USER ATTRIBUTION: the
+# service needs to know which Firebase project's tokens to trust. Use
+# --update-env-vars, which MERGES, and never --set-env-vars, which would
+# replace the whole set and wipe OMR_API_KEY:
+#
+#   gcloud run services update scoranger-omr --region us-central1 \
+#     --update-env-vars FIREBASE_PROJECT_ID=scoranger
+#
+# A project id is not a secret, so it is safe on a command line; the API key is
+# not and stays where it is. Without it every signed-in request 401s while
+# signed-out ones keep working, which reads as "sharing broke for people with
+# accounts" -- the service says so in its boot log for exactly that reason.
+#
 # Usage:
 #   omr-service/deploy.sh              # check, then deploy
 #   omr-service/deploy.sh --check      # only say whether it is safe

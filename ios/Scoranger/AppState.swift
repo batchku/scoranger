@@ -762,6 +762,17 @@ final class AppState: ObservableObject {
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
 
+    /// A fresh Firebase ID token, or nil when nobody is signed in.
+    ///
+    /// A CLOSURE and not a call, because `AppState` may not touch Firebase:
+    /// `Auth.auth()` traps when nothing has configured it, and
+    /// `check_signed_out.py` keeps every such call inside `Account/`
+    /// (`OMRIdentity`, which installs this). Nil is the ordinary answer -- a
+    /// signed-out reader's OMR job goes up on the shared key and the service
+    /// labels it `unattributed`, because there is no user to bill it to
+    /// (design/FIREBASE.md §0.12).
+    var omrToken: (() async -> String?)?
+
     /// Which shared set list entry is open, if the score on screen is one.
     ///
     /// Set while reading an entry and cleared on the way out, and it decides
@@ -2074,6 +2085,15 @@ final class AppState: ObservableObject {
                 request.timeoutInterval = 120
                 request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
                 request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
+                // BOTH headers while old builds are still in the field: every
+                // install shipped so far sends only the key, so the service
+                // accepts either and prefers the token. The key drops out of
+                // here once those builds are gone, and not before -- a hard
+                // cutover would 401 every existing iPad.
+                if let bearer = await omrToken?() {
+                    request.setValue("Bearer \(bearer)",
+                                     forHTTPHeaderField: "Authorization")
+                }
 
                 let progressDelegate = UploadProgressDelegate { [weak self] sent in
                     Task { @MainActor in

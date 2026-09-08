@@ -47,6 +47,13 @@ struct ScorangerApp: App {
                     }
                 }
                 .task {
+                    // Installs a CLOSURE and calls nothing. The closure's own
+                    // body is what guards on a configured app, so this reaches
+                    // no cloud at launch and returns nil for every reader who
+                    // never signs in -- which is what lets it be installed
+                    // here rather than at first sign-in, where a signed-in
+                    // reader who never opens Settings would be missed.
+                    OMRIdentity.install(into: state)
                     state.migrateStaleOMRURL()
                     state.prepareDocumentsFolders()
                     // The mixer window opens where it was left, and in the

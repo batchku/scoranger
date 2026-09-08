@@ -61,19 +61,23 @@ enum SetlistPermission {
     /// limit left between a band and a mailing list.
     /// The most people one shared set list may have, INCLUDING its owner.
     ///
-    /// Eleven, because the owner's copyright posture is stated as an
-    /// inequality: *"sharing is limited to groups of UNDER 12 people"*, and
-    /// *"Enforce the <12-member cap"*. Under twelve is eleven. It was 12 while
-    /// the number was carried in prose as "a cap of twelve"; the inequality is
-    /// the version that was written down twice, and on a limit whose whole
-    /// purpose is to keep private sharing away from distribution, the stricter
-    /// reading is the right default.
+    /// TWELVE. The owner's copyright posture is written as an inequality --
+    /// "sharing is limited to groups of UNDER 12 people", "Enforce the
+    /// <12-member cap" -- and he has since confirmed that the intent is
+    /// **max 12 including the owner**: twelve people in a group, not eleven.
     ///
-    /// It is a COPYRIGHT limit and not a capacity limit, which is why it is
-    /// here beside the permission model rather than in a config: the posture is
-    /// "private small-group sharing, no distribution of copyrighted content, no
-    /// bundled library", and this number is the "small group" half of it.
-    static let membershipCap = 11
+    /// Recorded because this went the other way first. Read cold, "<12" is
+    /// eleven, and on a limit whose purpose is keeping private sharing from
+    /// becoming distribution the stricter reading looked like the right
+    /// default. It was not what he meant, and the deployed `claimInvite`
+    /// already enforced 12 -- so the eleven reading would also have put this
+    /// app permanently one below its own server.
+    ///
+    /// It is a COPYRIGHT limit and not a capacity limit, which is why it lives
+    /// beside the permission model rather than in a config: the posture is
+    /// "private small-group sharing, no distribution of copyrighted content,
+    /// no bundled library", and this number is the "small group" half of it.
+    static let membershipCap = 12
 
     /// Whether a member may remove an entry another member added. §12.9, OPEN.
     ///

@@ -513,7 +513,7 @@ final class SharedSetlists: ObservableObject {
             switch self {
             case .signedOut:       return "Sign in to share setlists."
             case .notYours:        return "Only the person who made this setlist can delete it."
-            case .full:            return "That set list is full — eleven people is the limit."
+            case .full:            return "That set list is full — twelve people is the limit."
             case .unusablePayload: return "That arrangement could not be prepared for sharing."
             }
         }

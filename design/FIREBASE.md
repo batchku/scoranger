@@ -83,36 +83,38 @@ adds a feature with no design at all yet.
 
 | # | What it settles | What changes |
 |---|---|---|
-| 1 | The rights posture, entire | **The cap is ELEVEN, not twelve** (§0.4 below), and **no build may bundle a score** -- which was not true and had to be fixed (§0.11). §8 and §12.8 are rewritten around a posture that is now stated rather than inferred |
+| 1 | The rights posture, entire | **The cap is TWELVE including the owner** (§0.10), and **no build may bundle a score** -- which was not true and had to be fixed (§0.11). §8 and §12.8 are rewritten around a posture that is now stated rather than inferred |
 | 2 | Who removes what | **Already implemented and now confirmed correct**: `membersMayRemoveEntries = true`, `membersMayRemoveMembers = false`, owner alone deletes the set list. §12.9 closes with no code change |
 | 3 | How somebody joins | **URL and QR, and a fully offline path.** The URL exists; QR and the offline join are new. §13.5 is new and says what offline joining can and cannot mean |
 | 4 | OMR quota | **No per-user cap.** §11.4's page cap is struck. Token attribution is NOT struck -- see §0.12 |
 | 5 | Succession | **New.** Invite ORDER becomes stored, ordered data, and an owner deleting their account promotes the next-invited member. §6.6 is new; §12.6 closes |
 | 6 | Own-library sync | **Moves into 0.7.** §11.7 was the last increment and is now inside the line rather than after it |
 
-### 0.4 The cap is eleven
+### 0.10 The cap is twelve, including the owner
 
-Stated as an inequality, twice: *"groups of UNDER 12 people"* and *"the
-<12-member cap"*. Under twelve is eleven, and `SetlistPermission.membershipCap`
-is 11.
+Stated as an inequality twice -- *"groups of UNDER 12 people"*, *"the
+<12-member cap"* -- and since confirmed: **max 12 including the owner.** Twelve
+people in a group, not eleven. `SetlistPermission.membershipCap` is 12 and the
+deployed `claimInvite` enforces 12, so no redeploy was needed for the number.
 
-It was 12, because the number reached the code through the phrase "a cap of
-twelve" and nobody wrote the inequality down. The inequality is what the owner
-wrote, and on a limit whose entire purpose is to keep private sharing from
-becoming distribution, the stricter of two readings is the right default. If
-twelve was meant, one constant and one test change.
-
-**Eleven INCLUDING the owner.** A group is the people in it.
+Recorded because this went the other way first, and the mistake is instructive.
+Read cold, "<12" is eleven, and on a limit whose purpose is keeping private
+sharing from becoming distribution the stricter reading looked like the right
+default. It was not the intent -- and worse, the deployed Function already
+enforced 12, so the eleven reading would have left the app permanently one
+member below its own server: a group would fill to twelve while the UI still
+offered to invite, and nothing would say why the invitation failed. **The
+server's number was available the whole time and was the better evidence than
+either reading of the sentence.**
 
 It is enforced in exactly one place that can be trusted -- `claimInvite`, which
 counts members inside a transaction -- because the security rules refuse every
 client write to the membership map and the client's own constant is therefore
 advisory. `testTheFunctionEnforcesTheSameCapThisAppShows` reads the number out
-of `firebase/functions/index.js` and fails if the two drift, because a silent
-mismatch fills a group to the server's number while the app keeps offering to
-invite.
+of `firebase/functions/index.js` and fails on a drift, for precisely the failure
+above.
 
-### 0.11 Principle 1 of the copyright answer was not true, and is now
+### 0.11 No score may be bundled, which was not true and is now
 
 *"Ship with NO scores bundled."* This was already the intent and was not the
 fact. The `Bake UI-test fixtures` build phase copied
@@ -145,22 +147,70 @@ purchased material, so the practical exposure is his own music reaching his own
 household. **It must not go to an external tester or to App Review as it
 stands.** The next build does not carry them.
 
-### 0.12 What answer 4 does and does not strike
+### 0.12 No OMR cap, and per-user cost tracking
 
-*"No per-user OMR quota."* So §11.4's per-user monthly page cap is struck, and
-nothing counts pages.
+Answer 4 struck the per-user monthly page cap: *"none. No per-user OMR quota."*
+The follow-up settles what replaces it: *"I want PER-USER tracking of OMR
+costs"* -- no limit, but every conversion attributable to a user.
 
-**The token migration is not struck, and this is a disagreement worth stating
-rather than quietly resolving.** §11.4 called moving `omr-service` off its baked
-shared header key onto a verified Firebase ID token "not optional", and the
-reason was never the quota -- it was attribution. A single key compiled into
-every install means any copy of the app can spend the owner's OMR budget, and
-nothing in a log says which install did. That argument is unaffected by there
-being no per-user limit; a bucket with no meter still has a bottom.
+So the token migration §11.4 called "not optional" stays, and the reason it
+gave was always attribution rather than quota: one key compiled into every
+install means any copy of the app can spend the owner's OMR budget and nothing
+in a log says which. A bucket with no meter still has a bottom.
 
-So: no cap, keep the verified token. If the owner wants the key left alone too,
-that is his call and it is one line -- but it should be a decision and not a
-side effect of the cap going away.
+**Verification needs no credentials, and that shaped the implementation.** A
+Firebase ID token is an RS256 JWT signed by Google and checked against Google's
+PUBLIC certificates. `firebase-admin` is deliberately not used: its purpose is
+privileged access this service must never have, and it is two orders of
+magnitude larger than verification needs. One pinned dependency
+(`PyJWT[crypto]`) for RSA, no service-account key, no ADC, nothing to rotate or
+leak. `omr-service/identity.py` carries the checks explicitly -- `aud` against
+this project, `iss` against its securetoken issuer, `alg` pinned to RS256 --
+because those three are the ones a library will skip by default, and without
+`aud` "verified" means only "signed by Google for somebody".
+
+**Three outcomes, and the middle one is the design decision:**
+
+| Request | Attributed as | Trust |
+|---|---|---|
+| Verified Firebase ID token | `uid:<sub>`, with the email for readability | `verified` |
+| Valid shared API key, no token | `anonymous` | `unattributed` |
+| A token that does not verify | **refused, 401** | -- |
+
+The third row is the one worth stating: a bad token is never quietly downgraded
+to anonymous. A downgrade would let anyone spend under a clean label by sending
+rubbish in the `Authorization` header, which destroys the report the feature
+exists to produce.
+
+The second row is a **consequence of principle 1 and not a gap.** Importing a
+scanned PDF is a core signed-out feature, and no login may gate using the app,
+so there is genuinely no user to attribute those jobs to. The report says
+`unattributed` rather than implying the attribution broke. **If the owner wants
+every job attributable, OMR would have to require an account -- which breaks
+principle 1.** That trade-off is his to make; it is not made here.
+
+**The record is a structured log line, not a database.** One JSON line per
+finished job carrying `omr_usage`, the actor, pages, seconds and outcome. On
+Cloud Run stdout is the durable store: Cloud Logging ingests it and aggregates
+by any field, and it survives the instance dying, which an in-process counter
+does not -- this service keeps jobs in process memory precisely because nothing
+in it is meant to be durable. It bills on **every** exit path including
+`timeout` and `unreadable`, because a PDF Audiveris cannot read is exactly the
+one it grinds on for eight minutes, and counting only successes under-reports
+the expensive cases.
+
+Progress polls are not attributed: the app polls roughly once a second while a
+bar moves, and verifying a token per poll would turn one RSA check per job into
+hundreds -- and a token expiring mid-conversion would break the progress bar of
+a job that is running fine.
+
+*Deploy order matters and the service says so out loud.* Without
+`FIREBASE_PROJECT_ID` nothing verifies, so every signed-in request 401s while
+signed-out ones keep working -- a misconfiguration that reads as "sharing broke
+for people with accounts". The boot log names the exact
+`gcloud run services update --update-env-vars` that fixes it, and `deploy.sh`
+records why it must be `--update-env-vars` (merges) and never
+`--set-env-vars` (replaces, and would wipe `OMR_API_KEY`).
 
 ### 0.1 What each principle changes
 
@@ -1837,14 +1887,17 @@ first because they are release blockers, not work items.
 
 Everything above, plus what answer 1 implies beyond the bundle:
 
-- **The <12 cap**, at eleven, in the client and in `claimInvite`, with the test
-  that reads the server's number so the two cannot drift (§0.4). **Done in
-  code; the deployed Function still enforces 12 until it is redeployed**, and
-  redeploying is live infrastructure and therefore the owner's call.
+- **The <12 cap**, at TWELVE including the owner, in the client and in
+  `claimInvite`, with the test that reads the server's number so the two cannot
+  drift (§0.10). **Done, and no redeploy needed** -- the deployed Function
+  already enforced 12, which is what the confirmed intent turned out to be.
+- **Per-user OMR attribution** (§0.12): the verified-token path, the actor on
+  every job, and the structured usage line. Done in code. **Not deployed** --
+  it needs a `--update-env-vars FIREBASE_PROJECT_ID` on the service first, and
+  both are live infrastructure and therefore the owner's call.
 - **§12.8's stop condition.** A terms of service, and the rights gate read by
   somebody who is not an engineer. Answer 1 is the posture the ToS states, so
   this is now writable where before it was blocked on the posture.
-- The OMR token migration of §0.12 -- **no cap, keep attribution.**
 - Trim music21's 274 KB of test fixtures from the bundle (§0.11). Hygiene.
 
 *Why first:* B1, B2 and the cap are the only items in the whole line that can

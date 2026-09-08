@@ -57,10 +57,32 @@ def check(ok: bool, label: str) -> None:
 
 
 def no_archive_carries_music() -> None:
-    print("\nno archive on disk ships a score")
-    archives = sorted(ROOT.rglob("*.xcarchive"))
+    """The archive THIS checkout would ship, not every archive on the disk.
+
+    The first version globbed `*.xcarchive` from the repo root, which reaches
+    into sibling git worktrees and finds their old build output. It went red on
+    0.6.20 build 180's archive -- a correct answer about a build that has
+    already shipped, and a useless one to a person running the gate on a
+    different branch, who cannot fix it and will learn to ignore the check.
+    A gate that is permanently red is off.
+
+    One path: the one `deploy_testflight.sh` archives to. Absent is not a
+    failure -- it means nothing has been built here yet, and the script-side
+    assertions below still run.
+    """
+    print("\nthe archive this checkout would ship carries no score")
+    archives = [p for p in [ROOT / "ios" / "build" / "Scoranger.xcarchive"]
+                if p.exists()]
+    # An explicit path wins, so the deploy can point at the archive it just made.
+    if len(sys.argv) > 1:
+        archives = [Path(sys.argv[1])]
+        if not archives[0].exists():
+            print(f"    FAIL no archive at {archives[0]}")
+            FAILURES.append(f"no archive at {archives[0]}")
+            return
     if not archives:
-        print("    --   no .xcarchive on disk to inspect (nothing built yet)")
+        print("    --   nothing archived in this checkout "
+              "(ios/build/Scoranger.xcarchive absent)")
         return
     for archive in archives:
         apps = list((archive / "Products").rglob("*.app"))

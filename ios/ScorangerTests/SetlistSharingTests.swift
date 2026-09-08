@@ -64,7 +64,7 @@ final class SetlistSharingTests: XCTestCase {
 
     // MARK: - the cap
 
-    /// UNDER TWELVE, which is eleven, and the number is asserted literally.
+    /// TWELVE INCLUDING THE OWNER, and the number is asserted literally.
     ///
     /// It matters more under the flat model than it did before: owner-only
     /// invitation was itself a brake on growth and member invitation removes it
@@ -73,14 +73,15 @@ final class SetlistSharingTests: XCTestCase {
     /// copyrighted content" -- so it is asserted as a value and not merely as a
     /// relation: a test that only checked `mayAdmit(cap) == false` would pass
     /// just as happily at 12, or at 200.
-    func testTheEleventhPersonFitsAndTheTwelfthDoesNot() {
-        XCTAssertEqual(SetlistPermission.membershipCap, 11,
-                       "the posture is groups of UNDER 12 people")
+    func testTheTwelfthPersonFitsAndTheThirteenthDoesNot() {
+        XCTAssertEqual(SetlistPermission.membershipCap, 12,
+                       "max 12 including the owner, as confirmed; and it is what "
+                       + "the deployed claimInvite already enforces")
         XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 0))
-        XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 10),
-                      "a group of ten cannot add its eleventh")
-        XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 11),
-                       "eleven is the limit, so a twelfth cannot be admitted")
+        XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 11),
+                      "a group of eleven cannot add its twelfth")
+        XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 12),
+                       "twelve is the limit, so a thirteenth cannot be admitted")
         XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 40))
     }
 

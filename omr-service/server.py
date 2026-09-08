@@ -1,4 +1,8 @@
-"""OMR HTTP service wrapping Audiveris batch mode. Stdlib only.
+"""OMR HTTP service wrapping Audiveris batch mode.
+
+Stdlib, plus PyJWT[crypto] for verifying Firebase ID tokens -- an RS256 JWT
+needs RSA and stdlib has none. It needs NO credentials: verification is against
+Google's public certificates (see identity.py).
 
 Job API (progress-aware; the iPad app uses this):
   POST /jobs            raw PDF + X-API-Key -> {"ok":true,"job":id,"pages":N}
@@ -11,7 +15,21 @@ Legacy synchronous API (curl / regression battery):
 
 GET /healthz -> {"ok": true}
 
-Auth: set the OMR_API_KEY env var; requests must send it as X-API-Key.
+Auth, and WHO the job is billed to (design/FIREBASE.md §0.12):
+  - `Authorization: Bearer <firebase id token>` -- verified against Google's
+    public certs, and the job is attributed to that user's uid. This is the
+    path the app takes when somebody is signed in.
+  - `X-API-Key: <OMR_API_KEY>` -- still accepted, and the job is logged as
+    `anonymous`. Kept because every build already in the field sends only this,
+    and because importing a scan is a signed-out feature: principle 1 says no
+    login may gate using the app, so there is genuinely no user to attribute
+    those jobs to.
+  A token that is OFFERED and does not verify is a 401, never a silent
+  downgrade to anonymous -- otherwise a spoofed token spends under a clean
+  label.
+
+Per-job usage is emitted as one JSON line with `"omr_usage": true`, which is
+the per-user cost record; Cloud Logging aggregates it.
 Progress comes from Audiveris's own log stream: each per-sheet line carries a
 "[book#NN]" logger prefix, and total pages are counted from the PDF itself.
 `page` is the sheet being WORKED ON, not the number finished, so a client
@@ -33,6 +51,8 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import identity
 
 AUDIVERIS = os.environ.get("AUDIVERIS_BIN", "/opt/audiveris/bin/Audiveris")
 API_KEY = os.environ.get("OMR_API_KEY", "").strip()
@@ -84,6 +104,21 @@ def run_job(job_id: str, pdf: bytes):
     job = JOBS[job_id]
     workdir = tempfile.mkdtemp(prefix="omr-")
     job["workdir"] = workdir
+    started = time.time()
+
+    def bill(outcome: str) -> None:
+        """Emitted on EVERY exit path, including the failures.
+
+        A failed conversion still ran Audiveris for up to eight minutes and
+        still cost what it cost. A usage record that counted only successes
+        would under-report the expensive cases -- a PDF Audiveris cannot read
+        is exactly the one it grinds hardest on.
+        """
+        print(identity.usage_line(
+            job_id, job.get("actor", "anonymous"), job.get("trust", "unattributed"),
+            job.get("pages", 0), time.time() - started, outcome,
+            job.get("email")), flush=True)
+
     try:
         pdf_path = os.path.join(workdir, "input.pdf")
         with open(pdf_path, "wb") as f:
@@ -110,6 +145,7 @@ def run_job(job_id: str, pdf: bytes):
                 if time.time() > deadline:
                     proc.kill()
                     job.update(state="failed", error="audiveris timed out")
+                    bill("timeout")
                     return
             proc.wait()
 
@@ -118,11 +154,14 @@ def run_job(job_id: str, pdf: bytes):
             log = b"".join(tail)[-2000:].decode(errors="replace")
             print(f"job {job_id}: no mxl\n{log}", flush=True)
             job.update(state="failed", error="audiveris could not read this PDF as a score")
+            bill("unreadable")
             return
         job.update(state="done", result=mxl, page=job["pages"] or job["page"])
         print(f"job {job_id}: done", flush=True)
+        bill("done")
     except Exception as e:  # noqa: BLE001 — report, don't crash the worker
         job.update(state="failed", error=f"{type(e).__name__}: {e}")
+        bill("error")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -146,6 +185,31 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authed(self) -> bool:
         return not API_KEY or self.headers.get("X-API-Key", "").strip() == API_KEY
+
+    def _bearer(self) -> str | None:
+        raw = self.headers.get("Authorization", "").strip()
+        if raw.lower().startswith("bearer "):
+            token = raw[7:].strip()
+            return token or None
+        return None
+
+    def _actor(self):
+        """`(actor, trust, email)`, or None having already answered 401.
+
+        Reads on job status and result are NOT attributed: they cost nothing,
+        they are polled every second while a bar moves, and verifying a token
+        on each one would turn one RSA check per job into hundreds.
+        """
+        try:
+            return identity.actor_for(self._bearer(), self._authed())
+        except identity.Unverified as e:
+            # Deliberately says which of the two failed. A client sending a
+            # stale token needs to know to refresh it, and a client sending no
+            # credentials needs to know that is what happened -- one opaque
+            # 401 for both is how a token refresh bug looks like an outage.
+            print(f"omr auth refused: {e}", flush=True)
+            self._json(401, {"ok": False, "error": f"not authorised: {e}"})
+            return None
 
     # -- GET: health, job status, job result ---------------------------------
 
@@ -197,9 +261,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in ("/omr", "/jobs"):
             self._json(404, {"ok": False, "error": "not found"})
             return
-        if not self._authed():
-            self._json(401, {"ok": False, "error": "bad api key"})
+        who = self._actor()
+        if who is None:
             return
+        actor, trust, email = who
         if not 0 < length <= MAX_BYTES:
             self._json(413, {"ok": False, "error": f"body must be 1..{MAX_BYTES} bytes"})
             return
@@ -211,7 +276,9 @@ class Handler(BaseHTTPRequestHandler):
         purge_old_jobs()
         job_id = uuid.uuid4().hex[:12]
         JOBS[job_id] = {"state": "queued", "page": 0, "pages": count_pages(pdf),
-                        "created": time.time()}
+                        "created": time.time(),
+                        "actor": actor, "trust": trust, "email": email}
+        print(f"job {job_id}: accepted for {actor} ({trust})", flush=True)
         worker = threading.Thread(target=run_job, args=(job_id, pdf), daemon=True)
         worker.start()
 
@@ -237,6 +304,19 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     print(f"omr-service on :{port} (audiveris={AUDIVERIS}, auth={'on' if API_KEY else 'OFF'})")
+    # Said at STARTUP, not at first use. Without FIREBASE_PROJECT_ID nothing can
+    # be verified, so every signed-in request gets a 401 while signed-out ones
+    # keep working -- a misconfiguration that looks exactly like "sharing broke
+    # for people with accounts". One line in the boot log turns an afternoon of
+    # confusion into a `gcloud run services update --update-env-vars`.
+    if identity.PROJECT_ID:
+        print(f"omr-service: attributing jobs against Firebase project "
+              f"{identity.PROJECT_ID}", flush=True)
+    else:
+        print("omr-service: WARNING FIREBASE_PROJECT_ID is unset -- no bearer "
+              "token can be verified, so every signed-in request will 401. "
+              "Fix with: gcloud run services update scoranger-omr "
+              "--update-env-vars FIREBASE_PROJECT_ID=<id>", flush=True)
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
 
     # Cloud Run sends SIGTERM on scale-down (10s grace): stop accepting new

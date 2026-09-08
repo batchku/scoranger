@@ -134,6 +134,14 @@ xcodebuild archive \
   | grep -E "error:|warning: (Provisioning|Signing)|ARCHIVE (SUCCEEDED|FAILED)" || true
 
 [[ -d "$ARCHIVE_PATH" ]] || die "archive failed"
+
+# THE ARCHIVE, not the build script. Checked here because this is the only
+# moment the thing that will actually be uploaded exists: 0.6.20 build 180 went
+# to TestFlight carrying four copyrighted score files while the build phase's
+# own comment said it did not (design/FIREBASE.md §0.11). A gate on the source
+# would have believed the comment.
+"$VENDOR_PY" ../engine/scripts/check_no_bundled_scores.py "$ARCHIVE_PATH" \
+  || die "the archive contains score files -- see design/FIREBASE.md §0.11"
 ARCHIVED_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
   "$ARCHIVE_PATH/Products/Applications/$SCHEME.app/Info.plist")
 [[ "$ARCHIVED_BUILD" == "$BUILD_NUMBER" ]] \
