@@ -88,11 +88,32 @@ struct AccountSection: View {
                   identifier: "account-identity") {}
             .disabled(true)
 
-        if account.email == nil {
-            // §12.10. Worth saying here rather than at the moment an invitation
-            // silently fails to find them.
-            Text("You signed in with a private address, so people cannot invite "
-                 + "you by email. Ask them for an invite code instead.")
+        if let email = account.email, account.isPrivateRelay {
+            // §12.10, and the copy that used to be here pointed at an "invite
+            // code" this app has never had. The address itself is the answer:
+            // Apple's relay is deliverable and stable for this app, and it is
+            // what the token presents as a verified email -- so an invitation
+            // sent to it works. It just cannot be GUESSED, so it has to be
+            // handed over.
+            Text("Apple gave you a private address. Invitations still work — "
+                 + "send this to whoever is inviting you:")
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("account-relay-explains")
+
+            Text(email)
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("account-relay-address")
+
+            ShareLink(item: email) {
+                Text("Send my address").typeRole(.control)
+            }
+            .accessibilityIdentifier("account-relay-share")
+        } else if account.email == nil {
+            Text("This account has no email address, so people cannot invite "
+                 + "you by email yet.")
                 .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("account-private-address")

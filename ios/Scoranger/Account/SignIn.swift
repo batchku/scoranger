@@ -36,10 +36,25 @@ final class SignIn: ObservableObject {
 
     struct Account: Equatable {
         let uid: String
-        /// Absent when the person used Apple's Hide My Email, which hands us a
-        /// relay address. §12.10: an invitation cannot find them by an address
-        /// their bandmates know, so a code is the fallback.
+        /// The address invitations must be sent to. Present for a relay
+        /// address too -- see `isPrivateRelay`.
         let email: String?
+        /// Apple's Hide My Email gave a relay address
+        /// (`…@privaterelay.appleid.com`).
+        ///
+        /// **The address is still kept, and that is a correction.** It used to
+        /// be discarded as "not an address anybody can invite", which confused
+        /// GUESSABLE with USABLE: a bandmate cannot guess a relay address, but
+        /// they can be told one, and it is precisely what the Firebase token
+        /// carries as a verified email -- so `claimInvite` matches an
+        /// invitation sent to it exactly as it would any other. Throwing it
+        /// away was what actually made a Hide My Email account un-invitable,
+        /// and the screen told those readers to ask for an "invite code" that
+        /// does not exist (§12.10).
+        ///
+        /// So the flag is for EXPLAINING the address, not for hiding it: the
+        /// reader is shown it and asked to send it to whoever is inviting them.
+        let isPrivateRelay: Bool
         let displayName: String?
         /// Which button they pressed. Kept because the two providers behave
         /// differently at invitation time, not for display.
@@ -284,12 +299,14 @@ final class SignIn: ObservableObject {
     }
 
     private func account(from user: User, provider: Provider) -> Account {
-        Account(uid: user.uid,
-                // A relay address is not an address anybody can invite, so it
-                // is carried as nil rather than as something that looks usable.
-                email: user.email.flatMap { $0.hasSuffix("privaterelay.appleid.com") ? nil : $0 },
-                displayName: user.displayName,
-                provider: provider)
+        let relay = user.email?.hasSuffix("privaterelay.appleid.com") ?? false
+        return Account(uid: user.uid,
+                       // Kept whether it is a relay or not: it is the address
+                       // an invitation has to be addressed to either way.
+                       email: user.email,
+                       isPrivateRelay: relay,
+                       displayName: user.displayName,
+                       provider: provider)
     }
 
     /// Signing out keeps everything. The library is local and stays local

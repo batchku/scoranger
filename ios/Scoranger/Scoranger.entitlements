@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple. Ali's son has an Apple account and no Google one,
+	     so this is not a nice-to-have: without it he cannot join a shared set
+	     list at all. The matching capability (APPLE_ID_AUTH, with
+	     PRIMARY_APP_CONSENT) is enabled on the App ID com.irllabs.scoranger;
+	     this entitlement without that capability fails code signing, and that
+	     capability without this entitlement is what made the button do
+	     nothing in build 183. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

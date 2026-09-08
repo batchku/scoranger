@@ -179,6 +179,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger
+        # Sign in with Apple. Must match the APPLE_ID_AUTH capability on the
+        # App ID or the archive will not sign; SignIn.appleIsAvailable reads
+        # this back out of the built profile at runtime, so the button
+        # enables itself once both halves are in place.
+        CODE_SIGN_ENTITLEMENTS: Scoranger/Scoranger.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: V9DBGV72NL  # IRL Labs LLC
@@ -230,7 +235,7 @@ targets:
         # this line said 181, so 181 is now behind what has shipped and 183 is
         # the next free number. Checked against App Store Connect rather than
         # against this file's own history, which is what made 181 stale.
-        CURRENT_PROJECT_VERSION: 183
+        CURRENT_PROJECT_VERSION: 184
         MARKETING_VERSION: 0.7.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
