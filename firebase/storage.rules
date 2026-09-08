@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// The bytes: notation, scans, books. design/FIREBASE.md §4.3 and §8.2.
+//
+// THE TWO-DOCUMENT CAP IS WHY THE PATHS LOOK LIKE THIS. A Cloud Storage rule
+// may read at most TWO Firestore documents per evaluation, so authorising a
+// shared file has to be ONE lookup keyed on something the path itself carries.
+// Hence `shared/{setlistId}/…` with the membership map on the setlist
+// document: the rule reads one document and is done. Any layout where the path
+// did not name the setlist, or where membership lived in a subcollection,
+// would need a traversal rules cannot perform, and the whole thing would fall
+// back to a Cloud Function minting signed URLs.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Nothing is public. Not one path, not ever -- a shared setlist is an
+    // invitation to an account, never a link (§8.2 guard rail 1), and this is
+    // the line that makes "no link sharing" true rather than a UI choice.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // -- one account's own library ---------------------------------------
+    //
+    // The owner's own copies: their arrangements, their scans, their books.
+    // Read and written by that account and nobody else. §12.3 is the question
+    // this posture answers -- backing up your own purchased material to your
+    // own bucket -- and the answer is yes, opt-in per book, private.
+    match /libraries/{libraryId}/{rest=**} {
+      allow read, write: if signedIn()
+        && firestore.get(/databases/(default)/documents/libraries/$(libraryId))
+             .data.owner == request.auth.uid;
+    }
+
+    // -- a shared setlist's copies ---------------------------------------
+    //
+    // ONE lookup, and the setlistId comes out of the PATH rather than out of a
+    // traversal. This is the rule the whole layout was chosen for.
+    //
+    // Members read. Members write, because every member can add an entry
+    // (principle 4) and adding one means uploading its copy. A reader is
+    // deliberately excluded from writing: they mark their own part, and ink
+    // lives in Firestore, not here.
+    match /shared/{setlistId}/{rest=**} {
+      // `.get(key, null)` and NOT `members[uid]`. Indexing the map with a uid
+      // that is not a key THROWS, and an evaluation error denies -- so a
+      // stranger was refused by an exception rather than by a decision. The
+      // outcome was right and the reason was not, which is the kind of thing
+      // that stops being right when the platform changes its mind about error
+      // semantics. Measured: the emulator logged
+      // "Property u-nobody is undefined on object" on every stranger check.
+      function role() {
+        return firestore.get(/databases/(default)/documents/setlists/$(setlistId))
+                 .data.members.get(request.auth.uid, null);
+      }
+      allow read: if signedIn() && role() != null;
+      allow write: if signedIn() && role() in ['owner', 'member'];
+    }
+  }
+}
