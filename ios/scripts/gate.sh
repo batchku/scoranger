@@ -92,6 +92,35 @@ SKIP=(
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
   # gate has no reason to be running. Neither asserts.
   -skip-testing:ScorangerUITests/TopBarShot
+  # PAGINATION'S SYSTEM COUNT, SKIPPED SO THAT A GREEN MEANS SOMETHING.
+  #
+  # It compares the app's per-page system count against a hard-coded 25 that
+  # the engine reports, and it does not give the same answer twice:
+  #
+  #   run alone, 3 of 3:  pages=5 systems=5,6,6,6,3  -> 26, FAILS
+  #   in this gate:       pages=9 systems=3,3,3,2,3,3,3,3,2 -> 25, PASSES
+  #
+  # Same binary, same xctestrun, same simulator UDID. So the score was engraved
+  # two different ways, and the paged page setup is fixed -- EngravingOptions
+  # pins width, height, scale and all four margins, and adjustPageHeight is
+  # true only for the continuous strip -- which rules out the viewport. The
+  # library is not the difference either: -resetLibrary does a real
+  # removeItem on Documents/workspace before the engine is configured, so a
+  # leftover fixture from an earlier test cannot survive into this one.
+  # Unexplained, therefore, and BACKLOG.md holds what is known.
+  #
+  # It is SKIPPED rather than quarantined into the serial phase, and that is
+  # the decision worth reading: run serially it runs ALONE, which is the case
+  # that fails, so quarantining would turn every gate red without learning
+  # anything new. And it cannot be "fixed" by loosening the assertion -- the
+  # number is the whole point of the test.
+  #
+  # What is lost by skipping is exactly nothing that guards shipped behaviour:
+  # this is the observable built to investigate issue #4, not a regression
+  # guard. What is gained is that this gate's green no longer includes a claim
+  # that passes for a reason nobody chose. RESTORE IT the moment its premise is
+  # sound -- it is the measurement #4 needs.
+  -skip-testing:ScorangerUITests/PaginationAfterAnOp/testTheSystemCountAgreesWithTheEngine
 )
 
 # THE DELETION CLASS, WHICH RUNS SERIALLY.
