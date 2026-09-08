@@ -144,7 +144,7 @@ targets:
         #          name shown as one strip, and the OMR progress fix deployed
         #          at last. Cut from 0.6.19 and NOT from dev, which carries
         #          0.7's sharing work
-        CURRENT_PROJECT_VERSION: 179
+        CURRENT_PROJECT_VERSION: 180
         MARKETING_VERSION: 0.6.20
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
