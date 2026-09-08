@@ -519,7 +519,7 @@ struct ContentView: View {
     private var scoreSubtitle: String {
         guard let score = state.selectedScore else { return "" }
         let piece = state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
-        return [piece?.name, state.displayedVersionID]
+        return [piece?.name, state.displayedVersionLabel]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -608,7 +608,8 @@ struct ContentView: View {
             // AppState publishes nothing when the play head moves, so a canvas
             // that read it that way would never follow. Same reason the ink
             // bar observes its controller directly.
-            ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+            ScorePagesView(document: doc, annotationKey: "\(score.inkNamespace)/\(vid)",
+                           canvasIdentity: "\(score.slug)/\(vid)",
                            mode: state.scoreMode, playback: state.playback)
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so
@@ -774,10 +775,10 @@ struct ContentView: View {
                     Task { await state.renderIfNeeded() }
                 } label: {
                     if group.face.id == state.displayedVersionID {
-                        Label("\(group.face.id) · \(shortTitle(group.title))",
+                        Label("\(group.face.name) · \(shortTitle(group.title))",
                               systemImage: "checkmark")
                     } else {
-                        Text("\(group.face.id) · \(shortTitle(group.title))")
+                        Text("\(group.face.name) · \(shortTitle(group.title))")
                     }
                 }
             }

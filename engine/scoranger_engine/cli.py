@@ -43,7 +43,10 @@ def _emit(payload: dict) -> None:
 
 def _mutate(slug: str, score, op: str, args: dict, details) -> None:
     entry = workspace.add_version(slug, score, op, args)
-    _emit({"score": slug, "op": op, "new_version": entry["id"], "details": details,
+    # both names: `new_version` is the identity to pass back to any other
+    # command, `new_version_label` is the `v012` to put in a sentence
+    _emit({"score": slug, "op": op, "new_version": entry["id"],
+           "new_version_label": workspace.version_label(entry), "details": details,
            "file": str(workspace.score_dir(slug) / entry["file"])})
 
 
@@ -59,7 +62,8 @@ def cmd_import(a):
     # in rather than surfacing as "my-score.mxl" at the top of the page.
     name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
     slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
-    out = {"score": slug, "name": name, "version": entry["id"], "info": ops.info(score)}
+    out = {"score": slug, "name": name, "version": entry["id"],
+           "version_label": workspace.version_label(entry), "info": ops.info(score)}
     # imperfect sources import and say so; they are never refused
     if entry.get("rhythm_warnings"):
         out["rhythm_warnings"] = entry["rhythm_warnings"]
@@ -464,6 +468,24 @@ def cmd_delete_score(a):
 def cmd_serve(a):
     from . import server
     server.serve(a.port, a.host)
+
+
+def cmd_bundle_export(a):
+    from . import bundle
+    _emit(bundle.export(a.target, Path(a.out).expanduser(),
+                        full_history=a.full_history,
+                        ink_dir=Path(a.ink).expanduser() if a.ink else None))
+
+
+def cmd_bundle_inspect(a):
+    from . import bundle
+    _emit(bundle.inspect(Path(a.path).expanduser()))
+
+
+def cmd_bundle_import(a):
+    from . import bundle
+    _emit(bundle.import_(Path(a.path).expanduser(), into_piece=a.into_piece,
+                         ink_dir=Path(a.ink).expanduser() if a.ink else None))
 
 
 def cmd_export(a):
@@ -899,6 +921,26 @@ def main() -> None:
     s.add_argument("--host", default="127.0.0.1",
                    help="Bind address; use 0.0.0.0 to allow the iPad app on your LAN")
     s.set_defaults(fn=cmd_serve)
+
+    s = sub.add_parser("bundle-export",
+                       help="An arrangement or setlist as one shareable file "
+                            "(AirDrop, Files) -- no account, no network")
+    s.add_argument("target", help="arrangement slug, or setlist name")
+    s.add_argument("--out", required=True)
+    s.add_argument("--full-history", action="store_true",
+                   help="every version, not just the one it opens at")
+    s.add_argument("--ink", help="annotations directory, to carry markup along")
+    s.set_defaults(fn=cmd_bundle_export)
+
+    s = sub.add_parser("bundle-inspect", help="What is inside a bundle. Reads only.")
+    s.add_argument("path")
+    s.set_defaults(fn=cmd_bundle_inspect)
+
+    s = sub.add_parser("bundle-import", help="Take a bundle in as new arrangements")
+    s.add_argument("path")
+    s.add_argument("--into-piece", help="file every arrangement under this piece")
+    s.add_argument("--ink", help="annotations directory, to restore markup into")
+    s.set_defaults(fn=cmd_bundle_import)
 
     s = sub.add_parser("export", help="Export a version to a file (optionally only some parts)")
     s.add_argument("score")

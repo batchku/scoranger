@@ -19,6 +19,7 @@ compared.
 Run: engine/.venv/bin/python engine/scripts/check_vendored_engine.py
 """
 
+import ast
 import hashlib
 import sys
 from pathlib import Path
@@ -49,11 +50,53 @@ def main() -> int:
 
     # A module the app's bridge imports but that was never copied is the
     # original form of this bug.
-    bridge = (ROOT / "ios" / "PythonApp" / "app" / "bridge.py").read_text()
-    for mod in ("workspace", "ops", "bulk", "db"):
-        if f"from scoranger_engine import" in bridge or f"scoranger_engine.{mod}" in bridge:
-            if not (VENDORED / f"{mod}.py").exists():
-                missing.append(f"bridge.py uses {mod} and it is not vendored")
+    #
+    # Derived from bridge.py, not listed here. A hard-coded tuple is what let
+    # ids.py go missing, and it would have let bundle.py go missing too: the
+    # closure check below cannot see it, because bundle is reached only FROM
+    # the bridge and nothing already vendored imports it.
+    bridge_src = (ROOT / "ios" / "PythonApp" / "app" / "bridge.py").read_text()
+    wanted: set[str] = set()
+    for node in ast.walk(ast.parse(bridge_src)):
+        if isinstance(node, ast.ImportFrom) and node.module == "scoranger_engine":
+            wanted |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "scoranger_engine."):
+            wanted.add(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            wanted |= {alias.name.split(".")[1] for alias in node.names
+                       if alias.name.startswith("scoranger_engine.")}
+    for mod in sorted(wanted):
+        if (SOURCE / f"{mod}.py").exists() and not (VENDORED / f"{mod}.py").exists():
+            missing.append(f"bridge.py uses {mod} and it is not vendored")
+
+    # And the SECOND form of it, which the loop above cannot see: a vendored
+    # module importing a sibling that was never copied.
+    #
+    # This is not hypothetical. Stage 0 added `ids.py` and `workspace.py` gained
+    # `from . import ids` at module scope; the hand-kept list in
+    # vendor_engine.sh did not gain it, and the app shipped an engine that
+    # could not import at all. Every UI test failed with "the seeded library
+    # never appeared", which is true and says nothing about why. The vendor
+    # script now derives the closure instead of listing it, and this asserts
+    # the closure is actually closed.
+    #
+    # Lazy imports count. `from . import ops` inside a function is how most of
+    # workspace.py reaches the ops module, and a missing module fails there
+    # just as hard, only later and inside whatever the user was doing.
+    for v in sorted(VENDORED.glob("*.py")):
+        for node in ast.walk(ast.parse(v.read_text())):
+            if not (isinstance(node, ast.ImportFrom) and node.level == 1):
+                continue
+            wanted = ({alias.name for alias in node.names} if node.module is None
+                      else {node.module.split(".")[0]})
+            for mod in sorted(wanted):
+                if not (SOURCE / f"{mod}.py").exists():
+                    continue          # not a module of ours; a name from one
+                if not (VENDORED / f"{mod}.py").exists():
+                    missing.append(
+                        f"{v.name} imports {mod} and it is not vendored "
+                        f"(line {node.lineno})")
 
     for name in stale:
         print(f"  FAIL {name} differs from the engine it was copied from")

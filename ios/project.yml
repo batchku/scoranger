@@ -139,8 +139,17 @@ targets:
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
         #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
         #          path. Pagination moves to 0.6.14.
+        #   0.7.0  identity that outlives a title: opaque ids everywhere, the
+        #          library named before anyone signs in, and a reader's pencil
+        #          marks keyed to the score rather than to what it is called
+        #          today. Nothing user-visible; the ground 0.7 sharing stands on
+        #   0.7.1  share without the cloud: an arrangement or a setlist, with
+        #          its markup, as one .scorbundle over AirDrop or Files. No
+        #          account, no network, nothing deployed
+        # 179 is the build 0.6.19 shipped on. A build number never goes
+        # backwards, so 0.7 counts on from here.
         CURRENT_PROJECT_VERSION: 179
-        MARKETING_VERSION: 0.6.19
+        MARKETING_VERSION: 0.7.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -231,6 +240,19 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.image, public.jpeg, public.png,
                                  public.heic]
+          # An arrangement or a setlist somebody sent, with its markup, over
+          # AirDrop or Files. Owner rank because this is our own format.
+          - CFBundleTypeName: "Scoranger bundle"
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.scoranger.bundle]
+        # EXPORTED, not imported: we define this one. The others are formats
+        # the world already had and we merely open (design/FIREBASE.md §13).
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.scoranger.bundle
+            UTTypeDescription: "Scoranger bundle"
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [scorbundle]
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"
@@ -277,6 +299,10 @@ targets:
       - path: Scoranger/Navigation/Route.swift
       - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
+      # the annotation store: pure file handling over a scratch directory, and
+      # the key migration in it is the one thing standing between a reader's
+      # pencil marks and silence (design/FIREBASE.md §13.3)
+      - path: Scoranger/Score/DrawingStore.swift
       - path: Scoranger/Score/PageTurn.swift
       # what a single-finger touch on the canvas means -- one pure function, so
       # it can be fuzzed for disjointness (§12) without a screen

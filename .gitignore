@@ -26,7 +26,6 @@ viewer/dist/
 # secrets
 .env
 ios/Vendor/
-ios/Vendor
 ios/PythonApp/app_packages/
 ios/PythonApp/app_packages
 ios/PythonApp/app/scoranger_engine/
@@ -49,3 +48,4 @@ design/qa/
 ios/build/gate/
 ios/DerivedData-Gate/
 ios/DerivedData-Baseline/
+ios/Vendor

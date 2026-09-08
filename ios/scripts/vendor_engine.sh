@@ -14,11 +14,52 @@ PKGS=PythonApp/app_packages
 rm -rf "$PKGS" "$APP/scoranger_engine"
 mkdir -p "$APP" "$PKGS"
 
-# engine sources (server/render/chat/cli are host-only; the bridge replaces them)
+# Engine sources: the CLOSURE of what bridge.py actually reaches, worked out
+# from the imports rather than listed here.
+#
+# It was a hand-kept list, and it went stale the moment stage 0 added ids.py:
+# workspace.py gained `from . import ids` at module scope, the list did not,
+# and the app shipped an engine that could not import at all. Every UI test
+# failed with "the seeded library never appeared" -- correct, and a long way
+# from the cause. A list of modules maintained by hand next to an import graph
+# maintained by the compiler will diverge again.
+#
+# server/render/chat/cli/sync stay out because nothing in the closure reaches
+# them: rendering is the Swift engraver's job on device, `scor serve` is the
+# desktop viewer's API, and sync is not wired up yet.
 mkdir -p "$APP/scoranger_engine"
-for f in __init__.py ops.py workspace.py db.py bulk.py; do
-  cp "../engine/scoranger_engine/$f" "$APP/scoranger_engine/"
-done
+"$PY" - "$APP/scoranger_engine" <<'CLOSURE'
+import ast, shutil, sys
+from pathlib import Path
+
+dest = Path(sys.argv[1])
+src = Path("../engine/scoranger_engine")
+
+def intra(module: str) -> set[str]:
+    """Package-relative imports of one module, lazy ones included."""
+    found = set()
+    for node in ast.walk(ast.parse((src / f"{module}.py").read_text())):
+        if isinstance(node, ast.ImportFrom) and node.level == 1:
+            if node.module is None:                 # from . import a, b
+                found |= {alias.name for alias in node.names}
+            else:                                   # from .a import b
+                found.add(node.module.split(".")[0])
+    return found
+
+# what the bridge names, then everything those reach, transitively
+seeds = {"__init__", "workspace", "ops", "db", "bulk", "bundle"}
+closure, queue = set(), list(seeds)
+while queue:
+    module = queue.pop()
+    if module in closure or not (src / f"{module}.py").exists():
+        continue
+    closure.add(module)
+    queue.extend(intra(module))
+
+for module in sorted(closure):
+    shutil.copy(src / f"{module}.py", dest)
+print("  engine modules: " + " ".join(sorted(closure)))
+CLOSURE
 
 # pypdf is not optional: books ARE PDFs. workspace.create_book counts a book's
 # pages and extract_from_book cuts pages out of one, and both import pypdf.

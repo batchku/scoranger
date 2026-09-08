@@ -89,7 +89,7 @@ struct ScoreInfoView: View {
             metadataEditor
             SheetRow(label: "Piece") { pieceMenu }
             slugEditor
-            if let latest = live.latest {
+            if let latest = live.latestLabel {
                 SheetRow("Latest version", latest, mono: true)
             }
 
@@ -102,7 +102,7 @@ struct ScoreInfoView: View {
 
             BandHeader("Versions")
             ForEach(live.versions.reversed()) { version in
-                SheetRow(label: version.id) {
+                SheetRow(label: version.name) {
                     HStack(spacing: Theme.Metric.s8) {
                         Text(VersionLabel.text(op: version.op,
                                                prompt: version.turn?.prompt))

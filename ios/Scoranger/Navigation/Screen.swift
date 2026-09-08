@@ -263,6 +263,56 @@ struct NoticeBar: View {
     }
 }
 
+/// What a bundle holds, and the one tap that takes it in.
+///
+/// Somebody AirDropped an arrangement or a setlist. Nothing has been imported
+/// yet: this says what is in the file -- what it is called, how many pieces,
+/// whose markup rides along -- and waits (design/FIREBASE.md §13.3).
+///
+/// A bar rather than a sheet, on the UndoBar's shape, because the no-modal rule
+/// (NAV_MODAL_FREE_0.4.2 §1) applies to surfaces this app invents and this is
+/// one. The reader can ignore it and it costs them nothing.
+struct BundleOfferBar: View {
+    let summary: String
+    let detail: String
+    var onImport: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Ink.ink2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+                    .accessibilityIdentifier("bundle-offer-summary")
+                Text(detail).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                    .accessibilityIdentifier("bundle-offer-detail")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: Theme.Metric.s8)
+            PanelButton(title: "Add to my library", kind: .primary, action: onImport)
+                .accessibilityIdentifier("bundle-import")
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+            .accessibilityIdentifier("bundle-dismiss")
+        }
+        .padding(.horizontal, Theme.Metric.s16)
+        .padding(.vertical, Theme.Metric.s8)
+        .frame(minHeight: 56)
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
+        .accessibilityIdentifier("bundle-offer-bar")
+    }
+}
+
 struct UndoBar: View {
     let what: String
     var seconds: Int = 10

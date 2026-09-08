@@ -113,6 +113,17 @@ struct RootView: View {
                 .zIndex(2)
             }
 
+            if let offer = state.bundleOffer, !scoreOpen {
+                VStack {
+                    Spacer()
+                    BundleOfferBar(summary: offer.summary, detail: offer.detail,
+                                   onImport: { Task { await state.acceptBundle() } },
+                                   onDismiss: { state.bundleOffer = nil })
+                        .padding(.bottom, Theme.Metric.s20)
+                }
+                .zIndex(3)
+            }
+
             if let undo = state.undoableDelete, !scoreOpen {
                 VStack {
                     Spacer()

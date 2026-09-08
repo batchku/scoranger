@@ -47,6 +47,7 @@ struct ScoreOptionsScreen: View {
     /// The format currently being written, so its row can say so: engraving a
     /// PDF of a long score takes a moment and a dead row reads as a dead app.
     @State private var exporting: ScoreExport.Format?
+    @State private var bundling = false
     /// The finished file, handed to Apple's share sheet.
     ///
     /// This is the ONE modal in the app, and it is deliberate: the system share
@@ -372,6 +373,25 @@ struct ScoreOptionsScreen: View {
         }
         note("The file is named for the arrangement, and carries the version "
              + "number only when you are looking at an older one.")
+
+        // Sharing with a person rather than with a program. The formats above
+        // hand the music to other software; this hands the ARRANGEMENT to
+        // another Scoranger -- the chart, and your markup on it -- with no
+        // account and no network (design/FIREBASE.md §13).
+        ScreenRow(title: "Send to another iPad",
+                  value: bundling ? "packing…" : "AirDrop, Files, Mail",
+                  leads: false,
+                  identifier: "export-bundle") {
+            guard !bundling, let score = state.selectedScore else { return }
+            bundling = true
+            Task {
+                sharing = await state.exportBundle(target: score.slug)
+                bundling = false
+            }
+        }
+        .disabled(bundling)
+        note("Carries this arrangement and your pencil marks as one file. "
+             + "Whoever opens it is asked before anything joins their library.")
     }
 
     @ViewBuilder
@@ -386,7 +406,7 @@ struct ScoreOptionsScreen: View {
                 ScreenRow(title: "Clear markup on this version", leads: false,
                           isDestructive: true, identifier: "annotations-clear") {
                     if let score = state.selectedScore, let vid = state.displayedVersionID {
-                        DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
+                        DrawingStore.shared.clear(prefix: "\(score.inkNamespace)/\(vid)")
                         Task { await state.renderIfNeeded(force: true) }
                     }
                     onBack()
@@ -410,11 +430,11 @@ struct ScoreOptionsScreen: View {
             case "Versions":
                 if let score = state.selectedScore {
                     ForEach(score.versions.reversed(), id: \.id) { version in
-                        ScreenRow(title: version.id,
+                        ScreenRow(title: version.name,
                                   value: VersionLabel.text(op: version.op,
                                                            prompt: version.turn?.prompt),
                                   leads: false,
-                                  identifier: "version-\(version.id)") {
+                                  identifier: "version-\(version.name)") {
                             state.pinnedVersion = version.id == score.latest ? nil : version.id
                             Task { await state.renderIfNeeded() }
                             onBack()
@@ -565,9 +585,9 @@ struct TitleSwitcherBand: View {
                 switchRow(title: TitleBandLayout.versionLabel(
                                     prompt: version.turn?.prompt, op: version.op),
                           number: nil,
-                          detail: version.id,
+                          detail: version.name,
                           selected: version.id == state.displayedVersionID,
-                          id: "menu-version-\(version.id)") {
+                          id: "menu-version-\(version.name)") {
                     onPickVersion(version.id == score.latest ? nil : version.id)
                 }
             }

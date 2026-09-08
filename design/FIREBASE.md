@@ -1,7 +1,10 @@
 # Firebase integration: sync, sharing and the rights gate
 
-Design document, 2026-08-30. Written against `dev` at 42b6fa3. No app code has
-been changed. Target: the minor version after playback.
+Design document, 2026-08-30. Revised 2026-09-04 for the 0.7 line: section 0 is
+new and reconciles this document with the six principles the owner set for
+multi-person work, section 13 is new, and sections 6.2, 6.3, 9.2 and 11 are
+amended where those principles overturn a decision. Stage 0 is built; nothing
+else in here has been.
 
 Companion docs: `ARCHITECTURE.md` (the product design, written before the engine
 moved on-device), `BACKLOG.md` (what was deferred), `design/NAVIGATION_SYSTEM.md`
@@ -31,6 +34,270 @@ Where this document says *verified*, it was read in the code or measured on
 disk. Where it says *from the docs*, it came from Firebase's documentation and
 carries a link. Everything else is labelled as an assumption or an open
 question.
+
+---
+
+## 0. The principles this design now answers to
+
+Added 2026-09-04, at the start of the 0.7 line. Everything below section 0 was
+written on 2026-08-30 against a set of assumptions the owner has since replaced.
+The measurements in section 1 and the platform research in section 10 are
+unaffected and still stand. The *decisions* in sections 6, 9 and 11 are not, and
+this section says exactly which ones changed and to what.
+
+The six principles, as given:
+
+> 1. LOCAL-FIRST; cloud OPTIONAL; no login should ever gate using the app.
+>    Everything works offline/signed-out; cloud is additive.
+> 2. The main goal: SHARED PLAYLISTS (setlists) where anyone in the playlist can
+>    ADD arrangements and REORDER them.
+> 3. Auth: GOOGLE SSO.
+> 4. Permission model: anyone in the playlist can add / reorder / share with
+>    others (sharing ADDS that person to the group that has access). But ONLY the
+>    owner who created the setlist can DELETE the playlist.
+> 5. What's shared must include ANNOTATIONS, and ALL setlist participants can
+>    annotate.
+> 6. There must be an option to share an arrangement OR a setlist with someone
+>    else WITHOUT internet/cloud -- via AirDrop or other local means.
+
+### 0.1 What each principle changes
+
+| # | The principle | What the 2026-08-30 document said | What it says now |
+|---|---|---|---|
+| 1 | Local-first, no login gate | §9.1 already recommends exactly this: no anonymous auth, no Firebase SDK until sign-in | **Unchanged, and promoted from a recommendation to an invariant with a named check.** §0.2 |
+| 2 | Shared setlists are the goal | §11 spends stage 1 on whole-library multi-device sync and reaches sharing at stage 2 | **Re-sequenced. Sharing ships first; own-library backup ships after.** §11, rewritten |
+| 3 | Google SSO | §9.2: "Sign in with Apple, and only that" | **Google SSO is the primary method, and Sign in with Apple ships beside it because Google SSO obliges it.** §9.2, amended |
+| 4 | Members add, reorder, invite; owner alone deletes | §6.2: three roles, and "inviting stays with the owner in v1" | **Two roles. Every member adds, reorders, invites and annotates. The owner alone deletes the setlist.** §6.2, replaced |
+| 5 | Shared annotations, everyone annotates | §6.3 recommends personal layers, and §11 defers them to stage 3, after a read-only stage | **Annotations are part of the headline feature, not a later stage. Per-participant layers, merged at render.** §6.3 amended, §11 rewritten |
+| 6 | Share without the cloud | Absent. The document has no offline sharing path at all | **New section 13. It ships before any cloud work.** |
+
+Three of these are genuine reversals of a recommendation the document argued
+for, and each is recorded at the section it overturns rather than only here.
+
+### 0.2 Principle 1, made checkable
+
+The document's §9.1 recommendation and this principle agree, so the work is not
+to change a decision but to stop it eroding. A property that is true today
+because nobody has had a reason to break it yet is not an invariant; it is a
+coincidence with good luck.
+
+Three things make it one:
+
+**No screen may require an account.** Every screen the app has today works
+signed out and continues to. The sharing screens are the only new screens that
+need an account, and they are reached from a tab that, signed out, explains what
+signing in would add and offers the offline bundle share (section 13) instead of
+a wall. A signed-out user is never shown a modal, a redirect or a disabled tab.
+
+**Signed out, the app makes no Firebase contact of any kind.** Not anonymous
+auth, not App Check, not a configuration call. `FirebaseApp.configure()` runs at
+first sign-in and not at launch. This is §9.1's recommendation and it is what
+makes the promise literal rather than approximate.
+
+**A check asserts both.** `check_signed_out.py` for the engine half -- the
+`JournalingRepository` is not constructed, no `sync.db` is created, no `rev`
+appears on any document -- which `check_sync.py` already covers and which moves
+under a name that says what it protects. A UI test walks every screen with no
+account and asserts none of them blocks. Both are release gates, and both fail
+if someone later reaches for anonymous auth as a convenience.
+
+Signing out is not a deletion. The library stays, the app keeps working, and the
+sign-out confirmation says so in those words.
+
+### 0.3 Principle 2, and what it costs to honour
+
+Taking "shared playlists are the main goal" seriously means the execution plan
+in §11 was ordered wrong for this product, and the reordering is the largest
+change in this revision.
+
+The 2026-08-30 plan reached sharing at stage 2 because stage 1 -- one user's
+library on two of their own devices -- exercises the whole sync spine with no
+concurrency and nobody else's data at stake. That is good engineering sequencing
+and the argument for it is honest.
+
+It is also two or three shippable increments of work before the goal is
+reachable, and **the shared setlist does not depend on any of it.** That is
+worth stating plainly because it is not obvious: a shared setlist entry is a
+*copy* of a pinned version into `shared/{setlistId}/…` (§4.3), authorised by the
+setlist's own membership map. It never reads the sharer's `libraries/{libraryId}`
+documents. Nothing in sections 6, 8 or 13 requires the library mirror, the
+holding policy, eviction, or the two-libraries screen of §9.3.
+
+So the dependency the old plan implied is not real, and the new order in §11
+ships the goal first. What the reordering genuinely costs:
+
+- **Concurrency arrives before the spine has been shaken down on one user.**
+  The first multi-writer code to ship is the shared setlist itself. Mitigated by
+  the fact that the shared surface is small and its hardest parts are already
+  chosen to be conflict-free by construction: immutable entries, a fractional
+  index per entry (§6.5), and per-participant ink (§6.3).
+- **Own-library backup is later, so a lost or replaced iPad is unprotected for
+  longer.** The offline bundle (section 13) is a partial answer -- a user can
+  export their library to Files or a Mac -- and it is a real one, but it is
+  manual. Say so rather than implying 0.7 protects anyone's library.
+
+Both are acceptable. Neither is invisible, and the second is the one to tell the
+owner about.
+
+### 0.4 Principle 3, and the obligation it creates
+
+Google SSO triggers App Store Review Guideline 4.8, and the 2026-08-30 document
+had already found this while arguing the other way (§10.2): the guideline
+obliges an equivalent privacy-preserving login option **only when a third-party
+or social login is offered**, which is precisely why that document recommended
+Sign in with Apple alone.
+
+Choosing Google SSO therefore means shipping two sign-in methods, not one. Sign
+in with Apple satisfies the obligation and is the cheapest way to satisfy it,
+because it needs no password handling and no email verification of our own.
+
+This is a cost of the principle, not an argument against it, and there is a
+straightforward reason to accept it: the people this product shares with are
+bands and ensembles, and an invitation addressed to a Google account is an
+invitation addressed to the address they already use. Sign in with Apple's Hide
+My Email, which the old document counted as an advantage, is an obstacle to
+invitation by email -- a member who signs in with a private relay address cannot
+be found by the address their bandmates know them by. Section 6.2's invitation
+flow has to handle that case, and it is section 12.10.
+
+**Decision recorded: Google SSO primary, Sign in with Apple offered beside it,
+both landing on the same Firebase Auth user record.** Anonymous auth remains
+rejected, for §9.1's reasons, which principle 1 strengthens rather than weakens.
+
+### 0.5 Principle 4, and the two questions it leaves open
+
+Ali's model is flatter than §6.2's and the flattening is deliberate: a band's
+running order is edited by the band, and a permission system that makes one
+person the bottleneck on adding a tune is a permission system nobody will use.
+
+What the principle settles:
+
+| | Read | Annotate | Add entry | Reorder | Invite | Delete the setlist |
+|---|---|---|---|---|---|---|
+| Member | yes | yes | yes | yes | yes | **no** |
+| Owner | yes | yes | yes | yes | yes | **yes** |
+
+What it does not settle, and what §12.9 asks the owner:
+
+- **May a member remove an entry another member added?** Recommended yes: a
+  setlist that anyone can add to and nobody can prune fills with mistakes, and
+  the act is visible and undoable. Removal is soft, the entry keeps its ink, and
+  the person who removed it is recorded.
+- **May a member remove another member?** Recommended no. Removing people is the
+  act with rights consequences, it is the mirror of deleting the setlist, and it
+  belongs with the owner. A member may always remove *themselves*.
+
+The `role` field stays in the data model with three values even though only two
+are issued, because a reader role -- hand a dep player the set, they mark their
+own part, they cannot reorder anything -- is the first thing a working band will
+ask for, and adding a value to an existing field is cheaper than introducing the
+field later.
+
+**The membership cap of twelve (§8.2) matters more under this model, not less.**
+Owner-only invitation was itself a brake on growth; member invitation removes it,
+so the cap is now the only structural limit between a band and a distribution
+list. It stays, it is enforced in the security rules rather than the client, and
+every invitation records who issued it.
+
+### 0.6 Principle 5, and the layer question answered
+
+The principle asks for two things: what is shared includes annotations, and all
+participants can annotate. §6.3 already describes a design that delivers both,
+and the change is one of sequencing and of picking the recommended shape rather
+than leaving it open.
+
+**Recommendation: per-participant layers, merged at render. Not one shared
+canvas.**
+
+Each participant owns one ink document per entry (`ink/{userId}`), writes only
+their own, and reads everyone's. The page composites every layer the viewer has
+switched on, each in that participant's assigned colour. Everybody annotates,
+everybody sees everybody's marks, and there is no merge function anywhere in it
+because no two people ever write the same document.
+
+Why this rather than the single shared canvas of §6.3's "band layer":
+
+- **It is conflict-free by construction**, not by a CRDT that has to be right.
+  The band layer's grow-only stroke set is a sound design and it is still in the
+  document, but it is a per-stroke Firestore document with a compaction cycle,
+  and it is the one part of this feature that can be subtly wrong in a way a test
+  suite might miss.
+- **It answers "who wrote that?"**, which on a band's chart is most of the
+  question. A merged canvas loses authorship the moment two people draw.
+- **A participant can always clear their own marks** without touching anyone
+  else's, which on a shared canvas is not expressible.
+
+The visibility control is three states, not a per-person checklist: mine only,
+everyone's, or one person's. Default everyone's, because the point is to see the
+band's marks.
+
+**The band layer stays deferred**, and §6.3's analysis of it stays in the
+document unchanged, because if per-participant layers prove to be the wrong
+shape the reason will be a specific one and the alternative is already worked
+out. Note that §6.3 gated the band layer on the editor role, which principle 4
+removes; if it is ever built, every member can write it.
+
+Annotations travel in the offline bundle too (section 13). A principle that says
+what is shared includes annotations does not stop applying because the sharing
+went over AirDrop.
+
+### 0.7 Principle 6, which the old document did not consider
+
+Section 13, new. The short version: an arrangement or a setlist exports as a
+single self-contained file containing its documents, its artifacts and its
+annotations, and the receiving device imports it with no account and no network.
+
+Two things make it more than a convenience feature, and they are why it ships
+first:
+
+**It is the only part of 0.7 that is pure gain under principle 1.** No account,
+no Firebase project, no rules, no bill, nothing to deploy. A user who never signs
+in gets a way to hand a bandmate a chart.
+
+**It defines the wire format the cloud share then reuses.** A shared setlist
+entry and a bundle entry carry the same thing: a pinned version's bytes, its
+document, and its ink. Building the bundle first forces that payload to be
+written down and round-tripped through a test before any of it is also a
+Firestore schema.
+
+The rights question does not go away, and section 13.5 treats it: AirDrop of a
+publisher's scan to one bandmate is a materially different posture from a copy
+on a service operator's servers, but "materially different" is not "no
+question", and the book ban of §8.2 extends to bundles.
+
+### 0.8 What did not change
+
+Worth listing, because a reconciliation that appears to touch everything invites
+re-litigation of the parts that were right:
+
+- **Section 2**, the sync layer in Swift with the engine kept ignorant of
+  Firebase. Principle 1 is the argument for it, and it was already made.
+- **Section 3 and stage 0**, opaque identity. Principle 2 needs it more than the
+  old plan did: a shared setlist entry addresses `(scoreUid, versionUid)`.
+- **Sections 4.3, 5, 7, 8, 10.** The storage layout is dictated by the
+  two-document rule-lookup cap, the network tiers by artifact sizes, the conflict
+  rules by immutability, the rights gate by the library's contents, and the
+  platform facts by Firebase's documentation. None of the six principles bears on
+  any of them.
+- **The rejection of anonymous auth** (§9.1, §12.4). Principle 1 makes it
+  stronger.
+- **The rejection of public share links** (§8.2 guard rail 1). Principle 4 says
+  sharing adds a *person* to the group, which is the same rule arrived at from
+  the other direction.
+
+### 0.9 The infrastructure boundary
+
+Nothing in this document authorises touching a live service. Recorded at the top
+because it is a standing constraint on the whole 0.7 line, and repeated
+concretely at §11.8.
+
+No Firebase project is created, no security rules or Cloud Function are
+deployed, no `omr-service` deployment is changed, and no project ID, bucket
+name, reversed client ID or `GoogleService-Info.plist` is committed or pushed --
+until the owner says so, per increment. The first increment that needs a project
+to exist is 0.7.2; the first that needs anything deployed is 0.7.3. 0.7.0 and
+0.7.1 clear the boundary entirely and can be built and shipped without it being
+lifted.
 
 ---
 
@@ -171,6 +438,52 @@ the CPU-seconds, no way to rate-limit one abuser without cutting off everyone,
 and the key is extractable from any distributed build. Accounts are what make
 this fixable, and fixing it belongs in the same stage that introduces them, not
 in a later "quotas" stage.
+
+### 1.5 What moved between 42b6fa3 and 0.5.4
+
+This document was written against `dev` at 42b6fa3. Re-read against ef27426,
+five things it says are now wrong or incomplete, and one is a new constraint
+rather than a correction. Everything else in section 1 still measures true:
+`DrawingStore` is still slug-keyed at `ScorePagesView.swift:792`, the two baked
+keys are still in `ios/project.yml`, and page indices are still
+device-independent.
+
+**A piece carries its own credits now.** §4.2 lists `pieces/{pieceUid}` as
+`name, order`. A piece also has `composer`, `arranger` and `tags`
+(`set_piece_metadata`, `all_tags`), and for a library of scans that is the only
+place a composer can live -- a PDF arrangement has no notation to carry one.
+Those three fields sync like any other, but the tags list is the first
+collection-wide vocabulary in the model: `all_tags()` is computed over every
+piece, so a device with a partial library computes a different filter list.
+Recompute it from the pulled documents, never cache it.
+
+**A whole library now arrives at once.** `bulk-import` (Import Folder) creates
+a piece per folder and an arrangement per file in one act; the owner's Newzik
+library is 43 pieces and 111 artifacts. §10.1's tightest free-tier limit is
+5,000 Cloud Storage **uploads** a month, and an import of that size is ~110 of
+them in a minute. It fits, and it is the burst the artifact queue has to
+survive being interrupted in, which the plan assumed would only ever happen to
+a book.
+
+**A startup migration writes documents.** `applyBundledMetadataIfNeeded` runs
+on launch, matches the bundled Newzik metadata onto pieces by name and writes
+composer, arranger, tags and renames. It is gated on a `UserDefaults` flag,
+which is **per device, not per library**: with sync on, the second iPad runs it
+again over a library the first already migrated. This one converges, because it
+fills in rather than overwrites and a renamed piece no longer matches. The
+general shape does not: a migration that is not idempotent becomes a fan-out of
+conflicting writes, once per device, on every launch. Any future one belongs
+behind a flag stored in the library, not in `UserDefaults`.
+
+**Nothing in the app decodes `uid`.** Stage 0 put a `uid` on every score,
+piece, setlist, book and source and into the manifest, and no Swift model has
+a field for it -- `ScoreDoc`, `PieceDoc`, `SetlistDoc` and `BookDoc` are still
+keyed on the slug alone. That is fine while everything is local and is the
+first thing stage 1 needs, since a share and a push both address the uid.
+
+**The status line has a home.** §5.3 asks for one line saying what is waiting
+and when it last synced. `NoticeBar` (`Navigation/Screen.swift`) is that
+control; it did not exist when this was written.
 
 ---
 
@@ -316,11 +629,12 @@ libraries/{libraryId}
     books/{bookUid}         name, pages, storagePath, syncEnabled
 
 setlists/{sharedSetlistId}                                  (the shared kind)
-    name, ownerId, createdAt, members: { userId: "owner"|"editor"|"reader" },
+    name, ownerId, createdAt, members: { userId: "owner"|"member"|"reader" },
     memberIds: [userId], rightsAcknowledged: [...]
     entries/{entryId}       order (fractional index), title, composer,
                             scoreUid, versionUid, mode: "copy"|"reference",
-                            storagePath, pages, addedBy, addedAt
+                            storagePath, pages, addedBy, addedAt,
+                            removedAt, removedBy
         ink/{userId}            layer: "personal"|"band", updatedAt, compactedRev,
                                 pages: { "3": <PKDrawing bytes>, ... }
             strokes/{strokeId}  page, data (one-stroke PKDrawing), createdAt,
@@ -328,9 +642,13 @@ setlists/{sharedSetlistId}                                  (the shared kind)
 
 memberships/{userId}_{sharedSetlistId}
     setlistId, userId, role, setlistName, joinedAt
+
+invites/{inviteId}                                          (added 2026-09-04)
+    setlistId, setlistName, emailLower, invitedBy, invitedAt,
+    acceptedAt, acceptedBy, revokedAt
 ```
 
-Three shapes in there are decisions rather than transcription.
+Four shapes in there are decisions rather than transcription.
 
 **Shared setlists are top-level, not nested under a library.** A shared setlist
 belongs to nobody's library; it is a thing several libraries point into. Nesting
@@ -347,6 +665,36 @@ changes membership, never by a client. `memberIds` stays on the setlist as well,
 because rules can read it cheaply and the client needs it to render who is here.
 
 **`entries` hold `(scoreUid, versionUid)`, not `scoreUid`.** Section 6.1.
+
+**`invites/` addresses a person who may not have an account yet** (added
+2026-09-04, principle 4). Under owner-only invitation the owner could be asked to
+wait until their bandmate had signed up. Under member invitation, at a rehearsal,
+that is not a workable flow. An invite is therefore written against a lowercased
+email address rather than a user ID, and it is claimed on the invitee's next
+sign-in.
+
+Two ways to claim it, and the choice is §12.11:
+
+- **A callable Cloud Function** does the membership write, checks the cap, writes
+  `memberships/` and stamps `acceptedBy`. Clean, server-authoritative, consistent
+  with §4.4's rule that membership is decided by the server, and it means
+  deploying a function.
+- **Security rules on the verified email**, allowing a signed-in user whose
+  `request.auth.token.email` matches an open invite to add only themselves to
+  `memberIds` and `members`. No function to deploy. It needs the rule to be
+  exactly right, it cannot enforce the cap as cleanly, and it rests on
+  `email_verified` being true, which Google SSO gives and which has not been
+  checked in the emulator.
+
+*Recommendation: the Cloud Function.* Membership is the one place §4.4 already
+names the server as authoritative, and a rule that lets a client write itself
+into someone else's membership map is the highest-consequence rule in the system
+to get subtly wrong. It is also the first thing in this plan that deploys
+anything, which is why it is a question and not a decision.
+
+An invite carries the setlist's name so the invitee sees what they are joining
+before they join it, and nothing else about the setlist: an unaccepted invite
+must not be a read grant.
 
 ### 4.3 Cloud Storage layout
 
@@ -529,21 +877,61 @@ working and reordering losing people's work.
 
 ### 6.2 Roles
 
-Three, deliberately few:
+*Replaced 2026-09-04 by principle 4 (§0.5). The three-role table this section
+used to carry, with invitation reserved to the owner, is superseded. The old
+reasoning -- that invitation is the act with rights consequences and should have
+one accountable person -- is not wrong, and §0.5 says what now carries that
+weight instead: the membership cap, enforced in the rules, and a record of who
+issued every invitation.*
 
-| Role | Read | Personal ink | Band ink | Reorder, add, remove, repin | Invite |
-|---|---|---|---|---|---|
-| Reader | yes | yes | no | no | no |
-| Editor | yes | yes | yes | yes | no |
-| Owner | yes | yes | yes | yes | yes |
+Two roles issued, three defined:
 
-A reader who can annotate is the common case and the important one: hand a
-setlist to a dep player and they mark their own part without any risk to
-anyone's running order. Inviting stays with the owner in v1 because invitation
-is the act with rights consequences (section 8) and it should have one
-accountable person.
+| Role | Read | Annotate | Add | Reorder | Remove an entry | Invite | Delete the setlist |
+|---|---|---|---|---|---|---|---|
+| Member | yes | yes | yes | yes | yes | yes | **no** |
+| Owner | yes | yes | yes | yes | yes | yes | **yes** |
+| Reader *(defined, not issued)* | yes | yes | no | no | no | no | no |
+
+**Every member is an editor.** A band's running order is edited by the band, and
+a permission model in which one person is the bottleneck on adding a tune is one
+nobody will use. Adding, reordering, removing and repinning are all member acts.
+
+**Only the owner deletes the setlist.** This is the one asymmetry, and it is the
+right one: deleting is the only act that destroys other people's work --
+everyone's ink, on every entry, at once. It is enforced in the security rules on
+`ownerId`, not in the client, and there is no transfer of it except the account
+deletion path in §12.6.
+
+**Only the owner removes another member.** Removing a person is the mirror of
+deleting the setlist and belongs with the same accountable person. Any member
+may remove themselves at any time. Recommended, not dictated by the principle;
+§12.9 puts it to the owner.
+
+**Removing an entry is soft.** A member may remove an entry another member
+added, because a list anyone can add to and nobody can prune fills with
+mistakes. The entry gets `removedAt` and `removedBy`, keeps its ink, and can be
+restored. Nothing about a removal destroys bytes.
+
+**Reader is defined and not issued in 0.7.** A dep player who marks their own
+part and cannot touch the running order is the first thing a working band will
+ask for. The value exists in the `role` field from the start because adding a
+value to a field is cheap and introducing the field later is not.
+
+**Every invitation is recorded** -- who issued it, to what address, when -- and
+the cap of twelve (§8.2) is enforced in the rules. Under owner-only invitation
+the owner was the brake on growth; with member invitation the cap is the only
+structural limit left between a band and a distribution list.
 
 ### 6.3 Annotation by several people, concretely
+
+*Amended 2026-09-04 by principle 5 (§0.6). The analysis below is unchanged and
+still correct. What changed is the verdict it was left open on: **per-participant
+layers are the answer, and they ship as part of the headline feature rather than
+as a stage after a read-only one.** The band layer stays deferred, and this
+section's account of why it is solvable stays here so that a later decision to
+build it starts from worked-out ground. One correction to it: it is written as
+an editor-role capability, and principle 4 abolishes that distinction, so if the
+band layer is ever built every member writes it.*
 
 Two layers per entry per page.
 
@@ -794,12 +1182,30 @@ stage 0. Signing in therefore does not *migrate* anything: it writes
 you like to upload your existing data" dialog, because there is nothing to
 convert. The library already had an identity; signing in gave it an owner.
 
-Sign-in method in stage 1 is **Sign in with Apple, and only that.** It needs no
-password handling, Hide My Email means the app never holds a real address, and
-shipping it alone keeps the app outside App Store guideline 4.8 entirely: that
-guideline obliges an equivalent private option only when a third-party or social
-login is offered, so adding Google Sign-In later is what would create the
-obligation. Add others when there is a reason to.
+*Amended 2026-09-04 by principle 3 (§0.4). The recommendation this paragraph
+made -- Sign in with Apple alone -- is overturned. The research behind it is not,
+and it is what makes the cost of the new decision knowable in advance.*
+
+Sign-in is **Google SSO, with Sign in with Apple offered beside it.** Google is
+the primary method because the people this product shares with are bands, and an
+invitation addressed to a Google account is addressed to the address they
+already use.
+
+Sign in with Apple ships too, and it is not optional: App Store Review Guideline
+4.8 obliges an equivalent privacy-preserving option once a third-party or social
+login is offered, and Sign in with Apple is the cheapest way to satisfy it --
+no password handling, no email verification of our own. Shipping Google alone
+is not a choice that is available.
+
+Both methods land on one Firebase Auth user record. A user who signs in with
+Google and later with Apple, from the same device, must not end up with two
+libraries; Firebase's account linking covers this and the flow needs to be
+exercised rather than assumed.
+
+The one thing Sign in with Apple costs this design: Hide My Email, which the
+superseded recommendation counted as an advantage, hands us a private relay
+address, and a member who signs in that way cannot be found by the address their
+bandmates know them by. Invitation has to handle it. §12.10.
 
 Signing out keeps everything local and stops the sync layer. It does not delete
 the library, and it says so.
@@ -1008,32 +1414,271 @@ that silently expires is worse than no identity.
 
 ## 11. Execution plan
 
-Five stages. Each is independently shippable, each leaves the app in a state
-worth having, and each has something that proves it in the style the repo
-already uses: a `check_*` script that fails without the fix.
+*Rewritten 2026-09-04 by principle 2 (§0.3). The five-stage plan this section
+carried reached the goal at stage 2 of 5, after a full multi-device library sync
+that the shared setlist does not depend on. The stages themselves were
+well-chosen and most of their content survives; what changed is the order, and
+the finding behind the reorder is in §0.3. Stage 0's record of what was built is
+kept verbatim at §11.0 because it is history, not plan.*
 
-### Stage 0: stable identity
+Seven increments, each a TestFlight build, each leaving the app in a state worth
+having, each with something that fails without it. The current release is 0.6.9,
+build 168.
 
-**Nothing user-visible ships.** Every document gets a ULID `uid`; version IDs
-become opaque with `vNNN` as a derived label; the annotation key moves to
-`(scoreUid, versionUid, page)`; `db.py` gains a `Repository` protocol and
-`workspace._repo()` gains a factory; a `changes` journal table and `rev` /
-`synced_rev` fields land unused. The `FirestoreRepository` promise in `db.py`'s
-module docstring and in `CLAUDE.md` is replaced with a pointer to this document,
-because a stale plan in the file every contributor reads first is worse than no
-plan (section 1.1).
+**The shape of the sequence:** everything that can be done without a Firebase
+project is done first, on purpose. 0.7.0 and 0.7.1 touch no cloud at all and
+deliver a real sharing feature. Only at 0.7.2 does anything need a project to
+exist, and only at 0.7.3 does anything need a deployed function or a bill.
 
-*Proves it:* `check_identity.py` (a rename does not change any `uid`; two
-versions created from the same parent get distinct IDs; every existing workspace
-migrates with no loss), plus the existing suite green, especially
-`check_workflows.py`, `check_undo.py` and `check_bridge_ops.py`.
+| | What ships | Needs a Firebase project | Needs a deploy |
+|---|---|---|---|
+| 0.7.0 | stable identity on current `dev` | no | no |
+| 0.7.1 | share by AirDrop | no | no |
+| 0.7.2 | sign in, and nothing else changes | **yes** | no |
+| 0.7.3 | a shared setlist you can open | yes | **rules, maybe a function** |
+| 0.7.4 | everyone adds and reorders | yes | rules |
+| 0.7.5 | everyone's markup | yes | rules |
+| 0.7.6 | your own library on your other iPad | yes | rules |
 
-*Deliberately not in this stage:* any network code, any Firebase dependency in
-the Xcode project.
+### 11.0 Stage 0: stable identity -- BUILT, and not yet on `dev`
 
-Do this one first even if the rest slips. It is a strict improvement on its own
-(it deletes `DrawingStore.rename` and its orphaning bug), and every later stage
-is unbuildable without it.
+Built on `feat/firebase`, whose base is 191 commits behind `dev` as of
+2026-09-04. Re-landing it is 0.7.0. The record of what it built and what it
+deliberately built differently is unchanged below, at the old §11 stage 0.
+
+### 11.1 -- 0.7.0 Stable identity, on current `dev`
+
+**Nothing user-visible.** Re-land the `feat/firebase` groundwork onto current
+`dev`, and finish the one deferral that now has a consumer.
+
+- Merge `feat/firebase` into a branch off `dev`. Measured with
+  `git merge-tree`: **five conflicting files** -- `.gitignore`, `CLAUDE.md`,
+  `AppState.swift`, `ManagementScreens.swift`, `ScoreScreens.swift`. The two
+  largest overlaps, `workspace.py` and `ScorePagesView.swift`, auto-merge, as do
+  `cli.py` and `bridge.py`. This is a day, not a week, and the check suite is
+  what confirms it.
+- **Re-key annotations to `(scoreUid, versionUid)`.** Stage 0 deferred this,
+  correctly, because it bought nothing until sync existed. §13.3 gives it a
+  consumer that is not sync: a bundle cannot carry ink keyed by a slug, because
+  the receiving device's slug is its own. `DrawingStore.migrateVersionKeys` is
+  the precedent.
+- **Write `libraryId` into the database on first launch** (§9.2). A ULID, before
+  any account exists, so that signing in later is adoption rather than migration.
+- Rename `check_sync.py`'s signed-out assertions into `check_signed_out.py` and
+  make it a release gate (§0.2).
+
+*Proves it:* `check_identity.py`, `check_signed_out.py`, and the full existing
+suite green, including `check_workflows.py` and `check_undo.py` which are what
+catch a bad re-key.
+
+*Risk:* the merge is the whole increment and it is boring. The failure mode is a
+half-landed identity change, which is why nothing else ships in this build.
+
+### 11.2 -- 0.7.1 Share by AirDrop
+
+Section 13, entire. `bundle-export`, `bundle-inspect`, `bundle-import` in the
+engine; the UTI and `onOpenURL` in the app; the import screen; export rows on an
+arrangement and on a setlist, going out through the existing `SystemShareSheet`.
+
+**What the user can do that they could not:** hand a bandmate an arrangement or
+a whole setlist, with their markup, over AirDrop. **What is absent:** any
+account, any network, any Firebase.
+
+*Proves it:* `check_bundle.py` (§13.4) -- round-trip into a fresh workspace,
+artifacts byte-identical, ink on the right page of the right version, no export
+path for a book or a source, double import produces two arrangements. Plus one
+manual device-to-device AirDrop, because a UTI registration is not testable in
+the engine.
+
+*The reason to ship this first:* it is the only increment that is pure gain
+under principle 1, it is the whole of principle 6, and it writes down the
+payload that 0.7.3 then also carries (§0.7).
+
+### 11.3 -- 0.7.2 Sign in, and nothing else changes
+
+Firebase Auth with **Google SSO and Sign in with Apple** (§9.2, §0.4). An
+account screen. Account linking when the same person uses both. App Check on
+Auth. `FirebaseApp.configure()` at first sign-in, never at launch.
+
+**Nothing syncs.** No library mirror, no sharing, no listeners, no Storage. The
+build's entire user-visible content is that you can sign in, see who you are
+signed in as, and sign out, and that signing out changes nothing about your
+library.
+
+**This is the build where the local-first invariant is proved**, because it is
+the first build where it could break. §0.2's UI test walks every screen signed
+out; `check_signed_out.py` asserts the engine half.
+
+*Proves it:* the two checks above, plus an instrumented assertion that no
+Firebase network call occurs on a signed-out launch. That last one is the
+guarantee, and asserting it in code is the difference between a principle and an
+intention.
+
+*Needs from the owner:* a Firebase project. Nothing is deployed to it in this
+build -- Auth is configuration, not a deploy -- but the project has to exist and
+it is Ali's Google account that owns it. **Explicit go-ahead required (§0.9).**
+
+*The reason to ship this alone:* an auth integration that ships with a feature
+attached is an auth integration whose bugs are attributed to the feature.
+
+### 11.4 -- 0.7.3 A shared setlist you can open
+
+Top-level shared setlists (§4.2), invitation by email address (§4.2 `invites/`),
+membership and the cap of twelve, the `shared/` Storage prefix and its
+one-lookup authorisation (§4.3, §10.1), and **the rights gate in full** (§8):
+reference versus copy, the acknowledgement record, the book and source bans.
+
+**The owner of a setlist adds entries and invites people. Members read.** Adding
+and reordering by members is 0.7.4; annotation is 0.7.5. Splitting it this way
+is the old plan's stage 2 reasoning and it survives the reorder intact: this
+build exercises membership, rules, cross-user artifact authorisation and the
+rights gate -- the parts most likely to be wrong -- with no concurrency in it.
+
+*Proves it:* rules tests for every role and every collection including the
+negatives (a non-member reads neither the setlist, nor its entries, nor anything
+under its `shared/` prefix); a test that a book and a source have no share path;
+a test that a reference entry ships no bytes; a test that an unaccepted invite
+grants no read.
+
+*Also lands here, and it is not optional:* the OMR service moves off the baked
+header key to a verified Firebase ID token with a per-user monthly page cap
+enforced in `omr-service/server.py` (§1.4, §10.1). App Check has no native Cloud
+Run enforcement, so the service verifies both tokens with the Admin SDK itself.
+This is the first build with more than one account in it, and a shared key with
+no attribution stops being a prototype posture at that moment.
+
+*Gated on, and this is a stop condition not a caveat:* §12.8. A terms of service
+must exist and the rights gate must have been read by someone who is not an
+engineer before this build reaches anyone outside the household. The code can be
+written; it cannot ship to a band without that.
+
+### 11.5 -- 0.7.4 Everyone adds and reorders
+
+Principle 2 and principle 4, complete. Members add entries, reorder by
+fractional index (§6.5), remove softly (§6.2), repin (§6.4), and invite (§4.2).
+The owner alone deletes the setlist and removes other members. The fork notice
+from §7 rule 2.
+
+**What the user can do:** the running order is the band's, editable by the band,
+live.
+
+*Proves it:* two editors move different entries concurrently and both moves
+survive; two editors move the same entry and the later wins with no third state;
+a member cannot delete the setlist and a rules test says so; the cap is enforced
+in the rules and a thirteenth invitation fails server-side; an offline reorder
+is refused with a reason shown rather than silently lost (§5.3).
+
+### 11.6 -- 0.7.5 Everyone's markup
+
+Principle 5, complete. Per-participant ink layers, synced (§6.3, §0.6). The
+visibility control: mine, everyone's, or one person's, defaulting to everyone's.
+Per-participant colour. The repin flow of §6.4.
+
+**What the user can do:** the whole product ask. Everyone's cues, on the same
+running order, in sync, on everyone's device.
+
+*Proves it:* a rules test that a member writes only their own `ink/{userId}` and
+no other member's; a member's ink survives a repin and is still reachable; and
+**a measured check that a real dense page of markup fits well inside Firestore's
+1 MiB document limit**, which is currently an assumption and needs to stop being
+one before this ships.
+
+### 11.7 -- 0.7.6 Your own library on your other iPad
+
+The old stage 1, minus what has already landed. `SyncCoordinator`; the library
+mirror driven by the change journal; artifact sync with the holding policy and
+gzip; the pull query rather than a listener (§5.1); eviction (§5.4); the
+two-libraries screen (§9.3); App Check on Firestore and Storage.
+
+Much of the offline half of this is already written and tested on
+`feat/firebase`: `JournalingRepository`, `VersionGraph.swift`, `SyncMerge.swift`,
+`ArtifactHolding.swift`. What is left is the coordinator, the Firebase wiring
+and the two-libraries screen.
+
+**Why last rather than first:** §0.3. **What it costs to have it last:** a lost
+or replaced iPad is unprotected until this ships, and the bundle export of 0.7.1
+is a manual answer rather than a backup. That is the honest price of the
+reorder and the owner should hear it in those words.
+
+### Deferred past 0.7
+
+The band layer (§6.3, §0.6), presence, page-follow, public links (recommended
+never), a web client, and the hosted agent loop from `ARCHITECTURE.md`.
+
+### 11.8 What must not be done before the owner says so
+
+Recorded here because the sequence above is a plan and not a licence:
+
+- No Firebase project is created. 0.7.2 needs one and it is Ali's account.
+- No security rules, Cloud Function or configuration is deployed to any project.
+- No change to `omr-service` deployment.
+- Nothing is pushed to a remote that carries a project ID, a bucket name, a
+  reversed client ID, or a `GoogleService-Info.plist`. When 0.7.2 is
+  green-lit, that file is gitignored and the build reads it the way the OMR key
+  is read today, not committed.
+
+0.7.0 and 0.7.1 clear this bar entirely: neither touches a cloud service.
+
+---
+
+### The superseded five-stage plan, kept for its stage 0 record
+
+*Everything from here to section 12 is the 2026-08-30 plan. Stage 0's account of
+what was built and why it differs from its own design is history and is the
+reason it is kept. Stages 1 to 4 are superseded by §11.1 to §11.7 above; their
+content largely survives the reorder and is worth reading for the detail the
+rewrite compresses.*
+
+### Stage 0: stable identity — BUILT
+
+**Nothing user-visible ships.** Every score, piece, setlist, book and source
+gets a ULID `uid` (`engine/scoranger_engine/ids.py`); version keys became opaque
+with `vNNN` demoted to a `label` on the document; `db.py` gained a `Repository`
+protocol and `workspace._repo()` a `repository_factory`. The
+`FirestoreRepository` promise in `db.py`'s module docstring and in `CLAUDE.md`
+is replaced with a pointer to this document, because a stale plan in the file
+every contributor reads first is worse than no plan (section 1.1).
+
+*Proves it:* `check_identity.py`, plus the existing suite green.
+
+**What was built differently from this section's original plan, and why:**
+
+- **The slug stays the local primary key.** `uid` is additive. `rename_slug`
+  keeps doing exactly what it does locally and is simply invisible to sync,
+  which is what section 3's table always said.
+- **The annotation key stays `<slug>/<versionId>`**, not
+  `<scoreUid>/<versionUid>`. `DrawingStore.rename` already handles slug moves,
+  so switching to the uid buys nothing until sync exists and risks a reader's
+  markup now. Stage-1 work. `DrawingStore.migrateVersionKeys` re-files markup
+  from the old `vNNN` onto the opaque id, driven by the manifest.
+- **The `changes` journal and `rev`/`synced_rev` were NOT built.** They have no
+  consumer until the sync layer exists, and unused schema goes stale before it
+  is used. The injection point is the part that mattered; adding them later is
+  a one-file change.
+- **Existing artifacts never move.** A version document already carried its
+  filename in `file` independently of its id, so the whole migration is
+  database-only. A migration that renames nothing cannot half-rename anything.
+
+**Known latent issue, accepted:** accessibility identifiers key on the *label*
+(`menu-version-v001`, `version-<slug>-v001`) rather than the opaque id, which is
+what keeps the UI tests readable and passing. Two forked versions share a label,
+so they would share an identifier. Harmless until stage 4 makes forks reachable;
+fix it there by keying identifiers on the id and updating the UI tests together.
+
+**Ordering, settled by test:** stage 0 can ship *after* a large import. A
+library built by the pre-stage-0 engine (43 arrangements, 104 versions, 111
+artifacts, including PDF arrangements, a book with extractions, sources, a
+setlist and a soft-deleted score) migrates in ~120 ms with every artifact
+byte-identical; subsequent launches cost nothing. There is no release-sequence
+constraint in that direction.
+
+The direction that *does* bite is a **downgrade**: an engine rolled back to
+before stage 0 appends a version keyed `vNNN` into an already-migrated
+arrangement. The migration's fast skip is therefore conditioned on the score's
+`uid` *and* on `latest` looking like an id, since any version an old engine
+writes becomes `latest`. Without that second condition the stray version is
+skipped for ever, and a second one would collide with it and overwrite. Covered
+by `check_identity.py`.
 
 ### Stage 1: sign in, and your library is on your other iPad
 
@@ -1063,6 +1708,44 @@ evicted.
 *The reason to ship this alone:* it is the whole sync spine under load, with
 exactly one user's data at stake and no concurrency. Every bug found here is a
 bug not found in front of a band.
+
+**Built so far, all of it offline and none of it touching Firebase.** The parts
+of stage 1 that can be decided without a project were done first, on purpose:
+they are the parts a live backend makes slow and expensive to get wrong, and
+they are testable in three seconds without one.
+
+- `engine/scoranger_engine/sync.py` -- `JournalingRepository`, the decorator the
+  stage-0 `repository_factory` hook was left for. It puts a `rev` on every
+  document it writes, bumped only when the document actually changed, and
+  appends a per-document journal of what this device owes. **It is off by
+  default and constructed only when sync is on**, so a signed-out device has no
+  journal file, no `rev` and no cost -- checked first, because that promise is
+  the one a later refactor breaks quietly. Adoption is automatic: a journal that
+  has never met this library owes all of it, which is both "signing in does not
+  migrate anything" (§9.2) and "losing `sync.db` is a re-push, not a data loss".
+  The journal earns its place on deletes: `sweep()` reclaims a deleted score's
+  row and `_drop_empty_pieces` removes a piece with no tombstone phase at all,
+  and after either there is nothing left in the library that remembers. Proved
+  by `engine/scripts/check_sync.py`.
+- `VersionGraph.swift` -- rule 2 made real: forks found, `latest` resolved by
+  timestamp with the tie broken by id so two devices rank a history the same
+  way, siblings for the branch one tap away, and a child that arrived before its
+  parent deliberately NOT announced as a fork. `VersionDoc` gained `parent`,
+  which the manifest always carried and nothing decoded.
+- `SyncMerge.swift` -- rules 3 and 4: the changed-field payload for an
+  `updateData`, per-field merge in which a field this device still owes keeps
+  its local value, and a tombstone that wins from either side and keeps nothing
+  but the identity.
+- `ArtifactHolding.swift` -- §5.1's holding policy, §5.2's three tiers behind
+  one setting, and §5.4's eviction, including the check that section asks for by
+  name: an artifact that has not been pushed is the only copy that exists and is
+  never evicted, whatever the budget says.
+
+Each of those was confirmed by reverting the fix and watching the test fail.
+What is left in stage 1 is exactly the part that needs a Firebase project:
+`SyncCoordinator` itself, Auth, App Check, the OMR server change, gzip on
+upload, the two-libraries screen, and the `libraryId` that §9.2 wants written
+into the database on first launch.
 
 ### Stage 2: a shared setlist you can read
 
@@ -1186,3 +1869,209 @@ Not a technical question, and the one that decides how much of section 8 is
 theory. Stage 1 is defensible with a household of one. Stage 2 is not shippable
 to anyone until the ToS exists and the rights gate has been reviewed by someone
 who is not an engineer.
+
+**12.9 Under the flat permission model, may a member remove an entry someone
+else added, and may a member remove another member?**
+*Recommendation: yes to entries, no to members.* Principle 4 settles add,
+reorder, invite and delete; it does not settle these two. A list anyone can add
+to and nobody can prune fills with mistakes, so entry removal is a member act,
+soft, attributed and restorable (§6.2). Removing a *person* is the mirror of
+deleting the setlist -- it is the act that ends someone's access to their own
+markup -- and it belongs with the owner. A member may always remove themselves.
+
+**12.10 How is a member invited who signed in with Apple's Hide My Email?**
+*Recommendation: an in-app invite code as the fallback, not a fix to the email
+path.* Google SSO gives an address a bandmate already knows. Sign in with Apple
+ships because guideline 4.8 obliges it (§0.4), and a private relay address is
+unguessable by design, which is the point of it. A short-lived code the invitee
+reads out or pastes covers the case without weakening the rule that a share adds
+a named account. This needs designing before 0.7.3, not after.
+
+**12.11 Does claiming an invitation go through a Cloud Function, or through
+security rules on the verified email?**
+*Recommendation: the Cloud Function.* §4.2. Membership is the one place §4.4
+already names the server as authoritative, and a rule permitting a client to
+write itself into a membership map is the highest-consequence rule in the system
+to get subtly wrong. The cost is that it is the first deploy in the plan, which
+makes it a question rather than a decision.
+
+**12.12 Does the reference-versus-copy gate apply to an offline bundle?**
+*Recommendation: no, and this is the one place section 13 is more permissive
+than section 8.* A reference entry with no bytes, handed over AirDrop, is a file
+containing a list of titles. The gate exists to stop *scaled, persistent* copies
+accumulating on an operator's servers; a single chart passed to one person is
+the act it was protecting against the multiplication of. The book and source
+bans still hold absolutely. If the owner disagrees, the alternative is that
+bundles carry only arrangements with the sharer's own work in them, which is
+computable from the same version-`op` chain §8.1 already uses.
+
+**12.13 Is the copy-versus-reference gate going to gut the feature for this
+library?**
+*No recommendation; this needs the owner's judgement and possibly a lawyer's.*
+The gate is computable and principled: a chain of only `import`, `import-pdf`
+and `book-extract` ops is material that arrived from outside, and it shares as a
+reference with no bytes (§8.1). The problem is empirical. This library is
+publisher PDFs, IMSLP scans and a commercial fake book, so **most entries in a
+real setlist would share as references**, and a shared setlist in which most
+entries show a title and a line saying "bring your own copy" is not obviously
+the feature principle 2 asks for.
+
+Three ways out, and they are genuinely different postures:
+
+- **Keep the gate strict.** The feature is honest and, for this library, thin.
+  The reference mechanism does have real value -- the band shares the *set*, each
+  player brings their own copy -- and for a band who all own the same fake book
+  it is arguably the correct model rather than a degraded one.
+- **Copy with a recorded acknowledgement, per entry** (§8.2 guard rail 5, which
+  already exists for exactly this). Friction where the risk is, a record naming
+  who decided and who it reached, and the feature works. *This is the one I would
+  build*, because the guard rail is already designed and the record is what makes
+  a takedown answerable.
+- **Exempt a private group below some size.** Attractive and I would not do it:
+  it is a legal judgement dressed as a product setting, and the cap of twelve is
+  already the structural limit doing that work.
+
+This is the highest-consequence open question in the document and it decides how
+0.7.3 feels, not just how it is governed.
+
+
+---
+
+## 13. Sharing without the cloud
+
+New 2026-09-04, principle 6 (§0.7). Nothing in this section needs an account, a
+network, a Firebase project or a bill, and it ships before any of them exist.
+
+### 13.1 What a bundle is
+
+**One file. An arrangement, or a whole setlist, with its artifacts and its
+annotations, self-contained.** It goes out through the system share sheet --
+AirDrop, Files, Mail, a USB stick, whatever the receiver can accept -- and the
+receiving device opens it by tapping it.
+
+```
+Morrisons Jig.scorbundle          (a zip, with a declared UTI)
+  bundle.json                     manifest: format version, kind, exported-at,
+                                  exporting app version, the documents
+  scores/<scoreUid>/<versionUid>.musicxml.gz
+  scores/<scoreUid>/<versionUid>.pdf
+  ink/<scoreUid>/<versionUid>/p<N>.pkdrawing
+```
+
+`bundle.json` carries the score, piece and setlist documents exactly as §4.2
+shapes them, minus anything cloud-only (`rev`, `synced_rev`, storage paths).
+That is the point of building this first: the payload a bundle carries and the
+payload a shared setlist entry carries are the same payload, and writing it down
+here forces it to be round-tripped through a test before it is also a Firestore
+schema (§0.7).
+
+A zip, not a directory and not a custom container. `.mxl` is already a zip, the
+engine already has `zipfile`, and a single file is what AirDrop hands over
+cleanly.
+
+### 13.2 What goes in, and what does not
+
+**The pinned version, not the whole chain, by default.** A bandmate needs the
+chart, not the arranging history. Measured on `sous-le-ciel-de-paris` (§1.2),
+that is about 23 KB gzipped against 605 KB for all 29 versions. "Include the
+full history" is a switch on the export, off by default, for the case of handing
+work to another arranger rather than a chart to a player.
+
+**Annotations, yours only.** Exporting a setlist you are in exports your own ink,
+not the whole band's. Principle 5 says what is shared includes annotations; it
+does not say a bundle is a way to redistribute other people's markup, and the
+person who drew it is not in the room to be asked. A future "include everyone's
+marks (they will be told)" option is a decision, not a default.
+
+**Never a book, and never a source.** §8.2's guard rails 3 and 4 apply
+unchanged. `create_book` remains the only way a book enters a library and there
+is no affordance anywhere to send one out.
+
+**Never the whole library in one file**, even though it is technically a setlist
+export over everything. A 43-piece library is hundreds of megabytes and it is
+the shape that turns a convenience into redistribution. Export is per
+arrangement or per setlist.
+
+### 13.3 What import does
+
+**An imported bundle becomes new local documents with new local identity.**
+
+The bundle carries the original `uid`s, and the receiving device does not adopt
+them. It mints fresh ones and records `originUid`, `originVersionUid` and
+`importedFrom` as provenance. The reason is that a uid is a claim on a document
+in a namespace, and two people who both hold `01J…7Q` for a score neither of
+them can see is exactly the collision stage 0 exists to prevent. Provenance is
+enough for the two things it needs to answer: whether this arrangement came from
+outside, and whether a later bundle from the same source is an update of it.
+
+**Duplicates are flagged, not merged.** Importing a bundle of something already
+in the library -- same `originUid`, or just a matching title -- offers a choice:
+add it as a separate arrangement, or open the one already there. It never merges,
+and it never overwrites. Merging two divergent version chains is the fork
+problem of §7 rule 2 and it is not worth solving for a file that arrived over
+AirDrop.
+
+**Ink re-attaches by uid, which is the piece stage 0 deferred.** The annotation
+key is still `<slug>/<versionId>/p<N>` (§11 stage 0, "what was built
+differently"), and a slug is local -- the receiving device's slug for the same
+piece is whatever `slugify` makes of the title it already has. So the bundle
+keys ink by `(scoreUid, versionUid)` and the store must too. That deferral was
+correctly reasoned at the time, on the grounds that it bought nothing until sync
+existed; it now has a consumer, and finishing it is part of 0.7.0 rather than of
+a cloud stage. `DrawingStore.migrateVersionKeys` is the precedent for how.
+
+**Import is offered, never automatic.** Tapping a `.scorbundle` opens a screen
+saying what is in it -- titles, page counts, whose marks, how big -- and asks.
+A file that lands in Files and imports itself is not something anyone asked for.
+
+### 13.4 The engine does the work, so it can be tested
+
+Export and import are engine ops, not Swift:
+
+```
+scor bundle-export <score|setlist> --out <path.scorbundle> [--full-history]
+                   [--ink <dir>]
+scor bundle-inspect <path.scorbundle>          # read-only: what is in it
+scor bundle-import <path.scorbundle> [--into-piece NAME]
+```
+
+The app calls them through the same bridge every other op goes through, and the
+share sheet is `SystemShareSheet` (`ios/Scoranger/Score/SystemShareSheet.swift`),
+which already exists and is already the sanctioned exception to the no-modal
+rule for exactly this purpose.
+
+Putting it in the engine is what makes it provable in the style the repo uses.
+`check_bundle.py`: build a library, export an arrangement and a setlist, import
+both into a *fresh* workspace, and assert the artifacts are byte-identical, the
+version chain is intact, the ink re-attaches to the right page of the right
+version, a book has no export path, and importing twice produces two
+arrangements rather than one corrupted one. None of that needs a device.
+
+The iOS half is a UTI declaration (`CFBundleDocumentTypes` and an exported type
+identifier in `ios/project.yml`), an `onOpenURL` handler, and the import screen.
+
+### 13.5 The rights posture of a bundle
+
+Handing one bandmate a chart over AirDrop is a materially different act from
+putting a publisher's scan on a service operator's servers where it is stored,
+indexed and backed up. Materially different is not "no question", and this
+section does not claim the difference makes anything lawful.
+
+What the design does about it:
+
+- **The book ban and the source ban hold** (§8.2 guard rails 3 and 4). The
+  highest-risk object in the library has no export path at all.
+- **The copy-versus-reference distinction of §8.1 does not apply here, and that
+  is a decision.** A bundle is always a copy: a reference entry with no bytes,
+  handed over AirDrop, is a file containing a list of titles, which is not a
+  thing anyone would send. Person-to-person transfer of a single chart is the
+  case the reference mechanism was protecting against the *scaled* version of.
+  §12.12 puts this to the owner, because it is the one place this section is
+  more permissive than section 8.
+- **No acknowledgement dialogue.** A per-export rights prompt on an act this
+  small trains people to dismiss prompts, which is §7 rule 7's argument applied
+  to a different surface. The gate that matters is the one on cloud sharing,
+  where the copies persist and the operator is a party.
+- **Nothing is recorded**, because there is no server to record it on. A bundle
+  leaves no trail, which is a property of the mechanism and worth the owner
+  knowing rather than discovering.

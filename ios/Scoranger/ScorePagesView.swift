@@ -11,7 +11,19 @@ import SwiftUI
 /// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
     let document: PDFDocument
-    let annotationKey: String  // "<slug>/<version>"
+    let annotationKey: String  // "<score uid>/<version id>", see DrawingStore
+    /// The same page, named the way a person names it: "<slug>/<version id>".
+    ///
+    /// It exists because `annotationKey` stopped being readable. Markup is
+    /// filed under the score's uid so it survives a rename and means the same
+    /// thing on the device a bundle is opened on (DrawingStore), and the
+    /// canvas's accessibility identifier was built out of that same key --
+    /// so it turned into `canvas-01M1QV99.../01M1.../p0`, which no test can
+    /// predict and no human can read.
+    ///
+    /// Identity for the store, a readable name for the identifier: the same
+    /// split the version rows make between an opaque id and `v012`.
+    let canvasIdentity: String
 
     @EnvironmentObject var state: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -760,6 +772,7 @@ struct ScorePagesView: View {
                  rasterZoom: atDepth ? rasterZoom : 1,
                  drawingStore: DrawingStore.shared,
                  drawingKey: "\(annotationKey)/p\(index)",
+                 identityKey: "\(canvasIdentity)/p\(index)",
                  annotation: annotation)
             .overlay {
                 // What was caught, drawn over the page. Until this, a working
@@ -1393,6 +1406,8 @@ private struct PageView: View {
     let rasterZoom: CGFloat
     let drawingStore: DrawingStore
     let drawingKey: String
+    /// What the canvas calls itself out loud. See `ScorePagesView.canvasIdentity`.
+    let identityKey: String
     @ObservedObject var annotation: AnnotationController
 
     var body: some View {
@@ -1406,7 +1421,7 @@ private struct PageView: View {
             // so PencilKit magnifies the ink itself instead of the outer
             // transform stretching a picture of it. See InkSharpness.
             let ink = InkSharpness.canvasZoom(zoom: rasterZoom)
-            PencilCanvas(store: drawingStore, key: drawingKey,
+            PencilCanvas(store: drawingStore, key: drawingKey, identity: identityKey,
                          controller: annotation, canvasZoom: ink)
                 .frame(width: width * ink, height: height * ink)
                 .scaleEffect(1 / ink, anchor: .topLeading)
@@ -1521,6 +1536,8 @@ private struct ContinuousTileView: View {
 private struct PencilCanvas: UIViewRepresentable {
     let store: DrawingStore
     let key: String
+    /// Only ever the accessibility identifier. Never a storage key.
+    let identity: String
     @ObservedObject var controller: AnnotationController
     /// What PencilKit is asked to magnify the ink by. The view is laid out
     /// this much larger and scaled back down, so the strokes are RE-DRAWN at
@@ -1570,6 +1587,7 @@ private struct PencilCanvas: UIViewRepresentable {
         canvas.addGestureRecognizer(undoTap)
 
         context.coordinator.key = key
+        context.coordinator.identity = identity
         context.coordinator.store = store
         context.coordinator.controller = controller
         context.coordinator.publishStrokeCount(canvas)
@@ -1602,6 +1620,8 @@ private struct PencilCanvas: UIViewRepresentable {
     func updateUIView(_ canvas: UndoableCanvas, context: Context) {
         if context.coordinator.key != key {
             context.coordinator.key = key
+            context.coordinator.identity = identity
+        context.coordinator.identity = identity
             canvas.drawingKey = key
             canvas.drawing = store.drawing(for: key)
             canvas.ownUndoManager.removeAllActions()
@@ -1634,6 +1654,7 @@ private struct PencilCanvas: UIViewRepresentable {
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
         var key: String = ""
+        var identity: String = ""
         var store: DrawingStore?
         var controller: AnnotationController?
 
@@ -1641,7 +1662,7 @@ private struct PencilCanvas: UIViewRepresentable {
         /// observe what the canvas actually holds.
         func publishStrokeCount(_ canvas: PKCanvasView) {
             canvas.isAccessibilityElement = true
-            canvas.accessibilityIdentifier = "canvas-\(key)"
+            canvas.accessibilityIdentifier = "canvas-\(identity)"
             canvas.accessibilityValue = "\(canvas.drawing.strokes.count) strokes"
         }
 
@@ -1669,57 +1690,6 @@ private struct PencilCanvas: UIViewRepresentable {
         }
     }
 }
-
-/// Local persistence for pencil annotations (server sync is a later feature).
-final class DrawingStore {
-    static let shared = DrawingStore()
-    private let dir: URL
-
-    init() {
-        dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appending(path: "annotations")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    }
-
-    private func url(for key: String) -> URL {
-        let safe = key.replacingOccurrences(of: "/", with: "_")
-        return dir.appending(path: "\(safe).pkdrawing")
-    }
-
-    func drawing(for key: String) -> PKDrawing {
-        guard let data = try? Data(contentsOf: url(for: key)),
-              let drawing = try? PKDrawing(data: data) else { return PKDrawing() }
-        return drawing
-    }
-
-    func save(_ drawing: PKDrawing, for key: String) {
-        try? drawing.dataRepresentation().write(to: url(for: key))
-    }
-
-    /// Re-file every drawing of one arrangement under a new slug. The engine
-    /// moves the score's artifacts when a slug is renamed; the user's pencil
-    /// marks live here, keyed by "<slug>/<version>/pN", so they have to move
-    /// too or they are silently orphaned.
-    func rename(fromPrefix old: String, toPrefix new: String) {
-        let from = old.replacingOccurrences(of: "/", with: "_")
-        let to = new.replacingOccurrences(of: "/", with: "_")
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.lastPathComponent.hasPrefix(from + "_") {
-            let moved = to + String(f.lastPathComponent.dropFirst(from.count))
-            try? FileManager.default.moveItem(at: f, to: dir.appending(path: moved))
-        }
-    }
-
-    func clear(prefix: String) {
-        let safePrefix = prefix.replacingOccurrences(of: "/", with: "_")
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.lastPathComponent.hasPrefix(safePrefix) {
-            try? FileManager.default.removeItem(at: f)
-        }
-    }
-}
-
 
 struct ChipShadow: ViewModifier {
     func body(content: Content) -> some View { Theme.Elevation.pill(content) }
