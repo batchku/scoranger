@@ -49,3 +49,10 @@ ios/build/gate/
 ios/DerivedData-Gate/
 ios/DerivedData-Baseline/
 ios/Vendor
+
+# Firebase's per-project app config. NOT committed: design/FIREBASE.md §11.8.
+# It carries the project id, the app id and an API key, and it is per-project
+# config rather than repository content -- the same posture as .env and the
+# baked OMR key. Fetch it from the Firebase console, or with the Management
+# API, into ios/ before building a signed-in build.
+ios/GoogleService-Info.plist

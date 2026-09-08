@@ -208,12 +208,31 @@ def nothing_configures_firebase_at_launch() -> None:
     check(not offenders,
           f"only {SIGN_IN_SITE} may configure Firebase; found: {offenders}")
 
-    # Until 0.7.2 the stronger claim holds and is worth asserting, because it
-    # is the one that says the SDK is not linked into a signed-out build.
-    project = (ROOT / "ios/project.yml").read_text()
-    check("irebase" not in project,
-          "the app target declares no Firebase package (0.7.2 changes this "
-          "line, and the check above is what survives it)")
+    # The Firebase SDK IS linked as of 0.7.2, and that is not the promise.
+    # LINKING is not CONFIGURING: the framework can sit in the binary all day
+    # without a signed-out launch touching the network. The assertion that
+    # survived the change is the one above -- exactly one file may call
+    # `configure()` -- plus these two, which say the call is reached by a
+    # deliberate act and not by a view appearing.
+    sign_in = ROOT / SIGN_IN_SITE
+    check(sign_in.exists(),
+          f"{SIGN_IN_SITE} exists, and is the one place allowed to configure Firebase")
+    if sign_in.exists():
+        source = sign_in.read_text()
+        check("guard FirebaseApp.app() == nil else { return }" in source,
+              "the configure call is guarded: FirebaseApp.configure() traps on a "
+              "second call, and a second sign-in in one session would make one")
+        # Reached from a sign-in method, never from a lifecycle hook. `.task`,
+        # `onAppear` and `init` all fire without anybody asking to sign in.
+        for hook in ("func body", ".task {", ".onAppear"):
+            check(hook not in source,
+                  f"{SIGN_IN_SITE} contains no {hook!r}: configuring Firebase must "
+                  "be reached by pressing a button, not by a view appearing")
+
+    app_entry = (ROOT / "ios/Scoranger/ScorangerApp.swift").read_text()
+    check("Firebase" not in app_entry,
+          "ScorangerApp.swift does not mention Firebase: launch is the one path "
+          "every signed-out reader takes")
 
 
 def main() -> int:

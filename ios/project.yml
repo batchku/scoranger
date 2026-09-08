@@ -13,6 +13,22 @@ packages:
   SwiftDraw:
     url: https://github.com/swhitty/SwiftDraw
     from: 0.18.0
+  # Firebase, for the OPTIONAL half of the app: an account, and the shared
+  # setlists an account makes possible (design/FIREBASE.md).
+  #
+  # Pinned to a minor floor rather than a range, like the two above. Signed
+  # out, none of this runs: `FirebaseApp.configure()` is called at first
+  # sign-in and never at launch, which is what makes "no login gates the app"
+  # literal instead of approximate (§0.2, §9.1). Linking the SDK is not
+  # configuring it.
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 11.9.0
+  # Google's own sign-in flow. Firebase Auth takes the credential this hands
+  # back; it cannot obtain one itself.
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 8.0.0
 
 targets:
   Scoranger:
@@ -58,6 +74,14 @@ targets:
         product: VerovioToolkit
       - package: SwiftDraw
         product: SwiftDraw
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseStorage
+      - package: GoogleSignIn
+        product: GoogleSignIn
     postBuildScripts:
       - name: Install Python stdlib
         script: |
@@ -69,6 +93,27 @@ targets:
           bash "$PROJECT_DIR/scripts/seed_privacy_manifests.sh"
           source "$PROJECT_DIR/Vendor/Python.xcframework/build/utils.sh"
           install_python Vendor/Python.xcframework app app_packages
+        basedOnDependencyAnalysis: false
+      - name: Bake the Firebase config
+        script: |
+          # GoogleService-Info.plist is gitignored (design/FIREBASE.md §11.8):
+          # it names a specific Firebase project and carries that project's API
+          # key, and this repo is public. Copied in at build time, the same
+          # posture as the two keys below.
+          #
+          # The URL SCHEME is NOT injected here. It is in project.yml, because
+          # Xcode regenerates the built Info.plist after this phase runs and
+          # anything written to it here disappears without an error.
+          #
+          # No plist is not a failure: a signed-out build is a complete build,
+          # and the app must run for somebody who never signs in. SignIn.swift
+          # reports the absence rather than trapping.
+          CONFIG="$PROJECT_DIR/GoogleService-Info.plist"
+          if [ -f "$CONFIG" ]; then
+            cp "$CONFIG" "$CODESIGNING_FOLDER_PATH/GoogleService-Info.plist"
+          else
+            echo "warning: no GoogleService-Info.plist -- signing in is unavailable in this build"
+          fi
         basedOnDependencyAnalysis: false
       - name: Bake OMR key
         script: |
@@ -253,6 +298,23 @@ targets:
             UTTypeConformsTo: [public.zip-archive]
             UTTypeTagSpecification:
               public.filename-extension: [scorbundle]
+        # Google's sign-in flow returns through a custom URL scheme, and the
+        # scheme is the REVERSED CLIENT ID. It has to live here rather than be
+        # injected by a build phase: Xcode regenerates the built Info.plist
+        # AFTER post-build scripts run, so keys added there are silently
+        # clobbered -- measured, not assumed. Without a registered scheme the
+        # browser opens for sign-in and never comes back.
+        #
+        # This is the one piece of Firebase config the repo carries, and it is
+        # the harmless one: a reversed client id is a public OAuth client
+        # identifier, present in plain text inside every copy of every app that
+        # uses Google sign-in, and it grants nothing on its own. The API key and
+        # the rest of GoogleService-Info.plist stay gitignored (§11.8), and what
+        # actually protects the data is the security rules.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.googleusercontent.apps
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.185895597142-9s57s8gj4murutf1fg6ffrhel2itaaj0
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"

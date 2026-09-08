@@ -1612,10 +1612,20 @@ Recorded here because the sequence above is a plan and not a licence:
 - No Firebase project is created. 0.7.2 needs one and it is Ali's account.
 - No security rules, Cloud Function or configuration is deployed to any project.
 - No change to `omr-service` deployment.
-- Nothing is pushed to a remote that carries a project ID, a bucket name, a
-  reversed client ID, or a `GoogleService-Info.plist`. When 0.7.2 is
-  green-lit, that file is gitignored and the build reads it the way the OMR key
-  is read today, not committed.
+- Nothing is pushed to a remote that carries a project ID, a bucket name or a
+  `GoogleService-Info.plist`. That file is gitignored and the build copies it
+  in, the way the OMR key is read today.
+
+  **Amended 2026-09-08, by measurement.** The reversed client ID *is*
+  committed, in `project.yml`'s `CFBundleURLTypes`. Google's sign-in flow
+  returns through a custom URL scheme and the scheme must be in the STATIC
+  Info.plist: Xcode regenerates the built one after post-build scripts run, so
+  a scheme injected there disappears with no error and the browser opens for
+  sign-in and never comes back. That was tried first and measured failing.
+  A reversed client ID is a public OAuth client identifier, in plain text
+  inside every copy of every app that uses Google sign-in, and it grants
+  nothing by itself. The API key and the rest of the plist stay out, and what
+  protects the data is the security rules.
 
 0.7.0 and 0.7.1 clear this bar entirely: neither touches a cloud service.
 
