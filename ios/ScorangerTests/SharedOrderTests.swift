@@ -140,4 +140,77 @@ final class SharedOrderTests: XCTestCase {
                           "\(key) has a character outside the alphabet")
         }
     }
+
+    // MARK: - moving a row one place
+
+    /// The bug this rule exists for, written as a test.
+    ///
+    /// Reading "the entry below" from the list as it stands is wrong for a
+    /// downward move: the row being moved still occupies the slot it is
+    /// leaving, so the entry below it is the one being displaced, and a key
+    /// between that entry and the one after it is a key the row already sorts
+    /// before. The move becomes a write that changes nothing, and the row
+    /// visibly springs back.
+    func testMovingARowDownActuallyMovesIt() {
+        var keys = SharedOrder.spread(count: 4)          // A B C D
+        let moved = 1                                     // B
+        let landing = SharedOrder.neighbours(moving: moved, by: 1, in: keys)!
+        let key = SharedOrder.between(landing.before, landing.after)
+        keys[moved] = key
+        // B now sorts third: A C B D.
+        let order = keys.enumerated().sorted { $0.element < $1.element }.map(\.offset)
+        XCTAssertEqual(order, [0, 2, 1, 3])
+    }
+
+    func testMovingARowUpActuallyMovesIt() {
+        var keys = SharedOrder.spread(count: 4)
+        let moved = 2                                     // C
+        let landing = SharedOrder.neighbours(moving: moved, by: -1, in: keys)!
+        keys[moved] = SharedOrder.between(landing.before, landing.after)
+        let order = keys.enumerated().sorted { $0.element < $1.element }.map(\.offset)
+        XCTAssertEqual(order, [0, 2, 1, 3])
+    }
+
+    func testMovingTheFirstRowDownAndTheLastRowUpBothLand() {
+        var keys = SharedOrder.spread(count: 3)
+        let down = SharedOrder.neighbours(moving: 0, by: 1, in: keys)!
+        keys[0] = SharedOrder.between(down.before, down.after)
+        XCTAssertEqual(keys.enumerated().sorted { $0.element < $1.element }.map(\.offset),
+                       [1, 0, 2])
+
+        keys = SharedOrder.spread(count: 3)
+        let up = SharedOrder.neighbours(moving: 2, by: -1, in: keys)!
+        keys[2] = SharedOrder.between(up.before, up.after)
+        XCTAssertEqual(keys.enumerated().sorted { $0.element < $1.element }.map(\.offset),
+                       [0, 2, 1])
+    }
+
+    /// Off the end is nil, not a clamp: the caller writes nothing at all,
+    /// rather than sending a write that reorders nothing.
+    func testAMoveOffEitherEndIsRefusedRatherThanClamped() {
+        let keys = SharedOrder.spread(count: 3)
+        XCTAssertNil(SharedOrder.neighbours(moving: 0, by: -1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: 2, by: 1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: 9, by: 1, in: keys))
+        XCTAssertNil(SharedOrder.neighbours(moving: 0, by: 1, in: ["a"]))
+    }
+
+    /// Moving every row down in turn, then every row up in turn, reverses
+    /// nothing and loses nothing: after a hundred one-place moves the keys are
+    /// still strictly ordered and still distinct.
+    func testAHundredMovesKeepTheKeysOrderedAndDistinct() {
+        var keys = SharedOrder.spread(count: 8)
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<100 {
+            let at = Int.random(in: 0..<keys.count, using: &generator)
+            let by = Bool.random(using: &generator) ? 1 : -1
+            guard let landing = SharedOrder.neighbours(moving: at, by: by, in: keys)
+            else { continue }
+            let key = SharedOrder.between(landing.before, landing.after)
+            if let before = landing.before { XCTAssertTrue(key > before) }
+            if let after = landing.after { XCTAssertTrue(key < after) }
+            keys[at] = key
+            XCTAssertEqual(Set(keys).count, keys.count, "two entries share a key")
+        }
+    }
 }

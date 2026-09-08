@@ -54,6 +54,29 @@ enum SharedOrder {
         return midpoint(lower, upper)
     }
 
+    /// The two keys a row moved one place must land between.
+    ///
+    /// One-place moves are what the running-order screen offers (Move up /
+    /// Move down; dragging is gone from this app), and getting the neighbours
+    /// from the list AS IT STANDS is the mistake this exists to prevent: for a
+    /// downward move the row is still occupying the slot it is leaving, so
+    /// "the entry below" is the one being displaced, and `between` then returns
+    /// a key that puts the row back exactly where it was. The neighbours have
+    /// to come from the list with the row already taken out of it.
+    ///
+    /// `offset` is -1 or +1. Returns nil when the move would leave the list,
+    /// so the caller writes nothing rather than clamping to a no-op write.
+    static func neighbours(moving index: Int, by offset: Int,
+                           in keys: [String]) -> (before: String?, after: String?)? {
+        guard keys.indices.contains(index) else { return nil }
+        let landing = index + offset
+        guard keys.indices.contains(landing) else { return nil }
+        var without = keys
+        without.remove(at: index)
+        return (landing > 0 ? without[landing - 1] : nil,
+                landing < without.count ? without[landing] : nil)
+    }
+
     /// Keys for a whole list, evenly spread, for a setlist arriving at once.
     ///
     /// Used when a setlist is created or imported: n entries get n keys with

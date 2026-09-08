@@ -319,6 +319,57 @@ def a_damaged_bundle_is_refused() -> None:
         check("not a Scoranger bundle" in str(exc), f"refused: {exc}")
 
 
+# -- 10. what a shared entry carries ---------------------------------------
+
+def a_shared_entry_describes_the_pinned_version() -> None:
+    print("\nwhat a shared setlist entry carries")
+    from scoranger_engine import bundle, ids, workspace
+
+    root = fresh_workspace()
+    slug = a_score("Morrison's Jig")
+    arrange(slug)
+    doc = workspace._repo().get_score(slug)
+    ink = ink_for(root, doc["uid"], doc["latest"], pages=2)
+
+    payload = bundle.share_payload(slug, ink_dir=ink)
+    check(payload["scoreUid"] == doc["uid"], "it names the score by uid, not slug")
+    check(ids.is_id(payload["versionUid"]), "and the version by its opaque id")
+    check(payload["versionUid"] == doc["latest"],
+          "the version is the PINNED one -- an entry names a version so nobody's "
+          "page reflows mid-gig (§6.1)")
+    check(payload["versionLabel"] == "v002",
+          f"with a readable label beside it: {payload['versionLabel']}")
+    check(Path(payload["path"]).exists() and Path(payload["path"]).read_bytes(),
+          "the artifact is described by PATH, not read through the bridge")
+    check(payload["bytes"] == len(Path(payload["path"]).read_bytes()),
+          "and its size is the file's size")
+    check(payload["provenance"] == "arranged",
+          "provenance rides along, computed once in this module")
+    check(len(payload["ink"]) == 2,
+          f"both pages of the sharer's markup are listed: {len(payload['ink'])}")
+    check(all(Path(entry["path"]).exists() for entry in payload["ink"]),
+          "each by a path the app can open")
+
+    # The guard rail holds on this path too, not only on bundles.
+    pdf = root / "book.pdf"
+    try:
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        with pdf.open("wb") as fh:
+            writer.write(fh)
+        book_slug, _ = workspace.create_book("A Fake Book", pdf)
+        try:
+            bundle.share_payload(book_slug)
+            check(False, "a book must not be shareable to a setlist either")
+        except Exception as exc:                                  # noqa: BLE001
+            check(isinstance(exc, ValueError) and "never shared" in str(exc),
+                  f"a book is refused here too, by the same guard: "
+                  f"{type(exc).__name__}")
+    except ImportError:
+        check(False, "pypdf missing, so the book guard was not exercised")
+
+
 def main() -> int:
     an_arrangement_round_trips()
     a_setlist_round_trips()
@@ -327,6 +378,7 @@ def main() -> int:
     history_is_opt_in()
     provenance_is_recorded_not_enforced()
     a_damaged_bundle_is_refused()
+    a_shared_entry_describes_the_pinned_version()
 
     print()
     if FAILURES:

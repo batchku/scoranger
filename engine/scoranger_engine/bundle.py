@@ -232,6 +232,73 @@ def export(target: str, out_path, full_history: bool = False,
             "full_history": full_history}
 
 
+# -- what a shared entry carries -------------------------------------------
+
+def share_payload(slug: str, ink_dir=None) -> dict:
+    """One arrangement, described for a SHARED SETLIST ENTRY.
+
+    design/FIREBASE.md §4.2 and §0.7. A bundle entry and a shared entry carry
+    the same thing -- a pinned version's bytes, its document and its ink -- and
+    this is that description without the zip around it: the app uploads the
+    file to `shared/{setlistId}/{entryId}/` and writes the rest as the entry
+    document.
+
+    It exists here rather than in Swift because the ENGINE is what knows what a
+    score is: which version is pinned, where its artifact lives, whether the
+    chain contains the sharer's own work. A second answer computed in the app
+    would drift from `bundle.py`'s the first time either changed.
+
+    The artifact is described, not read. A 52 MB book has no business passing
+    through the bridge as base64, so the app opens the path itself.
+    """
+    from . import workspace
+
+    _refuse_books_and_sources(slug)
+    repo = workspace._repo()
+    doc = repo.get_score(slug)
+    if doc is None:
+        raise FileNotFoundError(f"No arrangement '{slug}'")
+    versions = repo.list_versions(slug)
+    if not versions:
+        raise ValueError(f"'{slug}' has no versions; there is nothing to share")
+
+    latest = doc.get("latest")
+    pinned = next((v for v in versions if v["id"] == latest), versions[-1])
+    path = workspace.score_dir(slug) / pinned["file"]
+    if not path.exists():
+        raise FileNotFoundError(
+            f"'{slug}' version {pinned.get('label') or pinned['id']} is missing "
+            f"its artifact ({pinned['file']})")
+    raw = path.read_bytes()
+    uid = doc.get("uid") or slug
+
+    return {
+        "scoreUid": uid,
+        "slug": slug,
+        "title": doc.get("title") or doc.get("name"),
+        "composer": doc.get("composer"),
+        "arranger": doc.get("arranger"),
+        # The version is PINNED (§6.1): an entry names a version, not a score,
+        # so nobody's page reflows mid-gig because the arranger ran a transpose
+        # in the car park.
+        "versionUid": pinned["id"],
+        "versionLabel": pinned.get("label"),
+        "path": str(path),
+        "kind": _artifact_kind(pinned["file"]),
+        "bytes": len(raw),
+        "sha256": _sha256(raw),
+        # Recorded, not enforced (§12.13, settled: the owner's own purchased
+        # material shares as a COPY, to named people, capped). The app shows it;
+        # it blocks nothing.
+        "provenance": provenance(versions),
+        # Every page of the sharer's own markup on the pinned version, so the
+        # app knows what to upload without listing the directory itself.
+        "ink": [{"page": page, "path": str(f)}
+                for page, f in _ink_files(Path(ink_dir) if ink_dir else None,
+                                          uid, pinned["id"])],
+    }
+
+
 # -- inspect ---------------------------------------------------------------
 
 def _read_manifest(path: Path) -> dict:

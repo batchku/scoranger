@@ -327,6 +327,10 @@ struct RootView: View {
                           push: push)
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
+        case .sharedSetlist(let id):
+            SharedSetlistScreen(setlistId: id, onBack: pop)
+                .navigationBarHidden(true)
+                .accessibilityIdentifier("screen-shared-setlist")
         case .addArrangements(let slug):
             AddArrangementsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
@@ -370,6 +374,7 @@ struct RootView: View {
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
+                    onOpenSharedSetlist: { libraryPath.append(.sharedSetlist($0)) },
                     onOpenBook: { libraryPath.append(.book($0)) },
                     onRowMenu: { row in
                         // A piece opens its own screen; an unfiled arrangement

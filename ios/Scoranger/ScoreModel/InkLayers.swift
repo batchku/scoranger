@@ -70,6 +70,34 @@ enum InkLayers {
         return index % slots
     }
 
+    /// The colours a slot can be, as RGB.
+    ///
+    /// Here rather than in `Theme` because the mapping from a participant to a
+    /// colour is a rule (`colourSlot`), and a rule and the values it indexes
+    /// that live in different files drift. Kept as numbers so this file stays
+    /// free of SwiftUI and testable in the pure model target.
+    ///
+    /// Six, against a cap of twelve people (§8.2): more than six distinguishable
+    /// ink colours over engraved music is a fiction, and two people sharing one
+    /// is honest where a twelfth indistinguishable shade would not be. The
+    /// visibility control -- one person at a time -- is what actually separates
+    /// them (§6.3).
+    static let palette: [UInt32] = [
+        0xCC5C2E,  // clay, the app's own accent: whoever made the set list
+        0x2E6FCC,  // blue
+        0x2E8B57,  // green
+        0x8B2E8B,  // violet
+        0xC79A1E,  // ochre
+        0x1E8B8B,  // teal
+    ]
+
+    /// The colour for a slot, and clay for anything unslotted -- never a
+    /// silent black, which is what a page's engraving already is.
+    static func colour(slot: Int?) -> UInt32 {
+        guard let slot, palette.indices.contains(slot) else { return palette[0] }
+        return palette[slot]
+    }
+
     /// The key one participant's ink is filed under, for one page of one entry.
     ///
     /// `entries/{entryId}/ink/{userId}` with the page inside the document

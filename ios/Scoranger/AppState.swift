@@ -761,6 +761,13 @@ final class AppState: ObservableObject {
 
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
+
+    /// An invitation link that has been opened and not yet acted on.
+    ///
+    /// Held here rather than claimed at the door, because claiming it is a
+    /// decision and because it may arrive before there is an account to claim
+    /// it with (`SharedSetlistsBand`).
+    @Published var pendingInvite: String?
     /// Pencil markup state. Lives here because the pill drives it and the score
     /// pane only reacts, the same reason highlightMode moved up in build 116.
     let annotation = AnnotationController()
@@ -2689,6 +2696,17 @@ final class AppState: ObservableObject {
     @discardableResult
     func deleteSetlist(_ setlist: String) async -> Bool {
         await runSetlistOp(op: "delete-setlist", args: ["setlist": setlist])
+    }
+
+    /// What a shared set list entry carries for one of my arrangements.
+    ///
+    /// Asked of the ENGINE rather than assembled here: which version is pinned,
+    /// where its file is and where its ink sits are the engine's facts, and a
+    /// second answer computed in Swift would drift from the first
+    /// (`bundle.share_payload`, design/FIREBASE.md §4.3). It also refuses a
+    /// book or a source, which have no share path at all.
+    func sharePayload(for slug: String) async throws -> [String: Any] {
+        try await local.call(op: "share-payload", args: ["score": slug])
     }
 
     private func runSetlistOp(op: String, args: [String: Any]) async -> Bool {

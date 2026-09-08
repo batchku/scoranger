@@ -24,6 +24,9 @@ struct LibraryView: View {
     var onOpenPiece: (String) -> Void
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
+    /// A shared set list, by its Firestore id. Defaulted so every existing
+    /// construction of this view still compiles.
+    var onOpenSharedSetlist: (String) -> Void = { _ in }
     /// A book opens its own screen: you do not read a book here, you take
     /// arrangements out of it.
     var onOpenBook: (String) -> Void = { _ in }
@@ -559,6 +562,13 @@ struct LibraryView: View {
                 // Loading is not emptiness (#42): the manifest is nil until the
                 // engine answers, and claiming "No music yet" in that window
                 // flashed the empty state on every launch of a full library.
+                // Shared set lists first, and only in the set lists
+                // segment: they are set lists, so they belong with them
+                // rather than behind an account tab -- but they are not in
+                // the manifest and cannot be rows (design/FIREBASE.md §4.2).
+                if segment == .setlists {
+                    SharedSetlistsBand(onOpen: onOpenSharedSetlist)
+                }
                 switch LibraryModel.listState(loaded: state.libraryLoaded,
                                               rows: rows.count,
                                               pendingImports: pendingHere.count,

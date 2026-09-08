@@ -94,6 +94,11 @@ def _dispatch(op, a):
         return bundle.export(a["target"], a["out"],
                              full_history=bool(a.get("full_history")),
                              ink_dir=a.get("ink"))
+    if op == "share-payload":
+        # What a shared setlist entry needs, decided by the engine because the
+        # engine is what knows which version is pinned and where it lives.
+        from scoranger_engine import bundle
+        return bundle.share_payload(a["score"], ink_dir=a.get("ink"))
     if op == "bundle-inspect":
         # Read-only, and it is what the import screen is built from: nobody
         # takes a bundle in without being told what is in it first (§13.3).

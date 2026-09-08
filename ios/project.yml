@@ -80,6 +80,11 @@ targets:
         product: FirebaseFirestore
       - package: Firebase
         product: FirebaseStorage
+      # The two writes a client is never allowed to make itself: joining a
+      # setlist and removing somebody from one. Both edit the membership map,
+      # which the rules refuse to every client (design/FIREBASE.md §4.4).
+      - package: Firebase
+        product: FirebaseFunctions
       - package: GoogleSignIn
         product: GoogleSignIn
     postBuildScripts:
@@ -320,6 +325,15 @@ targets:
           - CFBundleURLName: com.googleusercontent.apps
             CFBundleURLSchemes:
               - com.googleusercontent.apps.185895597142-9s57s8gj4murutf1fg6ffrhel2itaaj0
+          # An invitation to a shared set list. The rules refuse `list` on
+          # `invites/`, so an invitee cannot go looking for their own -- the
+          # inviter has to send them the document's id, and this is the door it
+          # comes in by (SharedInviteLink). The link grants nothing on its own:
+          # the invitation names one verified email address and the Function
+          # refuses it from anybody else.
+          - CFBundleURLName: com.irllabs.scoranger.invite
+            CFBundleURLSchemes:
+              - scoranger
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"

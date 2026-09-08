@@ -53,6 +53,12 @@ final class SignIn: ObservableObject {
 
     @Published private(set) var state: State = .signedOut
 
+    /// The account, if there is one. Nil is the ordinary case and not a fault.
+    var account: Account? {
+        if case .signedIn(let account) = state { return account }
+        return nil
+    }
+
     /// Whether this build can sign in at all.
     ///
     /// False when `GoogleService-Info.plist` was not baked in -- a checkout

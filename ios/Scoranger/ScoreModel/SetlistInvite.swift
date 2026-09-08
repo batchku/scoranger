@@ -43,6 +43,21 @@ struct SetlistInvite: Codable, Equatable {
         email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// Enough of an address to be worth sending. Deliberately NOT validation:
+    /// the address is checked where it matters, against the claimant's verified
+    /// token in `claimInvite`, and a client-side pattern that rejects a real
+    /// address is worse than one that lets a typo through to a refusal. This
+    /// only decides whether the Invite button is live.
+    static func looksLikeAnAddress(_ email: String) -> Bool {
+        let text = normalise(email)
+        guard let at = text.firstIndex(of: "@"), text.filter({ $0 == "@" }).count == 1
+        else { return false }
+        let local = text[text.startIndex..<at]
+        let domain = text[text.index(after: at)...]
+        return !local.isEmpty && domain.contains(".")
+            && !domain.hasPrefix(".") && !domain.hasSuffix(".")
+    }
+
     enum State: Equatable {
         case pending
         case accepted

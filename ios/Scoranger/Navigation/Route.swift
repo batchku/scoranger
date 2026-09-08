@@ -20,6 +20,10 @@ enum Route: Hashable {
     case setlistsFor(String)
     /// A set list, its running order, and what can be done to it (§3.5).
     case setlist(String)
+    /// A SHARED set list, addressed by its Firestore id rather than a slug: it
+    /// is not in the local manifest and has no slug to be addressed by
+    /// (design/FIREBASE.md §4.2).
+    case sharedSetlist(String)
     /// Which arrangements a set list holds.
     case addArrangements(String)
     /// The version history of an arrangement (§3.6).
@@ -43,7 +47,7 @@ enum Route: Hashable {
     /// count taps out of.
     var backLabel: String {
         switch self {
-        case .piece, .setlist, .settings:
+        case .piece, .setlist, .sharedSetlist, .settings:
             return "My library"
         case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
              .versions, .parts, .details, .settingsSection, .folderImport, .book:
@@ -93,7 +97,8 @@ extension Route {
         case .versions(let s):        return .versions(now(s))
         case .parts(let s):           return .parts(now(s))
         case .details(let s):         return .details(now(s))
-        case .piece, .setlist, .settings, .settingsSection, .folderImport, .book:
+        case .piece, .setlist, .sharedSetlist, .settings, .settingsSection,
+             .folderImport, .book:
             return self
         }
     }
