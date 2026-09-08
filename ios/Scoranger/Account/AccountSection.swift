@@ -11,6 +11,12 @@ struct AccountSection: View {
     /// Only to let go of its listeners on the way out. Signed in or out, this
     /// section shows nothing about shared set lists.
     @EnvironmentObject var shared: SharedSetlists
+    /// A pasted invitation is put where a tapped one goes: `pendingInvite`, in
+    /// front of the same "You've been invited" band, claimed by the same
+    /// button. One entrance, two doors into it.
+    @EnvironmentObject var state: AppState
+
+    @State private var pasteNote: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -119,6 +125,8 @@ struct AccountSection: View {
                 .accessibilityIdentifier("account-private-address")
         }
 
+        pasteInvitation
+
         PanelButton(title: "Sign out", identifier: "sign-out") {
             // Both, and in this order: the shared set lists have to let go of
             // their listeners before the account they were opened for is gone,
@@ -135,6 +143,44 @@ struct AccountSection: View {
             .typeRole(.data).foregroundStyle(Theme.Ink.ink3)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("account-signout-keeps")
+    }
+
+    // MARK: - an invitation that did not arrive as a link
+
+    /// The other iPad's way in.
+    ///
+    /// An invitation travels as `scoranger://invite?id=…` inside a message,
+    /// and the app it is sent through decides whether that is tappable.
+    /// Messages does not make a custom scheme tappable, so the reader is
+    /// holding words they can only copy -- and until this button existed,
+    /// copying them led nowhere. The QR code and the offline join that replace
+    /// this properly are 0.7.2 (design/FIREBASE.md §11.10); this is the two
+    /// lines that stop the flow dead-ending in the meantime.
+    @ViewBuilder
+    private var pasteInvitation: some View {
+        PanelButton(title: "Paste an invitation",
+                    identifier: "account-paste-invite") {
+            let pasted = UIPasteboard.general.string ?? ""
+            if let id = SharedInviteLink.inviteId(inPastedText: pasted) {
+                state.pendingInvite = id
+                pasteNote = "Invitation found. It's in your library now, "
+                    + "under \"You've been invited\"."
+            } else if pasted.isEmpty {
+                pasteNote = "There's nothing on the clipboard to paste."
+            } else {
+                // Says which of the two things to copy, because "invalid" here
+                // tells a person nothing they can act on.
+                pasteNote = "That doesn't look like an invitation. Copy the "
+                    + "whole message you were sent, or just the link in it."
+            }
+        }
+
+        if let pasteNote {
+            Text(pasteNote)
+                .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("account-paste-invite-note")
+        }
     }
 
     /// Google's flow needs a view controller to present from, and SwiftUI has

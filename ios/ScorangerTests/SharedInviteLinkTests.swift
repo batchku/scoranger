@@ -145,4 +145,50 @@ final class SharedInviteLinkTests: XCTestCase {
                            InkLayers.colour(slot: shuffled))
         }
     }
+
+    // MARK: - an invitation that was pasted rather than tapped
+
+    // The second iPad's way in. A custom scheme is not something Messages
+    // turns into a tappable link, so what the invitee holds is the whole
+    // message, and copying it has to work.
+
+    func testTheWholeMessageTheAppSendsYieldsTheId() {
+        let message = SharedInviteLink.message(setlistName: "Tuesday",
+                                               email: "echo@example.com",
+                                               inviteId: "inv_9")
+        XCTAssertEqual(SharedInviteLink.inviteId(inPastedText: message), "inv_9")
+    }
+
+    func testTheLinkStopsAtTheWhitespaceAfterIt() {
+        // The message puts prose on the line below the link. Reading to the
+        // end of the string would take that with it.
+        let pasted = """
+        Open this on your iPad:
+        scoranger://invite?id=inv_9
+        See you Tuesday.
+        """
+        XCTAssertEqual(SharedInviteLink.inviteId(inPastedText: pasted), "inv_9")
+    }
+
+    func testTheIdAloneIsAccepted() {
+        // What a person copies when the link will not survive the app it is
+        // being sent through.
+        XCTAssertEqual(SharedInviteLink.inviteId(inPastedText: "  inv_9\n"), "inv_9")
+    }
+
+    func testNothingOnTheClipboardIsNotAnInvitation() {
+        XCTAssertNil(SharedInviteLink.inviteId(inPastedText: ""))
+        XCTAssertNil(SharedInviteLink.inviteId(inPastedText: "   \n  "))
+    }
+
+    func testProseWithNoLinkInItIsNotAnInvitation() {
+        XCTAssertNil(SharedInviteLink.inviteId(inPastedText: "see you tuesday"))
+    }
+
+    func testAPathIsNotAnId() {
+        // `inviteId(in:)` refuses a slash because a value with one addresses a
+        // different collection. The pasted reading has to refuse it too, or
+        // the permissive path is a way around the strict one.
+        XCTAssertNil(SharedInviteLink.inviteId(inPastedText: "invites/inv_9"))
+    }
 }

@@ -230,13 +230,19 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.7.1  the three showstoppers in Ali's build 183 report, so that
+        #          sharing can be TRIED: Google aborted the process on the
+        #          first tap, Apple did nothing and said nothing, and the two
+        #          buttons came from two different components. Sign in with
+        #          Apple is enabled on the App ID for real, and a Hide My Email
+        #          relay address is invitable rather than discarded.
         # A build number NEVER goes backwards, whatever the marketing version
         # does. 182 went out as 0.6.21 -- the external-ready build -- AFTER
         # this line said 181, so 181 is now behind what has shipped and 183 is
         # the next free number. Checked against App Store Connect rather than
         # against this file's own history, which is what made 181 stale.
         CURRENT_PROJECT_VERSION: 184
-        MARKETING_VERSION: 0.7.0
+        MARKETING_VERSION: 0.7.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
