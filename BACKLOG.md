@@ -643,3 +643,36 @@ the model, so `readerTurnedPage()` clearing `isFollowing` is asserted, but
 nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
 UI test -- scroll the strip mid-performance, assert the Sync chip appears and
 the strip stays where it was put.
+
+## The app counts one more system than the engine does, on one page
+
+`PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` fails: the app
+reports `pages=5 systems=5,6,6,6,3` (26) for the accordion solo as imported and
+the test asserts the engine's 25.
+
+**Not a 0.6.20 regression, and this is measured rather than argued.** Every
+input to that number is byte-identical to `afa0c572`, which is 0.6.19 build 179
+and already on the phone: `ScoreGeometry.swift` (which computes
+`systemsPerPage`), `ContentView.swift` (which surfaces the probe),
+`ScoreBarLayout.swift`, `EngravingOptions.swift`, and the test itself. 0.6.20
+changed `SpreadLayout`, `ScorePagesView`, `LibraryView` and two playback files,
+and none of them can reach it -- the engraved page width is the fixed constant
+`EngravingOptions.pageWidthTenthsMM = 2159`, so the landscape margin work
+changes how a page is FITTED and not how it is BROKEN INTO LINES, and the probe
+reads the engine's bar frames rather than anything on screen.
+
+The engine's own count, re-measured on this branch, is 25 both on the raw
+`.mxl` (`5,6,6,6,2`) and on the imported v001 (`5,6,6,5,3`) -- so the
+hard-coded 25 is current, not stale, and the app is over-counting by one.
+
+Where to look: `BarPosition.systems(of:)` groups bar frames into systems, and
+`check_bar_frames.py` already records the hazard that makes this likely --
+Verovio nests a slur inside the measure it starts in and a group's frame is the
+union of what it contains, so one bar's frame can be much wider than the bar.
+A single bar whose frame straddles two rows would split one system into two,
+which is exactly an over-count of one. Unverified; it is the first hypothesis
+to test, not a diagnosis.
+
+Worth doing because the test is the observable for issue #4 (pagination
+collapse), and while it is off by one every number under it is a number about
+the inference rather than about the score.
