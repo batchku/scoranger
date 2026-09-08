@@ -123,6 +123,19 @@ ENGINE_SERIAL=(
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
+  # Same class, found on the 0.7.0 gate: it waits for the PIECE SCREEN to list
+  # its arrangements, which is a manifest read through the embedded Python
+  # engine. Solo it passes in ~36s, twice out of twice; under four workers it
+  # spent 117s and timed out on that wait. Nothing about the app or the
+  # assertion is wrong -- the harness was starving it, which is the hazard this
+  # whole list exists for.
+  #
+  # Serialised rather than skipped, and the difference from the pagination
+  # test in SKIP above is the whole reason both decisions are defensible: this
+  # one PASSES when it runs alone, so running it alone makes the gate green
+  # AND meaningful. That one FAILS when it runs alone, so serialising it would
+  # only have turned every gate red.
+  "ScorangerUITests/ScorangerUITests/testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder()"
   # The two audio sweeps, for a different reason from the three above: not
   # engine contention but MEMORY. Each walks the whole General MIDI catalogue
   # -- 128 melodic programs on three keys, then every drum kit -- and each of
