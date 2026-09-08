@@ -531,6 +531,16 @@ struct LibraryView: View {
 
     private var list: some View {
         ScrollView {
+            // The content column is CAPPED AND CENTRED, the same rule `Screen`
+            // applies to every pushed screen (L34, and A-B of
+            // design/IPHONE_0.6.14.md). Full-bleed rows put a title and its own
+            // chevron 1200pt apart on a landscape phone and 1300 on a 13-inch
+            // iPad, and at that distance a row stops reading as one thing.
+            //
+            // The library was the one list that never got it, and the test that
+            // caught that -- LandscapeFits.testTheLibraryFitsInLandscape --
+            // arrived with the landscape work asserting behaviour nobody had
+            // written: it fails on dev too, not only here.
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 // Naming a new thing happens here, in place: the list moves
                 // down, nothing dims, and there is nothing to dismiss.
@@ -568,6 +578,8 @@ struct LibraryView: View {
                 case .empty, .noMatches: empty
                 }
             }
+            .frame(maxWidth: Theme.Metric.readingColumn)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 90)
             // The build stamp used to end this scroll view. It is in the top
             // row now: a tester should not have to scroll past their whole
