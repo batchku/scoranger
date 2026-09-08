@@ -189,17 +189,27 @@ targets:
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
         #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
         #          path. Pagination moves to 0.6.14.
-        #   0.7.0  identity that outlives a title: opaque ids everywhere, the
-        #          library named before anyone signs in, and a reader's pencil
-        #          marks keyed to the score rather than to what it is called
-        #          today. Nothing user-visible; the ground 0.7 sharing stands on
-        #   0.7.1  share without the cloud: an arrangement or a setlist, with
-        #          its markup, as one .scorbundle over AirDrop or Files. No
-        #          account, no network, nothing deployed
-        # 179 is the build 0.6.19 shipped on. A build number never goes
-        # backwards, so 0.7 counts on from here.
-        CURRENT_PROJECT_VERSION: 179
-        MARKETING_VERSION: 0.7.1
+        #   0.6.20 the 0.6.x work that never reached a build: chord symbols
+        #          heard as notes from a names-only staff, two staves of one
+        #          name shown as one strip, and the OMR progress fix deployed
+        #          at last. Cut from 0.6.19 and NOT from dev, which carries
+        #          0.7's sharing work. Shipped as build 180
+        #   0.7.0  SHARED SET LISTS. Identity that outlives a title (opaque ids
+        #          everywhere, the library named before anyone signs in, a
+        #          reader's pencil marks keyed to the score rather than to what
+        #          it is called today); share without the cloud, as one
+        #          .scorbundle over AirDrop; and then the cloud half -- an
+        #          account, a set list several people add to and reorder, and
+        #          everybody's markup on it.
+        #
+        #          Planned as 0.7.0 through 0.7.5 in design/FIREBASE.md §11 and
+        #          asked for as one build: "build all of these necessary
+        #          features for sharing playlists into the first 7.0 build."
+        #          §11.9 records the difference, including what was left out.
+        # A build number NEVER goes backwards, whatever the marketing version
+        # does. 180 went out as 0.6.20, so 0.7.0 counts on from 181.
+        CURRENT_PROJECT_VERSION: 181
+        MARKETING_VERSION: 0.7.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
