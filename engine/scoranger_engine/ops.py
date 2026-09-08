@@ -3688,6 +3688,8 @@ def _performed(score):
     reason to refuse playback. A score with a repeat music21 cannot resolve
     still plays; it plays straight through.
     """
+    from music21 import harmony as m21harmony
+
     played = score
     expanded = False
     try:
@@ -3703,7 +3705,32 @@ def _performed(score):
             played, sounding = candidate, True
     except Exception:
         pass
-    return played, {"repeats_expanded": expanded, "sounding_pitch": sounding}
+    # A CHORD SYMBOL IS A LABEL, NOT A NOTE, and until now playback did not
+    # know that. `Fm` written over a staff is four letters on the page; a
+    # ChordSymbol is a Chord in music21, so the MIDI writer sounded it.
+    #
+    # On Ali's own arrangement that is a whole phantom voice. `Acc. Chords` is
+    # a names-only staff -- `strip-notes` empties a staff and keeps its chart
+    # -- so it holds 0 notes and 135 symbols, and the MIDI came out with 485
+    # note-ons in exactly the symbols' pitch range while the page shows no
+    # notes at all on that staff. Turning it down changed something the reader
+    # could not see, its activity lamp lit for music that is not written, and
+    # "wrong instrument on the wrong staff" is a fair description of hearing
+    # accordion chords from an empty staff.
+    #
+    # Removed from the PERFORMED copy only, which is a reading and not a
+    # version, so the chart stays on the page and in every export. The same
+    # trap `whistle_fingerings` and `guitar_tab` already guard against, now
+    # guarded where it was loudest.
+    symbols_silenced = 0
+    for part in played.parts:
+        for symbol in list(part.recurse().getElementsByClass(m21harmony.Harmony)):
+            holder = symbol.activeSite
+            if holder is not None:
+                holder.remove(symbol)
+                symbols_silenced += 1
+    return played, {"repeats_expanded": expanded, "sounding_pitch": sounding,
+                    "chord_symbols_silenced": symbols_silenced}
 
 
 def _timeline_spine(played):
@@ -3716,6 +3743,21 @@ def _timeline_spine(played):
     """
     parts = list(played.parts)
     return max(parts, key=lambda p: len(p.getElementsByClass(stream.Measure))) if parts else None
+
+
+def _first_clef_name(part) -> str | None:
+    """What clef this staff opens in, as a word ("treble", "bass"), or None.
+
+    The first one only: a staff that changes clef mid-piece is still "the bass
+    staff" to the reader who is looking for it in a mixer.
+    """
+    for clef in part.recurse().getElementsByClass(m21clef.Clef):
+        # The same spelling `info` uses, so the two describe one staff the
+        # same way: the class name with "Clef" taken off it.
+        name = type(clef).__name__.replace("Clef", "").lower()
+        if name:
+            return name
+    return None
 
 
 def _sounding_intervals(part, epsilon: float = 1e-6) -> list:
@@ -3812,6 +3854,13 @@ def playback_timeline(score) -> tuple:
             # optical recognition labels "Voice". Honest beats a wrong guess:
             # the player falls back to its own documented default.
             "program": getattr(found, "midiProgram", None),
+            # The clef this staff is written in, so a repeated NAME can still
+            # be told apart by what the reader sees on the page. A grand staff
+            # is ONE MusicXML part and music21 splits it into two PartStaffs
+            # that both answer "Piano", so the mixer showed Piano and Piano --
+            # correct per staff, and unnameable. The name stays exact, as
+            # above; this is what lets the label say which of them is which.
+            "clef": _first_clef_name(part),
             "sounding": _sounding_intervals(part),
         })
 

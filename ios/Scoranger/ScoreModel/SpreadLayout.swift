@@ -10,6 +10,50 @@ import CoreGraphics
 enum SpreadLayout {
     /// Outer margin either side of the page block.
     static let margin: CGFloat = 12
+
+    /// A viewport too short to spend portrait's reserves on.
+    ///
+    /// A phone on its side leaves about 298pt between the top bar and the
+    /// merged deck. Portrait's outer margin and pill clearance come to 108 of
+    /// that -- 36% -- which is why enabling landscape drew the page 140pt wide
+    /// in an 874pt-wide window and gave the music 45% of the screen. 500 is
+    /// well above any phone landscape (402) and well below any iPad in either
+    /// orientation, so it separates "short" from "small" without asking the
+    /// view for a size class it may not have.
+    static func isShort(_ viewport: CGSize) -> Bool {
+        viewport.height > 0 && viewport.height < 500
+    }
+
+    /// The outer margin, halved where the height cannot afford it.
+    static func margin(for viewport: CGSize) -> CGFloat {
+        isShort(viewport) ? 6 : margin
+    }
+
+    /// Room the canvas keeps clear at the bottom for the floating pill.
+    ///
+    /// 52pt of pill, its 20pt bottom padding and 12 of breathing room. The
+    /// pill floats over the canvas and the score must never be under it.
+    ///
+    /// On a SHORT viewport the pill keeps its own 52 and loses the comfort:
+    /// 32pt of padding is a tenth of a phone's landscape band, and with it the
+    /// page was drawn 182pt tall in a 402pt window -- the music losing to its
+    /// own furniture. A system under the pill is still a system nobody can
+    /// read, which is why the 52 is not negotiable.
+    ///
+    /// Lives HERE, beside the margin, rather than on the view: it is a rule
+    /// about a rectangle, the two reserves are read together, and a rule the
+    /// test bundle cannot see is a rule that gets asserted through a
+    /// screenshot instead.
+    ///
+    /// Read by the fit AND by the scroll view, from this one function. Their
+    /// disagreeing is the whole of L21 -- the unit filled the canvas, the
+    /// scroll view added the inset anyway, and the top of the page scrolled
+    /// off the screen.
+    static let bottomChrome: CGFloat = 52 + 20 + 12
+
+    static func bottomChrome(for viewport: CGSize) -> CGFloat {
+        isShort(viewport) ? 52 + 4 : bottomChrome
+    }
     /// Gutter between two pages of a spread, and between rows.
     static let gutter: CGFloat = 12
     /// A single page never grows past this, or a wide display stretches one

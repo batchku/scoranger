@@ -109,8 +109,14 @@ struct ScorePagesView: View {
     /// two disagreed the page was fitted to height the scroll view had already
     /// given away: the unit filled the canvas, the scroll view added this as a
     /// bottom inset anyway, and the top of the page scrolled off (L21).
-    static let bottomChrome: CGFloat = Theme.Metric.scoreBottomChrome
-        + Theme.Metric.s20 + Theme.Metric.s12
+    /// Moved to SpreadLayout, where the margin already lived and where the
+    /// test bundle can see it. Kept as a spelling so the call sites below read
+    /// the way they always did.
+    static var bottomChrome: CGFloat { SpreadLayout.bottomChrome }
+
+    static func bottomChrome(for viewport: CGSize) -> CGFloat {
+        SpreadLayout.bottomChrome(for: viewport)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -125,7 +131,7 @@ struct ScorePagesView: View {
             let fitViewport = fittedTo == .zero ? geo.size : fittedTo
             let stripScale = ContinuousTiles.fittedScale(
                 pageSize: stripBox, viewport: fitViewport,
-                bottomChrome: Self.bottomChrome)
+                bottomChrome: Self.bottomChrome(for: fitViewport))
             let surface = CGSize(width: stripBox.width * stripScale,
                                  height: stripBox.height * stripScale)
             // The geometry is in the SVG's viewBox units, not the PDF's points
@@ -142,10 +148,10 @@ struct ScorePagesView: View {
             let width = PagedCanvas.fittedPageWidth(
                 viewport: geo.size, pageAspect: aspect(of: unit.first),
                 pages: max(unit.count, 1), gutter: SpreadLayout.gutter,
-                margin: SpreadLayout.margin,
+                margin: SpreadLayout.margin(for: geo.size),
                 // the same reserve the scroll view below is given, from one
-                // constant: the two disagreeing is the whole of L21
-                bottomChrome: Self.bottomChrome)
+                // function: the two disagreeing is the whole of L21
+                bottomChrome: Self.bottomChrome(for: geo.size))
             ZoomableScroll(contentWidth: continuous
                                ? surface.width
                                : width * CGFloat(max(unit.count, 1))
@@ -203,7 +209,7 @@ struct ScorePagesView: View {
                            resetPanToken: panToken,
                            annotationActive: annotation.isOn,
                            scrollTarget: (scrollToken, scrollTargetX),
-                           bottomChrome: Self.bottomChrome,
+                           bottomChrome: Self.bottomChrome(for: geo.size),
                            onVisibleRectChange: { rect, content in
                                visibleRect = rect
                                if continuous {
@@ -590,7 +596,7 @@ struct ScorePagesView: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .padding(.bottom, Self.bottomChrome)
+            .padding(.bottom, Self.bottomChrome(for: fittedTo))
             .accessibilityIdentifier("sync-to-playback")
             .accessibilityLabel(PageFollow.syncLabel(bar: playback.soundingBar))
             .transition(.opacity)
