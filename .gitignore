@@ -67,3 +67,6 @@ firebase/firestore-debug.log
 firebase/storage-debug.log
 firebase/ui-debug.log
 firebase/.firebase/
+
+firebase/functions/node_modules/
+firebase/functions/package-lock.json

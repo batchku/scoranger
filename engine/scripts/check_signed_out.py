@@ -54,6 +54,18 @@ FAILURES: list[str] = []
 SIGN_IN_SITE = "ios/Scoranger/Account/SignIn.swift"
 
 
+def strip_comments(source: str) -> str:
+    """Swift source with its comments removed.
+
+    Crude on purpose -- it does not understand strings containing "//" -- and
+    that is the right trade here: the only question asked of the result is
+    whether a symbol appears in CODE, and a comment mentioning the symbol is
+    exactly the false positive this exists to remove.
+    """
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    return re.sub(r"//[^\n]*", "", source)
+
+
 def check(condition, message):
     print(f"    {'ok  ' if condition else 'FAIL'} {message}")
     if not condition:
@@ -229,9 +241,13 @@ def nothing_configures_firebase_at_launch() -> None:
                   f"{SIGN_IN_SITE} contains no {hook!r}: configuring Firebase must "
                   "be reached by pressing a button, not by a view appearing")
 
-    app_entry = (ROOT / "ios/Scoranger/ScorangerApp.swift").read_text()
+    # CODE, not prose. A comment in ScorangerApp.swift explaining that it does
+    # NOT configure Firebase used to fail this, which is the check being wrong
+    # about its own subject: what matters is whether launch REACHES Firebase.
+    app_entry = strip_comments(
+        (ROOT / "ios/Scoranger/ScorangerApp.swift").read_text())
     check("Firebase" not in app_entry,
-          "ScorangerApp.swift does not mention Firebase: launch is the one path "
+          "ScorangerApp.swift does not USE Firebase: launch is the one path "
           "every signed-out reader takes")
 
 

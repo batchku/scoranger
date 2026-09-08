@@ -116,13 +116,12 @@ final class SignIn: ObservableObject {
     /// credential error.
     private var appleNonce: String?
 
-    func appleRequest() -> ASAuthorizationAppleIDRequest {
+    /// The value to put on Apple's request: the HASH. The raw one is kept
+    /// here for Firebase to verify against, and the two must not be swapped.
+    func prepareAppleNonce() -> String {
         let nonce = Self.randomNonce()
         appleNonce = nonce
-        let request = ASAuthorizationAppleIDProvider().createRequest()
-        request.requestedScopes = [.fullName, .email]
-        request.nonce = Self.sha256(nonce)
-        return request
+        return Self.sha256(nonce)
     }
 
     func completeApple(_ authorization: ASAuthorization) async {

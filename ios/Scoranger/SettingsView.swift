@@ -106,6 +106,10 @@ struct SettingsView: View {
                     .accessibilityIdentifier("repair-titles-result")
             }
 
+            // Optional, and placed where somebody would go looking for it
+            // rather than where it would interrupt them.
+            AccountSection()
+
             BandHeader("About")
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {
                 // The build stamp had no home once Home went, and a tester who

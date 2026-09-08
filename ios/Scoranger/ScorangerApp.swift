@@ -3,6 +3,10 @@ import SwiftUI
 @main
 struct ScorangerApp: App {
     @StateObject private var state = AppState()
+    /// The account. Constructed at launch and INERT until
+    /// somebody presses a sign-in button: constructing it does
+    /// not configure Firebase (design/FIREBASE.md §0.2).
+    @StateObject private var signIn = SignIn()
 
     /// The one moment a test's reset can be total.
     ///
@@ -18,6 +22,7 @@ struct ScorangerApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(state)
+                .environmentObject(signIn)
                 // Paper & Clay is a single fixed light palette: every surface is
                 // a hard hex value with no dark variant. Left to follow the
                 // system, dark mode kept the light surfaces but handed every

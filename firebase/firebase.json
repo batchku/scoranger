@@ -18,5 +18,12 @@
     "ui": {
       "enabled": false
     }
-  }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22"
+    }
+  ]
 }
