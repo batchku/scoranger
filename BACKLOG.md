@@ -644,35 +644,60 @@ nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
 UI test -- scroll the strip mid-performance, assert the Sync chip appears and
 the strip stays where it was put.
 
-## The app counts one more system than the engine does, on one page
+## PaginationAfterAnOp's system count passes and fails for reasons nobody chose
 
-`PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` fails: the app
-reports `pages=5 systems=5,6,6,6,3` (26) for the accordion solo as imported and
-the test asserts the engine's 25.
+`PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` compares the app's
+per-page system count against a hard-coded 25 that the engine reports for the
+accordion solo. Measured, three ways, and the results do not agree with each
+other:
 
-**Not a 0.6.20 regression, and this is measured rather than argued.** Every
-input to that number is byte-identical to `afa0c572`, which is 0.6.19 build 179
-and already on the phone: `ScoreGeometry.swift` (which computes
-`systemsPerPage`), `ContentView.swift` (which surfaces the probe),
-`ScoreBarLayout.swift`, `EngravingOptions.swift`, and the test itself. 0.6.20
-changed `SpreadLayout`, `ScorePagesView`, `LibraryView` and two playback files,
-and none of them can reach it -- the engraved page width is the fixed constant
-`EngravingOptions.pageWidthTenthsMM = 2159`, so the landscape margin work
-changes how a page is FITTED and not how it is BROKEN INTO LINES, and the probe
-reads the engine's bar frames rather than anything on screen.
+- **Run alone, it fails 3 times out of 3**, deterministically, in ~22s:
+  `pages=5 systems=5,6,6,6,3` -- 26.
+- **In the sharded gate it PASSED**, in ~70s: `pages=9 systems=3,3,3,2,3,3,3,3,2`
+  -- 25. Same binary, same xctestrun, same simulator UDID.
+- **The engine, re-measured**, reports 25 both on the raw `.mxl` (5 pages,
+  `5,6,6,6,2`) and on the imported v001 (5 pages, `5,6,6,5,3`).
 
-The engine's own count, re-measured on this branch, is 25 both on the raw
-`.mxl` (`5,6,6,6,2`) and on the imported v001 (`5,6,6,5,3`) -- so the
-hard-coded 25 is current, not stale, and the app is over-counting by one.
+So the hard-coded 25 is current, and the app produces EITHER 25 or 26 depending
+on something the test does not control.
 
-Where to look: `BarPosition.systems(of:)` groups bar frames into systems, and
-`check_bar_frames.py` already records the hazard that makes this likely --
-Verovio nests a slur inside the measure it starts in and a group's frame is the
-union of what it contains, so one bar's frame can be much wider than the bar.
-A single bar whose frame straddles two rows would split one system into two,
-which is exactly an over-count of one. Unverified; it is the first hypothesis
-to test, not a diagnosis.
+**It is not the viewport, and this is worth writing down because it is the
+obvious wrong answer.** `EngravingOptions` fixes every page-setup value --
+width 2159, height 2794, scale 45, all four margins -- and `adjustPageHeight`
+is true only for the continuous strip. Paged engraving cannot vary with the
+window, so 9 pages and 5 pages are not two fits of one engraving. They are two
+different engravings, which means **the music differed**: the library state the
+test found was not the same in the two runs, despite
+`-resetLibrary -seedTestLibrary`.
 
-Worth doing because the test is the observable for issue #4 (pagination
-collapse), and while it is off by one every number under it is a number about
-the inference rather than about the score.
+That makes this a TEST ISOLATION problem before it is a pagination problem, and
+the consequence is the part that matters: **the gate's green on this test is not
+evidence.** It passed with a pagination nobody expected, on a library nobody
+intended, and a run alone fails. A test that passes under load and fails idle is
+reporting on the harness.
+
+Where to look, in order:
+1. Whether `-resetLibrary -seedTestLibrary` actually completed before the probe
+   was read, or whether the 240s waits let a partially seeded library through.
+   The seeding path already has form here: `seedOutcome` exists because a
+   `pull-part` that failed was invisible and three preconditions were written
+   before one of them noticed.
+2. Whether a preceding test on the same simulator left the fixture carrying a
+   guitar tab or fingering row. Both add lyric verses, both make systems
+   taller, and taller systems are exactly how 25 systems land on 9 pages
+   instead of 5.
+3. Only then the app's own inference, `BarPosition.systems(of:)`.
+   `check_bar_frames.py` records the hazard -- Verovio nests a slur inside the
+   measure it starts in and a group's frame is the union of what it contains --
+   so one over-wide bar frame straddling two rows would split one system into
+   two, which is an over-count of exactly one.
+
+**Not a 0.6.20 regression.** Every file feeding that number is byte-identical to
+`afa0c572`, which is 0.6.19 build 179 and already on the phone:
+`ScoreGeometry.swift` (which computes `systemsPerPage`), `ContentView.swift`
+(which surfaces the probe), `ScoreBarLayout.swift`, `EngravingOptions.swift`,
+and the test itself.
+
+Worth doing because this test is the observable for issue #4 (pagination
+collapse). While it can pass for the wrong reason, nothing it says about #4 can
+be believed either way.
