@@ -13,9 +13,14 @@ const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 initializeApp();
 const db = getFirestore();
 
-// §8.2 guard rail 2. Enforced here AND in the rules; this is the one that can
-// count members transactionally.
-const MEMBERSHIP_CAP = 12;
+// §8.2 guard rail 2, and the one enforcement point that can count members
+// transactionally -- the rules refuse every client write to the membership map,
+// so this Function is the only way in.
+//
+// ELEVEN: the owner states the limit as an inequality, "groups of UNDER 12
+// people" and "the <12-member cap". Keep this in step with
+// SetlistPermission.membershipCap, which carries the reasoning.
+const MEMBERSHIP_CAP = 11;
 
 /// Claim an invitation. The only way to become a member.
 exports.claimInvite = onCall({ region: "us-west1" }, async (request) => {

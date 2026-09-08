@@ -60,6 +60,108 @@ The six principles, as given:
 > 6. There must be an option to share an arrangement OR a setlist with someone
 >    else WITHOUT internet/cloud -- via AirDrop or other local means.
 
+### 0.0 The six answers, 2026-09-08
+
+The six open questions §12 recorded were put to the owner and answered. They are
+quoted here because three of them overturn something this document decided, one
+of them makes a permission model that was already implemented correct, and one
+adds a feature with no design at all yet.
+
+> 1. **COPYRIGHT:** ship with NO scores bundled, and sharing is limited to
+>    groups of UNDER 12 people. That's the whole posture -- private small-group
+>    sharing, no distribution of copyrighted content, no bundled library.
+>    Enforce the <12-member cap on a shared setlist/group.
+> 2. **PERMISSIONS:** only the ONE person who created the setlist (the owner)
+>    can remove MEMBERS. ANY member in the setlist can remove PIECES/entries.
+> 3. **INVITE / SHARING:** share by URL or QR code. Sharing must ALSO work with
+>    NO INTERNET -- offline via AirDrop/local transfer + QR handoff, per
+>    principle 6.
+> 4. **OMR MONTHLY CAP:** none. No per-user OMR quota.
+> 5. **OWNER DELETES ACCOUNT:** transfer setlist ownership to the NEXT person
+>    who was invited to that setlist -- ownership passes down the invite order.
+> 6. **OWN-LIBRARY SYNC:** in 0.7, not deferred to 0.8.
+
+| # | What it settles | What changes |
+|---|---|---|
+| 1 | The rights posture, entire | **The cap is ELEVEN, not twelve** (§0.4 below), and **no build may bundle a score** -- which was not true and had to be fixed (§0.11). §8 and §12.8 are rewritten around a posture that is now stated rather than inferred |
+| 2 | Who removes what | **Already implemented and now confirmed correct**: `membersMayRemoveEntries = true`, `membersMayRemoveMembers = false`, owner alone deletes the set list. §12.9 closes with no code change |
+| 3 | How somebody joins | **URL and QR, and a fully offline path.** The URL exists; QR and the offline join are new. §13.5 is new and says what offline joining can and cannot mean |
+| 4 | OMR quota | **No per-user cap.** §11.4's page cap is struck. Token attribution is NOT struck -- see §0.12 |
+| 5 | Succession | **New.** Invite ORDER becomes stored, ordered data, and an owner deleting their account promotes the next-invited member. §6.6 is new; §12.6 closes |
+| 6 | Own-library sync | **Moves into 0.7.** §11.7 was the last increment and is now inside the line rather than after it |
+
+### 0.4 The cap is eleven
+
+Stated as an inequality, twice: *"groups of UNDER 12 people"* and *"the
+<12-member cap"*. Under twelve is eleven, and `SetlistPermission.membershipCap`
+is 11.
+
+It was 12, because the number reached the code through the phrase "a cap of
+twelve" and nobody wrote the inequality down. The inequality is what the owner
+wrote, and on a limit whose entire purpose is to keep private sharing from
+becoming distribution, the stricter of two readings is the right default. If
+twelve was meant, one constant and one test change.
+
+**Eleven INCLUDING the owner.** A group is the people in it.
+
+It is enforced in exactly one place that can be trusted -- `claimInvite`, which
+counts members inside a transaction -- because the security rules refuse every
+client write to the membership map and the client's own constant is therefore
+advisory. `testTheFunctionEnforcesTheSameCapThisAppShows` reads the number out
+of `firebase/functions/index.js` and fails if the two drift, because a silent
+mismatch fills a group to the server's number while the app keeps offering to
+invite.
+
+### 0.11 Principle 1 of the copyright answer was not true, and is now
+
+*"Ship with NO scores bundled."* This was already the intent and was not the
+fact. The `Bake UI-test fixtures` build phase copied
+`testdata/app-samples/` into the app bundle in **every configuration**, so
+Release carried it too.
+
+**Verified in the shipped artifact, not inferred.** 0.6.20 build 180 --
+uploaded to TestFlight on 2026-09-08 -- contains
+`Scoranger.app/samples-seed/` holding all four fixtures, 788 KB: two editions of
+"Sous le ciel de Paris", a Hubert Giraud composition, one of them an arrangement
+by Gheorghe Branici, as both `.mxl` and `.pdf`.
+
+Nobody ever saw them; they are seeded only under `-seedTestLibrary`. They were
+inside every copy of the binary regardless, which is distribution whether a
+screen shows them or not.
+
+**The comment is how it survived.** The phase said "NOT a shipped feature: a
+fresh install starts with an empty library. These files exist only so the UI
+tests have deterministic content." True of the LIBRARY, false of the BUNDLE, and
+sitting directly above the two lines that did it. Prose is not a guard.
+
+Fixed: the copy is gated on `$CONFIGURATION`, and a non-Debug build actively
+removes any `samples-seed` an incremental build left behind. Proven with a
+Release build. `check_no_bundled_scores.py` is the release gate and it inspects
+the ARTIFACT, not only the script -- the script is what should be right, the
+artifact is what ships.
+
+Build 180 is internal TestFlight, to the owner and his son, of the owner's own
+purchased material, so the practical exposure is his own music reaching his own
+household. **It must not go to an external tester or to App Review as it
+stands.** The next build does not carry them.
+
+### 0.12 What answer 4 does and does not strike
+
+*"No per-user OMR quota."* So §11.4's per-user monthly page cap is struck, and
+nothing counts pages.
+
+**The token migration is not struck, and this is a disagreement worth stating
+rather than quietly resolving.** §11.4 called moving `omr-service` off its baked
+shared header key onto a verified Firebase ID token "not optional", and the
+reason was never the quota -- it was attribution. A single key compiled into
+every install means any copy of the app can spend the owner's OMR budget, and
+nothing in a log says which install did. That argument is unaffected by there
+being no per-user limit; a bucket with no meter still has a bottom.
+
+So: no cap, keep the verified token. If the owner wants the key left alone too,
+that is his call and it is one line -- but it should be a decision and not a
+side effect of the cap going away.
+
 ### 0.1 What each principle changes
 
 | # | The principle | What the 2026-08-30 document said | What it says now |
@@ -1021,6 +1123,61 @@ generalise the fractional index where it is not needed.
 
 ---
 
+### 6.6 Succession: who owns a set list when its owner leaves
+
+Answer 5: *"transfer setlist ownership to the NEXT person who was invited to
+that setlist -- ownership passes down the invite order."*
+
+This closes §12.6, which had been open since 2026-08-30 with no good answer. The
+alternatives were all worse: a set list with no owner has nobody who can delete
+it, deleting it with the account destroys other people's markup, and asking a
+departing user to nominate a successor puts a decision in front of somebody who
+is in the middle of leaving.
+
+**Invite order becomes stored, ordered data.** Today `invites/{id}` carries
+`invitedAt`, and `memberships/{uid}_{setlistId}` carries `joinedAt`. Neither is
+the right key:
+
+- `invitedAt` is the order people were ASKED, which is the order the answer
+  names -- but invites are deletable and revocable, so the record can vanish
+  while the member remains.
+- `joinedAt` is the order people ACCEPTED, which is a different order. Somebody
+  invited first and slow to accept would be skipped.
+
+So `claimInvite` stamps a **`succession` integer** on the membership document,
+taken from the setlist's own monotonic counter and allocated in the same
+transaction that admits the member. The owner is 0. It never changes, it never
+reuses a number even after somebody leaves, and it survives the invite being
+deleted. Ordering by a stored integer rather than by a timestamp also removes
+the tie a same-second double-accept would otherwise create.
+
+**A `transferOwnership` Function**, owner-only or triggered by account deletion,
+which in one transaction:
+
+1. reads the members and picks the lowest `succession` that is not the current
+   owner;
+2. sets that member's role to `owner` and the setlist's `ownerId`;
+3. demotes the departing owner to `member`, or removes them if they are leaving
+   for good.
+
+**And the case the answer does not cover: a set list whose owner is its only
+member.** There is nobody to promote. That set list is deleted with the account,
+because there is no other person's work in it to protect -- which is the one
+place where deleting on account deletion is the right answer rather than the
+lazy one.
+
+**Account deletion is a Function and not a client loop.** A client that walked
+its own set lists promoting successors would need write access to membership
+maps, which is the one thing §4.4 refuses it. It also has to run to completion:
+a client killed halfway leaves set lists owned by a deleted account, which is
+precisely the state §12.6 was worried about.
+
+*Proves it:* a set list with three members promotes the second-invited when the
+owner goes, not the second to accept; a `succession` number is never reused; the
+sole-member set list is deleted rather than orphaned; a member cannot call
+`transferOwnership`; and the promotion is atomic under a concurrent invite
+claim.
+
 ## 7. The conflict model
 
 Stated as rules a person could predict, in the order they matter.
@@ -1661,6 +1818,97 @@ sources refused a share path outright. **That covers a household. It does not
 cover a band, and it does not cover strangers.** Before this reaches anybody
 outside the household, §12.8 is a gate and not a caveat.
 
+### 11.10 Re-sequenced for the six answers, 2026-09-08
+
+§11.1-§11.7 were written before the answers and §11.9 records what 0.7.0
+actually built. This replaces the plan from here on. It is ordered by what
+BLOCKS what, not by size.
+
+**Two things gate every 0.7 build, and neither is negotiable.** They are listed
+first because they are release blockers, not work items.
+
+| # | Blocker | State |
+|---|---|---|
+| B1 | **No score bundled in a Release build.** Answer 1. | **FIXED** (§0.11), gated by `check_no_bundled_scores.py`, proven with a Release build. Build 180 still carries them and must not reach an external tester or App Review |
+| B2 | **The 0.6.x line is fully clear.** Standing rule. | **NOT CLEAR.** 0.6.20 build 180 is VALID on TestFlight, but `PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` fails 3/3 run alone and PASSED in the sharded gate on a different pagination -- a test-isolation defect, so its green is not evidence either way (`BACKLOG.md`). 0.6.x is not clear while a release gate can pass for the wrong reason |
+| B3 | **The deploy preflight works.** | **FIXED.** It scraped the vendored module list out of `vendor_engine.sh` with a `sed` that stopped matching when that script began deriving the closure, so every deploy died reading its own input. Now calls `check_vendored_engine.py`. Verified both directions |
+
+#### 0.7.1 -- The rights posture, and the things that block shipping
+
+Everything above, plus what answer 1 implies beyond the bundle:
+
+- **The <12 cap**, at eleven, in the client and in `claimInvite`, with the test
+  that reads the server's number so the two cannot drift (§0.4). **Done in
+  code; the deployed Function still enforces 12 until it is redeployed**, and
+  redeploying is live infrastructure and therefore the owner's call.
+- **§12.8's stop condition.** A terms of service, and the rights gate read by
+  somebody who is not an engineer. Answer 1 is the posture the ToS states, so
+  this is now writable where before it was blocked on the posture.
+- The OMR token migration of §0.12 -- **no cap, keep attribution.**
+- Trim music21's 274 KB of test fixtures from the bundle (§0.11). Hygiene.
+
+*Why first:* B1, B2 and the cap are the only items in the whole line that can
+make a build wrong rather than incomplete.
+
+#### 0.7.2 -- QR, and joining with no internet
+
+Answer 3, the half that does not exist. §13.6.
+
+- The invite URL as a **QR code**, and a camera path that reads one. No new
+  server work: a QR is the URL.
+- **The offline join:** a `.scorbundle` carrying a set list plus a queued
+  `inviteId`; content immediately, membership when the network returns; and the
+  reconciliation that stops a later claim producing a second copy.
+- The three-button share sheet that names each consequence.
+
+*Why here:* it is principle 6, it needs no schema change, and it is the only
+part of the sharing story a person can use in a room with no signal.
+
+#### 0.7.3 -- Succession
+
+Answer 5. §6.6.
+
+- A `succession` integer allocated in `claimInvite`'s transaction; owner 0,
+  never reused, independent of the deletable invite record.
+- A `transferOwnership` Function, and account deletion that walks the owner's
+  set lists server-side.
+- The sole-member set list deleted with the account rather than orphaned.
+
+*Why after 0.7.2:* it is the only remaining item that changes the schema, and it
+is easier to add a field before there is a second device's data to migrate than
+after.
+
+#### 0.7.4 -- Your own library on your other iPad
+
+Answer 6, moved into the line from §11.7.
+
+- The `JournalingRepository` installed on sign-in, `VersionGraph`/`SyncMerge`/
+  `HoldingPolicy` wired to real documents, artifacts to Storage under
+  `libraries/{libraryId}/`.
+- The 24:1 compression measurement of §1 is what makes this affordable and it
+  should be re-measured against a real library before it ships.
+
+*Why last:* it is the largest piece, it is the one the owner deprioritised in
+answer 2's re-sequencing and has now asked back into 0.7, and **it is the only
+increment that can lose data.** Sharing writes copies; this writes the library
+itself. It goes last so it is never the thing being debugged at the same time as
+something else.
+
+#### What answer 2 changed: nothing
+
+*"Only the owner can remove MEMBERS. ANY member can remove PIECES/entries."*
+Already the implemented model and already enforced:
+`SetlistPermission.membersMayRemoveEntries = true`,
+`membersMayRemoveMembers = false`, `.deleteSetlist` a literal `false` for
+members, and the rules and `removeMember` agreeing. §12.9 closes with no code
+change. Recorded because "no change needed" is a result.
+
+#### Still deferred past 0.7
+
+The band layer (§6.3, §0.6), presence, page-follow, public links (recommended
+never), a web client, the hosted agent loop, and shared ink in the continuous
+strip -- which draws no ink at all today and inherits that (§11.9).
+
 ### 11.8 What must not be done before the owner says so
 
 Recorded here because the sequence above is a plan and not a licence:
@@ -2141,3 +2389,83 @@ What the design does about it:
 - **Nothing is recorded**, because there is no server to record it on. A bundle
   leaves no trail, which is a property of the mechanism and worth the owner
   knowing rather than discovering.
+
+### 13.6 Joining a set list: URL, QR, and with no internet at all
+
+Answer 3: *"share by URL or QR code"*, and *"sharing must ALSO work with NO
+INTERNET -- offline via AirDrop/local transfer + QR handoff, per principle 6."*
+
+Three transports, and the important thing is that they do not all deliver the
+same thing. **Two of them share ACCESS and one shares CONTENT, and conflating
+them would promise something the platform cannot do.**
+
+#### The URL, which exists
+
+`scoranger://invite?id=<inviteId>`, built and parsed by `SharedInviteLink`. The
+link is not a permission: it names an invitation addressed to one verified email
+address and `claimInvite` refuses it from anybody else (§8.2 guard rail 1). It
+travels over whatever the inviter already uses. Built in 0.7.0.
+
+#### The QR code, which is the same URL
+
+A QR code is an encoding of that URL and nothing more, so it inherits every
+property above and needs no new server work: render the invite URL as a QR on
+the inviter's screen, point the other iPad's camera at it, and the second device
+follows the same `onOpenURL` path a tapped link does. `CIQRCodeGenerator` and
+`AVCaptureMetadataOutput`; no dependency.
+
+**It is worth having precisely because of the offline case**, which is why the
+owner names them together. Two iPads in a room with no network cannot exchange a
+tapped link -- there is no messaging app to tap it in -- but a camera pointed at
+a screen is a working data channel with no infrastructure whatever.
+
+#### Offline: what it can and cannot mean
+
+**It cannot grant cloud access.** Membership lives in a Firestore document that
+only `claimInvite` may write, and no amount of local transfer can write it. A
+design that pretended otherwise would either need the client to write membership
+maps -- the one thing §4.4 refuses -- or hand out a bearer token that works
+without the server, which is exactly the link-as-permission model §8.2 rules
+out. So:
+
+**Offline sharing hands over CONTENT, immediately and completely, and QUEUES the
+membership.** The two halves are separate and both are honest:
+
+1. **The content is a `.scorbundle`** over AirDrop -- the set list, its entries,
+   and every participant's ink, per §13.1-13.4. The receiving device can open,
+   read, play and annotate all of it, offline, forever, with no account. That is
+   principle 1 and it is the half that matters at a rehearsal.
+2. **The membership is a queued claim.** The bundle carries the `inviteId` (or
+   the QR does), the receiving device stores it as a pending invite, and the
+   claim runs the next time that device has both a network and an account. If it
+   never does, nothing breaks: the recipient keeps a full working copy that
+   simply is not live.
+
+**What the reader is told, in these words rather than in a spinner:** *"You have
+the whole set list and you can mark it up now. Once you're online and signed in,
+your changes will start syncing with the others."* A queued claim that presented
+itself as joined would show a running order that silently never updates, which
+is worse than saying so.
+
+**The bundle's copy and the shared entry are reconciled, not duplicated.** A
+device that receives a bundle offline and later claims the invite must not end
+up with the set list twice. The bundle records the `setlistId` and each entry's
+id, so the claim adopts the local copies as those entries' cached content --
+`SharedEntryCopies` already maps entry to local slug and this writes that map
+ahead of time rather than after a download. The bytes are already on the device;
+the claim only makes them live.
+
+*Proves it:* a bundle imported with no network and no account yields a readable,
+annotatable set list; the pending claim survives a relaunch; claiming it later
+produces exactly one set list and re-downloads nothing; a bundle whose invite
+was revoked in the meantime still leaves the content readable and says the
+invitation is gone; and two devices that both received the same bundle offline
+each claim their own invitation without colliding.
+
+#### Which transport a person actually picks
+
+They do not pick. The share sheet offers one action per situation and names the
+consequence: **Invite somebody** (needs a network, they get access), **Show a QR
+code** (needs a camera and a network on one of the two devices, same outcome),
+and **Send a copy** (needs neither, they get the music now and access later).
+Three buttons, three sentences, no mode.

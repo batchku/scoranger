@@ -421,9 +421,11 @@ struct SharedSetlistScreen: View {
                 .padding(.horizontal, Theme.Metric.s16)
                 .frame(minHeight: Theme.Metric.hitTarget)
             }
-            PanelNote(text: "Up to \(SetlistPermission.membershipCap) people in "
-                      + "a set list. Everybody can add, reorder and mark up; "
-                      + "only whoever made it can delete it.")
+            PanelNote(text: "Up to \(SetlistPermission.membershipCap) people in a "
+                      + "set list, owner included. Everybody can add, "
+                      + "reorder, invite and mark up, and anybody can take a "
+                      + "piece out; only whoever made it can remove people "
+                      + "or delete the set list.")
                 .padding(Theme.Metric.panelPadding)
         }
     }

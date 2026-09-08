@@ -64,17 +64,47 @@ final class SetlistSharingTests: XCTestCase {
 
     // MARK: - the cap
 
-    /// Twelve, and it matters more under the flat model than it did before:
-    /// owner-only invitation was itself a brake on growth, and member
-    /// invitation removes it (§8.2 guard rail 2, §0.5).
-    func testTheTwelfthPersonFitsAndTheThirteenthDoesNot() {
-        XCTAssertEqual(SetlistPermission.membershipCap, 12)
+    /// UNDER TWELVE, which is eleven, and the number is asserted literally.
+    ///
+    /// It matters more under the flat model than it did before: owner-only
+    /// invitation was itself a brake on growth and member invitation removes it
+    /// (§8.2 guard rail 2, §0.5). And it is a COPYRIGHT limit rather than a
+    /// capacity one -- "private small-group sharing, no distribution of
+    /// copyrighted content" -- so it is asserted as a value and not merely as a
+    /// relation: a test that only checked `mayAdmit(cap) == false` would pass
+    /// just as happily at 12, or at 200.
+    func testTheEleventhPersonFitsAndTheTwelfthDoesNot() {
+        XCTAssertEqual(SetlistPermission.membershipCap, 11,
+                       "the posture is groups of UNDER 12 people")
         XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 0))
-        XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 11),
-                      "a band of eleven cannot add its twelfth")
-        XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 12),
-                       "the cap does not hold")
+        XCTAssertTrue(SetlistPermission.mayAdmit(currentCount: 10),
+                      "a group of ten cannot add its eleventh")
+        XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 11),
+                       "eleven is the limit, so a twelfth cannot be admitted")
         XCTAssertFalse(SetlistPermission.mayAdmit(currentCount: 40))
+    }
+
+    /// The client's cap and the server's are the same number.
+    ///
+    /// The Function is the ONLY thing that can enforce it -- the rules refuse
+    /// every client write to the membership map, and only the Function counts
+    /// members inside a transaction. So the constant in this app is advisory,
+    /// and if the two ever disagree the server wins silently: a group would
+    /// fill to the server's number while the UI kept offering to invite.
+    /// Read out of the deployed source rather than restated.
+    func testTheFunctionEnforcesTheSameCapThisAppShows() throws {
+        let index = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // ScorangerTests
+            .deletingLastPathComponent()   // ios
+            .deletingLastPathComponent()   // repo root
+            .appending(path: "firebase/functions/index.js")
+        let source = try String(contentsOf: index, encoding: .utf8)
+        XCTAssertTrue(
+            source.contains("MEMBERSHIP_CAP = \(SetlistPermission.membershipCap);"),
+            "firebase/functions/index.js must enforce "
+            + "\(SetlistPermission.membershipCap); the server is what actually "
+            + "counts members, and a mismatch fills the group past the limit "
+            + "this app advertises")
     }
 
     // MARK: - invitations

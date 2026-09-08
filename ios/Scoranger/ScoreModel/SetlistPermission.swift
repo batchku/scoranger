@@ -59,7 +59,21 @@ enum SetlistPermission {
     /// flat model, not less: owner-only invitation was itself a brake on
     /// growth, and member invitation removes it, so this is the only structural
     /// limit left between a band and a mailing list.
-    static let membershipCap = 12
+    /// The most people one shared set list may have, INCLUDING its owner.
+    ///
+    /// Eleven, because the owner's copyright posture is stated as an
+    /// inequality: *"sharing is limited to groups of UNDER 12 people"*, and
+    /// *"Enforce the <12-member cap"*. Under twelve is eleven. It was 12 while
+    /// the number was carried in prose as "a cap of twelve"; the inequality is
+    /// the version that was written down twice, and on a limit whose whole
+    /// purpose is to keep private sharing away from distribution, the stricter
+    /// reading is the right default.
+    ///
+    /// It is a COPYRIGHT limit and not a capacity limit, which is why it is
+    /// here beside the permission model rather than in a config: the posture is
+    /// "private small-group sharing, no distribution of copyrighted content, no
+    /// bundled library", and this number is the "small group" half of it.
+    static let membershipCap = 11
 
     /// Whether a member may remove an entry another member added. §12.9, OPEN.
     ///
