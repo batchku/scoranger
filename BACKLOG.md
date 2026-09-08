@@ -619,13 +619,27 @@ user-visible failure has either already happened or would go unnoticed.
   every test green.
 - **Export from the app UI** (the engine-side export is covered).
 
-## Continuous view: follow does not consult pageFollow
+## Continuous view: follow does not consult pageFollow -- DONE, and this entry
+## was stale
 
 Paged view answers a manual page turn with the Sync chip -- the music keeps
 playing, the page stays where the reader put it, and following resumes only when
-they ask. Continuous view has no such gate: scrolling away during playback is
-still snapped back, which is the behaviour 0.6 removed everywhere else.
+they ask. This said continuous view had no such gate.
 
-Not a regression -- the playhead in continuous view is follow-up scope and the
-paged path cannot reach this code. It becomes wrong the moment the cursor lands
-there, so it belongs in the same change.
+**It has had one since 6db130a2 ("The play head's handle can be dragged"), which
+shipped in 0.6.19 build 179.** `ContinuousPlayheadLayer.follow()` guards on
+`isFollowing`, and `readerScrolled()` -- wired to the canvas's `onUserScroll`,
+which carries the continuous strip as well as the paged canvas -- calls
+`state.readerTurnedPage()` and forgets the scroller's target. A hand on the
+strip during playback yields following and raises the Sync chip, the same state
+and the same rule as a paged turn.
+
+Checked before writing a second fix for it, which is the only reason this note
+exists: the entry outlived the work, and the next reader would have implemented
+it twice.
+
+WHAT IS STILL MISSING is a test, and it is view-level: `PageFollowTests` covers
+the model, so `readerTurnedPage()` clearing `isFollowing` is asserted, but
+nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
+UI test -- scroll the strip mid-performance, assert the Sync chip appears and
+the strip stays where it was put.

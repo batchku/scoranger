@@ -139,8 +139,13 @@ targets:
         #          (design/MIXER_WINDOW.md). Pagination moves to 0.6.13.
         #   0.6.13 images (JPG/PNG/HEIC) import as scores, on the PDF's own
         #          path. Pagination moves to 0.6.14.
+        #   0.6.20 the 0.6.x work that never reached a build: chord symbols
+        #          heard as notes from a names-only staff, two staves of one
+        #          name shown as one strip, and the OMR progress fix deployed
+        #          at last. Cut from 0.6.19 and NOT from dev, which carries
+        #          0.7's sharing work
         CURRENT_PROJECT_VERSION: 179
-        MARKETING_VERSION: 0.6.19
+        MARKETING_VERSION: 0.6.20
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
