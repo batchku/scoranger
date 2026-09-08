@@ -366,7 +366,11 @@ def apple_sign_in_never_swallows_its_errors() -> None:
     check("appleIsAvailable" in source,
           "availability is a property, so the button can be disabled with a "
           "reason rather than looking live and doing nothing")
-    check("embedded.mobileprovision" in source
+    # Both halves of the filename, because the code names them separately as
+    # `forResource:` and `withExtension:` -- the contiguous string
+    # "embedded.mobileprovision" never appears, which is how the first version
+    # of this assertion failed against correct code.
+    check('"embedded"' in source and '"mobileprovision"' in source
           and "com.apple.developer.applesignin" in source,
           "availability is read from the app's OWN embedded.mobileprovision, "
           "so the button starts working when the capability is enabled with no "
