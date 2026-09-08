@@ -665,13 +665,49 @@ The engine's own count, re-measured on this branch, is 25 both on the raw
 `.mxl` (`5,6,6,6,2`) and on the imported v001 (`5,6,6,5,3`) -- so the
 hard-coded 25 is current, not stale, and the app is over-counting by one.
 
-Where to look: `BarPosition.systems(of:)` groups bar frames into systems, and
-`check_bar_frames.py` already records the hazard that makes this likely --
-Verovio nests a slur inside the measure it starts in and a group's frame is the
-union of what it contains, so one bar's frame can be much wider than the bar.
-A single bar whose frame straddles two rows would split one system into two,
-which is exactly an over-count of one. Unverified; it is the first hypothesis
-to test, not a diagnosis.
+**It does not give the same answer twice, and that reorders the whole entry.**
+Measured three ways:
+
+- run ALONE, 3 times of 3: `pages=5 systems=5,6,6,6,3` -> 26, fails, in ~22s;
+- inside the sharded gate: `pages=9 systems=3,3,3,2,3,3,3,3,2` -> 25, PASSES,
+  in ~70s. Same binary, same xctestrun, same simulator UDID;
+- the engine, re-measured: 25 both on the raw `.mxl` and on the imported v001.
+
+So the hard-coded 25 is current, and the score was engraved two different ways.
+
+**Ruled out, so nobody spends the time twice:**
+
+- *The viewport.* `EngravingOptions` pins width (2159), height (2794), scale
+  (45) and all four margins, and `adjustPageHeight` is true only for the
+  continuous strip. Paged pagination cannot vary with the window.
+- *A leftover fixture from an earlier test.* `-resetLibrary` does a real
+  `FileManager.removeItem` on `Documents/workspace` inside
+  `PythonEngine.start()`, BEFORE the engine is configured -- so nothing an
+  earlier test did to the accordion solo survives into this one. This was the
+  leading hypothesis and it is wrong.
+
+**Where to look now, in order:**
+
+1. `lyricSize`. `EngravingOptions.json(lyricSize:continuous:)` takes it as a
+   parameter and `render.lyric_size_for(fingerings:)` returns a larger value
+   when fingerings are present. A bigger lyric size makes every system taller,
+   which is exactly how 25 systems land 3-to-a-page over 9 pages instead of
+   5-6 over 5. If the two runs engraved at different lyric sizes, that is the
+   difference, and the question becomes why.
+2. `BarPosition.systems(of:)`, which groups bar frames by rounded `top`.
+   `check_bar_frames.py` records the hazard: Verovio nests a slur inside the
+   measure it starts in and a group's frame is the union of what it contains,
+   so one over-wide bar frame straddling two rows splits one system into two --
+   an over-count of exactly one, which is the 26. The fragility is worse at 5-6
+   systems per page than at 3, which fits both observations.
+
+**SKIPPED in the gate as of 0.6.21**, with the reasoning in `gate.sh`'s SKIP
+list. Run serially it runs alone, which is the failing case, so quarantining it
+into the serial phase would turn every gate red without learning anything; and
+it cannot be loosened, because the number is the whole point. It is the
+observable built for issue #4, not a regression guard on shipped behaviour.
+**Restore it the moment its premise is sound** -- it is the measurement #4
+needs.
 
 Worth doing because the test is the observable for issue #4 (pagination
 collapse), and while it is off by one every number under it is a number about
