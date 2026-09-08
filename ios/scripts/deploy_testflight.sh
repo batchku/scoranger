@@ -60,26 +60,28 @@ say "sound bank: $(du -h "$BANK" | cut -f1), digest ${BANK_SHA:0:12}"
 # and shipped in the engine while the app carried an ops.py without it, so the
 # feature simply was not there on device and nothing said so.
 #
-# The list comes from vendor_engine.sh rather than being written out again
-# here. Not every engine module goes to the device -- render, server, chat and
-# cli are host-only, and the bridge stands in for them -- so "compare every
-# .py" would fail on files that are absent on purpose. But a list kept in two
-# places is a list that drifts, and this one only ever guarded the four modules
-# someone happened to write down.
-VENDORED=$(sed -n 's/^for f in \(.*\); do$/\1/p' scripts/vendor_engine.sh | head -1)
-[[ -n "$VENDORED" ]] || die "cannot read the vendored module list from scripts/vendor_engine.sh"
-for f in $VENDORED; do
-  [[ -f "PythonApp/app/scoranger_engine/$f" ]] \
-    || die "vendored $f is MISSING -- run scripts/vendor_engine.sh"
-  cmp -s "../engine/scoranger_engine/$f" "PythonApp/app/scoranger_engine/$f" \
-    || die "vendored $f is stale -- run scripts/vendor_engine.sh"
-done
-# and nothing else is sitting there from an older vendoring
-for got in PythonApp/app/scoranger_engine/*.py; do
-  f="$(basename "$got")"
-  [[ " $VENDORED " == *" $f "* ]] \
-    || die "vendored $f is not in vendor_engine.sh's list -- run scripts/vendor_engine.sh"
-done
+# ONE implementation, and it is not this one. `check_vendored_engine.py`
+# already derives the closure from what is actually vendored, compares every
+# module byte for byte against the engine source, and asserts the closure is
+# closed. Calling it beats a second copy of the same idea here.
+#
+# The second copy is why this is being written: the block that used to live
+# here scraped the module list out of vendor_engine.sh with
+#   sed -n 's/^for f in \(.*\); do$/\1/p'
+# and vendor_engine.sh stopped having a `for f in ...` line the day it started
+# DERIVING the closure instead of listing it. From then on the sed matched
+# nothing, the preflight died with "cannot read the vendored module list", and
+# no deploy could run at all -- found by deliberately staling a module to see
+# whether the check would catch it, and getting the wrong error. Fail-closed,
+# so nothing shipped stale; but a check that cannot read its own input is not
+# a check, and this one was one edit away from being deleted in frustration
+# rather than fixed.
+VENDOR_CHECK="../engine/scripts/check_vendored_engine.py"
+[[ -f "$VENDOR_CHECK" ]] || die "missing $VENDOR_CHECK"
+VENDOR_PY="../engine/.venv/bin/python"
+[[ -x "$VENDOR_PY" ]] || VENDOR_PY="$PY"
+"$VENDOR_PY" "$VENDOR_CHECK" \
+  || die "the vendored engine is stale or incomplete -- run scripts/vendor_engine.sh"
 
 [[ -f "$SIGNING_PROFILE" ]] || die "no provisioning profile at $SIGNING_PROFILE -- run scripts/bootstrap_signing.sh"
 [[ -f "$KEYCHAIN_PATH" ]]   || die "no signing keychain at $KEYCHAIN_PATH -- run scripts/bootstrap_signing.sh"
