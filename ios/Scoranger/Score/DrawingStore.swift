@@ -37,8 +37,21 @@ final class DrawingStore {
         return drawing
     }
 
+    /// Told about every save, if anybody is listening.
+    ///
+    /// This is how a shared set list's markup reaches the band: the pencil,
+    /// the canvas and the score view know nothing about the cloud, and the key
+    /// a drawing is saved under already carries which entry and which page it
+    /// belongs to (`SharedEntryCopies.entryAndPage`). Local-first is not a
+    /// posture here -- the write to disk is the real one and happens first,
+    /// and the push is what may fail.
+    ///
+    /// Nil for every signed-out reader, which is the default.
+    var onSave: ((String, PKDrawing) -> Void)?
+
     func save(_ drawing: PKDrawing, for key: String) {
         try? drawing.dataRepresentation().write(to: url(for: key))
+        onSave?(key, drawing)
     }
 
     /// Re-file every drawing of one arrangement under a new slug.

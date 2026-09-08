@@ -1,3 +1,4 @@
+import CoreGraphics
 import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
@@ -59,8 +60,19 @@ final class SharedSetlists: ObservableObject {
     /// adding are DISABLED with the reason shown, never a silent no-op.
     @Published private(set) var isStale = false
 
+    /// The band's markup for the entry currently OPEN, by user and page, plus
+    /// the page width each person drew at.
+    @Published private(set) var ink: [String: [Int: Data]] = [:]
+    @Published private(set) var inkWidths: [String: CGFloat] = [:]
+    /// Pages of my own layer that will not fit in one Firestore document, so
+    /// the screen can say which rather than losing them quietly.
+    @Published private(set) var inkPagesOverBudget: [Int] = []
+
     private var setlistsListener: ListenerRegistration?
     private var entriesListener: ListenerRegistration?
+    private var inkListener: ListenerRegistration?
+    /// Which entry's ink is open, so a save can be pushed to the right place.
+    private var openEntry: (setlist: String, entry: String)?
 
     private var db: Firestore { Firestore.firestore() }
     private var storage: Storage { Storage.storage() }
@@ -293,30 +305,44 @@ final class SharedSetlists: ObservableObject {
 
     /// One page of my own layer. Nobody ever writes anybody else's, which is
     /// what makes the ink conflict-free with no merge function (§6.3).
-    func writeInk(_ data: Data, entry: String, page: Int, in setlistId: String) async throws {
+    ///
+    /// `pageWidth` is the width the canvas was laid out at, in points, and it
+    /// is not optional in practice: a `PKDrawing`'s coordinates are in that
+    /// space, so a layer without it cannot be placed correctly on a device
+    /// with a differently sized page (`SharedInk.scale`).
+    ///
+    /// Merged, one page at a time, so writing page 4 does not have to send
+    /// pages 1 to 3 back -- and so two of my own devices writing different
+    /// pages of the same layer do not overwrite each other.
+    func writeInk(_ data: Data, entry: String, page: Int,
+                  pageWidth: CGFloat, in setlistId: String) async throws {
         guard let uid else { throw Trouble.signedOut }
         try await db.collection("setlists").document(setlistId)
             .collection("entries").document(entry)
             .collection("ink").document(uid)
             .setData(["layer": "personal",
+                      "pageWidth": Double(pageWidth),
                       "updatedAt": FieldValue.serverTimestamp(),
                       "pages": [String(page): data]], merge: true)
     }
 
-    /// Everybody's layers for one entry, keyed by user.
-    func readInk(entry: String, in setlistId: String) async throws -> [String: [Int: Data]] {
+    /// Everybody's layers for one entry: the pages, and the page width each
+    /// person's ink was drawn at.
+    func readInk(entry: String, in setlistId: String) async throws
+        -> (pages: [String: [Int: Data]], widths: [String: CGFloat]) {
         let snapshot = try await db.collection("setlists").document(setlistId)
             .collection("entries").document(entry).collection("ink").getDocuments()
         var layers: [String: [Int: Data]] = [:]
+        var widths: [String: CGFloat] = [:]
         for document in snapshot.documents {
-            let pages = document.data()["pages"] as? [String: Any] ?? [:]
-            layers[document.documentID] = pages.reduce(into: [:]) { out, pair in
-                if let page = Int(pair.key), let data = pair.value as? Data {
-                    out[page] = data
-                }
+            let data = document.data()
+            layers[document.documentID] =
+                SharedInk.decode(data["pages"] as? [String: Any] ?? [:])
+            if let width = data["pageWidth"] as? Double, width > 0 {
+                widths[document.documentID] = CGFloat(width)
             }
         }
-        return layers
+        return (layers, widths)
     }
 
     /// Fetch an entry's music to a local file, once.
@@ -330,6 +356,98 @@ final class SharedSetlists: ObservableObject {
         if FileManager.default.fileExists(atPath: destination.path) { return destination }
         _ = try await storage.reference(withPath: path).writeAsync(toFile: destination)
         return destination
+    }
+
+    // MARK: - the band's markup, live
+
+    /// Watch everybody's layers for one entry, and push mine as it is drawn.
+    ///
+    /// Both directions are set up together on purpose: an overlay showing the
+    /// band's marks while mine never leave this device is worse than no
+    /// sharing at all, because it looks like it is working.
+    ///
+    /// `pageWidth` is what a `PKDrawing`'s coordinates mean here, and it goes
+    /// out with every write -- see `SharedInk.scale` for what happens without
+    /// it.
+    func openInk(entry: String, in setlistId: String, store: DrawingStore,
+                 pageWidth: @escaping () -> CGFloat) {
+        guard FirebaseApp.app() != nil, uid != nil else { return }
+        openEntry = (setlistId, entry)
+        inkListener?.remove()
+        inkListener = db.collection("setlists").document(setlistId)
+            .collection("entries").document(entry).collection("ink")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error { self.trouble = error.localizedDescription; return }
+                var pages: [String: [Int: Data]] = [:]
+                var widths: [String: CGFloat] = [:]
+                for document in snapshot?.documents ?? [] {
+                    let data = document.data()
+                    pages[document.documentID] =
+                        SharedInk.decode(data["pages"] as? [String: Any] ?? [:])
+                    if let width = data["pageWidth"] as? Double, width > 0 {
+                        widths[document.documentID] = CGFloat(width)
+                    }
+                }
+                self.ink = pages
+                self.inkWidths = widths
+            }
+
+        store.onSave = { [weak self] key, drawing in
+            guard let self,
+                  let found = SharedEntryCopies.entryAndPage(forDrawingKey: key),
+                  found.entry == entry else { return }
+            let data = drawing.dataRepresentation()
+            Task { @MainActor in
+                await self.push(data, page: found.page, entry: entry,
+                                setlistId: setlistId, pageWidth: pageWidth())
+            }
+        }
+    }
+
+    /// Stop watching, and stop pushing. Called when the score closes: a store
+    /// hook left installed would push a LOCAL arrangement's markup to whatever
+    /// entry happened to be open last.
+    func closeInk(store: DrawingStore) {
+        store.onSave = nil
+        inkListener?.remove()
+        inkListener = nil
+        openEntry = nil
+        ink = [:]
+        inkWidths = [:]
+        inkPagesOverBudget = []
+    }
+
+    private func push(_ data: Data, page: Int, entry: String,
+                      setlistId: String, pageWidth: CGFloat) async {
+        // Measured against the document budget BEFORE the write, because
+        // Firestore's answer to an oversized document is a rejected write and
+        // this needs to be a page number a person can be told (§11.6,
+        // `SharedInkSizeTests`).
+        var mine = ink[uid ?? ""] ?? [:]
+        mine[page] = data
+        let over = SharedInk.pagesOverBudget(mine)
+        inkPagesOverBudget = over
+        guard !over.contains(page) else { return }
+        do {
+            try await writeInk(data, entry: entry, page: page,
+                               pageWidth: pageWidth, in: setlistId)
+        } catch {
+            // The disk write already happened, so nothing is lost -- this is a
+            // page that has not reached the band yet.
+            trouble = error.localizedDescription
+        }
+    }
+
+    /// Everybody's marks for one page, ready for `SharedInkOverlay`.
+    func layers(page: Int, participants: [String],
+                visibility: InkLayers.Visibility, readAt pageWidth: CGFloat)
+        -> [SharedInk.Layer] {
+        guard let uid else { return [] }
+        return SharedInk.layers(page: page, byUser: ink, widths: inkWidths,
+                                readAt: pageWidth, me: uid,
+                                visibility: visibility,
+                                participants: participants)
     }
 
     enum Trouble: LocalizedError {

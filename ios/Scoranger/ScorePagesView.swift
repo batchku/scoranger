@@ -12,6 +12,10 @@ import SwiftUI
 struct ScorePagesView: View {
     let document: PDFDocument
     let annotationKey: String  // "<score uid>/<version id>", see DrawingStore
+    /// The band's marks, by page index, when this score is open as an entry in
+    /// a shared set list. Empty for an arrangement of your own and for every
+    /// signed-out reader (design/FIREBASE.md §6.3).
+    var sharedInk: [Int: [SharedInk.Layer]] = [:]
     /// The same page, named the way a person names it: "<slug>/<version id>".
     ///
     /// It exists because `annotationKey` stopped being readable. Markup is
@@ -779,6 +783,7 @@ struct ScorePagesView: View {
                  drawingStore: DrawingStore.shared,
                  drawingKey: "\(annotationKey)/p\(index)",
                  identityKey: "\(canvasIdentity)/p\(index)",
+                 sharedInk: sharedInk[index] ?? [],
                  annotation: annotation)
             .overlay {
                 // What was caught, drawn over the page. Until this, a working
@@ -1414,6 +1419,11 @@ private struct PageView: View {
     let drawingKey: String
     /// What the canvas calls itself out loud. See `ScorePagesView.canvasIdentity`.
     let identityKey: String
+    /// The other participants' marks on this page, when the score is being
+    /// read as part of a shared set list. Empty otherwise, which is every
+    /// signed-out reader and every arrangement of your own
+    /// (design/FIREBASE.md §6.3).
+    var sharedInk: [SharedInk.Layer] = []
     @ObservedObject var annotation: AnnotationController
 
     var body: some View {
@@ -1427,6 +1437,13 @@ private struct PageView: View {
             // so PencilKit magnifies the ink itself instead of the outer
             // transform stretching a picture of it. See InkSharpness.
             let ink = InkSharpness.canvasZoom(zoom: rasterZoom)
+            // BENEATH the canvas, so my own pencil is always on top of it: ink
+            // appearing under somebody else's scribble as you write reads as
+            // the pencil failing (§6.3, and `InkLayers.drawOrder`).
+            if !sharedInk.isEmpty {
+                SharedInkOverlay(layers: sharedInk,
+                                 pageSize: CGSize(width: width, height: height))
+            }
             PencilCanvas(store: drawingStore, key: drawingKey, identity: identityKey,
                          controller: annotation, canvasZoom: ink)
                 .frame(width: width * ink, height: height * ink)
