@@ -47,7 +47,47 @@ SCORE_SUFFIXES = {".mxl", ".musicxml", ".mid", ".midi", ".pdf"}
 # an instrument, not a piece; PrivacyInfo and plists are metadata.
 ALLOWED_NAMES = {"PrivacyInfo.xcprivacy"}
 
+# The starter library, and the ONLY music this app may ship. Read out of
+# starter/PROVENANCE.md rather than restated here, so the list and the reason
+# each entry is allowed cannot drift apart -- the whole failure mode of build
+# 180 was a claim in one place and the truth in another.
+STARTER_DIR = "starter-library"
+PROVENANCE = ROOT / "starter" / "PROVENANCE.md"
+
 FAILURES: list[str] = []
+
+
+def approved_starter_files() -> set[str]:
+    """Filenames listed in the per-file record of starter/PROVENANCE.md.
+
+    A row counts only when it names a file AND a licence: a piece somebody
+    added to the table without recording what licence its engraving carries is
+    exactly the case this is meant to catch, so an empty licence cell fails the
+    file rather than approving it.
+    """
+    if not PROVENANCE.exists():
+        return set()
+    approved: set[str] = set()
+    for line in PROVENANCE.read_text().splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 4:
+            continue
+        name, source, licence = cells[0], cells[1], cells[2]
+        if name in ("file", "") or name.startswith("_") or name.startswith("-"):
+            continue
+        if not licence or not source:
+            continue        # named but unaccounted for
+        approved.add(name)
+    return approved
+
+
+def _is_approved_starter(path, app) -> bool:
+    """Inside the starter directory AND named in the provenance table."""
+    relative = path.relative_to(app)
+    return (relative.parts[0] == STARTER_DIR
+            and path.name in approved_starter_files())
 
 
 def check(ok: bool, label: str) -> None:
@@ -95,10 +135,13 @@ def no_archive_carries_music() -> None:
             ]
             where = f"{archive.name}/{app.name}"
 
-            # THE APP'S OWN REPERTOIRE -- a hard fail. Anything outside
-            # app_packages is something this project put there.
+            # THE APP'S OWN REPERTOIRE. Anything outside app_packages is
+            # something this project put there -- and since the starter
+            # library, "put there" is no longer automatically wrong. What is
+            # wrong is putting it there without provenance.
             ours = sorted(str(p.relative_to(app)) for p in music
-                          if "app_packages" not in p.parts)
+                          if "app_packages" not in p.parts
+                          and not _is_approved_starter(p, app))
             # Named separately because it is the one that actually happened, and
             # because "samples-seed exists" is a sentence somebody can act on
             # where a list of paths is something to squint at.
@@ -155,7 +198,8 @@ def main() -> int:
         for f in FAILURES:
             print(f"  - {f}")
         return 1
-    print("OK: the app ships no music -- only what its user brings in")
+    print("OK: the only music this app ships is the starter library, "
+          "and every file of it has its provenance written down")
     return 0
 
 
