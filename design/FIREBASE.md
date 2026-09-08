@@ -1639,9 +1639,14 @@ credentials. This is stated plainly rather than counted as done.
   feature, it is a separate Cloud Run service, and it does not gate anything in
   this build -- so it was left, said out loud, rather than half-done in the
   same night as the sharing work. **It is the first thing 0.7.1 should do.**
-- **The continuous strip draws no shared ink.** The overlay is wired into the
-  paged view only. A reader in continuous mode sees their own marks and not the
-  band's, with no notice, which is the worse half of that gap.
+- **The continuous strip draws no shared ink, because it draws no ink at all.**
+  `PencilCanvas` appears in exactly one place in `ScorePagesView.swift` -- the
+  paged `PageView` -- so continuous mode has never had an annotation canvas,
+  and the shared overlay inherits that rather than introducing it. Worth
+  recording as one gap and not two: whoever gives the strip a canvas should
+  give it the overlay in the same change, and until then a reader who marks up
+  in paged mode and reads in continuous sees nobody's marks including their
+  own. Not a 0.7 regression.
 - **Presence, page-follow and the band layer** stay where §0.6 and the list
   above put them.
 
