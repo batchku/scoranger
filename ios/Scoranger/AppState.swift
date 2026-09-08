@@ -762,6 +762,20 @@ final class AppState: ObservableObject {
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
 
+    /// Which shared set list entry is open, if the score on screen is one.
+    ///
+    /// Set while reading an entry and cleared on the way out, and it decides
+    /// two things: where markup is filed, and whose markup is drawn under it
+    /// (`SharedEntryCopies.inkNamespace`, design/FIREBASE.md §6.3).
+    @Published var openSharedEntry: (setlist: String, entry: String)?
+
+    /// Whose marks to draw. Everyone's, by default: the point of sharing a set
+    /// list is seeing what the band wrote on it (§6.3).
+    @Published var inkVisibility: InkLayers.Visibility = .everyone
+
+    /// Where this device put its copy of each shared entry.
+    let sharedCopies = SharedEntryCopies()
+
     /// An invitation link that has been opened and not yet acted on.
     ///
     /// Held here rather than claimed at the door, because claiming it is a
@@ -2696,6 +2710,51 @@ final class AppState: ObservableObject {
     @discardableResult
     func deleteSetlist(_ setlist: String) async -> Bool {
         await runSetlistOp(op: "delete-setlist", args: ["setlist": setlist])
+    }
+
+    /// This device's copy of a shared set list entry, importing it if this is
+    /// the first time the entry has been opened here.
+    ///
+    /// Once imported it is an ORDINARY ARRANGEMENT: the same reader, the same
+    /// pencil, the same playback, readable offline forever. That is principle
+    /// 1 of design/FIREBASE.md §0 taken literally rather than a shortcut -- a
+    /// separate read-only viewer for cloud scores would be a second reader to
+    /// keep in step with the first, and the first is the whole app.
+    ///
+    /// Idempotent, and cheap on every call after the first: the entry's local
+    /// slug is remembered per device (`SharedEntryCopies`), and re-checked
+    /// against the manifest because the reader may since have deleted it.
+    ///
+    /// `download` is passed in rather than reached for, so this function has
+    /// no opinion about Firebase and can be exercised without it.
+    func adoptSharedEntry(_ entryId: String, title: String,
+                          download: () async throws -> URL) async -> String? {
+        if let slug = sharedCopies.localSlug(forEntry: entryId),
+           (manifest?.scores ?? []).contains(where: { $0.slug == slug }) {
+            return slug
+        }
+        do {
+            let file = try await download()
+            // Through the ordinary import, which is what gives it a uid of its
+            // own. Two devices importing the same shared copy must NOT claim
+            // the same identity: it arrived from outside, and that is what
+            // `bundle.ARRIVED_FROM_OUTSIDE` records about it.
+            let result = try await local.call(op: "import",
+                                              args: ["path": file.path,
+                                                     "name": title])
+            guard let slug = (result["score"] as? [String: Any])?["slug"] as? String
+                    ?? result["slug"] as? String else {
+                report("open that arrangement",
+                       SharedSetlists.Trouble.unusablePayload)
+                return nil
+            }
+            sharedCopies.remember(entryId: entryId, localSlug: slug)
+            await refresh()
+            return slug
+        } catch {
+            report("open that arrangement", error)
+            return nil
+        }
     }
 
     /// What a shared set list entry carries for one of my arrangements.

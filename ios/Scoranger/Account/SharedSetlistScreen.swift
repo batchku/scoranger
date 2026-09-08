@@ -16,6 +16,11 @@ import SwiftUI
 struct SharedSetlistScreen: View {
     let setlistId: String
     var onBack: () -> Void
+    /// Open one of the entries, by the local slug this device filed its copy
+    /// under. The screen does not open scores itself: the score is presented
+    /// over the tabs rather than pushed, and that is the navigation stack's
+    /// business (NAVIGATION_SYSTEM.md §3).
+    var onOpen: (String) -> Void = { _ in }
 
     @EnvironmentObject var state: AppState
     @EnvironmentObject var shared: SharedSetlists
@@ -27,6 +32,7 @@ struct SharedSetlistScreen: View {
     @State private var invitation: String?
     @State private var adding = false
     @State private var confirmingDelete = false
+    @State private var opening: String?
 
     private var setlist: SharedSetlists.Setlist? {
         shared.setlists.first { $0.id == setlistId }
@@ -48,7 +54,9 @@ struct SharedSetlistScreen: View {
                 if shared.isStale { offline }
                 order
                 actions
+                whoseMarks
                 people
+                inkTrouble
             }
         }
         .onAppear { shared.open(setlistId) }
@@ -94,14 +102,19 @@ struct SharedSetlistScreen: View {
         HStack(spacing: Theme.Metric.s12) {
             Text("\(position)").typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                 .frame(width: 20, alignment: .trailing)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(entry.title).typeRole(.body).foregroundStyle(Theme.Ink.ink)
-                    .lineLimit(1)
-                if let composer = entry.composer, !composer.isEmpty {
-                    Text(composer).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+            Button { open(entry) } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.title).typeRole(.body).foregroundStyle(Theme.Ink.ink)
+                        .lineLimit(1)
+                    Text(opening == entry.id ? "Getting the music…"
+                         : (entry.composer ?? ""))
+                        .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                         .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             Spacer(minLength: Theme.Metric.s8)
             if mayEdit {
                 Button { move(entry, by: -1) } label: {
@@ -144,6 +157,31 @@ struct SharedSetlistScreen: View {
             } catch {
                 state.report("move that entry", error)
             }
+        }
+    }
+
+    /// Read one entry.
+    ///
+    /// The music is DOWNLOADED and imported the first time, and after that this
+    /// is an ordinary arrangement in the local library -- offline, annotatable,
+    /// playable (`AppState.adoptSharedEntry`). What stays shared is the running
+    /// order and the markup.
+    private func open(_ entry: SharedSetlists.Entry) {
+        guard opening == nil else { return }
+        opening = entry.id
+        Task {
+            defer { opening = nil }
+            guard let slug = await state.adoptSharedEntry(
+                entry.id, title: entry.title,
+                download: { try await shared.download(entry) }) else { return }
+            // The band's ink, live, for as long as this entry is the one open.
+            // The width the canvas is laid out at is read at push time rather
+            // than captured, because it changes with the window.
+            state.openSharedEntry = (setlistId, entry.id)
+            shared.openInk(entry: entry.id, in: setlistId,
+                           store: DrawingStore.shared,
+                           pageWidth: { state.geometry?.page(0)?.size.width ?? 0 })
+            onOpen(slug)
         }
     }
 
@@ -301,6 +339,50 @@ struct SharedSetlistScreen: View {
         }
     }
 
+    // MARK: - whose marks to show
+
+    /// Principle 5's control: everybody's marks, mine only, or one person's.
+    ///
+    /// It lives on the SET LIST rather than in the score's top bar, and that is
+    /// a placement decision rather than a compromise. The bar is width-budgeted
+    /// with its own arithmetic and tests, and more to the point "whose cues am I
+    /// reading tonight" is a decision about the gig, made once before playing --
+    /// not a per-page control. Defaults to everyone's, because seeing what the
+    /// band wrote is the reason the set list is shared (§6.3).
+    @ViewBuilder
+    private var whoseMarks: some View {
+        if let setlist, setlist.members.count > 1 {
+            BandHeader("Whose marks to show")
+            choice("Everybody's", is: .everyone, identifier: "ink-everyone")
+            choice("Only mine", is: .mine, identifier: "ink-mine")
+            ForEach(setlist.members.keys.sorted().filter { $0 != signIn.account?.uid },
+                    id: \.self) { uid in
+                choice("Only \(shortened(uid))", is: .only(uid),
+                       identifier: "ink-only-\(uid)")
+            }
+        }
+    }
+
+    private func choice(_ title: String, is value: InkLayers.Visibility,
+                        identifier: String) -> some View {
+        Button { state.inkVisibility = value } label: {
+            HStack {
+                Text(title).typeRole(.body).foregroundStyle(Theme.Ink.ink)
+                Spacer(minLength: Theme.Metric.s8)
+                if state.inkVisibility == value {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                }
+            }
+            .padding(.horizontal, Theme.Metric.s16)
+            .frame(minHeight: Theme.Metric.hitTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
+
     // MARK: - who is in it
 
     @ViewBuilder
@@ -342,6 +424,24 @@ struct SharedSetlistScreen: View {
                       + "a set list. Everybody can add, reorder and mark up; "
                       + "only whoever made it can delete it.")
                 .padding(Theme.Metric.panelPadding)
+        }
+    }
+
+    /// Pages of my own markup that are not reaching the band.
+    ///
+    /// Said, not swallowed. The write to disk already happened, so nothing is
+    /// lost -- but a person who has covered a page in cues has to be told it is
+    /// only on this iPad, and which page it is (§11.6).
+    @ViewBuilder
+    private var inkTrouble: some View {
+        if !shared.inkPagesOverBudget.isEmpty {
+            let pages = shared.inkPagesOverBudget.map { String($0 + 1) }
+                .joined(separator: ", ")
+            PanelNote(text: "Your markup on page \(pages) is too large to "
+                      + "share, so it is on this iPad only. Everything else "
+                      + "in this set list is shared normally.")
+                .padding(Theme.Metric.panelPadding)
+                .accessibilityIdentifier("shared-ink-too-big")
         }
     }
 

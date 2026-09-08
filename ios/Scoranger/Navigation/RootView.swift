@@ -16,6 +16,9 @@ import UniformTypeIdentifiers
 /// screen is only hidden, never rebuilt from nothing.
 struct RootView: View {
     @EnvironmentObject var state: AppState
+    /// Only to stop the ink sync on the way out of a shared entry, and to hand
+    /// the shared set list screen its data. Publishes nothing while signed out.
+    @EnvironmentObject var shared: SharedSetlists
 
     /// The library's stack. The score view stays OUTSIDE it -- it is presented
     /// over the library, which is what lets its page, zoom and selection
@@ -328,7 +331,8 @@ struct RootView: View {
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
         case .sharedSetlist(let id):
-            SharedSetlistScreen(setlistId: id, onBack: pop)
+            SharedSetlistScreen(setlistId: id, onBack: pop,
+                                onOpen: { open($0) })
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-shared-setlist")
         case .addArrangements(let slug):
@@ -550,5 +554,13 @@ struct RootView: View {
     /// X always returns to the library, because there is nowhere else.
     private func close() {
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = false }
+        // Leaving a shared entry stops the band's ink coming in AND stops mine
+        // going out. Left installed, the store hook would push the next local
+        // arrangement's private markup to whichever entry was open last
+        // (design/FIREBASE.md §6.3).
+        if state.openSharedEntry != nil {
+            state.openSharedEntry = nil
+            shared.closeInk(store: DrawingStore.shared)
+        }
     }
 }

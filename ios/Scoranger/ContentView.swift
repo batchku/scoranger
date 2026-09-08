@@ -12,9 +12,34 @@ struct ContentView: View {
     var onClose: () -> Void = {}
 
     @EnvironmentObject var state: AppState
+    /// Only for the band's markup, and only while a shared set list entry is
+    /// what is open. Signed out it publishes nothing and this reads as empty
+    /// (design/FIREBASE.md §6.3).
+    @EnvironmentObject var shared: SharedSetlists
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The band's marks for every page of the entry that is open, or nothing.
+    ///
+    /// Nothing is the answer for a reader with no account, for an arrangement
+    /// of their own, and for a shared entry nobody else has marked -- which is
+    /// most of the time, and costs one dictionary lookup to establish.
+    private var bandInk: [Int: [SharedInk.Layer]] {
+        guard let open = state.openSharedEntry,
+              let setlist = shared.setlists.first(where: { $0.id == open.setlist }),
+              !shared.ink.isEmpty else { return [:] }
+        let participants = Array(setlist.members.keys)
+        let pages = Set(shared.ink.values.flatMap(\.keys))
+        // The width the canvas is laid out at is the page's own width, which
+        // the geometry knows; without it a bandmate's ink cannot be placed
+        // (`SharedInk.scale`).
+        let width = state.geometry?.page(0)?.size.width ?? 0
+        return Dictionary(uniqueKeysWithValues: pages.map { page in
+            (page, shared.layers(page: page, participants: participants,
+                                 visibility: state.inkVisibility, readAt: width))
+        })
+    }
 
     /// The two overlays, which replace the split view's columns.
 
@@ -608,7 +633,16 @@ struct ContentView: View {
             // AppState publishes nothing when the play head moves, so a canvas
             // that read it that way would never follow. Same reason the ink
             // bar observes its controller directly.
-            ScorePagesView(document: doc, annotationKey: "\(score.inkNamespace)/\(vid)",
+            // Markup on a shared set list entry is filed under the ENTRY, not
+            // under this device's copy of the arrangement: the entry id is
+            // the same string on every device, and keeping the two apart is
+            // what stops my own private notes on my own copy being published
+            // to the band (`SharedEntryCopies.inkNamespace`).
+            let namespace = state.openSharedEntry
+                .map { SharedEntryCopies.inkNamespace(entryId: $0.entry) }
+                ?? score.inkNamespace
+            ScorePagesView(document: doc, annotationKey: "\(namespace)/\(vid)",
+                           sharedInk: bandInk,
                            canvasIdentity: "\(score.slug)/\(vid)",
                            mode: state.scoreMode, playback: state.playback)
         } else if score.versions.isEmpty {
