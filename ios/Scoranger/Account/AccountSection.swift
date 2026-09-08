@@ -1,4 +1,3 @@
-import AuthenticationServices
 import SwiftUI
 
 /// The account, in Settings, and nowhere else.
@@ -49,30 +48,27 @@ struct AccountSection: View {
             .accessibilityIdentifier("account-explains-optional")
 
         if signIn.isAvailable {
-            PanelButton(title: "Sign in with Google", kind: .primary,
-                        identifier: "sign-in-google") {
+            // ONE component for both, so they cannot drift apart again.
+            ProviderButton(provider: .google) {
                 guard let presenter = Self.topViewController() else { return }
                 Task { await signIn.signInWithGoogle(presenting: presenter) }
             }
 
-            SignInWithAppleButton(.signIn) { request in
-                request.requestedScopes = [.fullName, .email]
-                // Apple signs the SHA256 of what we send and Firebase
-                // verifies the RAW value, so the pair is prepared in one place
-                // and only the hash comes back here.
-                request.nonce = signIn.prepareAppleNonce()
-            } onCompletion: { result in
-                switch result {
-                case .success(let authorization):
-                    Task { await signIn.completeApple(authorization) }
-                case .failure:
-                    // Cancel is the common case and is not an error worth a bar.
-                    break
-                }
+            ProviderButton(provider: .apple, enabled: signIn.appleIsAvailable) {
+                Task { await signIn.signInWithApple() }
             }
-            .signInWithAppleButtonStyle(.black)
-            .frame(height: Theme.Metric.hitTarget)
-            .accessibilityIdentifier("sign-in-apple")
+
+            if !signIn.appleIsAvailable {
+                // SAID, not silently dead. Ali tapped this and nothing
+                // happened at all, which is the worst outcome: a control that
+                // looks live, does nothing, and explains nothing.
+                Text("Sign in with Apple needs a capability this build does "
+                     + "not carry yet. Use Google for now — it signs you into "
+                     + "the same account either way.")
+                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("account-apple-unavailable")
+            }
         } else {
             Text("This build has no Firebase configuration, so signing in is "
                  + "unavailable. Everything else works.")

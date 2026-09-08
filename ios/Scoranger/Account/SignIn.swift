@@ -101,6 +101,7 @@ final class SignIn: ObservableObject {
         state = .working
         do {
             try startFirebaseIfNeeded()
+            try configureGoogleIfNeeded()
             let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenting)
             guard let idToken = result.user.idToken?.tokenString else {
                 throw SignInError.noIdentityToken
@@ -111,6 +112,31 @@ final class SignIn: ObservableObject {
         } catch {
             state = .failed(readable(error))
         }
+    }
+
+    /// Give GoogleSignIn its client id before asking it to do anything.
+    ///
+    /// **This is what crashed 0.7.0 build 183 on the first tap.**
+    /// `GIDSignIn.sharedInstance.signIn(withPresenting:)` requires a
+    /// configuration, and with none it raises an OBJECTIVE-C NSException --
+    /// "No active configuration" -- which SIGABRTs the process.
+    ///
+    /// The part worth remembering: the `do/catch` around that call could never
+    /// have helped. An NSException is not a Swift `Error`, so `catch` does not
+    /// see it and there is no way to contain it after the fact. The only fix is
+    /// to satisfy the precondition, which is why this is a separate function
+    /// with a name that says so rather than a line inside the flow.
+    ///
+    /// Firebase has already parsed `GoogleService-Info.plist` by this point and
+    /// exposes its `CLIENT_ID` as `options.clientID`, so the id comes from the
+    /// one file that is the source of truth for which project this build talks
+    /// to -- not from a second copy in `Info.plist` that could disagree with it.
+    private func configureGoogleIfNeeded() throws {
+        if GIDSignIn.sharedInstance.configuration != nil { return }
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            throw SignInError.notConfigured
+        }
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
     }
 
     // MARK: - Apple
@@ -128,6 +154,87 @@ final class SignIn: ObservableObject {
         let nonce = Self.randomNonce()
         appleNonce = nonce
         return Self.sha256(nonce)
+    }
+
+    /// Whether this build can do Apple sign-in at all.
+    ///
+    /// Read from the running app's OWN ENTITLEMENTS, not from a constant.
+    /// Ali's report was "Sign in with Apple does nothing", and the cause was
+    /// that `com.apple.developer.applesignin` is absent -- the capability was
+    /// never enabled on the App ID (verified: it carries only GAME_CENTER and
+    /// IN_APP_PURCHASE), so the entitlement cannot be in the profile, so
+    /// `ASAuthorizationController` fails immediately.
+    ///
+    /// Asking the binary rather than hardcoding `false` means this button
+    /// starts working the moment the capability is enabled and a profile is
+    /// regenerated, with no code change and nothing to remember. A constant
+    /// would be a second fact to keep in step with the App ID, and it would be
+    /// wrong in whichever direction nobody updated.
+    /// Read from the app's own `embedded.mobileprovision`, which is the only
+    /// way to see one's entitlements on iOS. `SecTaskCopyValueForEntitlement`
+    /// is the obvious answer and it is macOS-only -- it does not link here,
+    /// which the compiler says plainly and which is why this reads a file
+    /// instead.
+    ///
+    /// The profile is a CMS blob with an XML plist inside it. Slicing the
+    /// plist out by its own delimiters is the standard approach and needs no
+    /// crypto: the signature is not being verified here, only read, and a
+    /// forged profile is not a threat model for deciding whether to enable a
+    /// button in the owner's own build.
+    ///
+    /// Absent profile -- a simulator build, say -- reads as unavailable, which
+    /// is the safe direction: the button is disabled with a reason rather than
+    /// live and silent.
+    static var appleEntitlementIsPresent: Bool {
+        guard let url = Bundle.main.url(forResource: "embedded",
+                                        withExtension: "mobileprovision"),
+              let raw = try? Data(contentsOf: url),
+              let text = String(data: raw, encoding: .isoLatin1),
+              let start = text.range(of: "<plist"),
+              let end = text.range(of: "</plist>")
+        else { return false }
+        let plist = String(text[start.lowerBound..<end.upperBound])
+        guard let data = plist.data(using: .isoLatin1),
+              let parsed = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil) as? [String: Any],
+              let entitlements = parsed["Entitlements"] as? [String: Any]
+        else { return false }
+        return entitlements["com.apple.developer.applesignin"] != nil
+    }
+
+    var appleIsAvailable: Bool { Self.appleEntitlementIsPresent }
+
+    /// Apple's flow, driven by this app's own button.
+    ///
+    /// `SignInWithAppleButton` used to own this, and it brought two problems.
+    /// Its geometry could not be made to match the Google button (Ali's second
+    /// report), and its `onCompletion` failure branch was written to swallow
+    /// cancellation -- which meant it swallowed EVERY error, including the one
+    /// that was actually happening. A tap did nothing and said nothing.
+    ///
+    /// Here, cancellation is the only thing that stays quiet, and it is
+    /// identified by its code rather than by being the default.
+    func signInWithApple() async {
+        guard appleIsAvailable else {
+            state = .failed("Sign in with Apple is not enabled for this build.")
+            return
+        }
+        state = .working
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        // Apple signs the SHA256 of what we send and Firebase verifies the RAW
+        // value, so the pair is prepared in one place and only the hash goes out.
+        request.nonce = prepareAppleNonce()
+
+        do {
+            let authorization = try await AppleRequest.run(request)
+            await completeApple(authorization)
+        } catch let error as ASAuthorizationError where error.code == .canceled {
+            // The one silence that is correct: they changed their mind.
+            state = .signedOut
+        } catch {
+            state = .failed(readable(error))
+        }
     }
 
     func completeApple(_ authorization: ASAuthorization) async {

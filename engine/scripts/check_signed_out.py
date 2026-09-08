@@ -299,6 +299,80 @@ def firebase_clients_stay_in_one_folder() -> None:
               "every path should read through the guarded `currentUid`")
 
 
+def google_sign_in_cannot_be_called_without_its_configuration() -> None:
+    """The 0.7.0 build 183 crash, as a check.
+
+    `GIDSignIn.sharedInstance.signIn(withPresenting:)` raises an OBJECTIVE-C
+    NSException when no configuration has been set -- "No active
+    configuration" -- and the process aborts. Ali tapped Sign in with Google
+    and the app died.
+
+    **The reason this is a source check and not a test is the important part.**
+    An NSException is not a Swift `Error`. The `do/catch` wrapped around that
+    call could never have caught it, no error handling added afterwards can,
+    and there is no runtime seam to assert on. The only defence is that the
+    precondition is satisfied before the call, so that is what is checked.
+    """
+    print("\nGoogle sign-in has its client id before it is asked to sign in")
+    site = ROOT / SIGN_IN_SITE
+    check(site.exists(), f"{SIGN_IN_SITE} exists")
+    if not site.exists():
+        return
+    source = strip_comments(site.read_text())
+
+    calls = re.search(r"GIDSignIn\s*\.\s*sharedInstance\s*\.\s*signIn", source)
+    check(calls is not None, "the Google sign-in call is in this file")
+    check("GIDConfiguration(clientID:" in source,
+          "a GIDConfiguration is built -- without one, signIn raises an "
+          "NSException that no Swift catch can contain")
+    check("GIDSignIn.sharedInstance.configuration =" in source,
+          "and it is assigned to GIDSignIn.sharedInstance.configuration")
+
+    # ORDER, not just presence: configured before called, in the same function.
+    if calls is not None:
+        configure_at = source.find("GIDSignIn.sharedInstance.configuration =")
+        # The call site is reached via configureGoogleIfNeeded(); assert the
+        # helper is invoked before the signIn call rather than merely existing.
+        guarded = re.search(
+            r"configureGoogleIfNeeded\(\)[\s\S]{0,400}?"
+            r"GIDSignIn\s*\.\s*sharedInstance\s*\.\s*signIn", source)
+        check(guarded is not None,
+              "configureGoogleIfNeeded() is called BEFORE signIn, not merely "
+              "defined -- a helper nobody calls is how this shipped")
+        check(configure_at != -1, "the assignment is present")
+
+    # The client id comes from Firebase's parse of GoogleService-Info.plist,
+    # not from a second copy that could disagree with it.
+    check("options.clientID" in source,
+          "the client id is read from FirebaseApp options, so there is one "
+          "source of truth for which project this build talks to")
+
+
+def apple_sign_in_never_swallows_its_errors() -> None:
+    """A tap that does nothing and says nothing is the worst outcome.
+
+    The Apple button's `onCompletion` failure branch was written to ignore
+    cancellation and, in doing so, ignored every error including the one that
+    was really happening: the `com.apple.developer.applesignin` entitlement is
+    absent, so `ASAuthorizationController` fails at once. Ali tapped it and got
+    silence.
+    """
+    print("\nApple sign-in reports what went wrong")
+    site = ROOT / SIGN_IN_SITE
+    source = strip_comments(site.read_text()) if site.exists() else ""
+    check("ASAuthorizationError" in source and ".canceled" in source,
+          "cancellation is identified BY ITS CODE, so it is the only silence "
+          "and every other failure reaches the reader")
+    check("appleIsAvailable" in source,
+          "availability is a property, so the button can be disabled with a "
+          "reason rather than looking live and doing nothing")
+    check("embedded.mobileprovision" in source
+          and "com.apple.developer.applesignin" in source,
+          "availability is read from the app's OWN embedded.mobileprovision, "
+          "so the button starts working when the capability is enabled with no "
+          "code change to remember")
+
+
 def main() -> int:
     a_signed_out_library_pays_nothing()
     the_default_repository_is_the_plain_one()
@@ -306,6 +380,8 @@ def main() -> int:
     the_engine_cannot_acquire_a_cloud_dependency()
     nothing_configures_firebase_at_launch()
     firebase_clients_stay_in_one_folder()
+    google_sign_in_cannot_be_called_without_its_configuration()
+    apple_sign_in_never_swallows_its_errors()
 
     print()
     if FAILURES:
