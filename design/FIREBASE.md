@@ -2522,3 +2522,290 @@ consequence: **Invite somebody** (needs a network, they get access), **Show a QR
 code** (needs a camera and a network on one of the two devices, same outcome),
 and **Send a copy** (needs neither, they get the music now and access later).
 Three buttons, three sentences, no mode.
+
+---
+
+# 6A. Sharing, reworked (2026-09-09)
+
+Replaces the sharing UX in §6.2's presentation, §6.7's band, and the whole of
+the "Shared with the band" surface. The data model in §6.1, §6.3, §6.4 and §6.5
+is unchanged: pinned versions, per-member ink, fractional order.
+
+## 6A.0 One thing needs Ali's sign-off first
+
+**This direction requires amending guard rail 1 (§8.2), which currently reads:**
+
+> *Sharing is to named people, never to a link. No "anyone with the link" mode,
+> in v1 or later. A share is an invitation to an account. This removes the entire
+> category of accidental public redistribution, which is the only category that
+> turns into a takedown.*
+
+A share button that opens the iOS share sheet cannot address a named account:
+the owner never types an address, and whoever the message reaches can open the
+link. `SetlistInvite` binds `emailLower` at construction and `claimInvite`
+refuses any other account, so the current code implements guard rail 1 exactly
+and cannot serve this flow.
+
+Three ways to reconcile it, with a recommendation.
+
+| Option | Owner's taps | Forward risk | Fits Ali's words |
+|---|---|---|---|
+| a. Keep email binding, share sheet sends a link the recipient can only claim from that address | share, then type the address | none | no, he asked for no address entry |
+| b. **Slot-bounded expiring link** | share | bounded by cap and expiry, every claim recorded, revocable | yes |
+| c. Single-use link, one per recipient | share once per person | lowest of the link options | yes for one person, breaks a band chat |
+
+**Recommend (b).** §0.5 already conceded that with member invitation "the cap is
+the only structural limit left between a band and a distribution list", so a
+slot-bounded link changes the posture less than it looks. It gives the exact
+flow asked for, keeps twelve as the enforced ceiling, keeps the record of who
+joined, and adds revocation the email model never had.
+
+Residual risk, stated so it is a decision: a link forwarded before the slots
+run out admits whoever opens it. Mitigations are the cap, the 7-day expiry,
+revoke, the visible member list, and owner-only removal. §8.3 already reserves
+the rights question for a lawyer before anything ships outside the household;
+this belongs in that review.
+
+**Do not start the client work until Ali confirms (b).** Everything below assumes
+it.
+
+## 6A.1 One kind of set list
+
+There is one set list object. Sharing is a **field on it**, not a second kind.
+
+Engine, `workspace.create_setlist` document gains two nullable fields:
+
+```
+shareId:  str | None    the Firestore setlists/{id} this row is bound to
+ownerUid: str | None    who owns it there; None means this device owns it
+```
+
+Nullable and defaulted, so every existing document decodes unchanged.
+
+`SetlistDoc` in `Models.swift` gains `var shareId: String?` and
+`var ownerUid: String?`, both optional, same reason.
+
+**Promotion is in place.** On the first share of a local set list:
+
+1. Create `setlists/{id}` in Firestore with `ownerId` = this account.
+2. For each slug in the local `scores[]`, pin its **current latest version** and
+   write an entry `(scoreUid, versionUid)` with a fractional index preserving
+   the local order (§6.5).
+3. Upload the artifacts those entries name (§4.3).
+4. Write `shareId` back to the local document.
+
+The row does not move, does not change identity, and keeps its slug and uid. The
+owner gains no new object, which is item 3 of the direction.
+
+**After promotion the shared entries are authoritative for order and
+membership of the list**, and the local `scores[]` is a projection of them. One
+list, one truth. A set list with `shareId == nil` behaves exactly as today with
+no Firestore involvement at all.
+
+## 6A.2 The share control
+
+On the row, immediately leading of the `☰`. Not in the `☰` screen: a control in
+two places is what `optionsCarriesTransportToggle` exists to prevent.
+
+```
+│ Tuesday at the Ship                          ⇪   ☰ │
+│ 6 arrangements · 4 people                          │
+```
+
+- `square.and.arrow.up`, a 34pt bordered square in a 44pt hit target, identical
+  to `RowMenuButton` in every respect but its glyph. Identifier
+  `row-share-<id>`, label `Share <name>`.
+- `Theme.Metric.rowMenuInset` gains a two-control value: `8 + 44 + 44 + 8 = 104`
+  against the current 60. Measured against the row's text:
+
+| | Row | Text | Characters at 13.5pt |
+|---|---|---|---|
+| iPhone portrait, A–Z rail | 377 | 253pt | ~33 |
+| iPhone landscape, capped at 560 | 544 | 420pt | ~56 |
+| iPad 13", reading column | 704 | 580pt | ~77 |
+
+  Fits at every width. Per §6.3 rule 1 of `IPHONE_0.6.14.md` the inset is
+  derived from `hitTarget`, never a literal 104.
+
+- **Set lists only.** No share control on a piece, a book or a source: guard
+  rails 3 and 4 are unchanged and are not a UI decision.
+- **Signed out it is still there**, and tapping it pushes sign-in with one line
+  saying why, then continues to the share sheet on success. Principle 1 gates
+  the *act*, never the app, and a control that materialises after sign-in is
+  worse than one that explains itself.
+- The row's meta line gains `· N people` only when `shareId != nil`. That is the
+  only visible difference between a shared and an unshared set list, and it is a
+  fact about the list rather than a category.
+
+## 6A.3 The link
+
+**A universal link, not the custom scheme.** `scoranger://invite?id=…` does not
+render as a tappable link in Messages or Mail for anyone without the app
+installed, which is most first-time recipients. Use
+`https://<domain>/i/<inviteId>` with an `apple-app-site-association` file and a
+web fallback page that offers the App Store.
+
+`SharedInviteLink` keeps the custom scheme as the **paste** fallback it already
+implements, and gains the https form. Infra dependency: the domain and the AASA
+file have to exist before this ships. Flagged as the one item here that is not
+client work.
+
+The invite document changes shape:
+
+```
+slots:     Int      remaining claims, minted as (12 − current members)
+expiresAt: String   7 days from minting
+createdBy: String   unchanged
+emailLower           REMOVED
+claims:    [{ uid, at }]   appended per claim, for the record §0.5 requires
+```
+
+Rules enforce: `slots > 0`, `now < expiresAt`, member count `< 12`. A claim
+decrements `slots` in the same transaction that writes membership.
+
+Share text, subject and body:
+
+```
+Subject:  Tuesday at the Ship
+Body:     Tuesday at the Ship, a set list in Scoranger.
+          https://<domain>/i/7f3a…
+```
+
+Nothing about the music, no piece titles. The invite carries the set list's name
+and nothing else, which §4.2 already requires.
+
+## 6A.4 The owner's flow, including the failure
+
+Tap `⇪`:
+
+1. Signed out: push sign-in, then continue.
+2. `shareId == nil`: promote (§6A.1). This is network work and it can fail.
+   While it runs the row's meta line reads `Preparing to share…`; the row stays
+   tappable and nothing is modal.
+3. Mint an invite with `slots = 12 − members`.
+4. Present `UIActivityViewController` with the URL and subject.
+
+Failure, offline or rules-rejected: an inline notice bar in the library,
+`Couldn't make a link. Try again when you're online.` The set list is unchanged
+and unpromoted; there is no half-shared state, because step 4 is reached only
+after 1 through 3 commit.
+
+Already shared: skip step 2, mint a fresh link, share it. Sharing twice is two
+links, both valid until they expire or the slots run out.
+
+## 6A.5 The recipient
+
+Opening the link, signed in, pushes one screen:
+
+```
+  Tuesday at the Ship
+  Shared by Ali Momeni
+  6 arrangements
+
+  [ Add to my set lists ]
+```
+
+Confirm, and the set list appears in Setlists as a normal row. The screen pops
+to it.
+
+**One confirmation, no holding area.** Ali asked for no "you've been invited"
+area and this is not one: the persistent library band goes, and what remains is
+a single step at the moment of opening. It stays because joining downloads
+another person's copies of another person's music onto this device, which is the
+reason `SharedSetlistsBand` gave for not claiming silently and it is still the
+right reason. If Ali wants it gone too, say so and it becomes a one-line change,
+but I would not remove it unasked.
+
+Signed out: the same screen, with sign-in first. The invite is held in memory
+until sign-in completes, and **not** surfaced in the library.
+
+Joining writes a **local set list document** with `shareId` set and `ownerUid`
+the owner's, then imports the entries' artifacts through the existing
+`SharedEntryCopies` path. That local write is what makes item 5 work: the
+recipient's Setlists list gains an ordinary row, with no special case anywhere in
+`LibraryView`.
+
+Refusals, each with its own line on that screen: expired, no slots left, set
+list full, already a member (which opens it instead).
+
+## 6A.6 Permissions, without a band
+
+§6.2's table is unchanged. Its presentation moves to the set list's own `☰`
+screen, as one row:
+
+```
+People                                    4
+```
+
+Pushing it lists the members, the owner marked, with:
+
+- Owner: `Remove` on each other member, and `Delete this set list`.
+- Member: `Leave this set list` on themselves only.
+- Anyone: add, reorder, remove and repin entries, as §6.2 says.
+
+The word band does not appear. Neither does shared. A member list is a fact
+about this set list, reached from the set list, and every string is about people
+rather than about a category of object.
+
+The cap surfaces in one place: when `members == 12` the share control is
+disabled with the accessibility hint `This set list is full`.
+
+## 6A.7 What is deleted
+
+- `Account/SharedSetlistsBand.swift` entirely: the band header, the
+  `shared-none` note, the `shared-row-*` rows, `shared-new`, and the
+  `pendingInvite` invitation panel.
+- `AppState.pendingInvite` as a *published library surface*. The value stays as
+  transient state for §6A.5's screen.
+- `SetlistInvite.emailLower` and its normalisation, with `claimInvite`'s
+  address check.
+- Any string containing "shared set list", "Shared with you", "You made this",
+  or "band" in the library.
+
+`SharedSetlists`, `SharedSetlistScreen`, `SharedInk`, `SharedOrder`,
+`SetlistPermission`, `SharedEntryCopies` and `InviteQRCode` all survive.
+`SharedSetlistScreen` stops being a separate destination and becomes what the
+one set list screen shows when `shareId != nil`.
+
+## 6A.8 For the engineer
+
+The "promotion is not supported" answer was right about the code and it is a
+smaller change than it sounds, because nothing about §6.1's entry model moves.
+What is actually new:
+
+1. Two nullable fields on the setlist document, engine and Swift.
+2. A `promote(slug:)` path: create, pin, upload, write back `shareId`. Steps
+   already exist separately for the create-shared-fresh flow; this composes them
+   over an existing local list.
+3. Reading order from shared entries when `shareId != nil`, and from local
+   `scores[]` otherwise. One branch, in the model layer, not in the views.
+4. The invite shape change in §6A.3 plus the matching rules.
+5. Join writes a local setlist row rather than only a membership.
+
+The one item outside the app: the domain and `apple-app-site-association` for
+§6A.3.
+
+Open question for you, not for Ali: on promotion, do we pin the latest version
+of each arrangement *at that moment* (my assumption, and what §6.1 implies), or
+the version the owner last had open? I assumed latest. Say if that is wrong.
+
+## 6A.9 Acceptance
+
+1. `oneKindOfSetlist`: no view reads a "shared" collection to build the Setlists
+   list; a grep for `SharedSetlistsBand` finds nothing.
+2. `shareIsOnTheRow`: `row-share-<id>` and `row-menu-<id>` both have frames
+   inside the row at 393pt, and the row's title is not truncated for a 30-character
+   name.
+3. `promotionKeepsIdentity`: after promoting, the set list's slug, uid and
+   position in the list are unchanged, and its entry order matches the local
+   order it had.
+4. `promotionIsAtomic`: with the network refused, the set list is left with
+   `shareId == nil` and no partial Firestore document.
+5. `joinAddsANormalRow`: claiming an invite writes a local setlist document, and
+   the resulting row renders through the same `LibraryRow` path as any other.
+6. `capHolds`: a thirteenth claim is refused by the rules, and the share control
+   is disabled at twelve.
+7. `noAddressBinding`: `SetlistInvite` carries no email field, and a claim from
+   any signed-in account with slots remaining succeeds.
+8. `signedOutCostsNothing`: `check_signed_out.py` still passes. The two new
+   fields are nullable and a signed-out device journals nothing.
