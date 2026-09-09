@@ -364,17 +364,21 @@ def apple_sign_in_never_swallows_its_errors() -> None:
           "cancellation is identified BY ITS CODE, so it is the only silence "
           "and every other failure reaches the reader")
     check("appleIsAvailable" in source,
-          "availability is a property, so the button can be disabled with a "
-          "reason rather than looking live and doing nothing")
-    # Both halves of the filename, because the code names them separately as
-    # `forResource:` and `withExtension:` -- the contiguous string
-    # "embedded.mobileprovision" never appears, which is how the first version
-    # of this assertion failed against correct code.
-    check('"embedded"' in source and '"mobileprovision"' in source
-          and "com.apple.developer.applesignin" in source,
-          "availability is read from the app's OWN embedded.mobileprovision, "
-          "so the button starts working when the capability is enabled with no "
-          "code change to remember")
+          "availability is a property the button can read")
+    # THE OPPOSITE OF WHAT THIS USED TO ASSERT, and the reversal is the point.
+    # It required the app to read its own embedded.mobileprovision to decide
+    # whether Apple sign-in was available. That check disabled a fully
+    # provisioned button in 0.7.2 build 185, because an App Store-signed app
+    # carries no embedded profile on the device -- so it could only ever have
+    # worked in the configurations nobody ships from.
+    #
+    # There is no supported way for an app to read its own entitlements on
+    # iOS. So the requirement now is that it does NOT try: attempt the flow,
+    # and let ASAuthorizationController report what happened.
+    check("embedded" not in source or "mobileprovision" not in source,
+          "the app does NOT gate Apple sign-in on reading its own "
+          "provisioning profile -- an App Store build has none, so that check "
+          "disables a working feature")
 
 
 def main() -> int:

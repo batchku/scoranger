@@ -60,20 +60,12 @@ struct AccountSection: View {
                 Task { await signIn.signInWithGoogle(presenting: presenter) }
             }
 
-            ProviderButton(provider: .apple, enabled: signIn.appleIsAvailable) {
+            // Not gated on a self-inspection. Build 185 disabled this
+            // button while its capability was fully provisioned, because the
+            // check read an embedded.mobileprovision that an App Store-signed
+            // app does not carry. The flow reports its own failures now.
+            ProviderButton(provider: .apple) {
                 Task { await signIn.signInWithApple() }
-            }
-
-            if !signIn.appleIsAvailable {
-                // SAID, not silently dead. Ali tapped this and nothing
-                // happened at all, which is the worst outcome: a control that
-                // looks live, does nothing, and explains nothing.
-                Text("Sign in with Apple needs a capability this build does "
-                     + "not carry yet. Use Google for now — it signs you into "
-                     + "the same account either way.")
-                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("account-apple-unavailable")
             }
         } else {
             Text("This build has no Firebase configuration, so signing in is "

@@ -185,39 +185,35 @@ final class SignIn: ObservableObject {
     /// regenerated, with no code change and nothing to remember. A constant
     /// would be a second fact to keep in step with the App ID, and it would be
     /// wrong in whichever direction nobody updated.
-    /// Read from the app's own `embedded.mobileprovision`, which is the only
-    /// way to see one's entitlements on iOS. `SecTaskCopyValueForEntitlement`
-    /// is the obvious answer and it is macOS-only -- it does not link here,
-    /// which the compiler says plainly and which is why this reads a file
-    /// instead.
+    /// Whether this build can do Apple sign-in.
     ///
-    /// The profile is a CMS blob with an XML plist inside it. Slicing the
-    /// plist out by its own delimiters is the standard approach and needs no
-    /// crypto: the signature is not being verified here, only read, and a
-    /// forged profile is not a threat model for deciding whether to enable a
-    /// button in the owner's own build.
+    /// **Always true when Firebase is configured, and that is the fix.** It
+    /// used to read the app's own `embedded.mobileprovision` and look for
+    /// `com.apple.developer.applesignin`, and in 0.7.2 build 185 that check
+    /// disabled a button whose capability was fully provisioned. Everything
+    /// was right except the check:
     ///
-    /// Absent profile -- a simulator build, say -- reads as unavailable, which
-    /// is the safe direction: the button is disabled with a reason rather than
-    /// live and silent.
-    static var appleEntitlementIsPresent: Bool {
-        guard let url = Bundle.main.url(forResource: "embedded",
-                                        withExtension: "mobileprovision"),
-              let raw = try? Data(contentsOf: url),
-              let text = String(data: raw, encoding: .isoLatin1),
-              let start = text.range(of: "<plist"),
-              let end = text.range(of: "</plist>")
-        else { return false }
-        let plist = String(text[start.lowerBound..<end.upperBound])
-        guard let data = plist.data(using: .isoLatin1),
-              let parsed = try? PropertyListSerialization.propertyList(
-                from: data, options: [], format: nil) as? [String: Any],
-              let entitlements = parsed["Entitlements"] as? [String: Any]
-        else { return false }
-        return entitlements["com.apple.developer.applesignin"] != nil
-    }
-
-    var appleIsAvailable: Bool { Self.appleEntitlementIsPresent }
+    ///   - the App ID carries APPLE_ID_AUTH;
+    ///   - the distribution profile grants
+    ///     `com.apple.developer.applesignin = [Default]`;
+    ///   - that profile is embedded in the archived .app;
+    ///   - the codesigned entitlements carry it;
+    ///   - and the parse itself returns TRUE when run against that exact
+    ///     profile file, which was measured rather than assumed.
+    ///
+    /// The one thing left is that an App Store-signed app does not carry an
+    /// `embedded.mobileprovision` on the device -- Apple re-signs during
+    /// processing -- so `Bundle.main.url(forResource:)` finds nothing and the
+    /// check answered "no capability" for a build that had it. It could only
+    /// ever have worked in the configurations nobody ships from.
+    ///
+    /// So the self-inspection is GONE rather than corrected. There is no
+    /// supported way for an app to read its own entitlements on iOS, an
+    /// availability check that can be wrong about a working feature is worse
+    /// than no check at all, and the honest test of whether Apple sign-in
+    /// works is to run it: `ASAuthorizationController` reports its own
+    /// failures, and `signInWithApple` now shows them instead of a guess.
+    var appleIsAvailable: Bool { isAvailable }
 
     /// Apple's flow, driven by this app's own button.
     ///
@@ -230,8 +226,8 @@ final class SignIn: ObservableObject {
     /// Here, cancellation is the only thing that stays quiet, and it is
     /// identified by its code rather than by being the default.
     func signInWithApple() async {
-        guard appleIsAvailable else {
-            state = .failed("Sign in with Apple is not enabled for this build.")
+        guard isAvailable else {
+            state = .failed(readable(SignInError.notConfigured))
             return
         }
         state = .working
