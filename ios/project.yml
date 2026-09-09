@@ -241,7 +241,12 @@ targets:
         # this line said 181, so 181 is now behind what has shipped and 183 is
         # the next free number. Checked against App Store Connect rather than
         # against this file's own history, which is what made 181 stale.
-        CURRENT_PROJECT_VERSION: 184
+        # 185: 184 shipped with sign-in DEAD. It linked Firebase and carried
+        # no GoogleService-Info.plist, because that file is gitignored and was
+        # not on link_worktree_inputs.sh's list -- so Settings read "This build
+        # has no Firebase configuration". deploy_testflight.sh now refuses such
+        # an archive outright.
+        CURRENT_PROJECT_VERSION: 185
         MARKETING_VERSION: 0.7.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h

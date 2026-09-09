@@ -148,6 +148,53 @@ ARCHIVED_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
   || die "archive says build $ARCHIVED_BUILD but project.yml says $BUILD_NUMBER"
 say "archived build $ARCHIVED_BUILD"
 
+# A FIREBASE-LINKED BUILD WITH NO FIREBASE CONFIG MUST NOT SHIP.
+#
+# 0.7.1 build 184 did. It linked the SDK, found no GoogleService-Info.plist in
+# the bundle, correctly disabled sign-in, and went out as a SHARING release
+# whose sharing could not be reached -- Settings read "This build has no
+# Firebase configuration, so signing in is unavailable."
+#
+# The build phase tolerates a missing plist ON PURPOSE and that is right: a
+# checkout without secrets still has to build, and a signed-out app is a
+# complete app. What was missing is that the tolerance is WRONG at the moment
+# of shipping a build whose headline feature needs it. So the question is asked
+# here, of the archive, and only when the SDK is actually linked -- a 0.6.x
+# archive carries no Firebase and has to stay shippable.
+APP_IN_ARCHIVE="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+if [[ -d "$APP_IN_ARCHIVE/Frameworks/FirebaseCore.framework" ]] \
+   || grep -qa FirebaseApp "$APP_IN_ARCHIVE/$SCHEME" 2>/dev/null; then
+  [[ -f "$APP_IN_ARCHIVE/GoogleService-Info.plist" ]] || die \
+"this archive links Firebase but carries no GoogleService-Info.plist -- sign-in
+       would be dead on the device. Put it at ios/GoogleService-Info.plist
+       (scripts/link_worktree_inputs.sh links it into a worktree) and archive again"
+  PROJ=$(/usr/libexec/PlistBuddy -c "Print :PROJECT_ID" \
+         "$APP_IN_ARCHIVE/GoogleService-Info.plist" 2>/dev/null || true)
+  [[ -n "$PROJ" ]] || die "the archived GoogleService-Info.plist has no PROJECT_ID"
+  say "Firebase config in the archive: project $PROJ"
+
+  # The reversed client id is what Google's callback returns through. With no
+  # matching URL scheme the browser opens and never comes back, which reads as
+  # a hang rather than as a misconfiguration.
+  REV=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" \
+        "$APP_IN_ARCHIVE/GoogleService-Info.plist" 2>/dev/null || true)
+  if [[ -n "$REV" ]]; then
+    /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" \
+      "$APP_IN_ARCHIVE/Info.plist" 2>/dev/null | grep -q "$REV" || die \
+"the archive does not register the reversed client id $REV -- Google sign-in
+       would open a browser and never return"
+    say "Google callback URL scheme registered"
+  fi
+
+  # Guideline 4.8: offering Google obliges an equivalent private option. And
+  # concretely, the reader waiting on this has an Apple account and no Google
+  # one, so Apple is not the secondary path here -- it is the only one.
+  codesign -d --entitlements - --xml "$APP_IN_ARCHIVE" 2>/dev/null \
+    | grep -q "com.apple.developer.applesignin" || die \
+"this archive links Firebase but carries no Sign in with Apple entitlement"
+  say "Sign in with Apple entitlement present"
+fi
+
 # --------------------------------------------------- privacy manifests, sealed
 #
 # The ONE place this can be checked against a build that is actually going to

@@ -45,6 +45,14 @@ INPUTS=(
   .env                      # OpenRouter key, baked into the bundle
   .omr-api-key              # OMR key, baked into the bundle
   ios/.deploy.env           # App Store Connect credentials
+  # Added after 0.7.1 build 184 shipped with sign-in dead. It is the newest
+  # gitignored input and it was not on this list, because the list predates
+  # Firebase -- so a worktree got a Firebase-LINKED app with no Firebase
+  # CONFIG, and the build phase treats that as a warning rather than an error.
+  # Settings then reads "This build has no Firebase configuration, so signing
+  # in is unavailable", which is the app being honest about a build that
+  # should never have been made.
+  ios/GoogleService-Info.plist   # which Firebase project; without it, no sign-in
 )
 
 missing=0
