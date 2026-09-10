@@ -1385,6 +1385,15 @@ def rebuild_manifest() -> dict:
         doc = _setlist_with_scores(doc, pieces)
         setlists.append({"slug": doc["slug"], "uid": doc.get("uid"),
                          "name": doc["name"],
+                         # Sharing is a field on the set list, so it has to be
+                         # in the projection the app reads: LibraryView shows a
+                         # row as shared because `shareId` is in the manifest
+                         # (Models.SetlistDoc.isShared). Left out, the binding
+                         # written by promotion's last step reaches the
+                         # database and nothing else, and a shared set list
+                         # looks local forever.
+                         "shareId": doc.get("shareId"),
+                         "ownerUid": doc.get("ownerUid"),
                          "arrangements": [s for s in doc.get("scores") or []
                                           if s in known]})
     books = [{"slug": b["slug"], "uid": b.get("uid"), "name": b["name"],
