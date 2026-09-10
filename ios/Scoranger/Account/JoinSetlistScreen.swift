@@ -22,6 +22,17 @@ struct JoinSetlistScreen: View {
 
     @State private var joining = false
     @State private var trouble: String?
+    /// "Adding 2 of 6": the music is downloaded and imported as part of
+    /// joining, and on a set list of any size that takes long enough to say so.
+    @State private var progress: (done: Int, total: Int)?
+
+    private var joiningTitle: String {
+        guard joining else { return "Add to my set lists" }
+        if let progress, progress.total > 0 {
+            return "Adding \(min(progress.done + 1, progress.total)) of \(progress.total)…"
+        }
+        return "Joining…"
+    }
 
     var body: some View {
         Screen(title: "Join a set list", backLabel: "My library",
@@ -44,17 +55,23 @@ struct JoinSetlistScreen: View {
                         .padding(Theme.Metric.panelPadding)
                         .accessibilityIdentifier("join-explains")
 
-                    PanelButton(title: joining ? "Joining…" : "Add to my set lists",
+                    PanelButton(title: joiningTitle,
                                 kind: .primary, identifier: "join-confirm") {
                         guard !joining else { return }
                         joining = true
                         Task {
-                            defer { joining = false }
+                            defer { joining = false; progress = nil }
                             do {
-                                let id = try await shared.claim(inviteId: inviteId)
+                                // The whole of §6A.5: claim, then a real set
+                                // list in this library with its music. The
+                                // slug that comes back is an ordinary row.
+                                let slug = try await state.joinSharedSetlist(
+                                    inviteId: inviteId, shared: shared,
+                                    progress: { done, total in
+                                        progress = (done, total)
+                                    })
                                 state.pendingInvite = nil
-                                shared.watchMemberships()
-                                onJoined(id)
+                                onJoined(slug)
                             } catch {
                                 // The reason. An expired link, a full set list
                                 // and a withdrawn invitation are three

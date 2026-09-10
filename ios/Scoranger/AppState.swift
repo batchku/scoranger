@@ -1248,6 +1248,30 @@ final class AppState: ObservableObject {
             // flick that stopped the main thread once per page, and a picture
             // store bounded by a count -- do not show on a ten-page fixture,
             // so the test that guards them gets the size that broke.
+            // A set list that has been JOINED, without any Firebase at all: the
+            // engine binds it to a share somebody else owns, which is exactly
+            // the state a recipient's library is in after §6A.5. What a UI test
+            // can then assert without signing in: the row reads as shared, and
+            // its share control opens the shared screen rather than re-sharing.
+            if ProcessInfo.processInfo.arguments.contains("-seedSharedSetlist") {
+                do {
+                    let r = try await local.call(op: "create-setlist",
+                                                 args: ["name": "Tuesday at the Ship"])
+                    if let slug = r["slug"] as? String {
+                        _ = try await local.call(op: "bind-setlist-share",
+                                                 args: ["setlist": slug,
+                                                        "shareId": "seed-share-tuesday",
+                                                        "ownerUid": "seed-owner-somebody-else"])
+                        for score in (try await local.manifest()).scores.prefix(2) {
+                            _ = try await local.call(op: "assign-setlist",
+                                                     args: ["setlist": slug, "score": score.slug])
+                        }
+                        print("SCORANGER-SEED shared set list \(slug)")
+                    }
+                } catch {
+                    print("SCORANGER-SEED shared set list failed: \(error.localizedDescription)")
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
                 await seedBigBook()
             }
@@ -2778,6 +2802,62 @@ final class AppState: ObservableObject {
             report("open that arrangement", error)
             return nil
         }
+    }
+
+    /// Join a shared set list: claim the invitation, then MAKE IT A SET LIST
+    /// HERE (design/FIREBASE.md §6A.5).
+    ///
+    /// This is the half that was missing. `claim` alone makes the person a
+    /// member in Firestore and nothing else, and the library lists set lists
+    /// from the local manifest -- so the recipient tapped "Add to my set lists"
+    /// and their set lists gained nothing; the shared screen they landed on
+    /// was unreachable once they left it. Ali's wife and son would have seen
+    /// nothing.
+    ///
+    /// Order of the writes, and why:
+    ///   1. claim, server-side -- membership is the server's to grant;
+    ///   2. read the document's name and owner, once;
+    ///   3. create the local set list and BIND it straight away -- the
+    ///      membership already exists, so the row is genuinely shared from
+    ///      its first moment, and if adopting the music fails part way the
+    ///      row still opens the shared screen where the rest can be fetched;
+    ///   4. adopt each entry through the ordinary import (`adoptSharedEntry`)
+    ///      and file it into the local running order.
+    ///
+    /// Idempotent: a set list already bound to this share is returned as it
+    /// is, which is the spec's "already a member (which opens it instead)".
+    /// Returns the LOCAL slug, so the caller can land on an ordinary row.
+    func joinSharedSetlist(inviteId: String, shared: SharedSetlists,
+                           progress: @MainActor (Int, Int) -> Void = { _, _ in })
+                           async throws -> String {
+        let setlistId = try await shared.claim(inviteId: inviteId)
+        if let mine = manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
+            return mine.slug
+        }
+        let remote = try await shared.fetch(setlistId)
+        let entries = try await shared.fetchEntries(setlistId)
+
+        let created = try await local.call(op: "create-setlist", args: ["name": remote.name])
+        guard let slug = created["slug"] as? String else {
+            throw SharedSetlists.Trouble.unusablePayload
+        }
+        _ = try await local.call(op: "bind-setlist-share",
+                                 args: ["setlist": slug, "shareId": setlistId,
+                                        "ownerUid": remote.ownerId])
+        await refresh()
+
+        progress(0, entries.count)
+        for (index, entry) in entries.enumerated() {
+            if let local = await adoptSharedEntry(entry.id, title: entry.title,
+                                                  download: { try await shared.download(entry) }) {
+                _ = try await self.local.call(op: "assign-setlist",
+                                              args: ["setlist": slug, "score": local])
+            }
+            progress(index + 1, entries.count)
+        }
+        await refresh()
+        shared.watchMemberships()
+        return slug
     }
 
     /// What a shared set list entry carries for one of my arrangements.

@@ -174,6 +174,46 @@ final class SharedSetlists: ObservableObject {
         setlists = found.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    // MARK: - one-shot reads, for joining
+
+    /// One set list, read ONCE.
+    ///
+    /// Joining needs the document's name and owner to write the local row
+    /// (§6A.5) and has no use for a listener it would immediately drop. The
+    /// same decode as `loadSetlists`, and a missing document is an error here
+    /// rather than a skipped row: the person just claimed an invitation to it.
+    func fetch(_ setlistId: String) async throws -> Setlist {
+        guard FirebaseApp.app() != nil else { throw Trouble.signedOut }
+        let snapshot = try await db.collection("setlists").document(setlistId).getDocument()
+        guard let data = snapshot.data() else { throw Trouble.unusablePayload }
+        return Setlist(id: setlistId,
+                       name: data["name"] as? String ?? "Untitled",
+                       ownerId: data["ownerId"] as? String ?? "",
+                       members: data["members"] as? [String: String] ?? [:])
+    }
+
+    /// Its entries, read once, in running order, without the removed ones.
+    /// The same decode and the same sort as the listener in `open(_:)`.
+    func fetchEntries(_ setlistId: String) async throws -> [Entry] {
+        guard FirebaseApp.app() != nil else { throw Trouble.signedOut }
+        let snapshot = try await db.collection("setlists").document(setlistId)
+            .collection("entries").getDocuments()
+        return snapshot.documents.map { document in
+            let data = document.data()
+            return Entry(id: document.documentID,
+                         title: data["title"] as? String ?? "Untitled",
+                         composer: data["composer"] as? String,
+                         order: data["order"] as? String ?? "",
+                         scoreUid: data["scoreUid"] as? String ?? "",
+                         versionUid: data["versionUid"] as? String ?? "",
+                         storagePath: data["storagePath"] as? String,
+                         addedBy: data["addedBy"] as? String ?? "",
+                         removedAt: data["removedAt"] as? Timestamp)
+        }
+        .filter { !$0.isRemoved }
+        .sorted { $0.order < $1.order }
+    }
+
     /// The setlist being read, watched as ITS OWN DOCUMENT.
     ///
     /// **Not derived from `setlists`, and that is the fix.** The screen used to

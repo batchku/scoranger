@@ -33,6 +33,16 @@ struct SharedSetlistScreen: View {
     @State private var adding = false
     @State private var confirmingDelete = false
     @State private var opening: String?
+    /// The open link, ready for the iOS share sheet. Wrapped so `.sheet(item:)`
+    /// has an identity to present on.
+    @State private var linkToSend: SendableLink?
+    @State private var mintingLink = false
+
+    private struct SendableLink: Identifiable {
+        let url: URL
+        let name: String
+        var id: String { url.absoluteString }
+    }
 
     /// The setlist DOCUMENT, not an entry in a list.
     ///
@@ -55,6 +65,13 @@ struct SharedSetlistScreen: View {
     }
 
     var body: some View {
+        screen
+            .sheet(item: $linkToSend) { link in
+                ShareSheet(items: [ShareSetlistAction.message(name: link.name, url: link.url)])
+            }
+    }
+
+    private var screen: some View {
         Screen(title: setlist?.name ?? "Shared set list",
                backLabel: "My library",
                subtitle: subtitle,
@@ -215,7 +232,28 @@ struct SharedSetlistScreen: View {
                         identifier: "shared-add") { adding = true }
         }
         if let role, SetlistPermission.allows(role, .invite), !shared.isStale {
-            PanelButton(title: "Invite somebody", kind: .normal,
+            // THE LINK AGAIN. The same open link the row's share button mints
+            // (§6A.0.1: cap 12, seven days, revocable), from here, because
+            // this is where the owner comes to see who has joined and the
+            // natural next thought is "and send it to one more person".
+            PanelButton(title: mintingLink ? "Making the link…" : "Send the link",
+                        kind: .primary, identifier: "shared-send-link") {
+                guard !mintingLink, let setlist else { return }
+                mintingLink = true
+                Task {
+                    defer { mintingLink = false }
+                    do {
+                        let inviteId = try await shared.invite(to: setlistId, email: nil)
+                        guard let url = SharedInviteLink.webURL(inviteId: inviteId) else {
+                            throw SharedSetlists.Trouble.unusablePayload
+                        }
+                        linkToSend = SendableLink(url: url, name: setlist.name)
+                    } catch {
+                        state.report("make the link", error)
+                    }
+                }
+            }
+            PanelButton(title: "Invite somebody by email", kind: .normal,
                         identifier: "shared-invite") { inviting = true; address = "" }
             if inviting { inviteField }
         }

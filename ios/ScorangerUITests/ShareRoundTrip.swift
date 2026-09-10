@@ -59,6 +59,39 @@ final class ShareRoundTrip: XCTestCase {
                        "a share control appeared on a piece row")
     }
 
+    /// The recipient's half (§6A.5), as far as it goes without an account.
+    ///
+    /// `-seedSharedSetlist` binds a local set list to a share somebody else
+    /// owns, which is the exact state a library is in after joining. Two
+    /// things then have to be true, and neither was: the row reads as SHARED
+    /// (the two-people glyph, labelled "Sharing for"), and tapping that glyph
+    /// opens the shared screen -- who is in it, the link again -- rather than
+    /// running the whole promotion again and minting a fresh link.
+    func testAJoinedSetlistReadsAsSharedAndOpensTheSharedScreen() throws {
+        app.terminate()
+        app.launchArguments = ["-resetLibrary", "-resetViewPreferences",
+                               "-seedTestLibrary", "-seedSharedSetlist"]
+        app.launch()
+        XCTAssertTrue(openSetlists(), "could not reach the Setlists segment")
+        waitForSeededSetlists()
+
+        let sharing = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Sharing for"))
+            .firstMatch
+        XCTAssertTrue(sharing.waitForExistence(timeout: 240),
+                      "the joined set list's row does not read as shared")
+        // And a plain, unshared seed row still offers to share.
+        let plain = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Share "))
+            .firstMatch
+        XCTAssertTrue(plain.exists, "an unshared set list lost its share button")
+
+        sharing.tap()
+        let screen = app.descendants(matching: .any)["screen-shared-setlist"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 30),
+                      "tapping the shared glyph did not open the shared screen")
+    }
+
     func testTappingShareSignedOutExplainsRatherThanDoingNothing() throws {
         XCTAssertTrue(openSetlists(), "could not reach the Setlists segment")
         waitForSeededSetlists()

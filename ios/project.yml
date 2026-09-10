@@ -230,6 +230,26 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.7.3  ONE KIND OF SET LIST, BOTH ENDS. Written before the work,
+        #          because 187's predecessor was called "sharing" when only the
+        #          sender's half existed. This build is done when, on three
+        #          iPads signed in as three people:
+        #            1. the owner taps share on a set list's row and sends the
+        #               https link by Messages;
+        #            2. each recipient taps it, lands on "Add to my set lists",
+        #               and the set list APPEARS IN THEIR SET LISTS with its
+        #               music -- design/FIREBASE.md 6A.5, the sentence that was
+        #               never implemented;
+        #            3. every member can open it again from that row, and the
+        #               owner reaches the member list, invite and remove there;
+        #            4. a second tap on a shared row shows who is in it rather
+        #               than re-sharing.
+        #          Carried from the unshipped 187: the sender's half, and four
+        #          defects found by running the flow instead of grepping the
+        #          archive -- shareSetlist never wrote the owner's memberships
+        #          row, bind_setlist_share was missing from the vendored
+        #          engine, the manifest did not project shareId, and the app
+        #          never claimed the domain so the link opened Safari.
         #   0.7.2  LOGIN THAT WORKS IN THE SHIPPED BUILD. 0.7.1 build 184
         #          linked Firebase and carried no GoogleService-Info.plist, so
         #          Settings read "no Firebase configuration" and no Firebase
@@ -253,7 +273,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 186
-        MARKETING_VERSION: 0.7.2
+        MARKETING_VERSION: 0.7.3
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

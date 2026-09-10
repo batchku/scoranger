@@ -370,9 +370,19 @@ struct RootView: View {
                 .accessibilityIdentifier("screen-setlist-\(slug)")
         case .joinSetlist(let inviteId):
             JoinSetlistScreen(inviteId: inviteId, onBack: pop,
-                              onJoined: { id in
+                              onJoined: { slug in
+                                  // §6A.5: "the set list appears in Setlists as
+                                  // a normal row. The screen pops to it." So:
+                                  // back to the list, on the Setlists segment,
+                                  // and say what just arrived. Not the shared
+                                  // screen -- that is one tap away on the row,
+                                  // and landing there hid the fact that the
+                                  // row now exists.
                                   libraryPath.removeLast()
-                                  libraryPath.append(.sharedSetlist(id))
+                                  segment = .setlists
+                                  let name = state.manifest?.setlists?
+                                      .first(where: { $0.slug == slug })?.name ?? "the set list"
+                                  state.notice = "Added \"\(name)\" to your set lists."
                               })
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-join-setlist")
@@ -618,6 +628,16 @@ struct RootView: View {
     private func shareSetlist(_ slug: String) {
         guard let setlist = (state.manifest?.setlists ?? [])
                 .first(where: { $0.slug == slug }) else { return }
+        // ALREADY SHARED: the row's glyph is two people, and two people is what
+        // it opens -- who is in it, the invite, the link again, removal. It
+        // used to run the whole promotion again from here, re-uploading every
+        // arrangement and minting a fresh link on every tap.
+        if let shareId = setlist.shareId {
+            if scoreOpen { close() }
+            segment = .setlists
+            libraryPath.append(.sharedSetlist(shareId))
+            return
+        }
         Task {
             await sharing.share(setlist: setlist,
                                 arrangements: state.manifest?.scores ?? [],
