@@ -1561,6 +1561,27 @@ and still not a merge strategy for a drawing. Section 6.3 builds its own out of
 the one property that makes it possible.
 ([add-data](https://firebase.google.com/docs/firestore/manage-data/add-data))
 
+### 10.1.1 Cross-service rules need an IAM grant the CLI would have made
+
+**Found in Ali's hands on 0.7.3 build 187, 2026-09-10.** The owner shared a set
+list and every upload to `shared/{setlistId}/…` came back *"User does not have
+permission to access gs://scoranger.firebasestorage.app/shared/…"*. The rules
+live were byte-identical to `firebase/storage.rules`; the set list document
+existed with the owner in `members`; the `memberships` row existed.
+
+The Storage rule reads the members map with `firestore.get`. Live, that read is
+made by the Storage service agent
+(`service-<project-number>@gcp-sa-firebasestorage.iam.gserviceaccount.com`),
+and it needs `roles/firebaserules.firestoreServiceAgent` on the project. The
+Firebase CLI grants it when it deploys Storage rules that use `firestore.*`;
+ours were released through `firebaserules.googleapis.com` directly, so no grant
+was made, the read failed, and an evaluation error is a deny.
+
+**The emulator does not need the grant**, so §10.1's 44 rules assertions were
+green throughout and could not have caught it. This is the class of thing only
+the live project can answer, so `deploy_testflight.sh` now asks the live
+project: a Firebase-linked archive is refused unless the binding exists.
+
 ### 10.2 Not verified, and what the design does about it
 
 **Whether Firestore's pending-write queue survives app termination is not

@@ -224,6 +224,35 @@ if [[ -d "$APP_IN_ARCHIVE/Frameworks/FirebaseCore.framework" ]] \
   grep -q "/invite/" /tmp/scoranger-aasa.json || die \
 "the AASA does not claim the /invite/ path"
   say "AASA live: 200, application/json, no redirect, /invite/* for this app id"
+
+  # The Storage rule for shared/ reads the set list's members out of Firestore
+  # (`firestore.get`). Live, that read runs as the Storage service agent, and
+  # the agent needs roles/firebaserules.firestoreServiceAgent on the project or
+  # the read fails, an evaluation error is a DENY, and the owner's own upload
+  # comes back "User does not have permission" -- which is what build 187 did
+  # in Ali's hands. The Firebase CLI grants the role when it deploys Storage
+  # rules; ours went up by REST, so nothing did. The emulator does not need the
+  # grant, so 44 green rules tests could not see it. Only the live project can
+  # answer this, so the live project is asked.
+  FB_PROJECT_NUMBER=$(gcloud projects describe "$PROJ" --format='value(projectNumber)' 2>/dev/null || true)
+  if [[ -z "$FB_PROJECT_NUMBER" ]]; then
+    die "cannot read the Firebase project's number with gcloud -- sign in (gcloud auth login) so the Storage rules' cross-service grant can be verified"
+  fi
+  STORAGE_AGENT="serviceAccount:service-${FB_PROJECT_NUMBER}@gcp-sa-firebasestorage.iam.gserviceaccount.com"
+  gcloud projects get-iam-policy "$PROJ" --format=json 2>/dev/null \
+    | python3 -c "
+import json, sys
+policy = json.load(sys.stdin)
+agent, role = sys.argv[1], 'roles/firebaserules.firestoreServiceAgent'
+ok = any(b['role'] == role and agent in b['members'] for b in policy['bindings'])
+sys.exit(0 if ok else 1)
+" "$STORAGE_AGENT" || die \
+"the Storage service agent lacks roles/firebaserules.firestoreServiceAgent, so every
+       upload to shared/ is refused -- grant it:
+         gcloud projects add-iam-policy-binding $PROJ \\
+           --member=$STORAGE_AGENT \\
+           --role=roles/firebaserules.firestoreServiceAgent"
+  say "Storage rules may read Firestore (firestoreServiceAgent granted)"
 fi
 
 # --------------------------------------------------- privacy manifests, sealed
