@@ -467,6 +467,10 @@ targets:
       # is why they are separate files from `SharedSetlists`: this bundle has no
       # host app and cannot link it (design/FIREBASE.md §6.3).
       - path: Scoranger/Account/SharedInviteLink.swift
+      # The one bit that decides whether launch brings Firebase up: pure
+      # UserDefaults, no Firebase import, and the three transitions that keep
+      # "every launch asks you to sign in again" from coming back.
+      - path: Scoranger/Account/SignInMemory.swift
       - path: Scoranger/Account/SharedEntryCopies.swift
       # The QR code is the invite URL rendered, so it is pure CoreImage over
       # SharedInviteLink and carries no Firebase -- which is what lets the

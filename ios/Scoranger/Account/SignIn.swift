@@ -68,6 +68,44 @@ final class SignIn: ObservableObject {
 
     @Published private(set) var state: State = .signedOut
 
+    /// Whether this device has signed in before -- the one bit that decides
+    /// whether launch brings Firebase up. See `SignInMemory`.
+    private let memory = SignInMemory()
+
+    init() {
+        restoreIfSignedInBefore()
+    }
+
+    /// Pick the persisted session back up, on a device that has one.
+    ///
+    /// Firebase Auth keeps the signed-in user in the keychain across launches;
+    /// this app never read it, because it never configured Firebase at launch
+    /// (§0.2), so every launch began signed out and asked Ali to sign in again.
+    ///
+    /// Gated on `memory`, which is what keeps principle 1 true: a device that
+    /// has never signed in has the bit clear and this returns before touching
+    /// anything. `startFirebaseIfNeeded()` comes before `Auth.auth()` in the
+    /// same function, which `check_signed_out.py` requires of every path that
+    /// asks Firebase a question -- `Auth.auth()` traps when nothing has
+    /// configured it.
+    ///
+    /// A set bit with no user behind it -- the keychain was cleared, the token
+    /// was revoked -- is corrected rather than trusted: the bit is dropped and
+    /// the state is honestly signed out.
+    private func restoreIfSignedInBefore() {
+        guard memory.hasSignedInBefore else { return }
+        do { try startFirebaseIfNeeded() } catch { return }
+        guard let user = Auth.auth().currentUser else {
+            memory.forget()
+            return
+        }
+        // Which button they pressed last time, read back off the account.
+        let provider = user.providerData
+            .compactMap { Provider(rawValue: $0.providerID) }
+            .first ?? .google
+        state = .signedIn(account(from: user, provider: provider))
+    }
+
     /// The account, if there is one. Nil is the ordinary case and not a fault.
     var account: Account? {
         if case .signedIn(let account) = state { return account }
@@ -283,6 +321,7 @@ final class SignIn: ObservableObject {
         do {
             let result = try await Auth.auth().signIn(with: credential)
             state = .signedIn(account(from: result.user, provider: provider))
+            memory.remember()
         } catch let error as NSError
                     where error.code == AuthErrorCode.accountExistsWithDifferentCredential.rawValue {
             // The address is already an account under the other provider. Sign
@@ -291,6 +330,7 @@ final class SignIn: ObservableObject {
             guard let current = Auth.auth().currentUser else { throw error }
             let linked = try await current.link(with: credential)
             state = .signedIn(account(from: linked.user, provider: provider))
+            memory.remember()
         }
     }
 
@@ -310,6 +350,8 @@ final class SignIn: ObservableObject {
     func signOut() {
         if FirebaseApp.app() != nil { try? Auth.auth().signOut() }
         GIDSignIn.sharedInstance.signOut()
+        // So the next launch does not bring them straight back.
+        memory.forget()
         state = .signedOut
     }
 
