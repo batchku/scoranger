@@ -66,11 +66,19 @@ final class LandscapeFits: XCTestCase {
     private func rotateToLandscape(_ app: XCUIApplication) -> CGRect {
         let portrait = windowFrame(app)
         XCUIDevice.shared.orientation = .landscapeLeft
-        let deadline = Date().addingTimeInterval(25)
+        // Budget and re-ask, for the reason in Rotation.swift: four workers
+        // drop or delay the request past anything measured on one.
+        let deadline = Date().addingTimeInterval(XCTestCase.rotationBudget)
+        var askedAgain = Date()
         var landscape = windowFrame(app)
         var stable = 0
         while Date() < deadline {
             usleep(200_000)
+            if Date().timeIntervalSince(askedAgain) > XCTestCase.rotationRetry,
+               landscape.width <= landscape.height {
+                XCUIDevice.shared.orientation = .landscapeLeft
+                askedAgain = Date()
+            }
             let next = windowFrame(app)
             // still, landscape, and sitting at the origin on whole points --
             // an animating frame satisfies none of those for long

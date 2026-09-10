@@ -17,13 +17,33 @@ extension XCTestCase {
     /// letting the caller measure the wrong thing.
     ///
     /// - Returns: the window frame once it matches the orientation asked for.
+    /// How long to wait for a rotation, and how often to ask again.
+    ///
+    /// 20 seconds was enough for one simulator and not for four. Eight
+    /// landscape tests failed a release gate reporting a window that had not
+    /// moved a pixel -- not a frame caught mid-animation, the ORIGINAL frame --
+    /// and all eight passed alone on a freshly erased device from the same
+    /// build. Under four workers the request is either dropped or served
+    /// later than any budget a test author measured against, which is the
+    /// hazard gate.sh warns about in its own header: a wall-clock budget
+    /// spent across something the host owns measures the machine.
+    ///
+    /// So the budget is generous and the REQUEST IS REPEATED. Nothing about
+    /// what is asserted changes: the window still has to turn over, and the
+    /// test still fails if it never does. A test that needs two minutes to
+    /// rotate on a loaded host is telling the truth slowly; one that gives up
+    /// at twenty seconds is telling a lie quickly.
+    static let rotationBudget: TimeInterval = 120
+    static let rotationRetry: TimeInterval = 8
+
     @discardableResult
     func rotate(_ app: XCUIApplication, to orientation: UIDeviceOrientation,
-                timeout: TimeInterval = 20,
+                timeout: TimeInterval = XCTestCase.rotationBudget,
                 file: StaticString = #filePath, line: UInt = #line) -> CGRect {
         let wantsLandscape = orientation.isLandscape
         XCUIDevice.shared.orientation = orientation
         let deadline = Date().addingTimeInterval(timeout)
+        var askedAgain = Date()
         var frame = app.windows.firstMatch.frame
         while Date() < deadline {
             frame = app.windows.firstMatch.frame
@@ -32,6 +52,10 @@ extension XCTestCase {
                 // resizes -- the frame turns over before its contents do.
                 Thread.sleep(forTimeInterval: 0.6)
                 return app.windows.firstMatch.frame
+            }
+            if Date().timeIntervalSince(askedAgain) > XCTestCase.rotationRetry {
+                XCUIDevice.shared.orientation = orientation
+                askedAgain = Date()
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
