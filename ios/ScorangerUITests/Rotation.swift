@@ -34,15 +34,25 @@ extension XCTestCase {
     /// rotate on a loaded host is telling the truth slowly; one that gives up
     /// at twenty seconds is telling a lie quickly.
     ///
-    /// MEASURED, not guessed. The same eight tests, same build, three ways:
-    /// alone on an idle device they take 15-25 seconds each; under four
-    /// workers, 22, 29, 42, 45, 49, 105, 158 and 205 seconds; under four
-    /// workers with another worktree's four simulators also booted, they never
-    /// rotate at all inside two minutes. 120 was picked before those numbers
-    /// existed and a gate failed on it anyway. 240 is what the rest of this
-    /// suite already waits for the library, and the second half of the fix is
-    /// in gate.sh: it will not run with foreign simulators booted.
-    static let rotationBudget: TimeInterval = 240
+    /// MEASURED, not guessed, after three wrong guesses. The same eight
+    /// tests, same build, four ways:
+    ///
+    ///   alone on an idle device      15-25s each, all eight pass
+    ///   four workers running only    22, 29, 42, 45, 49, 105, 158, 205s --
+    ///     these eight tests          all eight pass
+    ///   four workers + another       never rotates
+    ///     worktree's four booted
+    ///   the real gate, beside its    never rotates, past a 240 second budget
+    ///     1357 unit tests            with the request re-issued every 8s
+    ///
+    /// There is no honest timeout for a starved host, so the fix is not here:
+    /// every rotating test is in gate.sh's ENGINE_SERIAL and runs after the
+    /// pool, one at a time, still counted and still able to fail the gate.
+    ///
+    /// 90 is then generous rather than hopeful -- four times the worst serial
+    /// measurement, and low enough that a genuinely broken rotation costs the
+    /// gate twelve minutes rather than thirty-two.
+    static let rotationBudget: TimeInterval = 90
     static let rotationRetry: TimeInterval = 8
 
     @discardableResult

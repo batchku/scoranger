@@ -165,6 +165,36 @@ ENGINE_SERIAL=(
   # same programs, same keys, same silence threshold.
   "ScorangerTests/PlaybackInstrumentGraphTests/testEveryMelodicProgramActuallyMakesASound()"
   "ScorangerTests/PlaybackInstrumentGraphTests/testEveryDrumKitActuallyMakesASound()"
+  # EVERY TEST THAT ASKS THE DEVICE TO ROTATE. Not engine contention and not
+  # memory: the host's own window machinery, which four workers starve.
+  #
+  # Measured, because I guessed wrong about this three times:
+  #   alone on an idle device        15-25s each, all eight pass
+  #   under four workers, alone in   22, 29, 42, 45, 49, 105, 158, 205s --
+  #     their own run                all eight pass
+  #   in the real gate, beside the   NEVER rotates. The window is not a frame
+  #     1357 unit tests              caught mid-animation, it is the original
+  #                                  portrait frame, and it stays that way
+  #                                  past a 240 second budget with the
+  #                                  request re-issued every 8 seconds.
+  #
+  # So there is no honest timeout, which is this list's own criterion, and the
+  # discriminator two comments up applies: these PASS when they run alone, so
+  # running them alone leaves the gate green AND meaningful. Every assertion
+  # is untouched -- the window still has to turn over and settle at the origin
+  # on whole points, and a build whose plist loses landscape still fails here.
+  #
+  # The portrait halves of these same classes are NOT here. They pass under
+  # four workers, because setUp's portrait is the orientation the device is
+  # already in and asks the host for nothing.
+  "ScorangerUITests/LandscapeFits/testTheLibraryFitsInLandscape()"
+  "ScorangerUITests/LandscapeFits/testTheMixerFitsInLandscape()"
+  "ScorangerUITests/LandscapeFits/testTheOptionsScreenFitsInLandscape()"
+  "ScorangerUITests/LandscapeFits/testTheScoreViewFitsInLandscape()"
+  "ScorangerUITests/MixerOnAlisCase/testTheMixerFitsInLandscapeAtNormalText()"
+  "ScorangerUITests/MixerOnAlisCase/testTheMixerFitsInLandscapeWithThePickerOpen()"
+  "ScorangerUITests/MixerTwoChannel/testTwoChannelPanelFitsInLandscape()"
+  "ScorangerUITests/MixerTwoChannel/testTwoChannelPanelFitsWithThePickerOpen()"
 )
 
 # ---------------------------------------------------------------- preflight
