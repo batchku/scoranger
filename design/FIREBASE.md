@@ -1582,6 +1582,24 @@ green throughout and could not have caught it. This is the class of thing only
 the live project can answer, so `deploy_testflight.sh` now asks the live
 project: a Firebase-linked archive is refused unless the binding exists.
 
+### 10.1.2 A deployed Function is a copy, and copies go stale
+
+**Found in Ali's hands on 0.7.3 build 187, 2026-09-10, minutes after §10.1.1.**
+The owner shared, the link opened on the second iPad, "Add to my set lists"
+answered *"That invitation was sent to a different address."* The invite
+document was right: `claim: open`, no address, minted that morning. But
+`claimInvite` live had been deployed on the 8th, before the open-link branch of
+§6A.0.1 existed on the 9th; `createInvite`, `shareSetlist` and `revokeInvite`
+had been redeployed and `claimInvite` and `removeMember` had not. The old code
+took the addressed path and compared a null address to hers.
+
+Same shape as §10.1.1 and as the vendored engine before it: the source is
+right, the tests that run the source are green, and the COPY that ships is
+older than both. `firebase/functions.test.mjs` runs the repo's functions in the
+emulator and so cannot see this. `deploy_testflight.sh` now asks the live
+project: every callable's `updateTime` must be after the last commit touching
+`index.js`, or the archive is refused.
+
 ### 10.2 Not verified, and what the design does about it
 
 **Whether Firestore's pending-write queue survives app termination is not

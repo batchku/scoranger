@@ -253,6 +253,33 @@ sys.exit(0 if ok else 1)
            --member=$STORAGE_AGENT \\
            --role=roles/firebaserules.firestoreServiceAgent"
   say "Storage rules may read Firestore (firestoreServiceAgent granted)"
+
+  # Every callable the app depends on must be at least as new as its source.
+  # Build 187, in Ali's hands: the invite was minted open, and claimInvite
+  # refused it as "sent to a different address" -- because the deployed
+  # claimInvite was from the 8th and the open-link branch was written on the
+  # 9th. Three of five functions had been redeployed; two had not. The emulator
+  # suite runs the REPO's functions and so was green throughout; only the live
+  # project can answer this, so the live project is asked: each function's
+  # updateTime must be after the last commit that touched index.js.
+  REPO_ROOT=$(git rev-parse --show-toplevel)
+  FN_SOURCE_AT=$(git -C "$REPO_ROOT" log -1 --format=%cI -- firebase/functions/index.js)
+  [[ -n "$FN_SOURCE_AT" ]] || die "cannot date firebase/functions/index.js from git"
+  for fn in shareSetlist createInvite claimInvite revokeInvite removeMember; do
+    DEPLOYED_AT=$(gcloud functions describe "$fn" --gen2 --region us-west1 \
+                    --project "$PROJ" --format='value(updateTime)' 2>/dev/null || true)
+    [[ -n "$DEPLOYED_AT" ]] || die "callable $fn is not deployed in $PROJ/us-west1"
+    python3 - "$fn" "$DEPLOYED_AT" "$FN_SOURCE_AT" <<'PYCHK' || die \
+"callable $fn was deployed before its source last changed -- redeploy the functions
+       (firebase/functions/index.js changed $FN_SOURCE_AT, $fn deployed $DEPLOYED_AT)"
+import sys
+from datetime import datetime
+fn, deployed, source = sys.argv[1:4]
+parse = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))
+sys.exit(0 if parse(deployed) >= parse(source) else 1)
+PYCHK
+  done
+  say "all five callables are newer than their source"
 fi
 
 # --------------------------------------------------- privacy manifests, sealed
