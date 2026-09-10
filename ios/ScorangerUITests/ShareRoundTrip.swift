@@ -22,11 +22,29 @@ final class ShareRoundTrip: XCTestCase {
         return false
     }
 
+    /// Wait for the seeded set lists to be ON SCREEN, rather than sleeping.
+    ///
+    /// `sleep(3)` failed a gate at zero share buttons while the test right
+    /// below it tapped one successfully in the same run: the library is seeded
+    /// through the embedded engine, and three seconds is a bet on the host,
+    /// not a wait for the app. This is gate.sh's own rule -- never spend a
+    /// wall-clock budget across an engine call; wait for what the app raises.
+    private func shareButtons() -> XCUIElementQuery {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-share-"))
+    }
+
+    private func waitForSeededSetlists(timeout: TimeInterval = 240) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, shareButtons().count == 0 {
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
     func testTheShareButtonIsOnSetlistRowsAndNotOnPieces() throws {
         XCTAssertTrue(openSetlists(), "could not reach the Setlists segment")
-        sleep(3)
-        let shareButtons = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-share-"))
+        waitForSeededSetlists()
+        let shareButtons = self.shareButtons()
         print("DIAG share buttons on Setlists:", shareButtons.count)
         XCTAssertGreaterThan(shareButtons.count, 0,
                              "no share control on any set list row")
@@ -43,11 +61,9 @@ final class ShareRoundTrip: XCTestCase {
 
     func testTappingShareSignedOutExplainsRatherThanDoingNothing() throws {
         XCTAssertTrue(openSetlists(), "could not reach the Setlists segment")
-        sleep(3)
-        let share = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-share-"))
-            .firstMatch
-        XCTAssertTrue(share.waitForExistence(timeout: 20), "no share control")
+        waitForSeededSetlists()
+        let share = shareButtons().firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 240), "no share control")
         share.tap()
         sleep(4)
         let texts = app.staticTexts.allElementsBoundByIndex.prefix(30).map(\.label)

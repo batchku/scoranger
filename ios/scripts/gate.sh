@@ -236,6 +236,55 @@ RUNTIME=$(xcrun simctl list runtimes -j \
 # `basename $PWD` is "ios" in every worktree and would have namespaced nothing.
 GATE_SIM_POOL="${GATE_SIM_POOL:-$(basename "$(dirname "$PWD")")}"
 
+# A QUIET POOL, not just a quiet machine.
+#
+# Namespacing the pool per checkout stopped two gates from sharing DEVICES. It
+# did nothing about their devices being BOOTED at the same time, and a booted
+# simulator costs the host whether or not anything is driving it.
+#
+# What that costs, measured on the eight landscape tests: alone on an idle
+# device 15-25 seconds each; under this gate's four workers 22 to 205 seconds;
+# under four workers with another worktree's four simulators also booted, the
+# device never rotates at all and eight tests fail a release gate reporting a
+# window that had not moved a pixel. Three gate runs went to finding that, and
+# the state that caused it was four simulators left booted by a session that
+# had ended hours earlier.
+#
+# So: foreign devices left booted with nothing driving them are shut down and
+# said out loud. If an xcodebuild is actually running, this refuses instead --
+# that is somebody else's gate in progress, and shutting its devices out from
+# under it would break their run to fix ours.
+tidy_foreign_simulators() {
+  local booted foreign=()
+  booted=$(xcrun simctl list devices -j | python3 -c "
+import json, sys
+for _, ds in json.load(sys.stdin)['devices'].items():
+    for d in ds:
+        if d.get('state') == 'Booted':
+            print(d['udid'], d['name'])
+")
+  while read -r udid name; do
+    [[ -n "$udid" ]] || continue
+    [[ "$name" == "scoranger-gate-$GATE_SIM_POOL-"* ]] && continue
+    foreign+=("$udid $name")
+  done <<< "$booted"
+  [[ ${#foreign[@]} -gt 0 ]] || return 0
+
+  if pgrep -x xcodebuild >/dev/null 2>&1; then
+    echo "==> REFUSING: an xcodebuild is running and these simulators are booted"
+    printf '    %s\n' "${foreign[@]}"
+    echo "    That is another run in progress. Wait for it, or set GATE_SIM_POOL"
+    echo "    and accept that both gates will be slower than either measured."
+    exit 1
+  fi
+  echo "==> shutting down ${#foreign[@]} foreign booted simulator(s) (nothing is driving them)"
+  for entry in "${foreign[@]}"; do
+    printf '    %s\n' "$entry"
+    xcrun simctl shutdown "${entry%% *}" >/dev/null 2>&1 || true
+  done
+}
+tidy_foreign_simulators
+
 sim_for() {
   local name="scoranger-gate-$GATE_SIM_POOL-$1" udid
   udid=$(xcrun simctl list devices -j | python3 -c "

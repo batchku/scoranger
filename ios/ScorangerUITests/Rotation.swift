@@ -33,7 +33,16 @@ extension XCTestCase {
     /// test still fails if it never does. A test that needs two minutes to
     /// rotate on a loaded host is telling the truth slowly; one that gives up
     /// at twenty seconds is telling a lie quickly.
-    static let rotationBudget: TimeInterval = 120
+    ///
+    /// MEASURED, not guessed. The same eight tests, same build, three ways:
+    /// alone on an idle device they take 15-25 seconds each; under four
+    /// workers, 22, 29, 42, 45, 49, 105, 158 and 205 seconds; under four
+    /// workers with another worktree's four simulators also booted, they never
+    /// rotate at all inside two minutes. 120 was picked before those numbers
+    /// existed and a gate failed on it anyway. 240 is what the rest of this
+    /// suite already waits for the library, and the second half of the fix is
+    /// in gate.sh: it will not run with foreign simulators booted.
+    static let rotationBudget: TimeInterval = 240
     static let rotationRetry: TimeInterval = 8
 
     @discardableResult
