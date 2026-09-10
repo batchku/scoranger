@@ -2786,11 +2786,16 @@ final class AppState: ObservableObject {
             // own. Two devices importing the same shared copy must NOT claim
             // the same identity: it arrived from outside, and that is what
             // `bundle.ARRIVED_FROM_OUTSIDE` records about it.
-            let result = try await local.call(op: "import",
+            //
+            // WHICH import, and WHERE the slug is, are SharedEntryImport's --
+            // pinned there against the shapes the bridge returns, because
+            // both were wrong here: a PDF went to the notation parser, and
+            // the slug was read as a dictionary when it is a string, so six
+            // successful imports were reported as failures and none was filed.
+            let result = try await local.call(op: SharedEntryImport.op(for: file),
                                               args: ["path": file.path,
                                                      "name": title])
-            guard let slug = (result["score"] as? [String: Any])?["slug"] as? String
-                    ?? result["slug"] as? String else {
+            guard let slug = SharedEntryImport.slug(in: result) else {
                 report("open that arrangement",
                        SharedSetlists.Trouble.unusablePayload)
                 return nil
@@ -2831,20 +2836,28 @@ final class AppState: ObservableObject {
                            progress: @MainActor (Int, Int) -> Void = { _, _ in })
                            async throws -> String {
         let setlistId = try await shared.claim(inviteId: inviteId)
-        if let mine = manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
-            return mine.slug
-        }
         let remote = try await shared.fetch(setlistId)
         let entries = try await shared.fetchEntries(setlistId)
 
-        let created = try await local.call(op: "create-setlist", args: ["name": remote.name])
-        guard let slug = created["slug"] as? String else {
-            throw SharedSetlists.Trouble.unusablePayload
+        // Already joined: keep the row, but STILL walk the entries below. Both
+        // halves of adoption are idempotent -- a copy this device already has
+        // is found by its entry id, and filing an arrangement twice is a no-op
+        // -- so tapping the link again repairs a set list that arrived with
+        // its music missing, which is exactly what build 188 produced.
+        let slug: String
+        if let mine = manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
+            slug = mine.slug
+        } else {
+            let created = try await local.call(op: "create-setlist", args: ["name": remote.name])
+            guard let made = created["slug"] as? String else {
+                throw SharedSetlists.Trouble.unusablePayload
+            }
+            _ = try await local.call(op: "bind-setlist-share",
+                                     args: ["setlist": made, "shareId": setlistId,
+                                            "ownerUid": remote.ownerId])
+            await refresh()
+            slug = made
         }
-        _ = try await local.call(op: "bind-setlist-share",
-                                 args: ["setlist": slug, "shareId": setlistId,
-                                        "ownerUid": remote.ownerId])
-        await refresh()
 
         progress(0, entries.count)
         for (index, entry) in entries.enumerated() {

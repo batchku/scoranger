@@ -471,6 +471,9 @@ targets:
       # UserDefaults, no Firebase import, and the three transitions that keep
       # "every launch asks you to sign in again" from coming back.
       - path: Scoranger/Account/SignInMemory.swift
+      # Which import op a downloaded shared entry goes to, and where the slug
+      # is in what comes back -- pinned against the bridge's real shapes.
+      - path: Scoranger/Account/SharedEntryImport.swift
       - path: Scoranger/Account/SharedEntryCopies.swift
       # The QR code is the invite URL rendered, so it is pure CoreImage over
       # SharedInviteLink and carries no Firebase -- which is what lets the
