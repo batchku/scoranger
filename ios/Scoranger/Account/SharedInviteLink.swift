@@ -19,6 +19,37 @@ enum SharedInviteLink {
     static let scheme = "scoranger"
     static let host = "invite"
 
+    /// The domain the AASA is served from.
+    ///
+    /// Firebase Hosting's default site for the project, which already existed
+    /// and needed no domain purchase and no DNS: `apple-app-site-association`
+    /// is live at `/.well-known/`, over HTTPS, 200, `application/json`, with
+    /// no redirect -- all four of which Apple requires.
+    static let webHost = "scoranger.web.app"
+
+    /// THE LINK TO SEND. An https universal link.
+    ///
+    /// **This is what makes SMS work, and it is the whole reason it exists.**
+    /// Messages and Mail do not linkify a custom scheme, so
+    /// `scoranger://invite?id=…` arrived as dead text -- the reader could only
+    /// copy the message and paste it, which is a step nobody should need. An
+    /// https URL they render as tappable, and the AASA makes the tap open the
+    /// app rather than a browser.
+    static func webURL(inviteId: String) -> URL? {
+        guard !inviteId.isEmpty, !inviteId.contains("/") else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = webHost
+        components.path = "/invite/" + inviteId
+        return components.url
+    }
+
+    /// The custom-scheme form, KEPT as a fallback.
+    ///
+    /// Universal links do not resolve everywhere -- a link pasted into a
+    /// context that strips the association, or an AirDrop of a file rather
+    /// than a URL -- and this still works there. It is no longer what gets
+    /// shared.
     static func url(inviteId: String) -> URL? {
         var components = URLComponents()
         components.scheme = scheme
@@ -34,14 +65,29 @@ enum SharedInviteLink {
     /// callback -- and anything this does not positively recognise has to fall
     /// through to the file path unchanged.
     static func inviteId(in url: URL) -> String? {
+        // The universal link first, since it is the one people will send.
+        // Matched on host AND path shape, so an https link to any other page
+        // on the same site is not mistaken for an invitation.
+        if url.scheme?.lowercased() == "https",
+           url.host?.lowercased() == webHost {
+            let parts = url.path.split(separator: "/", omittingEmptySubsequences: true)
+            guard parts.count == 2, parts[0] == "invite" else { return nil }
+            return sane(String(parts[1]))
+        }
         guard url.scheme?.lowercased() == scheme else { return nil }
         guard url.host?.lowercased() == host else { return nil }
         guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems else { return nil }
         guard let raw = items.first(where: { $0.name == "id" })?.value else { return nil }
+        return sane(raw)
+    }
+
+    /// One rule for what an id may be, used by both link forms.
+    ///
+    /// A document id, not a path: a value with a slash in it would address a
+    /// different collection.
+    private static func sane(_ raw: String) -> String? {
         let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A document id, not a path: a value with a slash in it would address
-        // a different collection.
         guard !id.isEmpty, !id.contains("/"), id.count <= 128 else { return nil }
         return id
     }
@@ -83,7 +129,8 @@ enum SharedInviteLink {
     /// knows which of their addresses to sign in with -- the one mismatch that
     /// otherwise reads as a broken link.
     static func message(setlistName: String, email: String, inviteId: String) -> String {
-        let link = url(inviteId: inviteId)?.absoluteString ?? ""
+        // The https form: this text is going into Messages or Mail.
+        let link = webURL(inviteId: inviteId)?.absoluteString ?? ""
         return """
         I've shared the set list "\(setlistName)" with you in Scoranger.
 

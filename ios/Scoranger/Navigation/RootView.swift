@@ -19,6 +19,9 @@ struct RootView: View {
     /// Only to stop the ink sync on the way out of a shared entry, and to hand
     /// the shared set list screen its data. Publishes nothing while signed out.
     @EnvironmentObject var shared: SharedSetlists
+    /// Whether there is an account, which decides whether the share button
+    /// can do its work or has to explain itself (§6A.2).
+    @EnvironmentObject var signIn: SignIn
 
     /// The library's stack. The score view stays OUTSIDE it -- it is presented
     /// over the library, which is what lets its page, zoom and selection
@@ -75,6 +78,41 @@ struct RootView: View {
             NavigationStack(path: $libraryPath) {
                 library.navigationBarHidden(true)
                     .navigationDestination(for: Route.self) { screen($0) }
+            }
+            // SHARING'S PROGRESS AND FAILURES, through the app's own notice
+            // bar rather than a second surface invented for this one feature.
+            //
+            // Found by running it: only the `.ready` state had any UI, so
+            // tapping share while signed out set `.failed` and NOTHING
+            // appeared -- a control that did nothing and said nothing, which
+            // is the exact failure the Apple button had. A state machine with
+            // an unrendered state is a silent one.
+            .onChange(of: sharing.state) { _, now in
+                switch now {
+                case .working(let done, let total):
+                    state.notice = total > 0
+                        ? "Sharing… \(done) of \(total) uploaded."
+                        : "Sharing…"
+                case .failed(let why):
+                    state.notice = why
+                case .ready, .idle:
+                    break       // the sheet speaks for `ready`
+                }
+            }
+            // A tapped invite link, from a cold launch or from anywhere in
+            // the app. `.task` catches the cold case -- the URL is delivered
+            // before this view exists -- and `.onChange` the warm one.
+            .task { routePendingInvite(state.pendingInvite) }
+            .onChange(of: state.pendingInvite) { _, new in
+                routePendingInvite(new)
+            }
+            // The share sheet, and the two states before it.
+            .sheet(isPresented: Binding(
+                get: { if case .ready = sharing.state { return true } else { return false } },
+                set: { if !$0 { sharing.clear() } })) {
+                if case .ready(let url, let name) = sharing.state {
+                    ShareSheet(items: [ShareSetlistAction.message(name: name, url: url)])
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(scoreOpen ? 0 : 1)
@@ -330,6 +368,14 @@ struct RootView: View {
                           push: push)
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
+        case .joinSetlist(let inviteId):
+            JoinSetlistScreen(inviteId: inviteId, onBack: pop,
+                              onJoined: { id in
+                                  libraryPath.removeLast()
+                                  libraryPath.append(.sharedSetlist(id))
+                              })
+                .navigationBarHidden(true)
+                .accessibilityIdentifier("screen-join-setlist")
         case .sharedSetlist(let id):
             SharedSetlistScreen(setlistId: id, onBack: pop,
                                 onOpen: { open($0) })
@@ -379,6 +425,7 @@ struct RootView: View {
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
                     onOpenSharedSetlist: { libraryPath.append(.sharedSetlist($0)) },
+                    onShareSetlist: { slug in shareSetlist(slug) },
                     onOpenBook: { libraryPath.append(.book($0)) },
                     onRowMenu: { row in
                         // A piece opens its own screen; an unfiled arrangement
@@ -549,6 +596,34 @@ struct RootView: View {
         state.currentSetlist = setlist.slug
         segment = .setlists
         if let first = setlist.arrangements.first { open(first) }
+    }
+
+    /// Share a set list from its row: promote if needed, then the iOS sheet.
+    @StateObject private var sharing = ShareSetlistAction()
+
+    /// A tapped invite link pushes the one confirmation screen.
+    ///
+    /// Watched here rather than handled at `onOpenURL`, because the link can
+    /// arrive while the app is cold, mid-score, or on another tab -- and the
+    /// screen has to be pushed onto the library's stack wherever the reader
+    /// happens to be. Cleared immediately so a back-swipe does not re-push it.
+    private func routePendingInvite(_ inviteId: String?) {
+        guard let inviteId else { return }
+        state.pendingInvite = nil
+        if scoreOpen { close() }
+        segment = .setlists
+        libraryPath.append(.joinSetlist(inviteId))
+    }
+
+    private func shareSetlist(_ slug: String) {
+        guard let setlist = (state.manifest?.setlists ?? [])
+                .first(where: { $0.slug == slug }) else { return }
+        Task {
+            await sharing.share(setlist: setlist,
+                                arrangements: state.manifest?.scores ?? [],
+                                shared: shared, state: state,
+                                signedIn: signIn.account != nil)
+        }
     }
 
     /// X always returns to the library, because there is nowhere else.

@@ -117,14 +117,42 @@ struct PieceDoc: Codable, Identifiable, Hashable {
 /// not pieces: what gets played is a particular version of a tune.
 struct SetlistDoc: Codable, Identifiable, Hashable {
     var slug: String
+    /// The identity: opaque, assigned once by the engine, never rewritten.
+    ///
+    /// Optional and defaulted so a manifest written by an older engine still
+    /// decodes, exactly as `ScoreDoc.uid` is. **Sharing addresses this, never
+    /// the slug** -- which is what lets a set list be PROMOTED in place: the
+    /// Firestore document takes the set list's own uid, so the shared thing is
+    /// the same thing rather than a copy that has to be kept in step.
+    var uid: String? = nil
     var name: String
     var arrangements: [String]
 
     var id: String { slug }
 
+    /// The Firestore `setlists/{id}` this row is bound to, or nil.
+    ///
+    /// §6A.1: sharing is a FIELD on the one set list object, not a second kind
+    /// of object. `shareId == nil` means no Firestore involvement at all --
+    /// the set list behaves exactly as it did before any of this existed.
+    /// Nullable and defaulted so every existing document decodes unchanged.
+    var shareId: String? = nil
+    /// Who owns it there. Nil means this device owns it.
+    var ownerUid: String? = nil
+
+    /// Whether this set list has been promoted.
+    var isShared: Bool { shareId != nil }
+
+    /// What a shared set list is keyed on, in Firestore and in an invite link.
+    /// Falls back to the slug for a set list the engine has not given a uid --
+    /// the same shape as `ScoreDoc.inkNamespace`, and for the same reason: a
+    /// missing uid must not make the feature unreachable.
+    var sharedId: String { uid ?? slug }
+
     static func == (lhs: SetlistDoc, rhs: SetlistDoc) -> Bool {
-        lhs.slug == rhs.slug && lhs.name == rhs.name
+        lhs.slug == rhs.slug && lhs.uid == rhs.uid && lhs.name == rhs.name
             && lhs.arrangements == rhs.arrangements
+            && lhs.shareId == rhs.shareId && lhs.ownerUid == rhs.ownerUid
     }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }

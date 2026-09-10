@@ -27,6 +27,9 @@ struct LibraryView: View {
     /// A shared set list, by its Firestore id. Defaulted so every existing
     /// construction of this view still compiles.
     var onOpenSharedSetlist: (String) -> Void = { _ in }
+    /// Share the set list with this slug: promote it if it is not shared yet,
+    /// then hand over the link. Defaulted for the same reason.
+    var onShareSetlist: (String) -> Void = { _ in }
     /// A book opens its own screen: you do not read a book here, you take
     /// arrangements out of it.
     var onOpenBook: (String) -> Void = { _ in }
@@ -45,6 +48,16 @@ struct LibraryView: View {
     var onSettings: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
     var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
+
+    /// Slugs of set lists that have already been promoted.
+    ///
+    /// From the MANIFEST, not from Firestore: `shareId` is a field on the
+    /// local document (§6A.1), so a row knows it is shared without a network
+    /// round trip and without being signed in.
+    private var sharedSetlistIds: Set<String> {
+        Set((state.manifest?.setlists ?? [])
+            .filter(\.isShared).map(\.slug))
+    }
 
     @State private var showSort = false
     @State private var showFilter = false
@@ -572,13 +585,10 @@ struct LibraryView: View {
                 // Loading is not emptiness (#42): the manifest is nil until the
                 // engine answers, and claiming "No music yet" in that window
                 // flashed the empty state on every launch of a full library.
-                // Shared set lists first, and only in the set lists
-                // segment: they are set lists, so they belong with them
-                // rather than behind an account tab -- but they are not in
-                // the manifest and cannot be rows (design/FIREBASE.md §4.2).
-                if segment == .setlists {
-                    SharedSetlistsBand(onOpen: onOpenSharedSetlist)
-                }
+                // No shared-set-list band. §6A.1: there is ONE kind of set
+                // list and sharing is a field on it, so a shared set list is
+                // an ordinary row in this list -- it does not move, and it is
+                // not listed twice.
                 switch LibraryModel.listState(loaded: state.libraryLoaded,
                                               rows: rows.count,
                                               pendingImports: pendingHere.count,
@@ -631,7 +641,13 @@ struct LibraryView: View {
                 // a checkbox is a second thing pretending to be one.
                 LRow(row: row, identifier: "row-\(row.id)",
                      action: { editing ? toggle(row) : open(row) },
-                     onMenu: { onRowMenu(row) })
+                     onMenu: { onRowMenu(row) },
+                     // Set lists ONLY. Books and sources have no share path
+                     // at all -- guard rails 3 and 4 stand unamended (§8.2),
+                     // so this is absent rather than disabled for them.
+                     onShare: segment == .setlists && !editing
+                              ? { onShareSetlist(row.id) } : nil,
+                     isShared: sharedSetlistIds.contains(row.id))
                 // A set list's own "+": choosing which arrangements are in it,
                 // which is the other direction from an arrangement's "add to
                 // set list" and answers a different question.

@@ -34,13 +34,24 @@ struct SharedSetlistScreen: View {
     @State private var confirmingDelete = false
     @State private var opening: String?
 
-    private var setlist: SharedSetlists.Setlist? {
-        shared.setlists.first { $0.id == setlistId }
-    }
+    /// The setlist DOCUMENT, not an entry in a list.
+    ///
+    /// Derived from `shared.setlists` once, and that was the bug: anything
+    /// that left the memberships-driven list empty -- a missing index row, or
+    /// the listener simply not having answered -- made this nil.
+    private var setlist: SharedSetlists.Setlist? { shared.open }
 
-    private var role: SetlistRole { setlist?.role ?? .reader }
+    /// Nil means NOT KNOWN YET, and is rendered as loading.
+    ///
+    /// It used to be `?? .reader`, which turned "I have not been told" into
+    /// "you may do the least" -- and an owner then saw a single red "Leave
+    /// this set list". A permissions fallback that shows fewer controls looks
+    /// like a decision and is really just ignorance, so there is no fallback.
+    private var role: SetlistRole? { shared.openRole }
+
     private var mayEdit: Bool {
-        SetlistPermission.allows(role, .addEntry) && !shared.isStale
+        guard let role else { return false }
+        return SetlistPermission.allows(role, .addEntry) && !shared.isStale
     }
 
     var body: some View {
@@ -51,16 +62,26 @@ struct SharedSetlistScreen: View {
             EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 0) {
-                if shared.isStale { offline }
-                order
-                actions
-                whoseMarks
-                people
-                inkTrouble
+                if role == nil {
+                    // NOT a reader's view. Until the document has answered,
+                    // the honest thing to show is that we are asking.
+                    PanelNote(text: shared.open == nil
+                              ? "Opening this set list…"
+                              : "Checking what you can do here…")
+                        .padding(Theme.Metric.panelPadding)
+                        .accessibilityIdentifier("shared-loading")
+                } else {
+                    if shared.isStale { offline }
+                    order
+                    actions
+                    whoseMarks
+                    people
+                    inkTrouble
+                }
             }
         }
-        .onAppear { shared.open(setlistId) }
-        .onDisappear { shared.close() }
+        .onAppear { shared.openSetlist(setlistId); shared.open(setlistId) }
+        .onDisappear { shared.closeSetlist(); shared.close() }
     }
 
     private var subtitle: String? {
@@ -193,7 +214,7 @@ struct SharedSetlistScreen: View {
             PanelButton(title: "Add an arrangement", kind: .normal,
                         identifier: "shared-add") { adding = true }
         }
-        if SetlistPermission.allows(role, .invite) && !shared.isStale {
+        if let role, SetlistPermission.allows(role, .invite), !shared.isStale {
             PanelButton(title: "Invite somebody", kind: .normal,
                         identifier: "shared-invite") { inviting = true; address = "" }
             if inviting { inviteField }
@@ -220,7 +241,7 @@ struct SharedSetlistScreen: View {
                           + "goes too. Nobody else can do this.")
                     .padding(Theme.Metric.panelPadding)
             }
-        } else if SetlistPermission.mayLeave(role) {
+        } else if let role, SetlistPermission.mayLeave(role) {
             PanelButton(title: "Leave this set list", kind: .destructive,
                         identifier: "shared-leave") {
                 guard let uid = signIn.account?.uid else { return }
@@ -271,7 +292,7 @@ struct SharedSetlistScreen: View {
                     sending = true
                     Task {
                         defer { sending = false }
-                        do { invitation = try await shared.invite(address, to: setlist) }
+                        do { invitation = try await shared.invite(to: setlistId, email: address) }
                         catch { state.report("send that invitation", error) }
                     }
                 }

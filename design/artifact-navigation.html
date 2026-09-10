@@ -1,0 +1,910 @@
+<title>Scoranger Navigation Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+
+/* ══════════════════════ TOKENS — the chosen system ══════════════════════ */
+:root{
+  /* surface + ink */
+  --paper:#FFFFFF; --ground:#F4F0E8; --panel:#FAF7F1; --well:#EFEAE0; --band:#F1ECE2;
+  --ink:#1A1917; --ink-2:#6B655C; --ink-3:#8A8378;
+  --line:#E2DBCE; --line-2:#CFC6B6;
+  /* the one accent */
+  --clay:#CC5C2E; --clay-strong:#A8481F; --clay-press:#B14D22; --clay-tint:#F7E7DD;
+  /* system status — outside the three-colour budget, never decorative */
+  --ok:#3BA05C; --warn:#C8791B; --danger:#C0392B; --hl:#FFE25A;
+  /* type */
+  --f-display:'Space Grotesk',system-ui,sans-serif;
+  --f-ui:Inter,system-ui,-apple-system,sans-serif;
+  --f-data:'IBM Plex Mono',ui-monospace,monospace;
+  /* spacing ladder */
+  --s1:2px; --s2:4px; --s3:6px; --s4:8px; --s5:12px; --s6:16px; --s7:20px; --s8:24px; --s9:32px;
+  /* border + radius */
+  --r-ctl:2px; --r-panel:3px; --r-pill:999px;
+  /* elevation: overlays only */
+  --e-panel:0 10px 34px rgba(26,25,23,.14);
+  --e-pill:0 6px 20px rgba(26,25,23,.16);
+  --e-sheet:0 20px 60px rgba(26,25,23,.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-ui);font-size:14px;-webkit-text-size-adjust:100%}
+
+/* ══════════════════════ presentation shell ══════════════════════ */
+.wrap{max-width:1560px;margin:0 auto;padding:26px 16px 70px}
+.masthead{display:flex;align-items:flex-end;gap:var(--s5);border-bottom:3px solid var(--ink);padding-bottom:var(--s5)}
+.masthead h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:-.02em;margin:0}
+.masthead .code{font-family:var(--f-data);font-size:13px;color:var(--clay-strong);margin-left:auto;font-weight:500}
+.lede{font-size:14px;line-height:1.55;color:var(--ink-2);max-width:78ch;margin:var(--s6) 0 0}
+.lede b{color:var(--ink)}
+h2.sec{font-family:var(--f-display);font-weight:600;font-size:19px;margin:44px 0 2px;letter-spacing:-.01em}
+h2.sec .n{font-family:var(--f-data);font-size:12px;color:var(--clay-strong);margin-right:8px;font-weight:500}
+.sec-sub{font-size:13px;color:var(--ink-2);margin:0 0 var(--s6);max-width:80ch;line-height:1.5}
+.label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.screens{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:1100px){.screens{grid-template-columns:1fr}}
+.shot{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel);overflow:hidden}
+.shot-h{padding:10px 13px 9px;border-bottom:1px solid var(--line)}
+.shot-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.shot-h .d{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:2px}
+.stage{position:relative;width:100%;overflow:hidden;background:var(--well);cursor:zoom-in}
+.stage .scr{position:absolute;top:0;left:0;transform-origin:0 0}
+.tapz{position:absolute;right:7px;bottom:7px;font-family:var(--f-data);font-size:10px;background:rgba(26,25,23,.72);color:#fff;padding:2px 6px;border-radius:var(--r-ctl);pointer-events:none}
+/* token tables */
+.tok{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.chip{border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;background:var(--panel)}
+.chip .sw{height:52px;border-bottom:1px solid var(--line-2)}
+.chip .m{padding:7px 9px}
+.chip .nm{font-size:12px;font-weight:600}
+.chip .hx{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.chip .use{font-size:11px;color:var(--ink-3);line-height:1.35;margin-top:2px}
+table.spec{border-collapse:collapse;width:100%;font-size:12.5px}
+table.spec th,table.spec td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+table.spec th{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);border-bottom:1px solid var(--line-2)}
+table.spec td.mono,table.spec td .mono{font-family:var(--f-data);font-size:11.5px}
+.scroller{overflow-x:auto}
+.modal{position:fixed;inset:0;background:rgba(20,19,17,.94);z-index:60;display:none;align-items:center;justify-content:center}
+.modal.open{display:flex}
+.modal .scr{transform-origin:50% 50%}
+.modal .x{position:absolute;top:12px;right:14px;font:600 13px Inter,sans-serif;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;color:var(--ink)}
+body.shot-mode .wrap,body.shot-mode .modal{display:none}
+.shotbox{display:none}
+body.shot-mode .shotbox{display:block}
+
+/* ══════════════════════ THE APP — instrument panel, score-first ══════════════════════ */
+.scr{width:1180px;height:886px;position:relative;overflow:hidden;background:var(--ground);
+     font-family:var(--f-ui);font-size:13px;color:var(--ink)}
+.scr.phone{width:390px;height:844px}
+
+/* canvas: the permanent ground */
+.cv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    padding:var(--s7) 0 96px;overflow:hidden;background:var(--ground)}
+.cv.shift-l{padding-left:320px}
+.cv.shift-r{padding-right:380px}
+.cv.shift-l.shift-r{--pg-w:436px}
+.pg{width:var(--pg-w,520px);background:var(--paper);border:1px solid var(--line-2);padding:22px 26px 16px;position:relative;
+    box-shadow:0 2px 10px rgba(26,25,23,.07)}
+.pg-hd{display:flex;align-items:flex-start;gap:var(--s5);border-bottom:1px solid #E9E4DA;padding-bottom:9px;margin-bottom:12px}
+.pg-t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;line-height:1.2}
+.pg-s{font-size:10.5px;color:#8A8378;margin-top:2px}
+.pg-n{margin-left:auto;font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.86;
+      color:var(--clay);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pg-n small{display:block;font-family:var(--f-ui);font-size:8.5px;font-weight:700;letter-spacing:.11em;
+      text-transform:uppercase;color:var(--ink-3);text-align:right;margin-top:3px}
+.hlband{position:absolute;background:var(--hl);opacity:.4}
+
+/* the pill: every canvas control, one object */
+.pill{position:absolute;bottom:var(--s7);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s2);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);
+      padding:6px 8px;box-shadow:var(--e-pill);z-index:6}
+.pill .b{width:38px;height:38px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;
+      font-size:16px;color:var(--ink-2)}
+.pill .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.pill .vchip{font-family:var(--f-data);font-size:11px;font-weight:500;color:var(--ink-2);
+      border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:4px 7px;margin:0 var(--s2)}
+.pill .div{width:1px;height:22px;background:var(--line);margin:0 var(--s2)}
+.pill .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);
+      font-variant-numeric:tabular-nums;padding:0 var(--s3) 0 var(--s2)}
+
+/* annotation bar: sits above the pill, same object language */
+.abar{position:absolute;bottom:74px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s3);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:6px 10px;
+      box-shadow:var(--e-pill);z-index:6}
+.abar .b{width:34px;height:34px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.abar .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.abar .div{width:1px;height:20px;background:var(--line)}
+.abar .dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(26,25,23,.16)}
+.abar .dot.on{width:24px;height:24px;box-shadow:0 0 0 2px var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+
+/* highlight chip */
+.hchip{position:absolute;top:var(--s6);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s4);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);padding:7px 10px;
+      box-shadow:var(--e-pill);z-index:6;font-size:12px}
+.hchip .st{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden}
+.hchip .st span{padding:3px 8px;font-family:var(--f-data);font-size:11px}
+.hchip .st b{padding:3px 7px;background:var(--well);font-weight:600;font-size:13px;border-left:1px solid var(--line-2);border-right:1px solid var(--line-2)}
+
+/* overlay panels */
+.ov{position:absolute;top:0;bottom:0;background:var(--panel);z-index:8;display:flex;flex-direction:column}
+.ov.left{left:0;width:320px;border-right:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov.right{right:0;width:380px;border-left:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov-h{display:flex;align-items:center;gap:var(--s4);padding:13px 14px 11px;border-bottom:1px solid var(--line-2)}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.02em;text-transform:uppercase}
+.led{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(59,160,92,.22)}
+.led.bad{background:var(--danger);box-shadow:0 0 0 3px rgba(192,57,43,.22)}
+.ov-h .x{margin-left:auto;width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.scrollbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* silkscreen section band */
+.bandh{display:flex;align-items:center;gap:var(--s3);padding:5px 14px 4px;background:var(--band);
+      border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);
+      font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.bandh .plus{margin-left:auto;width:22px;height:22px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-2);line-height:1}
+
+/* rows */
+.row{display:flex;align-items:center;gap:var(--s3);padding:7px 14px;min-height:36px}
+.row .car{width:10px;flex:0 0 10px;font-size:9px;color:var(--clay);text-align:center}
+.stk{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pnm{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.row .sub{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .cnt{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.row .i{margin-left:auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px}
+.row .num{font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);
+      font-variant-numeric:tabular-nums;min-width:36px;line-height:1}
+.row.sel{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.row.sel .sub{color:var(--ink-2)}
+.row.drop{background:var(--clay-tint);outline:1px dashed var(--clay);outline-offset:-2px}
+.vrow{display:flex;align-items:center;gap:var(--s3);padding:4px 14px 4px 42px;min-height:28px;font-size:12px}
+.vrow .vid{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.vrow .vt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vrow .stp{font-family:var(--f-data);font-size:10.5px;color:var(--ink-3)}
+.vrow .eye{margin-left:auto;color:var(--clay);font-size:11px}
+.vrow.deep{padding-left:64px;color:var(--ink-2)}
+.vrow.now{background:var(--well)}
+.prog{display:flex;align-items:center;gap:var(--s4);padding:7px 14px;font-size:11px;color:var(--ink-2)}
+.prog .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line);overflow:hidden}
+.prog .track i{display:block;height:100%;width:62%;background:var(--clay)}
+.foot{margin-top:auto;font-family:var(--f-data);font-size:10.5px;color:var(--ink-3);text-align:center;
+      padding:7px;border-top:1px solid var(--line-2);background:var(--band)}
+
+/* chat */
+.chat-h{display:flex;align-items:center;gap:var(--s4);padding:11px 14px;border-bottom:1px solid var(--line-2)}
+.chat-h .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);font-variant-numeric:tabular-nums}
+
+.chat-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.chat-h .s{font-size:11px;color:var(--ink-3)}
+.mdl{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);
+     border-radius:var(--r-ctl);padding:4px 7px;display:flex;gap:5px;align-items:center;white-space:nowrap;flex:0 0 auto}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s5);padding:var(--s5);overflow:hidden}
+.bub{max-width:86%;padding:9px 11px;border:1px solid var(--line-2);border-radius:var(--r-panel);line-height:1.45;background:var(--panel)}
+.bub.me{align-self:flex-end;background:var(--clay-tint);border-color:#E7C4B1}
+.bub.err{border-color:#E3B4AE;background:#FBEEEC}
+.bub .who{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.card{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel)}
+.card .ch{display:flex;align-items:center;gap:var(--s3);padding:6px 10px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.card .cb{padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.stp{display:flex;align-items:center;gap:var(--s3);font-size:12px}
+.stp .k{color:var(--ok);font-size:12px;width:13px}
+.stp .w{color:var(--warn);width:13px}
+.stp .o{color:var(--ink-3);width:13px}
+.stp .d{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.spin{width:11px;height:11px;border:2px solid var(--line-2);border-top-color:var(--clay);border-radius:50%}
+.inbar{display:flex;align-items:center;gap:var(--s4);padding:11px;border-top:1px solid var(--line-2);background:var(--band)}
+.fld{flex:1;background:var(--paper);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:9px 10px;color:var(--ink-3);font-size:13px}
+.iconb{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.iconb.go{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.iconb.rec{color:var(--danger);border-color:#E3B4AE}
+
+/* sheets, alerts, states */
+.dim{position:absolute;inset:0;background:rgba(26,25,23,.34);z-index:20}
+.sheet{position:absolute;top:64px;bottom:64px;left:50%;transform:translateX(-50%);width:620px;background:var(--panel);
+     border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:21;display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{display:flex;align-items:center;gap:var(--s4);padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.sheet-h .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.sheet-h .btn{margin-left:auto}
+.btn{font-size:13px;font-weight:600;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     padding:8px 12px;color:var(--ink)}
+.btn.pri{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.btn.dan{background:var(--danger);border-color:var(--danger);color:#fff}
+.sheet-b{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.frow{display:flex;align-items:center;gap:var(--s5);padding:9px 14px;border-bottom:1px solid var(--line);min-height:40px}
+.frow .k{font-size:12.5px;color:var(--ink-2);min-width:150px}
+.frow .v{margin-left:auto;font-size:12.5px}
+.frow .v.mono{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2)}
+.sw{width:44px;height:26px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--well);position:relative}
+.sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--panel);border:1px solid var(--line-2);border-radius:1px}
+.sw.on{background:var(--clay-tint);border-color:var(--clay)}
+.sw.on i{left:auto;right:2px;background:var(--clay);border-color:var(--clay-press)}
+.alert{width:420px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);overflow:hidden}
+.alert .ah{padding:12px 14px 4px;font-family:var(--f-display);font-weight:600;font-size:16px}
+.alert .ab{padding:0 14px 12px;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.alert .af{display:flex;gap:var(--s4);padding:11px 14px;border-top:1px solid var(--line-2);background:var(--band);justify-content:flex-end}
+.state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);text-align:center;
+     height:100%;padding:var(--s9)}
+.state .ic{font-size:30px;color:var(--ink-3)}
+.state .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.state .d{font-size:12.5px;color:var(--ink-2);max-width:44ch;line-height:1.5}
+.tile{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--ground);height:280px;position:relative;overflow:hidden}
+.tile .cap{position:absolute;top:0;left:0;right:0;padding:5px 9px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.grid4{display:grid;gap:var(--s6);grid-template-columns:repeat(2,minmax(0,1fr))}
+.staff{display:block;margin-bottom:9px}
+/* phone */
+.scr.phone .ov.left,.scr.phone .ov.right{width:100%;box-shadow:none}
+.scr.phone .pg{width:340px;padding:14px 16px 10px}
+.scr.phone .lrow{padding-right:26px}
+.scr.phone .cv{padding:12px 0 86px}
+.scr.phone .pill{bottom:14px}
+
+/* ══════════════════ NEW: navigation & IA components ══════════════════ */
+/* tab bar ------------------------------------------------------------ */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:stretch;z-index:9}
+.tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+.tabbar .tab .g{font-size:19px;line-height:1;padding:3px 16px;border-radius:var(--r-ctl)}
+.tabbar .tab.on{color:var(--clay-strong)}
+.tabbar .tab.on .g{background:var(--clay-tint);color:var(--clay-strong)}
+.tabbar .tab.soon{opacity:.38}
+/* screen chrome shared by Home + Library ----------------------------- */
+.sc-top{display:flex;align-items:center;gap:var(--s4);padding:14px 20px 10px}
+.sc-top .ic{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px;position:relative}
+.sc-top .ic .badge{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;
+  background:var(--clay-press);color:#fff;border-radius:8px;font-family:var(--f-data);font-size:9px;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.sc-top .enginechip{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);background:var(--panel);padding:5px 9px;font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.search{display:flex;align-items:center;gap:8px;margin:0 20px;background:var(--paper);border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);padding:10px 12px;color:var(--ink-3);font-size:13px}
+.search .g{font-size:13px;color:var(--ink-3)}
+.h-title{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:-.02em;padding:0 20px}
+.h-title .count{font-family:var(--f-data);font-size:13px;font-weight:500;color:var(--ink-3);margin-left:8px;letter-spacing:0}
+/* quick-action panels ------------------------------------------------ */
+.quick{display:flex;gap:var(--s5);padding:0 20px;overflow:hidden}
+.qp{flex:1;min-width:0;border:1px solid var(--line-2);border-radius:var(--r-panel);padding:12px;
+  display:flex;flex-direction:column;gap:6px;min-height:104px;position:relative}
+.qp .g{font-size:20px;line-height:1;color:var(--clay-strong)}
+.qp .t{font-family:var(--f-display);font-weight:600;font-size:14px;letter-spacing:-.01em}
+.qp .d{font-size:11px;color:var(--ink-2);line-height:1.35;margin-top:auto}
+.qp.f1{background:var(--clay-tint);border-color:var(--clay-border)}
+.qp.f2{background:var(--band)}
+.qp.f3{background:var(--well)}
+.qp.f4{background:var(--panel)}
+/* section headers on Home -------------------------------------------- */
+.h-sec{display:flex;align-items:baseline;gap:8px;padding:0 20px;margin-top:2px}
+.h-sec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.h-sec .all{margin-left:auto;font-size:11px;color:var(--ink-2)}
+/* thumbnails --------------------------------------------------------- */
+.thumb{background:var(--paper);border:1px solid var(--line-2);flex:0 0 auto;position:relative;overflow:hidden}
+.thumb.sm{width:34px;height:44px}
+.thumb.md{width:44px;height:57px}
+.ln{position:absolute;left:4px;right:4px;height:1px;background:#C9C4BA}
+.thumb .tt{position:absolute;left:4px;right:4px;top:5px;height:3px;background:#8A8378;opacity:.55}
+/* list rows for Home + Library ---------------------------------------- */
+.lrow{display:flex;align-items:center;gap:var(--s5);padding:9px 20px;min-height:56px}
+.lrow .stk{min-width:0;display:flex;flex-direction:column;gap:2px}
+.lrow .t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .s{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .chips{display:flex;gap:5px;margin-top:3px}
+.lrow .go{margin-left:auto;color:var(--ink-3);font-size:12px}
+.lrow.on{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.dchip{border:1px solid var(--line-2);background:var(--band);border-radius:var(--r-ctl);padding:1px 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.dchip.num{background:var(--clay-tint);border-color:var(--clay-border);color:var(--clay-strong);font-family:var(--f-data);letter-spacing:0}
+.dchip.warnc{background:#FBF2E6;border-color:#E8CFA6;color:#8A5A12}
+.sep-l{height:1px;background:var(--line);margin-left:20px}
+/* library controls ---------------------------------------------------- */
+.segwrap{display:flex;justify-content:center;padding:6px 0 2px}
+.seg{display:flex;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden;background:var(--panel)}
+.seg div{padding:7px 20px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.seg div.on{background:var(--clay-tint);color:var(--clay-strong);box-shadow:inset 0 0 0 1px var(--clay)}
+.libbar{display:flex;align-items:center;gap:8px;padding:6px 20px 8px}
+.libbar .btn{padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:5px}
+.libbar .right{margin-left:auto}
+.azrail{position:absolute;right:5px;top:170px;bottom:80px;width:16px;display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;font-family:var(--f-data);font-size:9.5px;color:var(--ink-3);z-index:4}
+.azrail b{color:var(--clay-strong)}
+.alpha{padding:5px 20px 2px;font-family:var(--f-display);font-weight:700;font-size:13px;color:var(--clay-strong);
+  background:var(--band);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.fab{position:absolute;right:22px;bottom:84px;width:54px;height:54px;border-radius:var(--r-panel);
+  background:var(--clay-press);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:26px;box-shadow:var(--e-pill);z-index:7}
+/* ── score view chrome ── */
+.stopbar{position:absolute;top:0;left:0;right:0;height:52px;background:var(--panel);
+  border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s4);padding:0 12px;z-index:8}
+.stopbar .x{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.titleblock{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:5px 10px;border:1px solid transparent;border-radius:var(--r-ctl)}
+.titleblock.open{border-color:var(--line-2);background:var(--well)}
+.titleblock .num{font-family:var(--f-display);font-weight:700;font-size:19px;color:var(--clay);font-variant-numeric:tabular-nums}
+.titleblock .stk{align-items:flex-start}
+.titleblock .t{font-family:var(--f-display);font-weight:600;font-size:15px;line-height:1.15}
+.titleblock .s{font-size:10.5px;color:var(--ink-3);font-family:var(--f-data)}
+.titleblock .chev{color:var(--ink-2);font-size:12px;margin-left:2px;align-self:center}
+.stopbar .acts{margin-left:auto;display:flex;align-items:center;gap:6px}
+.stopbar .acts .b{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:15px}
+.stopbar .acts .b.on{background:var(--clay-tint);border-color:var(--clay);color:var(--clay-strong)}
+.poscount{position:absolute;top:60px;right:14px;display:flex;gap:6px;z-index:5}
+.poscount span{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2);background:var(--panel);
+  border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:3px 7px}
+/* page thumbnail strip */
+.thumbstrip{position:absolute;left:0;right:0;bottom:56px;height:96px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px;padding:0 14px;z-index:7;overflow:hidden}
+.thumbstrip .pt{position:relative;flex:0 0 auto;width:52px;height:68px;background:var(--paper);
+  border:1px solid var(--line-2);overflow:hidden}
+.thumbstrip .pt.on{outline:2px solid var(--clay);outline-offset:-1px}
+.thumbstrip .pt .n{position:absolute;bottom:1px;right:2px;font-family:var(--f-data);font-size:8px;color:var(--ink-3)}
+.thumbstrip .grp{display:flex;gap:2px;align-items:center;padding:3px;border:1px dashed var(--line-2);border-radius:var(--r-ctl)}
+/* transport */
+.transport{position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--band);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s5);padding:0 14px;z-index:7}
+.transport .b{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.transport .b.pri{background:var(--panel)}
+.transport.inert .b:not(.live),.transport.inert .track,.transport.inert .tm{opacity:.42}
+.transport .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line-2);position:relative}
+.transport .track i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--ink-3)}
+.transport .tm{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2)}
+.transport .tag{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:2px 6px}
+/* more menu (two layers) */
+.menu{position:absolute;top:58px;right:12px;width:320px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:12;overflow:hidden}
+.menu .mrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.menu .mrow .g{width:18px;color:var(--ink-2);font-size:14px}
+.menu .mrow .ch{margin-left:auto;color:var(--ink-3);font-size:12px}
+.menu .mrow .val{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.menu .mrow.top{background:var(--clay-tint)}
+.menu .back{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--band);
+  border-bottom:1px solid var(--line-2);font-size:12px;font-weight:600}
+.menu .back .g{color:var(--clay-strong)}
+/* page-turn zones diagram */
+.zone{position:absolute;top:52px;bottom:0;width:22%;z-index:6;display:flex;align-items:center;justify-content:center}
+.zone.l{left:0;background:linear-gradient(90deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone.r{right:0;background:linear-gradient(270deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);
+  background:var(--panel);border:1px solid var(--clay);border-radius:var(--r-ctl);padding:4px 8px;text-align:center;line-height:1.5}
+.zonec{position:absolute;top:52px;bottom:0;left:22%;right:22%;z-index:5;display:flex;align-items:center;justify-content:center}
+.zonec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  background:var(--panel);border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:4px 8px}
+.perfbadge{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:9;
+  background:var(--clay-press);color:#fff;border-radius:var(--r-ctl);padding:4px 10px;
+  font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+/* legend blocks used on the component board */
+.legend{font-size:11px;color:var(--ink-2);line-height:1.4}
+.kv{display:flex;gap:8px;font-size:11.5px;padding:3px 0}
+.kv b{font-family:var(--f-data);font-weight:500;color:var(--ink-2);min-width:112px}
+</style>
+
+
+<div class="wrap" id="wrap"></div>
+<div class="shotbox" id="shotbox"></div>
+<div class="modal" id="modal"><button class="x" id="mx">Close</button></div>
+<script>
+/* ═══════════════ shared bits (staff art reused from the system mockup) ═══════════════ */
+const VB = 400;
+function staff(seed){
+  const c = '#33312e';
+  const lines = [0,1,2,3,4].map(i => `<line x1="0" y1="${5+i*5}" x2="${VB}" y2="${5+i*5}" stroke="${c}" stroke-width=".6"/>`).join('');
+  const xs = [.10,.155,.20,.25,.30,.365,.42,.47,.52,.58,.65,.71,.77,.83,.90];
+  const heads = xs.map((x,i) => {
+    const y = 5 + ((i*3 + seed*2) % 9) * 2.5, cx = x * VB;
+    return `<ellipse cx="${cx}" cy="${y}" rx="2.9" ry="2.1" fill="#1b1b1b" transform="rotate(-16 ${cx} ${y})"/>`
+         + `<line x1="${cx+2.7}" y1="${y}" x2="${cx+2.7}" y2="${y-13}" stroke="#1b1b1b" stroke-width=".9"/>`;
+  }).join('');
+  const bars = [.335,.665,1].map(f => `<line x1="${f*VB-(f===1?.5:0)}" y1="5" x2="${f*VB-(f===1?.5:0)}" y2="25" stroke="${c}" stroke-width=".8"/>`).join('');
+  return `<svg class="staff" width="100%" viewBox="0 0 ${VB} 34" preserveAspectRatio="none" style="height:26px">
+    <text x="1" y="24" font-family="Georgia,serif" font-size="23" fill="#1b1b1b">&#119070;</text>${lines}${bars}${heads}</svg>`;
+}
+const staves = n => Array.from({length:n}, (_,i) => staff(i)).join('');
+const thumbArt = n => Array.from({length:n}, (_,i) => `<div class="ln" style="top:${14+i*6}px"></div>`).join('');
+const thumb = (cls='md', pages=7) => `<div class="thumb ${cls}"><div class="tt"></div>${thumbArt(pages)}</div>`;
+
+/* one score page, sized by --pg-w */
+function page(o = {}){
+  return `<div class="pg" style="${o.w ? `--pg-w:${o.w}px` : ''}">
+    <div class="pg-hd">
+      <div><div class="pg-t">Cavatina &mdash; accordion duo</div>
+      <div class="pg-s">Stanley Myers &middot; A minor &middot; 62 bars</div></div>
+      <div class="pg-n">#2<small>arrangement</small></div>
+    </div>
+    ${staves(o.systems || 14)}
+    ${o.markup ? `<svg style="position:absolute;left:24px;top:132px" width="360" height="120">
+        <path d="M6 40 C56 24, 112 56, 166 38" stroke="#D64B3F" stroke-width="2.3" fill="none" stroke-linecap="round"/>
+        <text x="176" y="48" font-family="Inter,sans-serif" font-size="12" fill="#D64B3F" font-weight="600">pull back</text>
+        <path d="M16 92 h140" stroke="#2A6BD6" stroke-width="2.1" fill="none" stroke-linecap="round"/></svg>` : ''}
+    ${o.selection ? `<div style="position:absolute;left:26px;top:196px;width:38%;height:26px;
+        background:rgba(204,92,46,.16);outline:1px solid var(--clay)"></div>` : ''}
+  </div>`;
+}
+/* a right-hand page of the spread, plainer (no title block) */
+function page2(o = {}){
+  return `<div class="pg" style="${o.w ? `--pg-w:${o.w}px` : ''}">
+    <div style="height:34px"></div>${staves(o.systems || 15)}</div>`;
+}
+
+/* ═══════════════ chrome ═══════════════ */
+function tabbar(active = 'home'){
+  return `<div class="tabbar">
+    <div class="tab${active === 'home' ? ' on' : ''}"><span class="g">&#9750;</span>Home</div>
+    <div class="tab${active === 'lib' ? ' on' : ''}"><span class="g">&#9776;</span>My library</div>
+    <div class="tab soon"><span class="g">&#8644;</span>Shared &middot; later</div>
+  </div>`;
+}
+function scTop(o = {}){
+  return `<div class="sc-top">
+    <span class="ic">?</span>
+    <span class="ic">&#9993;<span class="badge">2</span></span>
+    <span class="ic">&#9881;</span>
+    <span class="enginechip"><span class="led"></span>on&#8209;device</span>
+  </div>`;
+}
+function search(text){ return `<div class="search"><span class="g">&#9906;</span>${text}</div>`; }
+
+/* ═══════════════ HOME ═══════════════ */
+const QUICK = [
+  ['f1','&#8681;','Import or scan','PDF, MusicXML, MIDI. A PDF goes through OMR first.'],
+  ['f2','&#9634;','New arrangement','A blank staff, then ask for what you want.'],
+  ['f3','&#9776;','New setlist','A gig&rsquo;s running order of arrangements.'],
+  ['f4','&#128172;','Ask Scoranger','Pick up the last arrangement you had open.'],
+];
+function home(){
+  const recentPieces = [
+    ['Cavatina','Stanley Myers &middot; 3 arrangements','v014 &middot; 14:02',['3 ARR','1 SOURCE']],
+    ['Libertango','Piazzolla &middot; 1 arrangement','v006 &middot; yesterday',['1 ARR']],
+    ['Blue Bossa','unknown &middot; 1 arrangement','v002 &middot; Tue',['OMR DRAFT']],
+    ['Django','John Lewis &middot; 2 arrangements','v004 &middot; Mon',['2 ARR']],
+    ['Gnossienne No. 1','Satie &middot; 1 arrangement','v003 &middot; last week',['1 ARR']],
+  ];
+  const recentSets = [
+    ['Friday at Vinny&rsquo;s','Cavatina #2 &middot; Libertango #1 &middot; Blue Bossa #1','opened today',['4 ARR']],
+    ['Sunday brunch trio','Autumn Leaves #1 &middot; Django #2','opened Sat',['2 ARR']],
+    ['Wedding &mdash; Sept','Cavatina #1 &middot; Gnossienne No. 1 #1 &middot; Django #1','opened 12 Aug',['3 ARR']],
+  ];
+  const row = ([t,s,meta,chips]) => `<div class="lrow">${thumb('md')}
+      <span class="stk"><span class="t">${t}</span><span class="s">${s}</span>
+      <span class="chips">${chips.map(c => `<span class="dchip${c.startsWith('OMR') ? ' warnc' : (c.endsWith('ARR') ? ' num' : '')}">${c}</span>`).join('')}</span></span>
+      <span class="go" style="font-family:var(--f-data);font-size:10.5px">${meta} &nbsp;&#8250;</span></div>`;
+  return `<div class="scr">
+    ${scTop()}
+    ${search('Search pieces, arrangements, setlists&hellip;')}
+    <div style="height:14px"></div>
+    <div class="quick">${QUICK.map(([f,g,t,d]) => `<div class="qp ${f}"><span class="g">${g}</span>
+      <span class="t">${t}</span><span class="d">${d}</span></div>`).join('')}</div>
+    <div style="height:18px"></div>
+    <div class="h-sec"><span class="lab">Recent pieces</span><span class="all">All pieces &#8250;</span></div>
+    ${recentPieces.map(row).join('<div class="sep-l"></div>')}
+    <div style="height:14px"></div>
+    <div class="h-sec"><span class="lab">Recent setlists</span><span class="all">All setlists &#8250;</span></div>
+    ${recentSets.map(row).join('<div class="sep-l"></div>')}
+    ${tabbar('home')}
+  </div>`;
+}
+
+/* ═══════════════ LIBRARY ═══════════════ */
+const PIECES = [
+  ['A','Autumn Leaves','Kosma &middot; 1 arrangement',['1 ARR']],
+  ['B','Blue Bossa','unknown &middot; 1 arrangement',['OMR DRAFT','UNFILED']],
+  ['C','Cavatina','Stanley Myers &middot; 3 arrangements',['3 ARR','1 SOURCE']],
+  ['D','Django','John Lewis &middot; 2 arrangements',['2 ARR']],
+  ['E','El Choclo','Villoldo &middot; 1 arrangement',['1 ARR']],
+  ['G','Gnossienne No. 1','Satie &middot; 1 arrangement',['1 ARR']],
+  ['L','Libertango','Piazzolla &middot; 1 arrangement',['1 ARR']],
+];
+const AZ = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','R','S','T','V','W','#'];
+function azrail(hot = ['A','B','C','D','E','G','L']){
+  return `<div class="azrail">${AZ.map(l => hot.includes(l) ? `<b>${l}</b>` : `<span>${l}</span>`).join('')}</div>`;
+}
+function libBar(kind){
+  return `<div class="libbar">
+    <span class="btn">&#8645; Sort: name</span>
+    <span class="btn">&#9636; Filter</span>
+    <span class="btn right">Edit</span>
+  </div>`;
+}
+function libraryPieces(){
+  let out = '', last = '';
+  PIECES.forEach(([a,t,s,chips], i) => {
+    if(a !== last){ out += `<div class="alpha">${a}</div>`; last = a; }
+    out += `<div class="lrow${t === 'Cavatina' ? ' on' : ''}">${thumb('md')}
+      <span class="stk"><span class="t">${t}</span><span class="s">${s}</span>
+      <span class="chips">${chips.map(c => `<span class="dchip${c === 'OMR DRAFT' ? ' warnc' : (c.endsWith('ARR') ? ' num' : '')}">${c}</span>`).join('')}</span></span>
+      <span class="go">&#8250;</span></div>`;
+  });
+  return `<div class="scr">
+    ${scTop()}
+    <div class="segwrap"><div class="seg"><div class="on">Pieces</div><div>Setlists</div></div></div>
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}
+    ${libBar('pieces')}
+    <div style="overflow:hidden">${out}</div>
+    ${azrail()}
+    <div class="fab">+</div>
+    ${tabbar('lib')}
+  </div>`;
+}
+function librarySetlists(){
+  const sets = [
+    ['F','Friday at Vinny&rsquo;s','Cavatina #2 &middot; Libertango #1 &middot; Blue Bossa #1 &middot; El Choclo #1',['4 ARR','ORDERED']],
+    ['S','Sunday brunch trio','Autumn Leaves #1 &middot; Django #2',['2 ARR']],
+    ['W','Wedding &mdash; Sept',' Cavatina #1 &middot; Gnossienne No. 1 #1 &middot; Django #1',['3 ARR']],
+  ];
+  let out = '', last = '';
+  sets.forEach(([a,t,s,chips]) => {
+    if(a !== last){ out += `<div class="alpha">${a}</div>`; last = a; }
+    out += `<div class="lrow">${thumb('md')}
+      <span class="stk"><span class="t">${t}</span><span class="s">${s}</span>
+      <span class="chips">${chips.map(c => `<span class="dchip${c.endsWith('ARR') ? ' num' : ''}">${c}</span>`).join('')}</span></span>
+      <span class="go">&#8250;</span></div>`;
+  });
+  return `<div class="scr">
+    ${scTop()}
+    <div class="segwrap"><div class="seg"><div>Pieces</div><div class="on">Setlists</div></div></div>
+    <div class="h-title">My library<span class="count">3 setlists</span></div>
+    ${search('Search in my library')}
+    <div class="libbar"><span class="btn">&#8645; Sort: name</span><span class="btn">&#9636; Filter</span><span class="btn right">Edit</span></div>
+    <div style="overflow:hidden">${out}</div>
+    ${azrail(['F','S','W'])}
+    <div class="fab">+</div>
+    ${tabbar('lib')}
+  </div>`;
+}
+/* piece with several arrangements: which #N do you want? */
+function arrangementPicker(){
+  const arr = [
+    [1,'String quartet','Vln I, Vln II, Vla, Vc &middot; 8 versions','v008 &middot; Mon'],
+    [2,'Accordion duo','Acc. Bass, Acc. Chords &middot; 14 versions &middot; 1 source','v014 &middot; 14:02'],
+    [3,'Solo guitar','Guitar &middot; 4 versions','v004 &middot; last week'],
+  ];
+  return `<div class="scr">
+    ${scTop()}
+    <div class="segwrap"><div class="seg"><div class="on">Pieces</div><div>Setlists</div></div></div>
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}
+    ${libBar('pieces')}
+    <div style="overflow:hidden;opacity:.5">${PIECES.slice(0,4).map(([a,t,s]) => `<div class="lrow">${thumb('md')}
+      <span class="stk"><span class="t">${t}</span><span class="s">${s}</span></span></div>`).join('')}</div>
+    ${tabbar('lib')}
+    <div class="dim"></div>
+    <div class="sheet" style="top:96px;bottom:120px;width:560px">
+      <div class="sheet-h"><span class="t">Cavatina</span>
+        <span style="font-size:11px;color:var(--ink-3);font-family:var(--f-data)">Stanley Myers</span>
+        <span class="btn" style="margin-left:auto">Done</span></div>
+      <div class="sheet-b">
+        <div class="bandh">Arrangements &mdash; pick one to open</div>
+        ${arr.map(([n,t,s,m]) => `<div class="lrow${n === 2 ? ' on' : ''}" style="padding:10px 14px">
+          <span class="num" style="font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);min-width:34px">#${n}</span>
+          ${thumb('sm')}
+          <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+          <span class="go" style="font-family:var(--f-data);font-size:10.5px">${m} &nbsp;&#8250;</span></div>`).join('<div class="sep-l" style="margin-left:14px"></div>')}
+        <div class="bandh">Sources &mdash; other editions, read only</div>
+        <div class="lrow" style="padding:9px 14px"><span style="font-family:var(--f-data);font-size:11px;color:var(--ink-2);min-width:34px">s01</span>
+          <span class="stk"><span class="t" style="font-size:14px">MuseScore tab version</span><span class="s">2 parts &middot; imported Tue</span></span></div>
+        <div class="frow" style="border:0;padding-top:12px;gap:8px"><span class="btn pri">New arrangement of this piece</span><span class="btn">Rename piece</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════ SCORE VIEW ═══════════════ */
+function topbar(o = {}){
+  const act = (g, on) => `<span class="b${on ? ' on' : ''}">${g}</span>`;
+  return `<div class="stopbar" style="${o.thin ? 'height:38px' : ''}">
+    <span class="x">&#10005;</span>
+    ${o.thin ? '' : `<span class="titleblock${o.dropdown ? ' open' : ''}">
+      <span class="num">#2</span>
+      <span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina &middot; v014</span></span>
+      <span class="chev">&#9662;</span></span>`}
+    <span class="acts">
+      ${o.thin ? '<span style="font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)">Performance</span>'
+               : act('&#9998;', o.edit) + act('&#128172;', o.chat) + act('&#9707;', o.spread) + act('&#8943;', o.menu)}
+    </span>
+  </div>`;
+}
+function thumbstrip(current = 3){
+  let out = '';
+  for(let i = 1; i <= 12; i += 2){
+    out += `<div class="grp">
+      <div class="pt${i === current ? ' on' : ''}">${thumbArt(9)}<span class="n">${i}</span></div>
+      <div class="pt${i + 1 === current ? ' on' : ''}">${thumbArt(9)}<span class="n">${i + 1}</span></div>
+    </div>`;
+  }
+  return `<div class="thumbstrip">${out}
+    <span style="margin-left:auto;font-family:var(--f-data);font-size:10px;color:var(--ink-3);flex:0 0 auto">12 pages &middot; spreads</span></div>`;
+}
+function transport(){
+  return `<div class="transport inert">
+    <span class="b live">&#9664;&#9664;</span><span class="b live">&#9654;&#9654;</span>
+    <span class="tag" style="border-style:solid">setlist &middot; 2 of 4</span>
+    <span class="b">&#9654;</span><span class="b">&#8635;</span><span class="b">&#9679;</span>
+    <span class="tm">0:00</span><span class="track"><i></i></span><span class="tm">&mdash;:&mdash;&mdash;</span>
+    <span class="tag">playback not wired yet</span>
+  </div>`;
+}
+function svCanvas(o = {}){
+  const w = o.chat ? 316 : 404;
+  return `<div style="position:absolute;top:${o.thin ? 38 : 52}px;left:0;right:${o.chat ? 380 : 0}px;
+      bottom:${o.perf ? 0 : 152}px;background:var(--ground);display:flex;justify-content:center;
+      gap:14px;padding:18px 0 0;overflow:hidden">
+    ${page({w, systems: o.perf ? 22 : 14, markup: o.markup, selection: o.selection})}
+    ${page2({w, systems: o.perf ? 23 : 15})}
+  </div>`;
+}
+function poscount(){
+  return `<div class="poscount"><span>pp. 3&ndash;4 / 12</span><span>bar 21</span></div>`;
+}
+function chatPanel(){
+  return `<div class="ov right" style="top:52px">
+    <div class="chat-h"><span class="num">#2</span>
+      <span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina &middot; v014</span></span>
+      <span class="mdl">kimi-k2 &#9662;</span></div>
+    <div class="msgs">
+      <div class="bub"><div class="who">agent</div>Bars 21&ndash;28 are now viola. Three notes in 44&ndash;46 sit above its range.</div>
+      <div class="bub me"><div class="who">you</div>drop those three an octave</div>
+      <div class="card"><div class="ch">working &middot; 1 op</div><div class="cb">
+        <div class="stp"><span class="spin"></span><span style="color:var(--ink-3)">octave-shift&hellip;</span></div></div></div>
+    </div>
+    <div class="inbar"><span class="fld">Arrange&hellip;</span><span class="iconb rec">&#9679;</span><span class="iconb go">&#9650;</span></div>
+  </div>`;
+}
+const MENU1 = [
+  ['&#9654;','Performance mode','toggle','on'],
+  ['&#9707;','Score display','sub','two-page'],
+  ['&#9998;','Annotations','sub','red pen'],
+  ['&#9711;','Selection &amp; chat','sub','replace'],
+  ['&#9834;','Transpose','sub','concert'],
+  ['&#8635;','Versions','sub','v014 of 14'],
+  ['&#9432;','Piece &amp; arrangement details','sheet',''],
+  ['&#8682;','Share &amp; export','sub','PDF, XML, MIDI'],
+  ['&#9881;','Settings','sub',''],
+];
+function moreMenu(layer = 1){
+  if(layer === 1){
+    return `<div class="menu">
+      <div class="mrow top"><span class="g">&#9654;</span><b>Performance mode</b>
+        <span class="val" style="color:var(--clay-strong)">off &#8250;</span></div>
+      ${MENU1.slice(1).map(([g,t,kind,val]) => `<div class="mrow"><span class="g">${g}</span>${t}
+        ${val ? `<span class="val">${val}</span>` : ''}
+        <span class="ch">${kind === 'sheet' ? '' : '&#8250;'}</span></div>`).join('')}
+    </div>`;
+  }
+  return `<div class="menu">
+    <div class="back"><span class="g">&#8249;</span>Score display</div>
+    <div class="mrow">Two&#8209;page spread<span class="val"><span class="sw on" style="display:inline-flex"><i></i></span></span></div>
+    <div class="mrow">Fit<span class="val" style="display:flex;gap:0">
+      <span class="seg" style="border-radius:2px"><span style="padding:3px 8px;font-size:11px;background:var(--clay-tint);color:var(--clay-strong)">width</span><span style="padding:3px 8px;font-size:11px;border-left:1px solid var(--line-2)">page</span></span></span></div>
+    <div class="mrow">Zoom<span class="val">100&#37; &nbsp;&#8722; &#43;</span></div>
+    <div class="mrow">Accidentals<span class="val">flats &#9662;</span></div>
+    <div class="mrow">Whistle fingerings<span class="val"><span class="sw" style="display:inline-flex"><i></i></span></span></div>
+    <div class="mrow" style="border:0;color:var(--ink-3);font-size:11.5px;line-height:1.4;display:block">
+      Every item here is a real engine or renderer setting today. Nothing on this screen is new plumbing.</div>
+  </div>`;
+}
+function inkbar(){
+  return `<div class="abar" style="bottom:170px">
+    <div class="b on">&#9998;</div><div class="b">&#9003;</div><div class="div"></div>
+    <div class="dot on" style="background:#D64B3F">&#10003;</div>
+    <div class="dot" style="background:#2A6BD6"></div>
+    <div class="dot" style="background:#2E9159"></div>
+    <div class="dot" style="background:#E08A25"></div>
+    <div class="dot" style="background:var(--ink)"></div>
+    <div class="div"></div><div class="b">&#8630;</div>
+    <span style="font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);padding:0 4px">Pencil: ink</span>
+  </div>`;
+}
+
+const SCORE = {
+  read: () => `<div class="scr">${topbar({spread:true})}${svCanvas()}${poscount()}${thumbstrip()}${transport()}</div>`,
+  dropdown: () => `<div class="scr">${topbar({spread:true, dropdown:true})}${svCanvas()}${poscount()}${thumbstrip()}${transport()}
+    <div class="menu" style="left:50%;right:auto;transform:translateX(-50%);width:360px">
+      <div class="bandh" style="border-top:0">Arrangements of Cavatina</div>
+      ${[[1,'String quartet','8 versions'],[2,'Accordion duo','14 versions'],[3,'Solo guitar','4 versions']]
+        .map(([n,t,v]) => `<div class="mrow${n === 2 ? ' top' : ''}">
+          <span style="font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);min-width:28px">#${n}</span>${t}
+          <span class="val">${v}</span>${n === 2 ? '<span class="ch">&#10003;</span>' : ''}</div>`).join('')}
+      <div class="bandh">Versions of #2</div>
+      <div class="mrow top"><span class="g" style="font-family:var(--f-data);font-size:11px">v014</span>give the cello line to a viola<span class="ch">&#10003;</span></div>
+      <div class="mrow"><span class="g" style="font-family:var(--f-data);font-size:11px">v011</span>drop the piano<span class="val">3 steps</span></div>
+      <div class="mrow"><span class="g" style="font-family:var(--f-data);font-size:11px">v009</span>transpose down a minor third</div>
+      <div class="mrow" style="border:0;color:var(--ink-2)">All 14 versions<span class="ch">&#8250;</span></div>
+    </div></div>`,
+  menu1: () => `<div class="scr">${topbar({spread:true, menu:true})}${svCanvas()}${poscount()}${thumbstrip()}${transport()}${moreMenu(1)}</div>`,
+  menu2: () => `<div class="scr">${topbar({spread:true, menu:true})}${svCanvas()}${poscount()}${thumbstrip()}${transport()}${moreMenu(2)}</div>`,
+  edit: () => `<div class="scr">${topbar({spread:true, edit:true})}${svCanvas({markup:true})}${poscount()}${inkbar()}${thumbstrip()}${transport()}</div>`,
+  chat: () => `<div class="scr">${topbar({spread:true, chat:true})}${svCanvas({chat:true, selection:true})}
+    <div class="poscount" style="right:394px"><span>pp. 3&ndash;4 / 12</span><span>bar 21</span></div>
+    ${chatPanel()}
+    <div class="thumbstrip" style="right:380px">${thumbstrip().replace('<div class="thumbstrip">','').replace(/<\/div>$/,'')}</div>
+    <div class="transport inert" style="right:380px">${transport().replace('<div class="transport inert">','').replace(/<\/div>$/,'')}</div></div>`,
+  perf: () => `<div class="scr">${topbar({thin:true})}${svCanvas({thin:true, perf:true})}
+    <div class="zone l"><span class="lab">tap or swipe<br>previous</span></div>
+    <div class="zone r"><span class="lab">tap or swipe<br>next</span></div>
+    <div class="zonec"><span class="lab">centre &mdash; no page turn &middot; tap shows the bar again</span></div>
+    <div class="perfbadge">Performance mode &middot; markup and selection are off</div></div>`,
+};
+
+/* ═══════════════ iPHONE ═══════════════ */
+function phoneFrame(inner){
+  return `<div class="scr phone" style="width:358px;height:790px;border:1px solid var(--line-2);
+    border-radius:var(--r-panel);overflow:hidden;position:relative;flex:0 0 auto">${inner}</div>`;
+}
+function phones(){
+  const homeP = `${scTop()}${search('Search my library')}
+    <div style="height:10px"></div>
+    <div class="quick" style="padding:0 14px;gap:8px">${QUICK.slice(0,2).map(([f,g,t,d]) => `<div class="qp ${f}" style="min-height:84px;padding:10px">
+      <span class="g">${g}</span><span class="t" style="font-size:13px">${t}</span></div>`).join('')}</div>
+    <div style="height:8px"></div>
+    <div class="quick" style="padding:0 14px;gap:8px">${QUICK.slice(2).map(([f,g,t,d]) => `<div class="qp ${f}" style="min-height:84px;padding:10px">
+      <span class="g">${g}</span><span class="t" style="font-size:13px">${t}</span></div>`).join('')}</div>
+    <div style="height:14px"></div>
+    <div class="h-sec" style="padding:0 14px"><span class="lab">Recent pieces</span></div>
+    ${[['Cavatina','Stanley Myers &middot; 3 arr.'],['Libertango','Piazzolla &middot; 1 arr.'],['Blue Bossa','OMR draft']]
+      .map(([t,s]) => `<div class="lrow" style="padding:8px 14px;min-height:48px">${thumb('sm')}
+        <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+        <span class="go">&#8250;</span></div>`).join('<div class="sep-l" style="margin-left:14px"></div>')}
+    ${tabbar('home')}`;
+  const libP = `${scTop()}
+    <div class="segwrap"><div class="seg"><div class="on">Pieces</div><div>Setlists</div></div></div>
+    <div class="h-title" style="font-size:21px;padding:0 14px">My library<span class="count">7 pieces</span></div>
+    ${search('Search in my library').replace('margin:0 20px','margin:0 14px')}
+    <div class="libbar" style="padding:6px 14px"><span class="btn" style="padding:5px 8px;font-size:11px">&#8645; Name</span>
+      <span class="btn" style="padding:5px 8px;font-size:11px">&#9636;</span><span class="btn right" style="padding:5px 8px;font-size:11px">Edit</span></div>
+    ${PIECES.slice(0,5).map(([a,t,s,chips]) => `<div class="lrow" style="padding:8px 14px;min-height:52px">${thumb('sm')}
+      <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+      <span class="go">&#8250;</span></div>`).join('<div class="sep-l" style="margin-left:14px"></div>')}
+    ${azrail()}
+    <div class="fab" style="right:14px;bottom:80px;width:46px;height:46px;font-size:22px">+</div>
+    ${tabbar('lib')}`;
+  const scoreP = `<div class="stopbar" style="height:46px;padding:0 8px">
+      <span class="x" style="width:30px;height:30px">&#10005;</span>
+      <span class="titleblock" style="padding:3px 6px"><span class="num" style="font-size:16px">#2</span>
+        <span class="stk"><span class="t" style="font-size:13px">Accordion duo</span>
+        <span class="s" style="font-size:9.5px">Cavatina &middot; v014</span></span><span class="chev">&#9662;</span></span>
+      <span class="acts"><span class="b" style="width:30px;height:30px">&#128172;</span>
+        <span class="b" style="width:30px;height:30px">&#8943;</span></span></div>
+    <div style="position:absolute;top:46px;left:0;right:0;bottom:112px;background:var(--ground);
+      display:flex;justify-content:center;padding-top:12px;overflow:hidden">${page({w:318, systems:12})}</div>
+    <div class="thumbstrip" style="bottom:52px;height:76px;gap:6px;padding:0 8px">
+      ${[1,2,3,4,5].map(i => `<div class="pt${i === 3 ? ' on' : ''}" style="width:42px;height:56px">${thumbArt(7)}<span class="n">${i}</span></div>`).join('')}</div>
+    <div class="transport inert" style="height:52px;gap:8px;padding:0 8px">
+      <span class="b live" style="width:28px;height:28px">&#9664;&#9664;</span>
+      <span class="b live" style="width:28px;height:28px">&#9654;&#9654;</span>
+      <span class="b" style="width:28px;height:28px">&#9654;</span>
+      <span class="track"></span><span class="tm">0:00</span></div>`;
+  return `<div class="scr" style="background:var(--panel);display:flex;align-items:center;justify-content:center;gap:26px">
+    ${phoneFrame(homeP)}${phoneFrame(libP)}${phoneFrame(scoreP)}</div>`;
+}
+
+/* ═══════════════ COMPONENT + GESTURE BOARD ═══════════════ */
+function board(){
+  const gestures = [
+    ['finger drag','pan / scroll the score','unchanged','pans'],
+    ['two fingers','pinch zoom','unchanged','zooms'],
+    ['finger tap, side third','&mdash; (unused today)','turns the page','turns the page'],
+    ['finger tap, centre','&mdash;','dismisses chrome','re-shows the bar'],
+    ['two-finger tap','undo last ink','undo last ink','&mdash;'],
+    ['Pencil drag','lasso &rarr; selects music','draws ink','turns the page'],
+    ['Pencil tap','add / drop one element','&mdash;','turns the page'],
+    ['Pencil swipe from edge','&mdash;','&mdash;','turns the page'],
+  ];
+  return `<div class="scr" style="background:var(--panel);padding:16px;display:flex;flex-direction:column;gap:10px">
+    <div class="bandh" style="border-top:0">New components</div>
+    <div style="display:flex;gap:14px;align-items:flex-start">
+      <div style="width:300px;position:relative;height:64px;border:1px solid var(--line);border-radius:3px;overflow:hidden">${tabbar('lib')}</div>
+      <div style="flex:1"><div class="quick" style="padding:0">${QUICK.slice(0,3).map(([f,g,t,d]) => `<div class="qp ${f}" style="min-height:78px;padding:10px">
+        <span class="g">${g}</span><span class="t" style="font-size:13px">${t}</span></div>`).join('')}</div></div>
+      <div class="seg"><div class="on">Pieces</div><div>Setlists</div></div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:flex-start">
+      <div style="width:330px;border:1px solid var(--line);border-radius:3px;overflow:hidden">
+        <div class="alpha">C</div>
+        <div class="lrow on" style="padding:8px 12px">${thumb('md')}
+          <span class="stk"><span class="t">Cavatina</span><span class="s">Stanley Myers &middot; 3 arrangements</span>
+          <span class="chips"><span class="dchip num">3 ARR</span><span class="dchip">1 SOURCE</span></span></span>
+          <span class="go">&#8250;</span></div>
+      </div>
+      <div style="flex:1;position:relative;height:110px;border:1px solid var(--line);border-radius:3px;overflow:hidden">
+        <div class="thumbstrip" style="position:absolute;bottom:auto;top:0;height:96px;border-top:0">
+          ${[1,2,3,4].map(i => `<div class="grp"><div class="pt${i === 2 ? ' on' : ''}">${thumbArt(9)}<span class="n">${i * 2 - 1}</span></div>
+          <div class="pt">${thumbArt(9)}<span class="n">${i * 2}</span></div></div>`).join('')}
+        </div>
+      </div>
+      <div style="position:relative;width:74px;height:74px;flex:0 0 auto"><div class="fab" style="right:10px;bottom:10px">+</div></div>
+    </div>
+    <div style="position:relative;height:56px;border:1px solid var(--line);border-radius:3px;overflow:hidden">${transport()}</div>
+    <div style="position:relative;height:52px;border:1px solid var(--line);border-radius:3px;overflow:hidden">${topbar({spread:true})}</div>
+    <div style="display:flex;gap:14px;flex:1;min-height:0">
+      <div style="width:330px;position:relative">${moreMenu(1).replace('class="menu"','class="menu" style="position:static;width:330px;box-shadow:none"')}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <div class="bandh">Which input does what, in which mode</div>
+        <table class="spec" style="font-size:11.5px">
+          <tr><th>input</th><th>read mode</th><th>edit mode</th><th>performance</th></tr>
+          ${gestures.map(r => `<tr><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}
+        </table>
+        <div class="legend" style="margin-top:2px">The Pencil means one thing per mode &mdash; select, ink, or turn &mdash; and the
+        mode is stated in the top bar. That is what keeps a page&#8209;turn swipe from eating a lasso.</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════ screens + gallery ═══════════════ */
+const SCREENS = {
+n1:{t:'Home', d:'Search, four real quick actions, recent pieces and recent setlists. The top-left trio is help / inbox (with what is waiting in it) / settings; the reference’s account avatar becomes our engine chip, because we have no accounts and we do have two engines.', html:home},
+n2:{t:'My Library — Pieces', d:'Segmented Pieces / Setlists at top centre, title with a real count, search, sort and filter left, Edit right, A–Z rail down the right edge, + bottom right. Chips are facts we already hold (arrangement count, sources, OMR draft, unfiled) — not a tag store we do not have.', html:libraryPieces},
+n3:{t:'My Library — Setlists', d:'Same pattern, different noun. Our setlists hold arrangements, not pieces, so the subtitle names them by #N — the running order is the content.', html:librarySetlists},
+n4:{t:'Piece → which arrangement?', d:'The reference opens a piece straight into its parts. Ours has to answer “which #N?” first: a piece with one arrangement opens it directly; a piece with several opens this sheet. Sources sit below the arrangements, read-only.', html:arrangementPicker},
+n5:{t:'Score — reading', d:'Close, centred title with the version under it, actions right. Page and bar counters float over the score. Thumbnail strip is grouped in spreads; transport is pinned below it.', html:SCORE.read},
+n6:{t:'Score — title dropdown', d:'One dropdown, two layers: the arrangements of this piece (#N), then the versions of the open one. The reference switches parts here; we switch the two things that are actually ours.', html:SCORE.dropdown},
+n7:{t:'Score — the “…” menu', d:'Layer one: performance mode as a switch at the top, then six categories, details, share and export, and settings as one entry among them — the pattern Ali likes, with our features in it.', html:SCORE.menu1},
+n8:{t:'“…” menu — a sub-screen', d:'Layer two, entered with a back row. Score display is the example: every control here is a setting the renderer or engine already has.', html:SCORE.menu2},
+n9:{t:'Score — edit mode', d:'The ink bar rises above the thumbnail strip; the top-bar pencil is lit; the bar states what the Pencil means right now. No lasso tool here — in this app the lasso selects music, and that lives in read mode.', html:SCORE.edit},
+n10:{t:'Score — performance mode', d:'Chrome collapses to a 38pt strip. Tap or swipe the outer thirds to turn; the centre does nothing. Selection and ink are off, which is exactly why the Pencil is free to turn pages.', html:SCORE.perf},
+n11:{t:'Score — Ask (chat)', d:'Our one addition to the reference’s top bar, in the slot where its AI action sits. The score keeps its spread, the selection stays lit on the page, and the strip and transport shorten rather than hide.', html:SCORE.chat},
+n12:{t:'iPhone — the same IA', d:'Tab bar, then one pane at a time. Quick actions stack two-up, the score view keeps top bar, strip and transport, and chat becomes a sheet rather than a side panel.', html:phones},
+n13:{t:'New components + gesture arbitration', d:'Everything this IA adds, in the existing token language — and the table that decides which input does what in which mode.', html:board},
+};
+const ORDER = ['n1','n2','n3','n4','n5','n6','n7','n8','n9','n10','n11','n12','n13'];
+const W = 1180, H = 886;
+function fit(stage, el){
+  const k = stage.clientWidth / W;
+  el.style.transform = `scale(${k})`;
+  stage.style.height = (H * k) + 'px';
+}
+function build(){
+  const wrap = document.getElementById('wrap');
+  wrap.innerHTML = `
+  <div class="masthead"><h1>Scoranger &mdash; navigation redesign</h1>
+    <div class="code">home &middot; library &middot; score</div></div>
+  <p class="lede">The listing and the canvas become separate places. A <b>bottom tab bar</b> holds Home and My Library;
+  a score opens <b>over</b> them and closes back to where it came from. Inside the score view the chrome is the reference&rsquo;s:
+  close left, a <b>title that drops down</b>, actions right, a <b>page thumbnail strip</b>, and a <b>transport</b> pinned at the bottom.
+  The look is unchanged &mdash; Paper &amp; Clay, Space Grotesk over Inter over Plex Mono, flat panels with hard edges.</p>
+  <p class="lede">Written spec, including the data we do not have yet and what each pattern costs: <b>design/NAVIGATION_SYSTEM.md</b>. Tap any screen to enlarge.</p>
+  <h2 class="sec"><span class="n">01</span>Screens</h2>
+  <p class="sec-sub">Thirteen screens: two list places, one canvas in six states, the phone, and the component board.</p>
+  <div class="screens" id="screens"></div>`;
+  const grid = document.getElementById('screens');
+  ORDER.forEach(id => {
+    const s = SCREENS[id];
+    const card = document.createElement('div');
+    card.className = 'shot';
+    card.innerHTML = `<div class="shot-h"><div class="t">${id.toUpperCase()} &nbsp;${s.t}</div><div class="d">${s.d}</div></div>
+      <div class="stage"><div class="tapz">tap to enlarge</div></div>`;
+    grid.appendChild(card);
+    const stage = card.querySelector('.stage');
+    const el = document.createElement('div');
+    el.innerHTML = s.html();
+    const scr = el.firstElementChild;
+    stage.insertBefore(scr, stage.firstChild);
+    new ResizeObserver(() => fit(stage, scr)).observe(stage);
+    stage.addEventListener('click', () => zoom(id));
+  });
+}
+function zoom(id){
+  const m = document.getElementById('modal');
+  m.querySelectorAll('.scr').forEach(n => n.remove());
+  const el = document.createElement('div');
+  el.innerHTML = SCREENS[id].html();
+  const scr = el.firstElementChild;
+  m.appendChild(scr);
+  m.classList.add('open');
+  const k = Math.min((m.clientWidth - 24) / W, (m.clientHeight - 24) / H);
+  scr.style.transform = `scale(${k})`;
+}
+document.getElementById('mx').onclick = () => document.getElementById('modal').classList.remove('open');
+const P = new URLSearchParams(location.search);
+if(P.get('screen')){
+  document.body.classList.add('shot-mode');
+  document.getElementById('shotbox').innerHTML = SCREENS[P.get('screen')].html();
+} else { build(); }
+</script>

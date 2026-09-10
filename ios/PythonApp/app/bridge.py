@@ -377,6 +377,10 @@ def _dispatch(op, a):
                                               create_if_missing=True)
     if op == "unassign-setlist":
         return workspace.remove_score_from_setlist(a["setlist"], a["score"])
+    if op == "bind-setlist-share":
+        # Promotion's last step: the set list now IS the shared document.
+        return workspace.bind_setlist_share(a["setlist"], a["shareId"],
+                                            a["ownerUid"])
     if op == "rename-setlist":
         return workspace.rename_setlist(a["setlist"], a["name"])
     if op == "delete-setlist":

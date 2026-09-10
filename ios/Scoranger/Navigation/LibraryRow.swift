@@ -51,6 +51,13 @@ struct LRow: View {
     var action: () -> Void
     /// The one control a row carries (§4): row tap opens the music, ☰ manages.
     var onMenu: (() -> Void)?
+    /// Share this row, when it is shareable. §6A.2 puts it immediately
+    /// LEADING of the `☰` and NOT inside the `☰` screen: a control in two
+    /// places is what `optionsCarriesTransportToggle` exists to prevent.
+    var onShare: (() -> Void)?
+    /// Whether this row is already shared -- the button says so rather than
+    /// offering to share again as if nothing had happened.
+    var isShared: Bool = false
     var menuIsOpen: Bool = false
 
     var body: some View {
@@ -94,8 +101,10 @@ struct LRow: View {
             .padding(.leading, Theme.Metric.s20)
             // a row with a ☰ keeps its content clear of it; the overlay sits
             // outside the layout, so nothing else would
-            .padding(.trailing, onMenu == nil ? Theme.Metric.s20
-                                              : Theme.Metric.rowMenuInset)
+            .padding(.trailing, onMenu == nil
+                     ? Theme.Metric.s20
+                     : (onShare == nil ? Theme.Metric.rowMenuInset
+                                       : Theme.Metric.rowTwoControlInset))
             .padding(.vertical, 9)
             .frame(minHeight: 56)
             .contentShape(Rectangle())
@@ -103,12 +112,20 @@ struct LRow: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
         .overlay(alignment: .trailing) {
-            if let onMenu {
-                RowMenuButton(identifier: "row-menu-\(row.id)",
-                              label: "Manage \(row.title)",
-                              isOpen: menuIsOpen, action: onMenu)
-                    .padding(.trailing, Theme.Metric.s8)
+            HStack(spacing: 0) {
+                if let onShare {
+                    RowShareButton(identifier: "row-share-\(row.id)",
+                                   title: row.title,
+                                   isShared: isShared,
+                                   action: onShare)
+                }
+                if let onMenu {
+                    RowMenuButton(identifier: "row-menu-\(row.id)",
+                                  label: "Manage \(row.title)",
+                                  isOpen: menuIsOpen, action: onMenu)
+                }
             }
+            .padding(.trailing, Theme.Metric.s8)
         }
     }
 }
@@ -172,5 +189,47 @@ struct DerivedChip: View {
         case .warning: return Color(hex: 0xE8CFA6)
         case .plain:   return Theme.Line.line2
         }
+    }
+}
+
+/// The share control on a set list row.
+///
+/// design/FIREBASE.md §6A.2: a 34pt bordered square inside a 44pt hit target,
+/// immediately leading of the `☰`. The visible square is smaller than the
+/// touchable one on purpose -- 44 is the smallest thing a finger reliably
+/// hits, and 34 is what does not crowd the row next to another control.
+///
+/// It is the SAME control whether or not the set list is already shared, and
+/// only its symbol changes. A second, differently-named control for
+/// "share again" would be the same affordance in two places.
+struct RowShareButton: View {
+    let identifier: String
+    let title: String
+    var isShared: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isShared
+                  ? "person.2.fill"          // already shared: who is in it
+                  : "square.and.arrow.up")   // not yet: the iOS share glyph
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Theme.Line.line, lineWidth: 1)
+                )
+                .frame(width: Theme.Metric.hitTarget,
+                       height: Theme.Metric.hitTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // One element, so the identifier lands on the tappable thing rather
+        // than on a container -- the selection chip's lesson (Screen.swift).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isShared ? "Sharing for \(title)" : "Share \(title)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(identifier)
     }
 }

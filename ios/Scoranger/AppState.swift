@@ -790,8 +790,11 @@ final class AppState: ObservableObject {
     /// An invitation link that has been opened and not yet acted on.
     ///
     /// Held here rather than claimed at the door, because claiming it is a
-    /// decision and because it may arrive before there is an account to claim
-    /// it with (`SharedSetlistsBand`).
+    /// decision -- joining downloads somebody else's copies -- and because it
+    /// may arrive before there is an account to claim it with. `RootView`
+    /// watches this and pushes the one confirmation screen (§6A.5); it is a
+    /// hand-off, not a holding area, and it is cleared as soon as the screen
+    /// has it.
     @Published var pendingInvite: String?
     /// Pencil markup state. Lives here because the pill drives it and the score
     /// pane only reacts, the same reason highlightMode moved up in build 116.

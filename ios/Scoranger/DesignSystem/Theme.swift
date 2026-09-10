@@ -218,6 +218,11 @@ enum Theme {
         /// under the ☰. The overlay is one hit target wide with `s8` of its own
         /// trailing padding; this leaves that much plus a gap.
         static let rowMenuInset: CGFloat = hitTarget + s8 + s8
+        /// Room for TWO trailing controls -- a share button leading of the
+        /// `☰` (design/FIREBASE.md §6A.2). Derived from `hitTarget`, not
+        /// written as 104: the whole point of these being metrics is that a
+        /// change to the hit target moves everything that depends on it.
+        static let rowTwoControlInset: CGFloat = hitTarget + hitTarget + s8 + s8
 
         /// The gutter Edit mode's checkbox lives in.
         ///

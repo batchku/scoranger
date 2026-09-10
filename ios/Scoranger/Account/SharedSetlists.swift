@@ -174,6 +174,68 @@ final class SharedSetlists: ObservableObject {
         setlists = found.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// The setlist being read, watched as ITS OWN DOCUMENT.
+    ///
+    /// **Not derived from `setlists`, and that is the fix.** The screen used to
+    /// find its setlist in the memberships-driven list, so anything that left
+    /// that list empty -- a missing index row, or simply the listener not
+    /// having answered yet -- made the setlist `nil`, the role fall back to
+    /// `.reader`, and the owner see a single red "Leave this set list". The
+    /// list is a list; ownership is a property of the document, and it is read
+    /// from the document.
+    @Published private(set) var open: Setlist?
+    /// Nil while nothing has answered yet. The screen renders LOADING on nil
+    /// rather than picking the least-privileged reading -- a permissions
+    /// fallback that shows fewer controls looks like a considered answer and
+    /// is really just ignorance.
+    @Published private(set) var openRole: SetlistRole?
+    private var openListener: ListenerRegistration?
+
+    /// Watch one setlist document: its name, its members, and my role in it.
+    func openSetlist(_ setlistId: String) {
+        guard FirebaseApp.app() != nil, let uid else { return }
+        openListener?.remove()
+        open = nil
+        openRole = nil
+        openListener = db.collection("setlists").document(setlistId)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self else { return }
+                if let error { self.trouble = error.localizedDescription; return }
+                guard let data = snapshot?.data() else {
+                    // The document is genuinely not there -- deleted, or never
+                    // promoted. Distinct from "not answered yet", and the
+                    // screen says so instead of showing a reader's view.
+                    self.open = nil
+                    self.openRole = nil
+                    return
+                }
+                let members = data["members"] as? [String: String] ?? [:]
+                let ownerId = data["ownerId"] as? String ?? ""
+                self.open = Setlist(id: setlistId,
+                                    name: data["name"] as? String ?? "Untitled",
+                                    ownerId: ownerId,
+                                    members: members)
+                // OWNERSHIP FROM ownerId FIRST. The members map and ownerId
+                // are written together, but if they ever disagree the owner
+                // field is the one the security rules use to decide who may
+                // delete -- so it is the one the UI must agree with.
+                if ownerId == uid {
+                    self.openRole = .owner
+                } else if let raw = members[uid] {
+                    self.openRole = SetlistRole(rawValue: raw)
+                } else {
+                    self.openRole = nil     // not a member: not a reader
+                }
+            }
+    }
+
+    func closeSetlist() {
+        openListener?.remove()
+        openListener = nil
+        open = nil
+        openRole = nil
+    }
+
     // MARK: - one setlist, live
 
     /// A snapshot listener on the setlist that is OPEN, and nothing else.
@@ -219,19 +281,99 @@ final class SharedSetlists: ObservableObject {
 
     // MARK: - making one
 
-    func create(named name: String) async throws -> String {
+    /// Share a local set list: promote it in place.
+    ///
+    /// Through the Function, because the two writes it makes -- the setlist
+    /// document and the `memberships` index -- cannot both be done by a
+    /// client. The rules refuse every client write to `memberships`, so the
+    /// old client-side `create` produced a setlist whose own owner could not
+    /// see it. That is the bug behind both of Ali's screenshots.
+    ///
+    /// Takes the set list's OWN uid, so this promotes rather than copies:
+    /// afterwards it is the same set list, in the same list, with members.
+    @discardableResult
+    func share(setlistId: String, named name: String) async throws -> SetlistRole {
+        guard uid != nil else { throw Trouble.signedOut }
+        let result = try await functions.httpsCallable("shareSetlist")
+            .call(["setlistId": setlistId, "name": name])
+        guard let data = result.data as? [String: Any],
+              let raw = data["role"] as? String,
+              let role = SetlistRole(rawValue: raw) else {
+            throw Trouble.unusablePayload
+        }
+        return role
+    }
+
+    /// Promote a local set list into a shared one, in place, and return the
+    /// link to send.
+    ///
+    /// §6A.1's four steps, in this order for a reason:
+    ///
+    ///   1. the Firestore document, via `shareSetlist` -- which writes the
+    ///      membership index in the same transaction, so the owner can never
+    ///      exist without it (the bug behind both of Ali's screenshots);
+    ///   2. an entry per arrangement, pinned at its CURRENT LATEST version,
+    ///      with a fractional index preserving the local order;
+    ///   3. the artifacts those entries name, uploaded;
+    ///   4. `shareId` written back to the local document -- LAST, so a set
+    ///      list is never marked shared before it is. A `shareId` pointing at
+    ///      nothing claims a collaboration that does not exist, and recovering
+    ///      from that is worse than retrying a share.
+    ///
+    /// `progress` reports how far along the uploads are, because on a
+    /// twenty-piece set list this is a real wait and a share button that
+    /// appears to do nothing is how the last three builds felt.
+    func promote(setlist: SetlistDoc, arrangements: [ScoreDoc],
+                 payload: (String) async throws -> [String: Any],
+                 bind: (String, String) async throws -> Void,
+                 progress: @MainActor (Int, Int) -> Void = { _, _ in }) async throws -> URL {
         guard let uid else { throw Trouble.signedOut }
-        let reference = db.collection("setlists").document()
-        // Owner, sole member, and the rules check all three at creation so an
-        // oversized setlist cannot be created in one write (§8.2).
-        try await reference.setData([
-            "name": name,
-            "ownerId": uid,
-            "members": [uid: SetlistRole.owner.rawValue],
-            "memberIds": [uid],
-            "createdAt": FieldValue.serverTimestamp(),
-        ])
-        return reference.documentID
+        let shareId = setlist.sharedId
+
+        // 1. the document and the owner's index row, transactionally
+        _ = try await share(setlistId: shareId, named: setlist.name)
+
+        // 2 + 3. one entry per arrangement, in the local order
+        let ordered = setlist.arrangements.compactMap { slug in
+            arrangements.first { $0.slug == slug }
+        }
+        let keys = SharedOrder.spread(count: max(ordered.count, 1))
+        for (index, score) in ordered.enumerated() {
+            progress(index, ordered.count)
+            // The engine decides what an entry carries, because it is what
+            // knows which version is pinned and where its file is. Asking it
+            // per arrangement pins each at whatever is latest RIGHT NOW,
+            // which is §6.1's rule and the sub-decision confirmed for 6A.
+            let described = try await payload(score.slug)
+            try await addEntry(to: shareId, payload: described,
+                               orderKey: keys[min(index, keys.count - 1)])
+        }
+        progress(ordered.count, ordered.count)
+
+        // 4. bind the local row LAST
+        try await bind(shareId, uid)
+
+        // and the link to send: https, so Messages and Mail make it tappable
+        let inviteId = try await invite(to: shareId, email: nil)
+        guard let url = SharedInviteLink.webURL(inviteId: inviteId) else {
+            throw Trouble.unusablePayload
+        }
+        return url
+    }
+
+    /// Mint an invitation. `email` nil means an OPEN link, when that is the
+    /// rule in force; the Function records which rule the invitation carries.
+    func invite(to setlistId: String, email: String?) async throws -> String {
+        guard uid != nil else { throw Trouble.signedOut }
+        var args: [String: Any] = ["setlistId": setlistId,
+                                   "claim": email == nil ? "open" : "address"]
+        if let email { args["email"] = SetlistInvite.normalise(email) }
+        let result = try await functions.httpsCallable("createInvite").call(args)
+        guard let data = result.data as? [String: Any],
+              let id = data["inviteId"] as? String else {
+            throw Trouble.unusablePayload
+        }
+        return id
     }
 
     /// Delete the whole setlist. The owner's alone -- the one act that destroys
@@ -253,8 +395,23 @@ final class SharedSetlists: ObservableObject {
     ///
     /// The engine says what the entry carries (`share-payload`), because the
     /// engine is what knows which version is pinned.
+    /// Promotion's form: the order key is computed for the whole list at once
+    /// by `SharedOrder.spread`, so the entries keep the local order instead of
+    /// each being appended relative to the last.
+    func addEntry(to setlistId: String, payload: [String: Any],
+                  orderKey: String) async throws {
+        try await addEntry(to: setlistId, payload: payload,
+                           explicitOrder: orderKey)
+    }
+
     func addEntry(to setlistId: String, payload: [String: Any],
                   after previous: String?, before next: String?) async throws {
+        try await addEntry(to: setlistId, payload: payload,
+                           explicitOrder: SharedOrder.between(previous, next))
+    }
+
+    private func addEntry(to setlistId: String, payload: [String: Any],
+                          explicitOrder: String) async throws {
         guard let uid else { throw Trouble.signedOut }
         guard let localPath = payload["path"] as? String,
               let scoreUid = payload["scoreUid"] as? String,
@@ -276,7 +433,7 @@ final class SharedSetlists: ObservableObject {
         try await entry.setData([
             "title": payload["title"] as? String ?? "Untitled",
             "composer": payload["composer"] as? String as Any,
-            "order": SharedOrder.between(previous, next),
+            "order": explicitOrder,
             "scoreUid": scoreUid,
             "versionUid": versionUid,
             "versionLabel": payload["versionLabel"] as? String as Any,

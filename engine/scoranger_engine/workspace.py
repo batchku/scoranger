@@ -1046,9 +1046,35 @@ def create_setlist(name: str) -> dict:
     while repo.get_setlist(slug) is not None:
         slug = f"{base}-{n}"
         n += 1
+    # shareId / ownerUid are NULLABLE and absent until a set list is shared
+    # (design/FIREBASE.md §6A.1). There is one kind of set list; sharing is a
+    # field on it, so `shareId is None` means no Firestore involvement at all.
     doc = {"id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
-           "scores": [], "created": _now()}
+           "scores": [], "created": _now(),
+           "shareId": None, "ownerUid": None}
     repo.set_setlist(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def bind_setlist_share(name_or_slug: str, share_id: str,
+                       owner_uid: str) -> dict:
+    """Record that this set list is now the shared document `share_id`.
+
+    The last step of promotion (§6A.1 step 4). Written AFTER the Firestore
+    document and its entries exist, so a set list is never marked shared
+    before it is: a `shareId` pointing at nothing would make the row claim a
+    collaboration it has not got, and the recovery from that is worse than
+    retrying a share.
+
+    Idempotent, and deliberately not fussy about being called twice -- the
+    share button will be pressed again.
+    """
+    repo = _repo()
+    doc = resolve_setlist(name_or_slug)
+    doc["shareId"] = share_id
+    doc["ownerUid"] = owner_uid
+    repo.set_setlist(doc["slug"], doc)
     rebuild_manifest()
     return doc
 

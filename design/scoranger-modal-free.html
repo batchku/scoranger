@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scoranger Modal-Free Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+
+
+
+/* ══════════════════════ TOKENS — the chosen system ══════════════════════ */
+:root{
+  /* surface + ink */
+  --paper:#FFFFFF; --ground:#F4F0E8; --panel:#FAF7F1; --well:#EFEAE0; --band:#F1ECE2;
+  --ink:#1A1917; --ink-2:#6B655C; --ink-3:#8A8378;
+  --line:#E2DBCE; --line-2:#CFC6B6;
+  /* the one accent */
+  --clay:#CC5C2E; --clay-strong:#A8481F; --clay-press:#B14D22; --clay-tint:#F7E7DD;
+  /* system status — outside the three-colour budget, never decorative */
+  --ok:#3BA05C; --warn:#C8791B; --danger:#C0392B; --hl:#FFE25A;
+  /* type */
+  --f-display:'Space Grotesk',system-ui,sans-serif;
+  --f-ui:Inter,system-ui,-apple-system,sans-serif;
+  --f-data:'IBM Plex Mono',ui-monospace,monospace;
+  /* spacing ladder */
+  --s1:2px; --s2:4px; --s3:6px; --s4:8px; --s5:12px; --s6:16px; --s7:20px; --s8:24px; --s9:32px;
+  /* border + radius */
+  --r-ctl:2px; --r-panel:3px; --r-pill:999px;
+  /* elevation: overlays only */
+  --e-panel:0 10px 34px rgba(26,25,23,.14);
+  --e-pill:0 6px 20px rgba(26,25,23,.16);
+  --e-sheet:0 20px 60px rgba(26,25,23,.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-ui);font-size:14px;-webkit-text-size-adjust:100%}
+
+/* ══════════════════════ presentation shell ══════════════════════ */
+.wrap{max-width:1560px;margin:0 auto;padding:26px 16px 70px}
+.masthead{display:flex;align-items:flex-end;gap:var(--s5);border-bottom:3px solid var(--ink);padding-bottom:var(--s5)}
+.masthead h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:-.02em;margin:0}
+.masthead .code{font-family:var(--f-data);font-size:13px;color:var(--clay-strong);margin-left:auto;font-weight:500}
+.lede{font-size:14px;line-height:1.55;color:var(--ink-2);max-width:78ch;margin:var(--s6) 0 0}
+.lede b{color:var(--ink)}
+h2.sec{font-family:var(--f-display);font-weight:600;font-size:19px;margin:44px 0 2px;letter-spacing:-.01em}
+h2.sec .n{font-family:var(--f-data);font-size:12px;color:var(--clay-strong);margin-right:8px;font-weight:500}
+.sec-sub{font-size:13px;color:var(--ink-2);margin:0 0 var(--s6);max-width:80ch;line-height:1.5}
+.label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.screens{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:1100px){.screens{grid-template-columns:1fr}}
+.shot{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel);overflow:hidden}
+.shot-h{padding:10px 13px 9px;border-bottom:1px solid var(--line)}
+.shot-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.shot-h .d{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:2px}
+.stage{position:relative;width:100%;overflow:hidden;background:var(--well);cursor:zoom-in}
+.stage .scr{position:absolute;top:0;left:0;transform-origin:0 0}
+.tapz{position:absolute;right:7px;bottom:7px;font-family:var(--f-data);font-size:10px;background:rgba(26,25,23,.72);color:#fff;padding:2px 6px;border-radius:var(--r-ctl);pointer-events:none}
+/* token tables */
+.tok{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.chip{border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;background:var(--panel)}
+.chip .sw{height:52px;border-bottom:1px solid var(--line-2)}
+.chip .m{padding:7px 9px}
+.chip .nm{font-size:12px;font-weight:600}
+.chip .hx{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.chip .use{font-size:11px;color:var(--ink-3);line-height:1.35;margin-top:2px}
+table.spec{border-collapse:collapse;width:100%;font-size:12.5px}
+table.spec th,table.spec td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+table.spec th{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);border-bottom:1px solid var(--line-2)}
+table.spec td.mono,table.spec td .mono{font-family:var(--f-data);font-size:11.5px}
+.scroller{overflow-x:auto}
+.modal{position:fixed;inset:0;background:rgba(20,19,17,.94);z-index:60;display:none;align-items:center;justify-content:center}
+.modal.open{display:flex}
+.modal .scr{transform-origin:50% 50%}
+.modal .x{position:absolute;top:12px;right:14px;font:600 13px Inter,sans-serif;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;color:var(--ink)}
+body.shot-mode .wrap,body.shot-mode .modal{display:none}
+.shotbox{display:none}
+body.shot-mode .shotbox{display:block}
+
+/* ══════════════════════ THE APP — instrument panel, score-first ══════════════════════ */
+.scr{width:1180px;height:886px;position:relative;overflow:hidden;background:var(--ground);
+     font-family:var(--f-ui);font-size:13px;color:var(--ink)}
+.scr.phone{width:390px;height:844px}
+
+/* canvas: the permanent ground */
+.cv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    padding:var(--s7) 0 96px;overflow:hidden;background:var(--ground)}
+.cv.shift-l{padding-left:320px}
+.cv.shift-r{padding-right:380px}
+.cv.shift-l.shift-r{--pg-w:436px}
+.pg{width:var(--pg-w,520px);background:var(--paper);border:1px solid var(--line-2);padding:22px 26px 16px;position:relative;
+    box-shadow:0 2px 10px rgba(26,25,23,.07)}
+.pg-hd{display:flex;align-items:flex-start;gap:var(--s5);border-bottom:1px solid #E9E4DA;padding-bottom:9px;margin-bottom:12px}
+.pg-t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;line-height:1.2}
+.pg-s{font-size:10.5px;color:#8A8378;margin-top:2px}
+.pg-n{margin-left:auto;font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.86;
+      color:var(--clay);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pg-n small{display:block;font-family:var(--f-ui);font-size:8.5px;font-weight:700;letter-spacing:.11em;
+      text-transform:uppercase;color:var(--ink-3);text-align:right;margin-top:3px}
+.hlband{position:absolute;background:var(--hl);opacity:.4}
+
+/* the pill: every canvas control, one object */
+.pill{position:absolute;bottom:var(--s7);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s2);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);
+      padding:6px 8px;box-shadow:var(--e-pill);z-index:6}
+.pill .b{width:38px;height:38px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;
+      font-size:16px;color:var(--ink-2)}
+.pill .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.pill .vchip{font-family:var(--f-data);font-size:11px;font-weight:500;color:var(--ink-2);
+      border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:4px 7px;margin:0 var(--s2)}
+.pill .div{width:1px;height:22px;background:var(--line);margin:0 var(--s2)}
+.pill .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);
+      font-variant-numeric:tabular-nums;padding:0 var(--s3) 0 var(--s2)}
+
+/* annotation bar: sits above the pill, same object language */
+.abar{position:absolute;bottom:74px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s3);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:6px 10px;
+      box-shadow:var(--e-pill);z-index:6}
+.abar .b{width:34px;height:34px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.abar .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.abar .div{width:1px;height:20px;background:var(--line)}
+.abar .dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(26,25,23,.16)}
+.abar .dot.on{width:24px;height:24px;box-shadow:0 0 0 2px var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+
+/* highlight chip */
+.hchip{position:absolute;top:var(--s6);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s4);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);padding:7px 10px;
+      box-shadow:var(--e-pill);z-index:6;font-size:12px}
+.hchip .st{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden}
+.hchip .st span{padding:3px 8px;font-family:var(--f-data);font-size:11px}
+.hchip .st b{padding:3px 7px;background:var(--well);font-weight:600;font-size:13px;border-left:1px solid var(--line-2);border-right:1px solid var(--line-2)}
+
+/* overlay panels */
+.ov{position:absolute;top:0;bottom:0;background:var(--panel);z-index:8;display:flex;flex-direction:column}
+.ov.left{left:0;width:320px;border-right:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov.right{right:0;width:380px;border-left:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov-h{display:flex;align-items:center;gap:var(--s4);padding:13px 14px 11px;border-bottom:1px solid var(--line-2)}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.02em;text-transform:uppercase}
+.led{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(59,160,92,.22)}
+.led.bad{background:var(--danger);box-shadow:0 0 0 3px rgba(192,57,43,.22)}
+.ov-h .x{margin-left:auto;width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.scrollbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* silkscreen section band */
+.bandh{display:flex;align-items:center;gap:var(--s3);padding:5px 14px 4px;background:var(--band);
+      border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);
+      font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.bandh .plus{margin-left:auto;width:22px;height:22px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-2);line-height:1}
+
+/* rows */
+.row{display:flex;align-items:center;gap:var(--s3);padding:7px 14px;min-height:36px}
+.row .car{width:10px;flex:0 0 10px;font-size:9px;color:var(--clay);text-align:center}
+.stk{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pnm{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.row .sub{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .cnt{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.row .i{margin-left:auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px}
+.row .num{font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);
+      font-variant-numeric:tabular-nums;min-width:36px;line-height:1}
+.row.sel{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.row.sel .sub{color:var(--ink-2)}
+.row.drop{background:var(--clay-tint);outline:1px dashed var(--clay);outline-offset:-2px}
+.vrow{display:flex;align-items:center;gap:var(--s3);padding:4px 14px 4px 42px;min-height:28px;font-size:12px}
+.vrow .vid{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.vrow .vt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vrow .stp{font-family:var(--f-data);font-size:10.5px;color:var(--ink-3)}
+.vrow .eye{margin-left:auto;color:var(--clay);font-size:11px}
+.vrow.deep{padding-left:64px;color:var(--ink-2)}
+.vrow.now{background:var(--well)}
+.prog{display:flex;align-items:center;gap:var(--s4);padding:7px 14px;font-size:11px;color:var(--ink-2)}
+.prog .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line);overflow:hidden}
+.prog .track i{display:block;height:100%;width:62%;background:var(--clay)}
+.foot{margin-top:auto;font-family:var(--f-data);font-size:10.5px;color:var(--ink-3);text-align:center;
+      padding:7px;border-top:1px solid var(--line-2);background:var(--band)}
+
+/* chat */
+.chat-h{display:flex;align-items:center;gap:var(--s4);padding:11px 14px;border-bottom:1px solid var(--line-2)}
+.chat-h .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);font-variant-numeric:tabular-nums}
+
+.chat-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.chat-h .s{font-size:11px;color:var(--ink-3)}
+.mdl{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);
+     border-radius:var(--r-ctl);padding:4px 7px;display:flex;gap:5px;align-items:center;white-space:nowrap;flex:0 0 auto}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s5);padding:var(--s5);overflow:hidden}
+.bub{max-width:86%;padding:9px 11px;border:1px solid var(--line-2);border-radius:var(--r-panel);line-height:1.45;background:var(--panel)}
+.bub.me{align-self:flex-end;background:var(--clay-tint);border-color:#E7C4B1}
+.bub.err{border-color:#E3B4AE;background:#FBEEEC}
+.bub .who{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.card{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel)}
+.card .ch{display:flex;align-items:center;gap:var(--s3);padding:6px 10px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.card .cb{padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.stp{display:flex;align-items:center;gap:var(--s3);font-size:12px}
+.stp .k{color:var(--ok);font-size:12px;width:13px}
+.stp .w{color:var(--warn);width:13px}
+.stp .o{color:var(--ink-3);width:13px}
+.stp .d{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.spin{width:11px;height:11px;border:2px solid var(--line-2);border-top-color:var(--clay);border-radius:50%}
+.inbar{display:flex;align-items:center;gap:var(--s4);padding:11px;border-top:1px solid var(--line-2);background:var(--band)}
+.fld{flex:1;background:var(--paper);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:9px 10px;color:var(--ink-3);font-size:13px}
+.iconb{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.iconb.go{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.iconb.rec{color:var(--danger);border-color:#E3B4AE}
+
+/* sheets, alerts, states */
+.dim{position:absolute;inset:0;background:rgba(26,25,23,.34);z-index:20}
+.sheet{position:absolute;top:64px;bottom:64px;left:50%;transform:translateX(-50%);width:620px;background:var(--panel);
+     border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:21;display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{display:flex;align-items:center;gap:var(--s4);padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.sheet-h .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.sheet-h .btn{margin-left:auto}
+.btn{font-size:13px;font-weight:600;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     padding:8px 12px;color:var(--ink)}
+.btn.pri{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.btn.dan{background:var(--danger);border-color:var(--danger);color:#fff}
+.sheet-b{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.frow{display:flex;align-items:center;gap:var(--s5);padding:9px 14px;border-bottom:1px solid var(--line);min-height:40px}
+.frow .k{font-size:12.5px;color:var(--ink-2);min-width:150px}
+.frow .v{margin-left:auto;font-size:12.5px}
+.frow .v.mono{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2)}
+.sw{width:44px;height:26px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--well);position:relative}
+.sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--panel);border:1px solid var(--line-2);border-radius:1px}
+.sw.on{background:var(--clay-tint);border-color:var(--clay)}
+.sw.on i{left:auto;right:2px;background:var(--clay);border-color:var(--clay-press)}
+.alert{width:420px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);overflow:hidden}
+.alert .ah{padding:12px 14px 4px;font-family:var(--f-display);font-weight:600;font-size:16px}
+.alert .ab{padding:0 14px 12px;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.alert .af{display:flex;gap:var(--s4);padding:11px 14px;border-top:1px solid var(--line-2);background:var(--band);justify-content:flex-end}
+.state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);text-align:center;
+     height:100%;padding:var(--s9)}
+.state .ic{font-size:30px;color:var(--ink-3)}
+.state .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.state .d{font-size:12.5px;color:var(--ink-2);max-width:44ch;line-height:1.5}
+.tile{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--ground);height:280px;position:relative;overflow:hidden}
+.tile .cap{position:absolute;top:0;left:0;right:0;padding:5px 9px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.grid4{display:grid;gap:var(--s6);grid-template-columns:repeat(2,minmax(0,1fr))}
+.staff{display:block;margin-bottom:9px}
+/* phone */
+.scr.phone .ov.left,.scr.phone .ov.right{width:100%;box-shadow:none}
+.scr.phone .pg{width:340px;padding:14px 16px 10px}
+.scr.phone .lrow{padding-right:26px}
+.scr.phone .cv{padding:12px 0 86px}
+.scr.phone .pill{bottom:14px}
+
+/* ══════════════════ NEW: navigation & IA components ══════════════════ */
+/* tab bar ------------------------------------------------------------ */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:stretch;z-index:9}
+.tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+.tabbar .tab .g{font-size:19px;line-height:1;padding:3px 16px;border-radius:var(--r-ctl)}
+.tabbar .tab.on{color:var(--clay-strong)}
+.tabbar .tab.on .g{background:var(--clay-tint);color:var(--clay-strong)}
+.tabbar .tab.soon{opacity:.38}
+/* screen chrome shared by Home + Library ----------------------------- */
+.sc-top{display:flex;align-items:center;gap:var(--s4);padding:14px 20px 10px}
+.sc-top .ic{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px;position:relative}
+.sc-top .ic .badge{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;
+  background:var(--clay-press);color:#fff;border-radius:8px;font-family:var(--f-data);font-size:9px;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.sc-top .enginechip{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);background:var(--panel);padding:5px 9px;font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.search{display:flex;align-items:center;gap:8px;margin:0 20px;background:var(--paper);border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);padding:10px 12px;color:var(--ink-3);font-size:13px}
+.search .g{font-size:13px;color:var(--ink-3)}
+.h-title{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:-.02em;padding:0 20px}
+.h-title .count{font-family:var(--f-data);font-size:13px;font-weight:500;color:var(--ink-3);margin-left:8px;letter-spacing:0}
+/* quick-action panels ------------------------------------------------ */
+.quick{display:flex;gap:var(--s5);padding:0 20px;overflow:hidden}
+.qp{flex:1;min-width:0;border:1px solid var(--line-2);border-radius:var(--r-panel);padding:12px;
+  display:flex;flex-direction:column;gap:6px;min-height:104px;position:relative}
+.qp .g{font-size:20px;line-height:1;color:var(--clay-strong)}
+.qp .t{font-family:var(--f-display);font-weight:600;font-size:14px;letter-spacing:-.01em}
+.qp .d{font-size:11px;color:var(--ink-2);line-height:1.35;margin-top:auto}
+.qp.f1{background:var(--clay-tint);border-color:var(--clay-border)}
+.qp.f2{background:var(--band)}
+.qp.f3{background:var(--well)}
+.qp.f4{background:var(--panel)}
+/* section headers on Home -------------------------------------------- */
+.h-sec{display:flex;align-items:baseline;gap:8px;padding:0 20px;margin-top:2px}
+.h-sec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.h-sec .all{margin-left:auto;font-size:11px;color:var(--ink-2)}
+/* thumbnails --------------------------------------------------------- */
+.thumb{background:var(--paper);border:1px solid var(--line-2);flex:0 0 auto;position:relative;overflow:hidden}
+.thumb.sm{width:34px;height:44px}
+.thumb.md{width:44px;height:57px}
+.ln{position:absolute;left:4px;right:4px;height:1px;background:#C9C4BA}
+.thumb .tt{position:absolute;left:4px;right:4px;top:5px;height:3px;background:#8A8378;opacity:.55}
+/* list rows for Home + Library ---------------------------------------- */
+.lrow{display:flex;align-items:center;gap:var(--s5);padding:9px 20px;min-height:56px}
+.lrow .stk{min-width:0;display:flex;flex-direction:column;gap:2px}
+.lrow .t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .s{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .chips{display:flex;gap:5px;margin-top:3px}
+.lrow .go{margin-left:auto;color:var(--ink-3);font-size:12px}
+.lrow.on{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.dchip{border:1px solid var(--line-2);background:var(--band);border-radius:var(--r-ctl);padding:1px 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.dchip.num{background:var(--clay-tint);border-color:var(--clay-border);color:var(--clay-strong);font-family:var(--f-data);letter-spacing:0}
+.dchip.warnc{background:#FBF2E6;border-color:#E8CFA6;color:#8A5A12}
+.sep-l{height:1px;background:var(--line);margin-left:20px}
+/* library controls ---------------------------------------------------- */
+.segwrap{display:flex;justify-content:center;padding:6px 0 2px}
+.seg{display:flex;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden;background:var(--panel)}
+.seg div{padding:7px 20px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.seg div.on{background:var(--clay-tint);color:var(--clay-strong);box-shadow:inset 0 0 0 1px var(--clay)}
+.libbar{display:flex;align-items:center;gap:8px;padding:6px 20px 8px}
+.libbar .btn{padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:5px}
+.libbar .right{margin-left:auto}
+.azrail{position:absolute;right:5px;top:170px;bottom:80px;width:16px;display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;font-family:var(--f-data);font-size:9.5px;color:var(--ink-3);z-index:4}
+.azrail b{color:var(--clay-strong)}
+.alpha{padding:5px 20px 2px;font-family:var(--f-display);font-weight:700;font-size:13px;color:var(--clay-strong);
+  background:var(--band);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.fab{position:absolute;right:22px;bottom:84px;width:54px;height:54px;border-radius:var(--r-panel);
+  background:var(--clay-press);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:26px;box-shadow:var(--e-pill);z-index:7}
+/* ── score view chrome ── */
+.stopbar{position:absolute;top:0;left:0;right:0;height:52px;background:var(--panel);
+  border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s4);padding:0 12px;z-index:8}
+.stopbar .x{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.titleblock{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:5px 10px;border:1px solid transparent;border-radius:var(--r-ctl)}
+.titleblock.open{border-color:var(--line-2);background:var(--well)}
+.titleblock .num{font-family:var(--f-display);font-weight:700;font-size:19px;color:var(--clay);font-variant-numeric:tabular-nums}
+.titleblock .stk{align-items:flex-start}
+.titleblock .t{font-family:var(--f-display);font-weight:600;font-size:15px;line-height:1.15}
+.titleblock .s{font-size:10.5px;color:var(--ink-3);font-family:var(--f-data)}
+.titleblock .chev{color:var(--ink-2);font-size:12px;margin-left:2px;align-self:center}
+.stopbar .acts{margin-left:auto;display:flex;align-items:center;gap:6px}
+.stopbar .acts .b{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:15px}
+.stopbar .acts .b.on{background:var(--clay-tint);border-color:var(--clay);color:var(--clay-strong)}
+.poscount{position:absolute;top:60px;right:14px;display:flex;gap:6px;z-index:5}
+.poscount span{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2);background:var(--panel);
+  border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:3px 7px}
+/* page thumbnail strip */
+.thumbstrip{position:absolute;left:0;right:0;bottom:56px;height:96px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px;padding:0 14px;z-index:7;overflow:hidden}
+.thumbstrip .pt{position:relative;flex:0 0 auto;width:52px;height:68px;background:var(--paper);
+  border:1px solid var(--line-2);overflow:hidden}
+.thumbstrip .pt.on{outline:2px solid var(--clay);outline-offset:-1px}
+.thumbstrip .pt .n{position:absolute;bottom:1px;right:2px;font-family:var(--f-data);font-size:8px;color:var(--ink-3)}
+.thumbstrip .grp{display:flex;gap:2px;align-items:center;padding:3px;border:1px dashed var(--line-2);border-radius:var(--r-ctl)}
+/* transport */
+.transport{position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--band);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s5);padding:0 14px;z-index:7}
+.transport .b{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.transport .b.pri{background:var(--panel)}
+.transport.inert .b:not(.live),.transport.inert .track,.transport.inert .tm{opacity:.42}
+.transport .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line-2);position:relative}
+.transport .track i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--ink-3)}
+.transport .tm{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2)}
+.transport .tag{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:2px 6px}
+/* more menu (two layers) */
+.menu{position:absolute;top:58px;right:12px;width:320px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:12;overflow:hidden}
+.menu .mrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.menu .mrow .g{width:18px;color:var(--ink-2);font-size:14px}
+.menu .mrow .ch{margin-left:auto;color:var(--ink-3);font-size:12px}
+.menu .mrow .val{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.menu .mrow.top{background:var(--clay-tint)}
+.menu .back{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--band);
+  border-bottom:1px solid var(--line-2);font-size:12px;font-weight:600}
+.menu .back .g{color:var(--clay-strong)}
+/* page-turn zones diagram */
+.zone{position:absolute;top:52px;bottom:0;width:22%;z-index:6;display:flex;align-items:center;justify-content:center}
+.zone.l{left:0;background:linear-gradient(90deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone.r{right:0;background:linear-gradient(270deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);
+  background:var(--panel);border:1px solid var(--clay);border-radius:var(--r-ctl);padding:4px 8px;text-align:center;line-height:1.5}
+.zonec{position:absolute;top:52px;bottom:0;left:22%;right:22%;z-index:5;display:flex;align-items:center;justify-content:center}
+.zonec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  background:var(--panel);border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:4px 8px}
+.perfbadge{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:9;
+  background:var(--clay-press);color:#fff;border-radius:var(--r-ctl);padding:4px 10px;
+  font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+/* legend blocks used on the component board */
+.legend{font-size:11px;color:var(--ink-2);line-height:1.4}
+.kv{display:flex;gap:8px;font-size:11.5px;padding:3px 0}
+.kv b{font-family:var(--f-data);font-weight:500;color:var(--ink-2);min-width:112px}
+
+/* ═════════ 0.4.1 revision: selection, action bar, fab menu, paged canvas ═════════ */
+.cbox{width:20px;height:20px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--paper);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto;color:#fff;font-size:12px;font-weight:700}
+.cbox.on{background:var(--clay-press);border-color:var(--clay-press)}
+.actionbar{position:absolute;left:0;right:0;bottom:64px;background:var(--panel);border-top:1px solid var(--line-2);
+  display:flex;align-items:center;gap:8px;padding:10px 20px;z-index:8;box-shadow:0 -6px 18px rgba(26,25,23,.07)}
+.actionbar .cnt{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2);margin-right:4px}
+.actionbar .btn{padding:8px 11px;font-size:12.5px}
+.actionbar .btn.off{opacity:.42}
+.rowacts{display:flex;gap:6px;padding:0 20px 9px 52px}
+.rowacts .btn{padding:5px 9px;font-size:11.5px}
+.fabmenu{position:absolute;right:22px;bottom:148px;width:250px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:9;overflow:hidden}
+.fabmenu .mi{display:flex;align-items:center;gap:10px;padding:12px 13px;font-size:13.5px;border-bottom:1px solid var(--line)}
+.fabmenu .mi:last-child{border-bottom:0}
+.fabmenu .mi .g{width:18px;color:var(--clay-strong);font-size:14px}
+.fabmenu .mi .s{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}
+.fab.open{background:var(--panel);color:var(--clay-strong);border:1px solid var(--clay)}
+/* paged canvas */
+.pagedwrap{position:absolute;top:52px;left:0;right:0;bottom:152px;background:var(--ground);
+  display:flex;align-items:center;justify-content:center;gap:14px;overflow:hidden}
+.pagedwrap .pg{box-shadow:0 3px 14px rgba(26,25,23,.10)}
+.fitnote{position:absolute;left:14px;bottom:160px;z-index:6;font-family:var(--f-data);font-size:10.5px;color:var(--ink-2);
+  background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:3px 7px}
+.panbox{position:absolute;border:1px dashed var(--clay);pointer-events:none}
+.panbox .lb{position:absolute;top:-9px;left:6px;background:var(--panel);padding:0 4px;font-size:9.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--clay-strong)}
+.callout{position:absolute;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);
+  box-shadow:var(--e-pill);padding:8px 10px;font-size:11.5px;line-height:1.4;color:var(--ink-2);max-width:250px;z-index:10}
+.callout b{color:var(--ink);font-weight:600}
+.gone{position:relative;opacity:.35}
+.gone::after{content:"";position:absolute;left:-4px;right:-4px;top:50%;height:2px;background:var(--danger)}
+
+/* ═════════ 0.4.2: pushed screens, per-row hamburger, inline reveal ═════════ */
+.navbar{position:relative;height:52px;background:var(--panel);border-bottom:1px solid var(--line-2);
+  display:flex;align-items:center;gap:var(--s8);padding:0 14px;flex:0 0 auto}
+.navbar .back{display:flex;align-items:center;gap:5px;color:var(--clay-strong);font-size:13px;font-weight:600}
+.navbar .back .g{font-size:15px}
+.navbar .ttl{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px}
+.navbar .ttl .num{font-family:var(--f-display);font-weight:700;font-size:19px;color:var(--clay);font-variant-numeric:tabular-nums}
+.navbar .ttl .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.navbar .ttl .s{font-size:10.5px;color:var(--ink-3);font-family:var(--f-data)}
+.navbar .trail{margin-left:auto;display:flex;gap:6px}
+.screenhead{padding:14px 20px 10px;display:flex;align-items:flex-start;gap:14px}
+.screenhead .num{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.86;color:var(--clay);font-variant-numeric:tabular-nums}
+.screenhead .t{font-family:var(--f-display);font-weight:700;font-size:24px;letter-spacing:-.02em;line-height:1.1}
+.screenhead .s{font-size:12px;color:var(--ink-2);margin-top:3px}
+.screenhead .meta{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3);text-align:right;line-height:1.5}
+/* an action row on a pushed screen */
+.srow{display:flex;align-items:center;gap:12px;padding:12px 20px;min-height:52px;
+  border-bottom:1px solid var(--line);font-size:13.5px}
+.srow .g{width:18px;color:var(--ink-2);font-size:14px;flex:0 0 auto}
+.srow .sub{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}
+.srow .ch{margin-left:auto;color:var(--ink-3);font-size:12px;flex:0 0 auto}
+.srow .val{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3);flex:0 0 auto}
+.srow.dan{color:var(--danger)}
+.srow.dan .g{color:var(--danger)}
+.srow.on{background:var(--clay-tint)}
+/* the per-row hamburger */
+.ordb{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:11px;flex:0 0 auto}
+.ordb.off{opacity:.3}
+.rowham{margin-left:auto;width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px;flex:0 0 auto}
+.rowham.on{background:var(--clay-tint);border-color:var(--clay);color:var(--clay-strong)}
+/* inline reveal (no overlay, no dim, nothing to dismiss) */
+.lrow .stk{flex:1}
+.lrow .ordb + .rowham,.lrow .ordb{margin-left:0}
+.reveal{background:var(--well);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.reveal .rh{display:flex;align-items:center;gap:8px;padding:7px 20px 5px 52px;
+  font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.reveal .er{display:flex;align-items:center;gap:10px;padding:10px 20px 10px 52px;font-size:13px;
+  border-top:1px solid rgba(26,25,23,.06)}
+.reveal .er .g{width:16px;color:var(--ink-2);font-size:13px}
+.reveal .er .ch{margin-left:auto;color:var(--ink-3);font-size:12px}
+.reveal .er.dan{color:var(--danger)}
+.reveal .er.dan .g{color:var(--danger)}
+.inlinefield{display:flex;align-items:center;gap:8px;padding:10px 20px 10px 52px;background:var(--well);
+  border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.inlinefield .f{flex:1;background:var(--paper);border:1px solid var(--clay);border-radius:var(--r-ctl);
+  padding:8px 10px;font-size:13px}
+.confirmstrip{display:flex;align-items:center;gap:10px;padding:11px 20px 11px 52px;background:#FBEEEC;
+  border-top:1px solid var(--status-err,#E3B4AE);border-bottom:1px solid #E3B4AE;font-size:12.5px;color:#7A2B22}
+.undobar{position:absolute;left:0;right:0;bottom:64px;background:var(--well);border-top:1px solid var(--line-2);
+  display:flex;align-items:center;gap:12px;padding:12px 20px;z-index:8;font-size:13px}
+.undobar .u{margin-left:auto;font-weight:600;color:var(--clay-strong);font-size:13px}
+.addband{background:var(--band);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.addband .ar{display:flex;align-items:center;gap:12px;padding:12px 20px;font-size:13.5px;border-top:1px solid var(--line)}
+.addband .ar:first-child{border-top:0}
+.addband .ar .g{width:18px;color:var(--clay-strong);font-size:15px}
+.addband .ar .sub{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}
+.banner{display:flex;align-items:center;gap:10px;padding:10px 20px;background:#FBF2E6;
+  border-top:1px solid #E8CFA6;border-bottom:1px solid #E8CFA6;font-size:12.5px;color:#7A5312}
+.banner .x{margin-left:auto;color:#7A5312}
+/* tap-to-edit: a value that is editable says so, always (no hover on iPad) */
+.editable{border-bottom:1px dashed var(--ink-3);padding-bottom:1px;display:inline-flex;align-items:baseline;gap:6px}
+.editable .pen{font-size:.62em;color:var(--clay-strong);transform:translateY(-.15em)}
+.editable.big{border-bottom-width:1.5px}
+.editing{display:inline-flex;align-items:center;gap:8px}
+.editing .f{background:var(--paper);border:1.5px solid var(--clay);border-radius:var(--r-ctl);padding:4px 8px;
+  font-family:var(--f-display);font-weight:700;letter-spacing:-.02em}
+.editing .caret{width:1.5px;background:var(--clay);align-self:stretch;margin:2px 0}
+.hintband{display:flex;align-items:center;gap:10px;padding:9px 20px;background:var(--band);
+  border-bottom:1px solid var(--line-2);font-size:11.5px;color:var(--ink-2)}
+.hintband .x{margin-left:auto;color:var(--ink-3)}
+/* title switcher band inside the score view */
+.switchband{position:absolute;top:52px;left:0;right:0;background:var(--panel);border-bottom:1px solid var(--line-2);
+  z-index:7;box-shadow:0 6px 18px rgba(26,25,23,.09)}
+.switchband .cols{display:flex}
+.switchband .col{flex:1;min-width:0}
+.switchband .col + .col{border-left:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<div class="shotbox" id="shotbox"></div>
+<div class="modal" id="modal"><button class="x" id="mx">Close</button></div>
+<script>
+/* ── shared art ── */
+const VB = 400;
+function staff(seed){
+  const c = '#33312e';
+  const lines = [0,1,2,3,4].map(i => `<line x1="0" y1="${5+i*5}" x2="${VB}" y2="${5+i*5}" stroke="${c}" stroke-width=".6"/>`).join('');
+  const xs = [.10,.155,.20,.25,.30,.365,.42,.47,.52,.58,.65,.71,.77,.83,.90];
+  const heads = xs.map((x,i) => {
+    const y = 5 + ((i*3 + seed*2) % 9) * 2.5, cx = x * VB;
+    return `<ellipse cx="${cx}" cy="${y}" rx="2.9" ry="2.1" fill="#1b1b1b" transform="rotate(-16 ${cx} ${y})"/>`
+         + `<line x1="${cx+2.7}" y1="${y}" x2="${cx+2.7}" y2="${y-13}" stroke="#1b1b1b" stroke-width=".9"/>`;
+  }).join('');
+  const bars = [.335,.665,1].map(f => `<line x1="${f*VB-(f===1?.5:0)}" y1="5" x2="${f*VB-(f===1?.5:0)}" y2="25" stroke="${c}" stroke-width=".8"/>`).join('');
+  return `<svg class="staff" width="100%" viewBox="0 0 ${VB} 34" preserveAspectRatio="none" style="height:26px">
+    <text x="1" y="24" font-family="Georgia,serif" font-size="23" fill="#1b1b1b">&#119070;</text>${lines}${bars}${heads}</svg>`;
+}
+const staves = n => Array.from({length:n}, (_,i) => staff(i)).join('');
+const thumbArt = n => Array.from({length:n}, (_,i) => `<div class="ln" style="top:${14+i*6}px"></div>`).join('');
+const thumb = (cls='md') => `<div class="thumb ${cls}"><div class="tt"></div>${thumbArt(7)}</div>`;
+
+function scTop(){
+  return `<div class="sc-top"><span class="ic">?</span><span class="ic">&#9993;<span class="badge">2</span></span>
+    <span class="ic">&#9881;</span><span class="enginechip"><span class="led"></span>on&#8209;device</span></div>`;
+}
+function search(t){ return `<div class="search"><span class="g">&#9906;</span>${t}</div>`; }
+function tabbar(active='lib'){
+  return `<div class="tabbar">
+    <div class="tab${active === 'home' ? ' on' : ''}"><span class="g">&#9750;</span>Home</div>
+    <div class="tab${active === 'lib' ? ' on' : ''}"><span class="g">&#9776;</span>My library</div>
+    <div class="tab soon"><span class="g">&#8644;</span>Shared &middot; later</div></div>`;
+}
+function seg(which){
+  return `<div class="segwrap"><div class="seg"><div class="${which === 'p' ? 'on' : ''}">Pieces</div>
+    <div class="${which === 's' ? 'on' : ''}">Setlists</div></div></div>`;
+}
+function libbar(editing){
+  return `<div class="libbar"><span class="btn">&#8645; Sort: name</span><span class="btn">&#9636; Filter</span>
+    <span class="btn right${editing ? ' pri' : ''}">${editing ? 'Done' : 'Edit'}</span></div>`;
+}
+function navbar(o){
+  return `<div class="navbar">
+    <span class="back"><span class="g">&#8249;</span>${o.back}</span>
+    <span class="ttl">${o.num ? `<span class="num">#${o.num}</span>` : ''}
+      <span class="stk"><span class="t">${o.title}</span>${o.sub ? `<span class="s">${o.sub}</span>` : ''}</span></span>
+    ${o.trail ? `<span class="trail">${o.trail}</span>` : ''}</div>`;
+}
+const PIECES = [
+  ['Autumn Leaves','Kosma &middot; 1 arrangement',[]],
+  ['Blue Bossa','unknown &middot; 1 arrangement',['OMR DRAFT','UNFILED']],
+  ['Cavatina','Stanley Myers &middot; 3 arrangements',['1 SOURCE']],
+  ['Django','John Lewis &middot; 2 arrangements',[]],
+  ['El Choclo','Villoldo &middot; 1 arrangement',[]],
+  ['Gnossienne No. 1','Satie &middot; 1 arrangement',[]],
+  ['Libertango','Piazzolla &middot; 1 arrangement',[]],
+];
+const chip = c => `<span class="dchip${c === 'OMR DRAFT' ? ' warnc' : ''}">${c}</span>`;
+function libRow(p, o = {}){
+  const [t,s,chips] = p;
+  return `<div class="lrow${o.on ? ' on' : ''}">${o.cbox !== undefined ? `<span class="cbox${o.cbox ? ' on' : ''}">${o.cbox ? '&#10003;' : ''}</span>` : ''}
+    ${thumb('md')}
+    <span class="stk"><span class="t">${t}</span><span class="s">${s}</span>
+    ${chips.length ? `<span class="chips">${chips.map(chip).join('')}</span>` : ''}</span>
+    <span class="rowham${o.ham ? ' on' : ''}">&#9776;</span></div>`;
+}
+
+/* ═══════════ V1 · Library, one hamburger per row ═══════════ */
+function v1(){
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(false)}
+    <div style="overflow:hidden">${PIECES.map(p => libRow(p)).join('<div class="sep-l"></div>')}</div>
+    ${tabbar()}<div class="fab">+</div>
+    <div class="callout" style="right:22px;top:290px">One control per row, always visible: <b>&#9776;</b>.
+      Tapping the row opens the music. Tapping &#9776; opens that row&rsquo;s own screen &mdash; not a popup,
+      not a long press, and not seven buttons on every row.</div>
+    <div class="callout" style="left:250px;bottom:150px">No A&ndash;Z rail (item 3). The count is spelled once
+      in the subtitle (item 7).</div></div>`;
+}
+
+/* ═══════════ V0 · My Library after the Home merge ═══════════ */
+function v0(){
+  const act = (g,t) => `<span class="btn" style="padding:6px 10px;font-size:13px;display:inline-flex;
+    align-items:center;gap:6px"><span style="color:var(--clay-strong);font-size:13px">${g}</span>${t}</span>`;
+  return `<div class="scr">
+    ${scTop()}
+    <div class="segwrap"><div class="seg"><div class="on">Pieces</div><div>Setlists</div></div></div>
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}
+    <div class="libbar" style="gap:8px">
+      ${act('&#8681;','Import')}${act('&#9634;','New')}${act('&#9776;','New set list')}${act('&#128172;','Ask')}
+      <span style="flex:1;min-width:16px"></span>
+      <span class="btn">&#8645; Sort: name</span><span class="btn">&#9636; Filter</span><span class="btn">Edit</span>
+    </div>
+    <div style="overflow:hidden">${PIECES.map(p => libRow(p)).join('<div class="sep-l"></div>')}</div>
+    <div class="callout" style="right:22px;top:250px"><b>No Home, no tab bar, no FAB.</b> The four actions are a
+      44pt row of 32pt bordered buttons at the left of the control bar; sort, filter and edit keep the right.
+      Nothing is tinted &mdash; at four buttons a clay fill would shout.</div>
+    <div class="callout" style="right:22px;bottom:60px">The lists get the screen: recents are gone because
+      recency is a <b>sort</b>, and the <b>+</b> is gone because Import and New are permanently visible.</div></div>`;
+}
+
+/* ═══════════ V2 · Piece screen (pushed) ═══════════ */
+function v2(){
+  const arr = [
+    [1,'String quartet','Vln I, Vln II, Vla, Vc &middot; 8 versions','v008 &middot; Mon'],
+    [2,'Accordion duo','Acc. Bass, Acc. Chords &middot; 14 versions &middot; 1 source','v014 &middot; 14:02'],
+    [3,'Solo guitar','Guitar &middot; 4 versions','v004 &middot; last week'],
+  ];
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'My library', title:'Cavatina', sub:'piece'})}
+    <div style="flex:1;overflow:hidden">
+      <div class="screenhead">
+        <div><div class="t"><span class="editable big">Cavatina<span class="pen">&#9998;</span></span></div>
+          <div class="s"><span class="editable">Stanley Myers<span class="pen">&#9998;</span></span> &middot; 3 arrangements &middot; 1 source</div></div>
+        <div class="meta">last change<br>v014 &middot; 14:02</div>
+      </div>
+      <div class="bandh">Arrangements &mdash; tap to open</div>
+      ${arr.map(([n,t,s,m]) => `<div class="lrow" style="padding:10px 20px;min-height:52px">
+        <span style="font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);min-width:34px">#${n}</span>
+        ${thumb('sm')}
+        <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+        <span class="go" style="font-family:var(--f-data);font-size:10.5px;margin-right:4px">${m}</span>
+        <span class="ordb${n === 1 ? ' off' : ''}">&#9650;</span>
+        <span class="ordb${n === 3 ? ' off' : ''}">&#9660;</span>
+        <span class="rowham" style="margin-left:8px">&#9776;</span></div>`).join('<div class="sep-l"></div>')}
+      <div class="bandh">This piece</div>
+      <div class="srow"><span class="g">&#9634;</span>New arrangement<span class="sub">A blank staff in this piece</span><span class="ch">&#8250;</span></div>
+      <div class="srow"><span class="g">&#8681;</span>Import into this piece<span class="ch">&#8250;</span></div>
+      <div class="bandh">Sources &mdash; read only</div>
+      <div class="srow"><span class="g" style="font-family:var(--f-data);font-size:11px">s01</span>MuseScore tab version
+        <span class="val">2 parts &middot; Tue</span><span class="ch">&#8250;</span></div>
+      <div class="srow dan"><span class="g">&#10005;</span>Delete piece<span class="sub" style="color:var(--ink-3)">Its 3 arrangements go to Unfiled</span></div>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="right:22px;top:120px">The old arrangement <b>sheet</b> is now a screen you push
+      to, with a back button instead of a Done. Nothing dims; the tab bar stays live.</div>
+    <div class="callout" style="left:20px;bottom:190px">No <b>Rename piece</b> row. The name and the composer
+      <b>are</b> the controls: dashed underline plus a pencil says so, and a tap turns each into a field.</div>
+    <div class="callout" style="left:20px;bottom:60px"><b>No dragging anywhere.</b> &#9650;&#9660; on the row is
+      how an arrangement changes place, and it renumbers <b>#N</b> as you tap. Filing was answered at import;
+      re&#8209;filing is &#9776; &rarr; Move to piece.</div></div>`;
+}
+
+/* ═══════════ V3 · Arrangement screen (pushed) — the actions home ═══════════ */
+function v3(){
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'Cavatina', num:2, title:'Accordion duo', sub:'v014', trail:'<span class="btn pri">Open</span>'})}
+    <div style="flex:1;overflow:hidden">
+      <div class="hintband"><span>&#9998;</span>Anything with a dashed underline is editable &mdash; tap it.
+        <span class="x">&#10005;</span></div>
+      <div class="screenhead">
+        <div class="num">#2</div>
+        <div><div class="t"><span class="editable big">Accordion duo<span class="pen">&#9998;</span></span></div>
+          <div class="s">Cavatina &middot; Acc. Bass, Acc. Chords &middot; 62 bars</div></div>
+        <div class="meta">14 versions &middot; 1 source<br>v014 &middot; 14:02</div>
+      </div>
+      <div class="bandh">Do</div>
+      <div class="srow"><span class="g">&#8690;</span>Move to piece<span class="val">Cavatina</span><span class="ch">&#8250;</span></div>
+      <div class="srow"><span class="g">&#9776;</span>Set lists<span class="val">1 of 3</span><span class="ch">&#8250;</span></div>
+      <div class="srow"><span class="g">&#10063;</span>Duplicate<span class="sub">Copies v014 into a new arrangement</span></div>
+      <div class="bandh">Look at</div>
+      <div class="srow"><span class="g">&#8635;</span>Versions<span class="val">14</span><span class="ch">&#8250;</span></div>
+      <div class="srow"><span class="g">&#9834;</span>Parts and ranges<span class="val">2 parts</span><span class="ch">&#8250;</span></div>
+      <div class="srow"><span class="g">&#9432;</span>Details<span class="sub">Slug, engine ops, import history</span><span class="ch">&#8250;</span></div>
+      <div class="bandh">Careful</div>
+      <div class="srow dan"><span class="g">&#10005;</span>Delete arrangement<span class="sub" style="color:var(--ink-3)">Removes all 14 versions</span></div>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="right:22px;bottom:200px">Every verb the row menu used to carry, on one screen,
+      grouped: <b>Do</b>, <b>Look at</b>, <b>Careful</b>. The pushed pickers (Move to piece, Set lists, Versions)
+      are screens too.</div>
+    <div class="callout" style="left:20px;bottom:200px"><b>Rename is gone as an action.</b> Tap the title. Four
+      rows became three, and the one that left was the one that only ever edited a value.</div></div>`;
+}
+
+/* ═══════════ V4 · Move to piece (pushed) with inline new-piece field ═══════════ */
+function v4(){
+  const opts = [['Cavatina','3 arrangements',true],['Django','2 arrangements',false],
+                ['El Choclo','1 arrangement',false],['Libertango','1 arrangement',false]];
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'Accordion duo', title:'Move to piece', sub:'#2 Accordion duo'})}
+    <div style="flex:1;overflow:hidden">
+      <div class="bandh">Pieces</div>
+      ${opts.map(([n,s,cur]) => `<div class="srow${cur ? ' on' : ''}">
+        <span class="g">${cur ? '&#10003;' : '&#9675;'}</span>${n}<span class="val">${s}${cur ? ' &middot; current' : ''}</span></div>`).join('')}
+      <div class="bandh">Or</div>
+      <div class="srow"><span class="g">+</span>New piece<span class="sub">Type a name, then move</span></div>
+      <div class="inlinefield"><span class="f">Cavatina (arr. for duo)</span><span class="btn pri">Create &amp; move</span><span class="btn">Cancel</span></div>
+      <div class="srow"><span class="g">&#8722;</span>Remove from piece<span class="sub">Sends it back to Unfiled</span></div>
+      <div class="banner" style="margin-top:14px"><span>&#9432;</span>Moving renumbers the arrangements in both
+        pieces &mdash; this one becomes <b>#3</b> of its new piece.<span class="x">&#10005;</span></div>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="right:22px;top:300px">A picker screen, not a sheet. Creating a piece happens
+      <b>inline</b>: the new name is typed where it will live, which is the same principle as tapping an existing
+      name to change it.</div></div>`;
+}
+
+/* ═══════════ V5 · Set lists membership (pushed) ═══════════ */
+function v5(){
+  const sets = [['Friday at Vinny&rsquo;s','4 arrangements',true],['Sunday brunch trio','2 arrangements',false],
+                ['Wedding &mdash; Sept','3 arrangements',false]];
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'Accordion duo', title:'Set lists', sub:'#2 Accordion duo'})}
+    <div style="flex:1;overflow:hidden">
+      <div class="bandh">This arrangement belongs to</div>
+      ${sets.map(([n,s,m]) => `<div class="srow${m ? ' on' : ''}">
+        <span class="cbox${m ? ' on' : ''}">${m ? '&#10003;' : ''}</span>${n}<span class="val">${s}</span></div>`).join('')}
+      <div class="bandh">Or</div>
+      <div class="srow"><span class="g">+</span>New set list<span class="sub">Type a name, then add</span></div>
+      <div class="inlinefield"><span class="f">Thursday duo</span><span class="btn pri">Create &amp; add</span><span class="btn">Cancel</span></div>
+      <div class="banner" style="margin-top:14px"><span>&#9432;</span>Ticking adds to the end of that running
+        order; you can reorder it on the set list&rsquo;s own screen.<span class="x">&#10005;</span></div>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="right:22px;bottom:150px">Membership both ways on one screen &mdash; the old
+      picker sheet, unwrapped. Ticks commit immediately; there is nothing to confirm and nothing to dismiss.</div></div>`;
+}
+
+/* ═══════════ V6 · Set list screen with the row hamburger open ═══════════ */
+function v6(){
+  const members = [
+    [1,'Cavatina','#2 Accordion duo'],
+    [2,'Libertango','#1 Accordion &amp; guitar'],
+    [3,'Blue Bossa','#1 OMR draft'],
+    [4,'El Choclo','#1 Duo'],
+  ];
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'My library', title:'Friday at Vinny&rsquo;s', sub:'4 arrangements', trail:'<span class="btn pri">Play from the top</span>'})}
+    <div style="flex:1;overflow:hidden">
+      <div class="screenhead" style="padding-bottom:6px">
+        <div><div class="t"><span class="editable big">Friday at Vinny&rsquo;s<span class="pen">&#9998;</span></span></div>
+        <div class="s">4 arrangements &middot; about 14 minutes of music</div></div></div>
+      <div class="bandh">Running order</div>
+      ${members.map(([n,t,s], i) => {
+        const row = `<div class="lrow${i === 1 ? ' on' : ''}" style="padding:10px 20px;min-height:52px">
+          <span style="font-family:var(--f-data);font-size:12px;color:var(--ink-3);min-width:20px">${n}</span>
+          ${thumb('sm')}
+          <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+          <span class="ordb${n === 1 ? ' off' : ''}">&#9650;</span>
+          <span class="ordb${n === 4 ? ' off' : ''}">&#9660;</span>
+          <span class="rowham${i === 1 ? ' on' : ''}" style="margin-left:8px">&#9776;</span></div>`;
+        if(i !== 1) return row;
+        return row + `<div class="reveal">
+          <div class="rh">Libertango &middot; #1 Accordion &amp; guitar</div>
+          <div class="er"><span class="g">&#8690;</span>Open its arrangement screen<span class="ch">&#8250;</span></div>
+          <div class="er dan"><span class="g">&#8722;</span>Remove from this set list</div>
+        </div>`;
+      }).join('<div class="sep-l"></div>')}
+      <div class="bandh">This set list</div>
+      <div class="srow"><span class="g">+</span>Add arrangements<span class="ch">&#8250;</span></div>
+      <div class="srow dan"><span class="g">&#10005;</span>Delete set list<span class="sub" style="color:var(--ink-3)">The arrangements stay in the library</span></div>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="right:22px;top:150px"><b>&#9650;&#9660; on the row</b> is the only way to reorder
+      &mdash; no dragging, and no Reorder mode to enter. &#9776; expands in place for the two things left that are
+      not about position. Only one row is ever open.</div></div>`;
+}
+
+/* ═══════════ V7 · the inline patterns board ═══════════ */
+function v7(){
+  return `<div class="scr" style="background:var(--panel);padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div class="bandh" style="border-top:0">Inline, never floating</div>
+    <div style="display:flex;gap:14px">
+      <div style="flex:1;border:1px solid var(--line-2);border-radius:3px;overflow:hidden">
+        <div class="libbar" style="padding:6px 14px"><span class="btn">&#8645; name</span><span class="btn right pri">Done</span></div>
+        <div class="addband">
+          <div class="ar"><span class="g">&#9634;</span><span><b>New piece</b><span class="sub">Names it, then opens a blank arrangement</span></span></div>
+          <div class="ar"><span class="g">&#8681;</span><span><b>Import</b><span class="sub">PDF, MusicXML, MIDI &mdash; PDFs go through OMR</span></span></div>
+        </div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--ink-3)">
+          The <b>+</b> reveals this band at the top of the list (item 8). No popup, no pushed screen for two choices.</div>
+      </div>
+      <div style="flex:1;border:1px solid var(--line-2);border-radius:3px;overflow:hidden">
+        <div style="padding:9px 14px;border-bottom:1px solid var(--line)">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)">before &mdash; a row that only edited a value</div>
+          <div class="srow gone" style="border:0;padding:6px 0"><span class="g">&#9998;</span>Rename<span class="val">Accordion duo</span></div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);margin-top:6px">after &mdash; the value is the control</div>
+          <div style="font-family:var(--f-display);font-weight:700;font-size:20px;letter-spacing:-.02em;margin-top:4px">
+            <span class="editable big">Accordion duo<span class="pen">&#9998;</span></span></div>
+          <div class="editing" style="margin-top:8px"><span class="f" style="font-size:15px">Accordion duo</span>
+            <span class="btn pri">Save</span><span class="btn">Cancel</span></div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:7px">Tap the name, type, and it commits when you
+          leave the field or the screen. An empty name reverts &mdash; nothing to confirm.</div>
+        </div>
+      </div>
+    </div>
+    <div class="bandh">Destructive, without a dialog</div>
+    <div style="display:flex;gap:14px">
+      <div style="flex:1;border:1px solid var(--line-2);border-radius:3px;overflow:hidden">
+        <div class="lrow" style="padding:9px 14px"><span class="stk"><span class="t">Blue Bossa</span>
+          <span class="s">unknown &middot; 1 arrangement</span></span><span class="rowham on">&#9776;</span></div>
+        <div class="confirmstrip" style="padding-left:14px"><span>&#9888;</span>
+          <span>Delete <b>Blue Bossa</b> and its 2 versions?</span>
+          <span class="btn dan" style="margin-left:auto">Delete</span><span class="btn">Keep</span></div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--ink-3)">
+          Step one: the row states what will go. Step two: it goes, and the bar below appears.</div>
+      </div>
+      <div style="flex:1;border:1px solid var(--line-2);border-radius:3px;overflow:hidden;position:relative">
+        <div style="padding:9px 14px;font-size:12px;color:var(--ink-3)">&hellip;library, one row lighter&hellip;</div>
+        <div class="undobar" style="position:static;bottom:auto">
+          <span>Deleted <b>Blue Bossa</b>.</span><span style="font-family:var(--f-data);font-size:11px;color:var(--ink-3)">restorable for 10s</span>
+          <span class="u">Undo</span></div>
+        <div style="padding:8px 14px;font-size:11px;color:var(--ink-3)">
+          The undo bar sits in the action bar&rsquo;s slot, above the tab bar. It blocks nothing and needs no dismissal.</div>
+      </div>
+    </div>
+    <div class="bandh">Bulk work keeps its bar</div>
+    <div style="border:1px solid var(--line-2);border-radius:3px;overflow:hidden;position:relative;height:130px">
+      <div class="lrow" style="padding:8px 14px"><span class="cbox on">&#10003;</span>${thumb('sm')}
+        <span class="stk"><span class="t">Blue Bossa</span><span class="s">unknown &middot; 1 arrangement</span></span></div>
+      <div class="lrow" style="padding:8px 14px"><span class="cbox on">&#10003;</span>${thumb('sm')}
+        <span class="stk"><span class="t">Cavatina</span><span class="s">Stanley Myers &middot; 3 arrangements</span></span></div>
+      <div class="actionbar" style="position:absolute;bottom:0">
+        <span class="cnt">2 pieces selected</span>
+        <span class="btn off">New arrangement</span>
+        <span class="btn dan" style="margin-left:auto">Delete 2 pieces</span></div>
+    </div>
+    <div class="bandh">Buttons this principle deletes</div>
+    <div style="display:flex;gap:14px;font-size:11.5px;line-height:1.5">
+      <div style="flex:1">
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9998;</span>Rename <span class="val">arrangement screen</span></div>
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9998;</span>Rename piece <span class="val">piece screen</span></div>
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9998;</span>Rename set list <span class="val">set list screen</span></div>
+      </div>
+      <div style="flex:1">
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9679;</span>Chat model &#8250; <span class="val">was a pushed screen</span></div>
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9679;</span>OpenRouter key &#8250; <span class="val">was a pushed screen</span></div>
+        <div class="srow gone" style="border:0;padding:4px 0"><span class="g">&#9679;</span>Mac address &#8250; <span class="val">was a pushed screen</span></div>
+      </div>
+      <div style="flex:1;color:var(--ink-2)">A bar is not a modal: anchored, blocking nothing, list scrolling
+        behind it. Edit mode&rsquo;s multi&#8209;select survives. What left is every floating panel, every alert,
+        every menu &mdash; and now every row whose only job was to edit a value.</div>
+    </div></div>`;
+}
+
+/* ═══════════ V8 · score options as pushed screens ═══════════ */
+function v8(){
+  const l1 = [
+    ['&#9654;','Performance mode','off'],
+    ['&#9707;','Score display','two-page'],
+    ['&#9998;','Annotations','red pen'],
+    ['&#9711;','Selection &amp; chat','replace'],
+    ['&#9834;','Transpose','concert'],
+    ['&#8635;','Versions','v014 of 14'],
+    ['&#9432;','Piece &amp; arrangement','Cavatina #2'],
+    ['&#8682;','Share &amp; export','PDF, XML, MIDI'],
+    ['&#9881;','Settings',''],
+  ];
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'Score', title:'Options', sub:'#2 Accordion duo &middot; v014'})}
+    <div style="flex:1;display:flex;overflow:hidden">
+      <div style="flex:1;border-right:1px solid var(--line-2);overflow:hidden">
+        <div class="bandh">Options</div>
+        ${l1.map(([g,t,v]) => `<div class="srow${t === 'Score display' ? ' on' : ''}"><span class="g">${g}</span>${t}
+          ${v ? `<span class="val">${v}</span>` : ''}<span class="ch">&#8250;</span></div>`).join('')}
+      </div>
+      <div style="flex:1;overflow:hidden">
+        <div class="navbar" style="border-bottom:1px solid var(--line-2)">
+          <span class="back"><span class="g">&#8249;</span>Options</span>
+          <span class="ttl"><span class="stk"><span class="t">Score display</span></span></span></div>
+        <div class="srow">Two&#8209;page spread<span class="val"><span class="sw on" style="display:inline-flex"><i></i></span></span></div>
+        <div class="srow">Fit<span class="val"><span class="seg" style="border-radius:2px">
+          <span style="padding:3px 8px;font-size:11px;background:var(--clay-tint);color:var(--clay-strong)">page</span>
+          <span style="padding:3px 8px;font-size:11px;border-left:1px solid var(--line-2)">width</span></span></span></div>
+        <div class="srow">Zoom<span class="val">100&#37; &nbsp;&#8722;&nbsp;&#43;</span></div>
+        <div class="srow">Accidentals<span class="val">flats<span class="ch" style="margin-left:6px">&#8250;</span></span></div>
+        <div class="srow">Whistle fingerings<span class="val"><span class="sw" style="display:inline-flex"><i></i></span></span></div>
+        <div style="padding:12px 20px;font-size:11.5px;color:var(--ink-3);line-height:1.45">
+          On iPad the second layer opens beside the first, so you can see what you changed. On iPhone it pushes.</div>
+      </div>
+    </div>
+    <div class="callout" style="left:14px;bottom:20px">The two&#8209;layer &ldquo;&hellip;&rdquo; popover is now a
+      pushed screen with the same two layers. Settings is one row in it, as before.</div></div>`;
+}
+
+/* ═══════════ V9 · score view, inline title switcher ═══════════ */
+function v9(){
+  const b = (g, on) => `<span class="b${on ? ' on' : ''}">${g}</span>`;
+  return `<div class="scr">
+    <div class="stopbar"><span class="x">&#10005;</span>
+      <span class="titleblock open"><span class="num">#2</span>
+        <span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina &middot; v014</span></span>
+        <span class="chev">&#9652;</span></span>
+      <span class="acts">${b('&#9998;')}${b('&#128172;')}${b('&#9707;', true)}${b('&#8943;')}</span></div>
+    <div class="switchband">
+      <div class="srow" style="padding:10px 16px;min-height:44px;border-bottom:1px solid var(--line-2)">
+        <span class="num" style="font-family:var(--f-display);font-weight:700;font-size:19px;color:var(--clay);min-width:30px">#2</span>
+        <span class="editing"><span class="f">Accordion duo</span><span class="btn pri">Save</span><span class="btn">Cancel</span></span>
+        <span class="val">renaming in place &mdash; no dialog</span></div>
+      <div class="cols">
+        <div class="col"><div class="bandh" style="border-top:0">Arrangements of Cavatina</div>
+          ${[[1,'String quartet','8 versions'],[2,'Accordion duo','14 versions'],[3,'Solo guitar','4 versions']]
+            .map(([n,t,v]) => `<div class="srow${n === 2 ? ' on' : ''}" style="padding:9px 16px;min-height:44px">
+              <span style="font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);min-width:26px">#${n}</span>${t}
+              <span class="val">${v}</span>${n === 2 ? '<span class="ch">&#10003;</span>' : ''}</div>`).join('')}</div>
+        <div class="col"><div class="bandh" style="border-top:0">Versions of #2</div>
+          <div class="srow on" style="padding:9px 16px;min-height:44px"><span class="g" style="font-family:var(--f-data);font-size:11px">v014</span>give the cello line to a viola<span class="ch">&#10003;</span></div>
+          <div class="srow" style="padding:9px 16px;min-height:44px"><span class="g" style="font-family:var(--f-data);font-size:11px">v011</span>drop the piano<span class="val">3 steps</span></div>
+          <div class="srow" style="padding:9px 16px;min-height:44px"><span class="g" style="font-family:var(--f-data);font-size:11px">v009</span>transpose down a minor third</div>
+          <div class="srow" style="padding:9px 16px;min-height:44px">All 14 versions<span class="ch">&#8250;</span></div></div>
+      </div>
+    </div>
+    <div style="position:absolute;top:302px;left:0;right:0;bottom:152px;background:var(--ground);
+      display:flex;align-items:center;justify-content:center;gap:14px;overflow:hidden">
+      <div class="pg" style="--pg-w:330px"><div style="height:20px"></div>${staves(9)}</div>
+      <div class="pg" style="--pg-w:330px"><div style="height:20px"></div>${staves(9)}</div>
+    </div>
+    <div class="thumbstrip">${[1,3,5,7,9,11].map(i => `<div class="grp">
+      <div class="pt${i === 3 ? ' on' : ''}">${thumbArt(9)}<span class="n">${i}</span></div>
+      <div class="pt${i + 1 === 3 ? ' on' : ''}">${thumbArt(9)}<span class="n">${i + 1}</span></div></div>`).join('')}
+      <span style="margin-left:auto;font-family:var(--f-data);font-size:10px;color:var(--ink-3)">12 pages</span></div>
+    <div class="transport inert"><span class="b live">&#9664;&#9664;</span><span class="b live">&#9654;&#9654;</span>
+      <span class="tag" style="border-style:solid">setlist &middot; 2 of 4</span><span class="b">&#9654;</span>
+      <span class="b">&#8635;</span><span class="b">&#9679;</span><span class="tm">0:00</span>
+      <span class="track"><i></i></span><span class="tm">&mdash;:&mdash;&mdash;</span></div>
+    <div class="callout" style="right:24px;top:392px">The title dropdown was a popover. Now it is an
+      <b>inline band</b> that pushes the score down &mdash; the paged canvas fits into less height. Tapping the
+      name in the band&rsquo;s first row edits it right there; tapping the top bar&rsquo;s title again closes the band.</div></div>`;
+}
+
+/* ═══════════ V10 · settings as pushed screens ═══════════ */
+function v10(){
+  return `<div class="scr" style="display:flex;flex-direction:column">
+    ${navbar({back:'Home', title:'Settings'})}
+    <div style="flex:1;display:flex;overflow:hidden">
+      <div style="flex:1;border-right:1px solid var(--line-2)">
+        <div class="bandh">Settings</div>
+        <div class="srow on"><span class="g">&#9673;</span>Engine<span class="val">on&#8209;device</span><span class="ch">&#8250;</span></div>
+        <div class="srow"><span class="g">&#8681;</span>PDF conversion (OMR)<span class="val">connected</span><span class="ch">&#8250;</span></div>
+        <div class="srow on"><span class="g">&#128172;</span>Chat model<span class="val"><span class="editable">kimi&#8209;k2<span class="pen">&#9662;</span></span></span></div>
+        <div class="reveal"><div class="er"><span class="g">&#10003;</span>kimi&#8209;k2<span class="ch">cheap, fast</span></div>
+          <div class="er"><span class="g">&#9675;</span>claude&#8209;sonnet<span class="ch">best at long chains</span></div>
+          <div class="er"><span class="g">&#9675;</span>gemini&#8209;flash<span class="ch">cheapest</span></div></div>
+        <div class="srow"><span class="g">&#9707;</span>Score display<span class="ch">&#8250;</span></div>
+        <div class="srow"><span class="g">&#9998;</span>Annotations<span class="ch">&#8250;</span></div>
+        <div class="srow"><span class="g">&#9432;</span>About<span class="val">v0.4.2 &middot; b142</span><span class="ch">&#8250;</span></div>
+      </div>
+      <div style="flex:1">
+        <div class="navbar"><span class="back"><span class="g">&#8249;</span>Settings</span>
+          <span class="ttl"><span class="stk"><span class="t">Engine</span></span></span></div>
+        <div class="srow">Run on this iPad<span class="val"><span class="sw on" style="display:inline-flex"><i></i></span></span></div>
+        <div class="srow">Status<span class="val" style="display:flex;align-items:center;gap:7px">
+          <span class="led"></span><span style="font-family:var(--f-data);font-size:11px">Python 3.14.6 &middot; music21 10.5.0</span></span></div>
+        <div class="srow">OpenRouter key<span class="val"><span class="editable">sk&#8209;or&#8209;&bull;&bull;&bull;&bull;4f2a<span class="pen">&#9998;</span></span></span></div>
+        <div class="srow">Self&#8209;test<span class="val"><span class="btn">Run</span></span></div>
+        <div style="padding:10px 20px;background:var(--well);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+          font-family:var(--f-data);font-size:11px;color:var(--ok)">C D E F &rarr; D E F&#9839; G (up M2) &middot; versions v001, v002 &#10003;</div>
+        <div class="srow">Mac address<span class="val"><span class="editable">alis&#8209;mac.local:8765<span class="pen">&#9998;</span></span></span></div>
+      </div>
+    </div>
+    ${tabbar('home')}
+    <div class="callout" style="right:22px;bottom:130px">Settings was a sheet over the library. It is a screen
+      pushed from Home &mdash; and the values are the controls: a key, a hostname and a model alias are all
+      tap&#8209;to&#8209;edit, so three <b>&#8250;</b> pushes disappeared.</div></div>`;
+}
+
+/* ── gallery ── */
+const SCREENS = {
+v0:{t:'My Library — the whole app', d:'Home is gone and merged in: its icons and engine chip on the top row, its four actions as a compact bar, its recents replaced by the sort. No tab bar, no FAB.', html:v0},
+v1:{t:'Library — the row itself', d:'Row tap opens the music; ☰ opens that row’s screen. Shown with the old tab bar and FAB, which V0 removes — read it for the row, not the chrome.', html:v1},
+v2:{t:'Piece screen (pushed)', d:'The old arrangement sheet, unwrapped into a screen: its arrangements, the piece’s own actions, its sources, and delete last.', html:v2},
+v3:{t:'Arrangement screen (pushed)', d:'Where ☰ on an arrangement lands. Every verb grouped Do / Look at / Careful, with Open in the nav bar.', html:v3},
+v4:{t:'Move to piece (pushed)', d:'A picker screen. “New piece” names itself inline on the same screen instead of raising an alert.', html:v4},
+v5:{t:'Set lists (pushed)', d:'Membership in both directions, committed on tap. The old picker sheet as a screen.', html:v5},
+v6:{t:'Set list screen — inline reveal', d:'For order-related rows ☰ expands in place instead of pushing: move up, move down, open, remove. One row open at a time.', html:v6},
+v7:{t:'Inline patterns', d:'The + band, inline rename, the two-step delete strip, the undo bar, and Edit mode’s multi-select bar — everything that replaced an alert.', html:v7},
+v8:{t:'Score options (pushed, two layers)', d:'The “…” popover becomes a screen. On iPad the second layer opens beside the first; on iPhone it pushes.', html:v8},
+v9:{t:'Score view — inline title switcher', d:'The title dropdown becomes a band that pushes the paged score down. Arrangements and versions side by side.', html:v9},
+v10:{t:'Settings (pushed from Home)', d:'No longer a sheet. Same two-layer shape as the score’s options screen.', html:v10},
+};
+const ORDER = ['v0','v1','v2','v3','v4','v5','v6','v7','v8','v9','v10'];
+const W = 1180, H = 886;
+function fit(stage, el){
+  const k = stage.clientWidth / W;
+  el.style.transform = `scale(${k})`;
+  stage.style.height = (H * k) + 'px';
+}
+function build(){
+  const wrap = document.getElementById('wrap');
+  wrap.innerHTML = `<div class="masthead"><h1>Scoranger &mdash; modal&#8209;free management</h1>
+    <div class="code">0.4.2 &middot; screens, not sheets</div></div>
+  <p class="lede">No sheets, no popovers, no alerts, no menus, no long presses. Management lives in
+  <b>pushed screens</b>; small in&#8209;place choices live in <b>inline reveals</b> that dim nothing and need no
+  dismissal. Each row carries exactly one visible control &mdash; <b>&#9776;</b> &mdash; which opens that item&rsquo;s
+  screen, or expands it in place where the actions are all one tap.</p>
+  <p class="lede"><b>One place.</b> Home is removed and merged into My Library: its icons and engine chip move to
+  the library&rsquo;s top row, its four actions become a compact 44pt button row in the control bar, its recents
+  become a sort, and the tab bar and the <b>+</b> both go &mdash; Import and New are always on screen now.</p>
+  <p class="lede"><b>Nothing is dragged.</b> Filing is answered at import or by Move to piece; membership by the
+  set list&rsquo;s Add arrangements; order by <b>&#9650;&#9660;</b> on the row, which renumbers <b>#N</b> as you tap.
+  A feature whose only affordance is a drag has no affordance at all.</p>
+  <p class="lede"><b>And the value is the control.</b> Where an action only ever edited a value, the action is
+  gone and the value is tap&#8209;to&#8209;edit: a dashed underline and a pencil, a field in place, committed when
+  you leave. There is no Rename anywhere in the app now &mdash; you tap the name. Six rows and three pushed
+  screens disappeared with it.</p>
+  <p class="lede">Spec: <b>design/NAV_MODAL_FREE_0.4.2.md</b>. Tap any screen to enlarge.</p>
+  <div class="screens" id="screens"></div>`;
+  const grid = document.getElementById('screens');
+  ORDER.forEach(id => {
+    const s = SCREENS[id];
+    const card = document.createElement('div');
+    card.className = 'shot';
+    card.innerHTML = `<div class="shot-h"><div class="t">${id.toUpperCase()} &nbsp;${s.t}</div><div class="d">${s.d}</div></div>
+      <div class="stage"><div class="tapz">tap to enlarge</div></div>`;
+    grid.appendChild(card);
+    const stage = card.querySelector('.stage');
+    const el = document.createElement('div');
+    el.innerHTML = s.html();
+    const scr = el.firstElementChild;
+    stage.insertBefore(scr, stage.firstChild);
+    new ResizeObserver(() => fit(stage, scr)).observe(stage);
+    stage.addEventListener('click', () => zoom(id));
+  });
+}
+function zoom(id){
+  const m = document.getElementById('modal');
+  m.querySelectorAll('.scr').forEach(n => n.remove());
+  const el = document.createElement('div');
+  el.innerHTML = SCREENS[id].html();
+  const scr = el.firstElementChild;
+  m.appendChild(scr);
+  m.classList.add('open');
+  const k = Math.min((m.clientWidth - 24) / W, (m.clientHeight - 24) / H);
+  scr.style.transform = `scale(${k})`;
+}
+document.getElementById('mx').onclick = () => document.getElementById('modal').classList.remove('open');
+const P = new URLSearchParams(location.search);
+if(P.get('screen')){
+  document.body.classList.add('shot-mode');
+  document.getElementById('shotbox').innerHTML = SCREENS[P.get('screen')].html();
+} else { build(); }
+</script>
+</body>
+</html>

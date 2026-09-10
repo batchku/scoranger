@@ -40,6 +40,11 @@ struct ScorangerApp: App {
                     // `.scorbundle` from AirDrop and a sign-in callback, so it
                     // is recognised positively and everything else falls
                     // through to the file path unchanged.
+                    // Both link forms land here: the https universal link
+                    // people actually send, and the scoranger:// fallback.
+                    // `inviteId(in:)` recognises either and refuses anything
+                    // else, so an AirDropped .scorbundle still reaches the
+                    // import path unchanged.
                     if let invite = SharedInviteLink.inviteId(in: url) {
                         state.pendingInvite = invite
                     } else {

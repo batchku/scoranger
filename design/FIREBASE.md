@@ -2566,8 +2566,37 @@ revoke, the visible member list, and owner-only removal. §8.3 already reserves
 the rights question for a lawyer before anything ships outside the household;
 this belongs in that review.
 
-**Do not start the client work until Ali confirms (b).** Everything below assumes
-it.
+**CONFIRMED by Ali, 2026-09-09: option (b).** A slot-bounded expiring link --
+cap 12, 7-day expiry, revocable. The client work is unblocked and everything
+below is in force.
+
+### 6A.0.1 Guard rail 1, as amended
+
+§8.2 guard rail 1 previously read *"Sharing is to named people, never to a
+link. No 'anyone with the link' mode, in v1 or later."* That sentence is
+**superseded for set lists**, and this replaces it:
+
+> Sharing a set list is by a link that admits WHOEVER OPENS IT, bounded four
+> ways: at most 12 members including the owner, enforced transactionally in
+> `claimInvite`; the link expires 7 days after minting; the owner may revoke it
+> at any time; and every join is recorded with who and when, in a member list
+> the owner can see and remove people from.
+>
+> What does NOT change, and this is the part of the old rule that survives
+> intact: no public link, no link granting unbounded access, no link outliving
+> its slots or its week, and no path by which a book or a source is shared at
+> all -- guard rails 3 and 4 stand unamended.
+
+**The residual risk, recorded as a decision and not an oversight:** a link
+forwarded before the slots run out admits whoever opens it. The owner finds out
+-- the member list shows every join -- and can remove them and revoke the link,
+but the copy of the arrangement already downloaded is on their device. That is
+the exposure accepted in exchange for one-tap sharing.
+
+The mitigations are the cap, the expiry, revocation, the visible member list and
+owner-only removal. §8.3 stands untouched: the rights question goes to a lawyer
+before anything ships outside the household, and this amendment belongs in that
+review rather than instead of it.
 
 ## 6A.1 One kind of set list
 
