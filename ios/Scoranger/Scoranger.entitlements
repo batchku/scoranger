@@ -13,5 +13,23 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Universal links, which is what makes the invitation TAPPABLE.
+	     Without this key the entitlement is absent from the signed app and
+	     iOS never consults the association: tapping
+	     https://scoranger.web.app/invite/[id] opens Safari and the invitee
+	     lands on a web page instead of the join screen. The AASA has been
+	     live and correct at that host the whole time (HTTPS, 200,
+	     application/json, no redirect, appIDs
+	     V9DBGV72NL.com.irllabs.scoranger, components /invite/*), so this one
+	     missing key was the whole gap.
+
+	     The matching capability (ASSOCIATED_DOMAINS) is enabled on the App
+	     ID and the ACTIVE App Store profile carries
+	     com.apple.developer.associated-domains = *, so this signs without
+	     touching the profile. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:scoranger.web.app</string>
+	</array>
 </dict>
 </plist>

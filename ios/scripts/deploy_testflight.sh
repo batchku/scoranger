@@ -189,10 +189,41 @@ if [[ -d "$APP_IN_ARCHIVE/Frameworks/FirebaseCore.framework" ]] \
   # Guideline 4.8: offering Google obliges an equivalent private option. And
   # concretely, the reader waiting on this has an Apple account and no Google
   # one, so Apple is not the secondary path here -- it is the only one.
-  codesign -d --entitlements - --xml "$APP_IN_ARCHIVE" 2>/dev/null \
-    | grep -q "com.apple.developer.applesignin" || die \
+  ENT=$(codesign -d --entitlements - --xml "$APP_IN_ARCHIVE" 2>/dev/null || true)
+  grep -q "com.apple.developer.applesignin" <<<"$ENT" || die \
 "this archive links Firebase but carries no Sign in with Apple entitlement"
   say "Sign in with Apple entitlement present"
+
+  # The invitation is an https universal link, and without this entitlement in
+  # the SIGNED app iOS never consults the association: the tap opens Safari and
+  # the invitee never reaches the join screen. The AASA was live and correct
+  # for days while the entitlements file simply did not name the domain, which
+  # is the shape of every dead-on-arrival build so far -- the far half right
+  # and the near half missing.
+  grep -q "com.apple.developer.associated-domains" <<<"$ENT" || die \
+"this archive links Firebase but carries no associated-domains entitlement --
+       tapping an invitation link would open Safari instead of the app"
+  grep -q "applinks:scoranger.web.app" <<<"$ENT" || die \
+"the associated-domains entitlement does not name scoranger.web.app, which is
+       the host the AASA is served from"
+  say "Universal link entitlement present (applinks:scoranger.web.app)"
+
+  # And the association itself, fetched. All four things Apple requires of it,
+  # checked against the live host rather than against a file in the repo --
+  # what matters is what the device will GET.
+  AASA_HDR=$(curl -sS -o /tmp/scoranger-aasa.json \
+    -w "%{http_code} %{content_type} %{num_redirects}" \
+    "https://scoranger.web.app/.well-known/apple-app-site-association" || true)
+  read -r AASA_CODE AASA_TYPE AASA_HOPS <<<"$AASA_HDR"
+  [[ "$AASA_CODE" == "200" ]] || die "the AASA is not being served (HTTP $AASA_CODE)"
+  [[ "$AASA_TYPE" == application/json* ]] || die \
+"the AASA is served as $AASA_TYPE, and Apple requires application/json"
+  [[ "$AASA_HOPS" == "0" ]] || die "the AASA redirects $AASA_HOPS times; Apple follows none"
+  grep -q "V9DBGV72NL.com.irllabs.scoranger" /tmp/scoranger-aasa.json || die \
+"the AASA does not name this app id"
+  grep -q "/invite/" /tmp/scoranger-aasa.json || die \
+"the AASA does not claim the /invite/ path"
+  say "AASA live: 200, application/json, no redirect, /invite/* for this app id"
 fi
 
 # --------------------------------------------------- privacy manifests, sealed
