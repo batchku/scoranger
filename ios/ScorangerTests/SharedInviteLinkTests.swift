@@ -95,7 +95,12 @@ final class SharedInviteLinkTests: XCTestCase {
         // The address is in it because a mismatch is the one failure that
         // reads as a broken link rather than as the wrong account (§0.4).
         XCTAssertTrue(text.contains("son@example.com"))
-        XCTAssertTrue(text.contains("scoranger://invite?id=i7"))
+        // The https form, not the custom scheme. Messages and Mail do not
+        // linkify `scoranger://`, so that arrived as dead text and the only
+        // move available to the reader was to copy the whole bubble. This
+        // assertion used to require the dead form; the gate caught it the
+        // day the message changed, which is what a gate is for.
+        XCTAssertTrue(text.contains("https://scoranger.web.app/invite/i7"))
     }
 
     // MARK: - enough of an address to be worth sending
