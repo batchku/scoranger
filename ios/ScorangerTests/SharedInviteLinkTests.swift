@@ -185,6 +185,72 @@ final class SharedInviteLinkTests: XCTestCase {
         XCTAssertNil(SharedInviteLink.inviteId(inPastedText: "see you tuesday"))
     }
 
+    // MARK: - the https universal link, which is what actually gets sent
+
+    // Messages and Mail do not linkify a custom scheme, so the link in the
+    // message is an https one and the AASA makes the tap open the app. None of
+    // that was covered when it was written; these are the assertions that say
+    // the link Ali sends his son opens the join screen.
+
+    func testTheHttpsLinkTheAppBuildsIsTheLinkItReads() {
+        let url = SharedInviteLink.webURL(inviteId: "inv_9")
+        XCTAssertEqual(url?.absoluteString,
+                       "https://scoranger.web.app/invite/inv_9")
+        XCTAssertEqual(SharedInviteLink.inviteId(in: url!), "inv_9")
+    }
+
+    func testTheHostIsMatchedCaseInsensitivelyBecauseAMailClientMayRewriteIt() {
+        let url = URL(string: "https://Scoranger.Web.App/invite/inv_9")!
+        XCTAssertEqual(SharedInviteLink.inviteId(in: url), "inv_9")
+    }
+
+    func testSomeOtherSiteServingTheSamePathIsNotAnInvitation() {
+        // The host is half the reason a universal link is safe to tap.
+        XCTAssertNil(SharedInviteLink.inviteId(
+            in: URL(string: "https://example.com/invite/inv_9")!))
+    }
+
+    func testAnotherPageOnOurOwnSiteIsNotAnInvitation() {
+        for path in ["/", "/invite", "/invite/", "/about/inv_9",
+                     "/invite/inv_9/extra"] {
+            XCTAssertNil(SharedInviteLink.inviteId(
+                in: URL(string: "https://scoranger.web.app\(path)")!),
+                         "\(path) was read as an invitation")
+        }
+    }
+
+    func testTheHttpsFormRefusesTheSameIdsTheSchemeFormDoes() {
+        // One id rule, both doors. A long or empty id is refused whichever
+        // form it arrives in.
+        XCTAssertNil(SharedInviteLink.webURL(inviteId: ""))
+        XCTAssertNil(SharedInviteLink.webURL(inviteId: "a/b"))
+        let long = String(repeating: "x", count: 129)
+        XCTAssertNil(SharedInviteLink.inviteId(
+            in: URL(string: "https://scoranger.web.app/invite/\(long)")!))
+    }
+
+    func testTheMessageCarriesTheHttpsLinkSoMessagesWillLinkifyIt() {
+        let message = SharedInviteLink.message(setlistName: "Tuesday",
+                                               email: "echo@example.com",
+                                               inviteId: "inv_9")
+        XCTAssertTrue(message.contains("https://scoranger.web.app/invite/inv_9"),
+                      "the message does not carry a tappable link: \(message)")
+        XCTAssertFalse(message.contains("scoranger://"),
+                       "the message still carries the dead-text form")
+    }
+
+    func testAPastedHttpsLinkYieldsTheIdEvenWithProseAroundIt() {
+        // The fallback for when the link arrives as text rather than as a
+        // link. It looked only for the custom scheme, so the day the message
+        // became an https link this stopped working.
+        let pasted = """
+        Open this on your iPad, signed in as echo@example.com:
+        https://scoranger.web.app/invite/inv_9
+        See you Tuesday.
+        """
+        XCTAssertEqual(SharedInviteLink.inviteId(inPastedText: pasted), "inv_9")
+    }
+
     func testAPathIsNotAnId() {
         // `inviteId(in:)` refuses a slash because a value with one addresses a
         // different collection. The pasted reading has to refuse it too, or

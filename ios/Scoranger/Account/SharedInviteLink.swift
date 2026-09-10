@@ -110,7 +110,14 @@ enum SharedInviteLink {
     /// that can settle the question anyway; a strict read that rejects the id
     /// somebody is actually holding costs them the only way in.
     static func inviteId(inPastedText text: String) -> String? {
-        if let start = text.range(of: "\(scheme)://\(host)", options: .caseInsensitive) {
+        // Both link forms, and the https one FIRST because it is what
+        // `message(setlistName:email:inviteId:)` actually sends. Looking only
+        // for the custom scheme was a real break: the day the message became
+        // an https universal link, pasting the message stopped working and
+        // nothing but a test said so.
+        for prefix in ["https://\(webHost)/invite/", "\(scheme)://\(host)"] {
+            guard let start = text.range(of: prefix, options: .caseInsensitive)
+            else { continue }
             let token = text[start.lowerBound...].prefix { !$0.isWhitespace }
             if let url = URL(string: String(token)), let id = inviteId(in: url) {
                 return id
