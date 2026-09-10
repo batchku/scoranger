@@ -476,35 +476,34 @@ while read -r t; do [[ -n "$t" ]] && SERIAL_TESTS+=("$t"); done < "$OUT/serial.t
 if (( ${#SERIAL_TESTS[@]} > 0 )); then
   echo "==> ${#SERIAL_TESTS[@]} serial tests, one at a time (the deletion class)"
 
-  # LET THE HOST COME BACK DOWN FIRST.
+  # WHAT IS KNOWN, AND WHAT IS NOT.
   #
-  # The serial phase used to start the instant the pool exited, and that is
-  # the one condition under which the rotating tests fail: 103, 103, 103, 221,
-  # 290, 292, 288, 291 seconds of never rotating -- and then MixerWindow and
-  # the whole deletion class, running immediately after them on the same
-  # device in the same invocation, passed. The host was recovering WHILE the
-  # phase ran.
+  # The eight rotating tests fail in this phase and pass everywhere else, and
+  # six explanations have been tried and disproved by measurement:
   #
-  # Everything else was ruled out by reproducing it and watching it pass: the
-  # same eight tests on the same device with the same command shape (13-27s
-  # each), with the unit-test target ahead of them in one invocation (18-24s),
-  # alone on a fresh device, and under four workers of their own. Four
-  # simulators that have just run 1400 tests are the difference.
+  #   a dirty pool          erased it; failed identically
+  #   too small a budget    20 -> 120 -> 240s, re-asking every 8s; failed,
+  #                         sitting 252-262s without the window moving
+  #   foreign booted sims   cleared them; failed
+  #   four-worker load      the same eight under four workers of their own:
+  #                         22-205s, all pass
+  #   the unit target first  in one invocation with them: 18-24s, all pass
+  #   the result bundle     -resultBundlePath makes no difference
   #
-  # So the pool's other devices are shut down -- nothing needs them again --
-  # and the phase waits for the one-minute load average to fall back under the
-  # worker count, up to five minutes. A cap rather than a spin: if the machine
-  # is busy for some other reason, the tests still run and can still fail.
+  # And THIS PHASE'S EXACT COMMAND -- these fifteen tests, this device, this
+  # xctestrun, this result bundle -- run by hand ten minutes after a gate:
+  # 15/15 pass in four minutes, at load 7.23. The gate's own run failed at
+  # load 5.45. So it is not load, and a load threshold here would be a wrong
+  # explanation left in the file for the next person to trust.
+  #
+  # The one variable left is WHEN: immediately after four workers stop, versus
+  # ten minutes later. That is a hypothesis, not a finding, and it has not
+  # been tested. Until it is, the pool's other devices are shut down here --
+  # which is right on its own terms, nothing needs them again -- and nothing
+  # else is claimed.
   for ((i = 1; i < ${#udids[@]}; i++)); do
     xcrun simctl shutdown "${udids[i]}" >/dev/null 2>&1 || true
   done
-  quiet_deadline=$((SECONDS + 300))
-  while (( SECONDS < quiet_deadline )); do
-    load=$(sysctl -n vm.loadavg | awk '{print $2}')
-    awk -v l="$load" -v w="$WORKERS" 'BEGIN { exit !(l < w) }' && break
-    sleep 10
-  done
-  echo "    host settled at load $(sysctl -n vm.loadavg | awk '{print $2}') after $((SECONDS - quiet_deadline + 300))s"
 
   serial_args=()
   for t in "${SERIAL_TESTS[@]}"; do serial_args+=("-only-testing:$t"); done
