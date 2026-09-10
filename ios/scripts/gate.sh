@@ -475,6 +475,37 @@ SERIAL_TESTS=()
 while read -r t; do [[ -n "$t" ]] && SERIAL_TESTS+=("$t"); done < "$OUT/serial.txt"
 if (( ${#SERIAL_TESTS[@]} > 0 )); then
   echo "==> ${#SERIAL_TESTS[@]} serial tests, one at a time (the deletion class)"
+
+  # LET THE HOST COME BACK DOWN FIRST.
+  #
+  # The serial phase used to start the instant the pool exited, and that is
+  # the one condition under which the rotating tests fail: 103, 103, 103, 221,
+  # 290, 292, 288, 291 seconds of never rotating -- and then MixerWindow and
+  # the whole deletion class, running immediately after them on the same
+  # device in the same invocation, passed. The host was recovering WHILE the
+  # phase ran.
+  #
+  # Everything else was ruled out by reproducing it and watching it pass: the
+  # same eight tests on the same device with the same command shape (13-27s
+  # each), with the unit-test target ahead of them in one invocation (18-24s),
+  # alone on a fresh device, and under four workers of their own. Four
+  # simulators that have just run 1400 tests are the difference.
+  #
+  # So the pool's other devices are shut down -- nothing needs them again --
+  # and the phase waits for the one-minute load average to fall back under the
+  # worker count, up to five minutes. A cap rather than a spin: if the machine
+  # is busy for some other reason, the tests still run and can still fail.
+  for ((i = 1; i < ${#udids[@]}; i++)); do
+    xcrun simctl shutdown "${udids[i]}" >/dev/null 2>&1 || true
+  done
+  quiet_deadline=$((SECONDS + 300))
+  while (( SECONDS < quiet_deadline )); do
+    load=$(sysctl -n vm.loadavg | awk '{print $2}')
+    awk -v l="$load" -v w="$WORKERS" 'BEGIN { exit !(l < w) }' && break
+    sleep 10
+  done
+  echo "    host settled at load $(sysctl -n vm.loadavg | awk '{print $2}') after $((SECONDS - quiet_deadline + 300))s"
+
   serial_args=()
   for t in "${SERIAL_TESTS[@]}"; do serial_args+=("-only-testing:$t"); done
   if ! xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
