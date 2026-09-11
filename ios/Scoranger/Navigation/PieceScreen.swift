@@ -126,10 +126,22 @@ struct PieceScreen: View {
                          container: open) { onOpen(score.slug) }
 
             if !open {
-                Text(LibraryModel.day(score.versions.last?.time ?? nil))
-                    .typeRole(.data).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
-                PanelButton(title: "Open", identifier: "arrangement-open-\(score.slug)") {
-                    onOpen(score.slug)
+                // Beside a panel on a narrow page the date and Open give way
+                // [C8]: the row itself still opens, and ☰ stays.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Theme.Metric.s12) {
+                        Text(LibraryModel.day(score.versions.last?.time ?? nil))
+                            .typeRole(.data).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                        PanelButton(title: "Open", identifier: "arrangement-open-\(score.slug)") {
+                            onOpen(score.slug)
+                        }
+                    }
+                    .fixedSize()
+                    PanelButton(title: "Open", identifier: "arrangement-open-\(score.slug)") {
+                        onOpen(score.slug)
+                    }
+                    .fixedSize()
+                    Color.clear.frame(width: 0, height: 0)
                 }
             }
             RowMenuButton(identifier: "row-menu-\(score.slug)",

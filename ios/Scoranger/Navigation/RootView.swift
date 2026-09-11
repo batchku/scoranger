@@ -80,7 +80,7 @@ struct RootView: View {
             // The table (§7.1): the page 16 from the edges, the panel beside
             // it when something is open. Pushed pages ride inside the stack;
             // the panel stays put and each page sets what it shows at rest.
-            PanelHost(panel: panel) {
+            PanelHost(panel: panel, suspended: scoreOpen) {
                 NavigationStack(path: $libraryPath) {
                     library.navigationBarHidden(true)
                         .navigationDestination(for: Route.self) { screen($0) }
@@ -133,6 +133,11 @@ struct RootView: View {
             // hidden, not unloaded: coming back to the library should not cost
             // a rebuild, and the score is what is expensive to re-open
             .allowsHitTesting(!scoreOpen)
+            // and out of the accessibility tree too: an invisible page's
+            // buttons were still elements, so a test (or VoiceOver) asking
+            // for the panel's Done found the piece screen's, under the score,
+            // and tapped the score bar's Perform where it lay.
+            .accessibilityHidden(scoreOpen)
 
             // Above the score too: a PDF that will not transcribe has its say
             // while the reader is looking at that very score.
@@ -360,7 +365,8 @@ struct RootView: View {
                             onOpen: { open($0) }, push: push,
                             onImport: importInto)
                     .navigationBarHidden(true)
-                    .accessibilityIdentifier("screen-piece-\(slug)")
+                    .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-piece-\(slug)")
                     // The panel at rest on this page (P1).
                     .onAppear { panel.setRest(.thisPiece(slug)) }
                     .onDisappear { panel.clearRest(.thisPiece(slug)) }
@@ -393,15 +399,18 @@ struct RootView: View {
                 ArrangementScreen(score: score, onBack: pop,
                                   onOpen: { open(slug) }, push: push)
                     .navigationBarHidden(true)
-                    .accessibilityIdentifier("screen-arrangement-\(slug)")
+                    .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
         case .book(let slug):
             BookScreen(slug: slug, onBack: pop, onOpen: { open($0) })
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-book-\(slug)")
         case .folderImport:
             FolderImportScreen(onBack: pop)
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-folder-import")
         case .moveToPiece(let slugs):
             MoveToPieceScreen(moving: slugs, onBack: pop)
@@ -420,6 +429,7 @@ struct RootView: View {
                           },
                           push: push)
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
                 // The panel at rest on this page (S1).
                 .onAppear { panel.setRest(.thisSetlist(slug)) }
@@ -441,11 +451,13 @@ struct RootView: View {
                                   state.notice = "Added \"\(name)\" to your set lists."
                               })
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-join-setlist")
         case .sharedSetlist(let id):
             SharedSetlistScreen(setlistId: id, onBack: pop,
                                 onOpen: { open($0) })
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-shared-setlist")
         case .addArrangements(let slug):
             AddArrangementsScreen(slug: slug, onBack: pop)

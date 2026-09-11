@@ -35,6 +35,9 @@ final class SignInReachable: XCTestCase {
         let gear = app.descendants(matching: .any)["library-settings"]
         guard gear.waitForExistence(timeout: 60) else { return false }
         gear.tap()
+        // Settings is a split (0.8 §7.17): Account is a section in the index.
+        let account = app.buttons["settings-account"]
+        if account.waitForExistence(timeout: 30) { account.tap() }
         // The section leads with the sentence that says an account is optional.
         return app.descendants(matching: .any)["account-explains-optional"]
             .waitForExistence(timeout: 30)

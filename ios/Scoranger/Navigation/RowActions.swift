@@ -139,11 +139,14 @@ struct RowTappable: ViewModifier {
                 },
                 including: onLongPress == nil ? .subviews : .all)
         if container {
+            // Still a button to the tree (the tests and VoiceOver address
+            // the row as one), and a container so the capsules are its own
+            // children.
             tapped
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(label)
                 .accessibilityIdentifier(identifier)
-                .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         } else {
             tapped
                 .accessibilityElement(children: .ignore)

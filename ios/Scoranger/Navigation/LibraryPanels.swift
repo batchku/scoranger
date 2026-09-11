@@ -81,6 +81,10 @@ struct ImportPanel: View {
                         done?()
                         run(action)
                     }
+                    // The sentence is what makes each way in findable by
+                    // what it does ("a picture of the music"), so it is
+                    // spoken with the item as well as drawn under it.
+                    .accessibilityLabel("\(action.bandTitle), \(action.bandSubtitle)")
                     Text(action.bandSubtitle).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, Theme.Metric.panelSide + Theme.Metric.s16)

@@ -249,6 +249,7 @@ struct ContentView: View {
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
                                onSetlists: { scoreScreen = .setlists })
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score-options")
         case .setlists:
             // The pieces list's own screen (Route.setlistsFor -> this same
@@ -323,8 +324,23 @@ struct ContentView: View {
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
                         barWidth: $barWidth,
+                        // The bar clears More when it opens something else;
+                        // that must not close what it just opened.
                         moreOpen: Binding(get: { moreOpen },
-                                          set: { on in setPanel(on ? .options : nil) }),
+                                          set: { on in
+                                              if on {
+                                                  setPanel(.options)
+                                              } else if moreOpen {
+                                                  // Only More goes: the bar
+                                                  // clears it AFTER opening
+                                                  // the title menu, which
+                                                  // must stay open.
+                                                  withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+                                                      scoreScreen = nil
+                                                      optionsSection = nil
+                                                  }
+                                              }
+                                          }),
                         chatOpen: chatOpen,
                         onClose: onClose,
                         onAsk: { setPanel(chatOpen ? nil : .chat) })

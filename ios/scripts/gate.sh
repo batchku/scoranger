@@ -94,6 +94,8 @@ SKIP=(
   -skip-testing:ScorangerUITests/TopBarShot
   # MixerShot photographs the tray for a person to judge; it asserts nothing.
   -skip-testing:ScorangerUITests/MixerShot
+  # NotebookShot photographs the 0.8 pages and panel the same way.
+  -skip-testing:ScorangerUITests/NotebookShot
   # THE EIGHT ROTATING TESTS, skipped with the evidence, and a tracking item in
   # BACKLOG.md. They fail inside this gate -- in the pool AND in the serial
   # phase -- and pass in every configuration tried by hand on the same build:

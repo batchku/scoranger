@@ -358,7 +358,10 @@ struct TrayPartKnob: View {
     @State private var choosingSound = false
 
     private var isOn: Bool { playback.voices.isOn(part.index) }
-    private var isSounding: Bool { isOn && part.isSounding(at: playback.beat) }
+    /// The lamp follows the MUSIC, muted or not: the staff is still playing
+    /// and the reader cannot hear it, which is how they confirm the mute is
+    /// working -- the dial dims around a lit lamp (§7.8).
+    private var isSounding: Bool { part.isSounding(at: playback.beat) }
     private var patch: (program: UInt8, bank: GeneralMIDI.Bank) { playback.instrument(for: part) }
     private var chosen: Bool { playback.hasChosenInstrument(for: part) }
 

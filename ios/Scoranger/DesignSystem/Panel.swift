@@ -183,6 +183,10 @@ extension View {
 /// with ‹ in its header (Ph3).
 struct PanelHost<Page: View, PanelContent: View>: View {
     @ObservedObject var panel: PanelModel
+    /// True while something covers the table (the score): the panel is not
+    /// drawn at all, so nothing of it reaches the accessibility tree from
+    /// under the cover -- a hidden page's Done was being found and tapped.
+    var suspended = false
     @ViewBuilder var page: () -> Page
     @ViewBuilder var content: (Route) -> PanelContent
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -197,12 +201,12 @@ struct PanelHost<Page: View, PanelContent: View>: View {
                 HStack(spacing: Theme.Metric.pagePanelGap) {
                     page()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if !compact, let top = panel.top {
+                    if !compact, !suspended, let top = panel.top {
                         panelPage(top, width: Theme.Metric.panelWidth)
                             .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                     }
                 }
-                if compact, let top = panel.top {
+                if compact, !suspended, let top = panel.top {
                     panelPage(top, width: nil)
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                 }

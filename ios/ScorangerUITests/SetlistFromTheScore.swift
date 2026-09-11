@@ -192,7 +192,11 @@ final class SetlistFromTheScore: XCTestCase {
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 60),
                       "no arrangement to manage on the piece screen")
-        menu.tap()
+        // The page is laying itself out beside its panel at rest (P1); tap
+        // where the ☰ is once it has settled, by coordinate if need be.
+        settle(menu, still: 0.6)
+        if menu.isHittable { menu.tap() }
+        else { menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         // The row's Arrangement action opens the arrangement beside the row.
         let manage = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-manage-")).firstMatch

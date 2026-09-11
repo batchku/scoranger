@@ -340,12 +340,11 @@ final class ScorangerUITests: XCTestCase {
             return XCTFail("Transpose opened but offers no semitone up")
         }
         up.tap()
-        // and come back OUT of the options: transposing pops to the options
-        // root, which is a full screen sitting over the canvas -- a test that
-        // went straight on to draw was drawing on the options screen
-        let back = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "Back to")).firstMatch
-        if back.waitForExistence(timeout: 30) { back.tap() }
+        // and put the panel away: transposing pops to More's root, which
+        // sits beside the score (0.8 §7.2) -- a test that went straight on to
+        // draw was drawing with the panel narrowing the page
+        let done = app.buttons["panel-done"].firstMatch
+        if done.waitForExistence(timeout: 30) { done.tap() }
         if app.buttons["score-more"].exists && app.buttons["score-more"].isSelected {
             app.buttons["score-more"].tap()
         }
@@ -429,7 +428,16 @@ final class ScorangerUITests: XCTestCase {
     /// this OS — a triple tap selects the whole line the way a finger would,
     /// and typing then replaces the selection.
     private func replaceText(_ field: XCUIElement, with text: String) {
-        field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        // Select all, then type over it. A triple tap selects a WORD in a
+        // dashed slug, and the new text was appended to the old.
+        field.tap()
+        field.press(forDuration: 1.2)
+        let selectAll = app.menuItems["Select All"]
+        if selectAll.waitForExistence(timeout: 3) {
+            selectAll.tap()
+        } else {
+            field.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        }
         field.typeText(text)
     }
 
@@ -835,17 +843,21 @@ final class ScorangerUITests: XCTestCase {
 
     /// #51: Settings is a panel docked at the trailing edge, with the library
     /// still there behind it -- not a screen that covers everything.
+    /// Settings is a PAGE on the table (0.8 §7.17, T1–T10): an index at the
+    /// left and one section beside it, reached from the gear, left with
+    /// Close settings -- and the library is where it was when it closes.
     func testSettingsOpensAsAPanelBesideTheLibrary() {
         app.buttons["library-settings"].tap()
         let panel = app.descendants(matching: .any)["settings-panel"].firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 20), "Settings did not open")
-        XCTAssertTrue(app.descendants(matching: .any)["library-search"].exists,
-                      "the library is gone: this is a full-screen Settings again")
-        XCTAssertLessThan(panel.frame.width, app.windows.firstMatch.frame.width * 0.75,
-                          "the panel covers the screen")
+        XCTAssertTrue(app.buttons["settings-reading"].exists, "no index of sections")
+        XCTAssertTrue(app.descendants(matching: .any)["settings-section-title"].exists,
+                      "no section beside the index")
         shot("settings-panel")
         app.buttons["Close settings"].tap()
         XCTAssertTrue(waitForDisappearance(of: panel, timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 10),
+                      "closing Settings did not come back to the library")
     }
 
     /// The tab bar is gone entirely: one live tab and a disabled placeholder
@@ -972,20 +984,25 @@ final class ScorangerUITests: XCTestCase {
         // one panel left to make room for and two states to check rather than
         // four. The property being protected is unchanged: whatever gap the
         // chrome leaves, the score fills it.
-        assertWidth(screen, "nothing open")
+        // The thumbnail rail (0.8 §7.11) has the left 60pt in paged reading;
+        // the canvas has everything the chrome leaves it.
+        let rail = app.descendants(matching: .any)["thumbnail-rail"].firstMatch
+        let railWidth = rail.exists ? rail.frame.width : 0
+        assertWidth(screen - railWidth, "nothing open")
         assertPageFillsCanvas("nothing open")
         shot("width-none-open")
 
         app.buttons["score-ask"].tap()
         XCTAssertTrue(app.buttons["Close chat"].waitForExistence(timeout: 10))
         settle(all: [app.scrollViews["score-canvas"], engravedPage])
-        assertWidth(screen - chat, "chat open")
+        // The panel's lane is its width and the 10pt gap before it (§3).
+        assertWidth(screen - railWidth - chat - 10, "chat open")
         assertPageFillsCanvas("chat open")
         shot("width-chat-only")
 
         app.buttons["Close chat"].tap()
         settle(all: [app.scrollViews["score-canvas"], engravedPage])
-        assertWidth(screen, "chat closed again")
+        assertWidth(screen - railWidth, "chat closed again")
         assertPageFillsCanvas("chat closed again")
     }
 
@@ -1437,9 +1454,12 @@ final class ScorangerUITests: XCTestCase {
     func testZoomPansAcrossTheWholeCanvas() {
         openArrangement(firstArrangement)
         let score = waitForEngraving(of: firstArrangement)
-        let full = app.windows.firstMatch.frame.width
+        // The thumbnail rail (0.8 §7.11) has the left 60pt in paged reading;
+        // the canvas has everything else.
+        let rail = app.descendants(matching: .any)["thumbnail-rail"].firstMatch
+        let full = app.windows.firstMatch.frame.width - (rail.exists ? rail.frame.width : 0)
         XCTAssertEqual(score.frame.width, full, accuracy: 4,
-                       "with no panels the canvas should be the whole screen")
+                       "with no panels the canvas should be the whole screen beside the rail")
         for scale in [2.0, 1.5] {
             score.pinch(withScale: scale, velocity: 1.5)
             settle(engravedPage, still: 0.4)
@@ -1461,8 +1481,8 @@ final class ScorangerUITests: XCTestCase {
         settle(engravedPage, still: 0.4)
         for _ in 0..<3 { score.swipeRight(velocity: .fast) }
         settle(all: [score, engravedPage], still: 0.4)
-        // 380, the chat panel: the library overlay it used to be is gone
-        XCTAssertEqual(score.frame.width, full - 380, accuracy: 4,
+        // The panel's lane: 380 and the 10pt gap before it (0.8 §3)
+        XCTAssertEqual(score.frame.width, full - 380 - 10, accuracy: 4,
                        "the canvas shrank when the chat panel opened while zoomed")
         shot("width-zoomed-chat-open")
         score.pinch(withScale: 0.3, velocity: -2.0)
@@ -1488,7 +1508,9 @@ final class ScorangerUITests: XCTestCase {
                       "the piece screen does not list its arrangements")
         XCTAssertFalse(app.buttons["Collapse \(piece)"].exists,
                        "the expanding caret should be gone")
-        goBack()
+        // The page's own ‹ (the panel at rest beside it has Done, which only
+        // closes the panel).
+        app.buttons["screen-back"].firstMatch.tap()
         XCTAssertTrue(app.buttons["segment-pieces"].waitForExistence(timeout: 20),
                       "back did not return to the library")
     }
@@ -1551,7 +1573,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Delete arrangement…"].exists)
         shot("arrangement-sheet")
         goBack()
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["Arrangement"], timeout: 5))
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["Scored for"], timeout: 5))
     }
 
     func testRenameArrangementFromTheSheet() {
@@ -1567,8 +1589,8 @@ final class ScorangerUITests: XCTestCase {
         save.tap()
         XCTAssertTrue(waitForDisappearance(of: save, timeout: 60),
                       "Save still offered after a successful write")
-        goBack()            // details -> arrangement screen
-        goBack()            // arrangement -> piece screen
+        // Done closes the panel; the piece screen is still the page.
+        app.buttons["panel-done"].firstMatch.tap()
         XCTAssertTrue(app.buttons["arrangement-choice-\(firstArrangement)"]
                         .waitForExistence(timeout: 20),
                       "the slug-based identifier must survive a rename")
@@ -1843,6 +1865,8 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(second.exists, "the seed should file two arrangements")
         XCTAssertTrue(second.label.contains("Arrangement number 2"), second.label)
 
+        // 0.8 (P2): Up is one of the row's actions, behind its ☰.
+        app.buttons["row-menu-under-paris-skies-accordion-solo"].tap()
         let moveUp = app.buttons["arr-up-under-paris-skies-accordion-solo"]
         XCTAssertTrue(moveUp.waitForExistence(timeout: 10),
                       "no Move up on the piece screen")
@@ -1861,6 +1885,8 @@ final class ScorangerUITests: XCTestCase {
         openPieceSheet()
         let second = app.buttons["arrangement-choice-under-paris-skies-accordion-solo"]
         XCTAssertTrue(second.waitForExistence(timeout: 20))
+        // 0.8 (P2): Up is one of the row's actions, behind its ☰.
+        app.buttons["row-menu-under-paris-skies-accordion-solo"].tap()
         let moveUp = app.buttons["arr-up-under-paris-skies-accordion-solo"]
         XCTAssertTrue(moveUp.waitForExistence(timeout: 10),
                       "no Move up on the piece screen")
@@ -1869,6 +1895,8 @@ final class ScorangerUITests: XCTestCase {
 
         // open the moved arrangement: the pill numeral is the same number the
         // chat context hands the model
+        // the row's actions close before the row is opened
+        app.buttons["row-menu-under-paris-skies-accordion-solo"].tap()
         second.tap()
         XCTAssertTrue(app.scrollViews["score-canvas"].waitForExistence(timeout: 180))
         app.buttons["score-ask"].tap()
@@ -2115,8 +2143,12 @@ final class ScorangerUITests: XCTestCase {
 
     /// Close the share sheet, however this iOS names its way out.
     private func dismissSystemSheet() {
-        for label in ["Close", "Cancel", "Done"] where app.buttons[label].exists {
-            app.buttons[label].tap()
+        // The share sheet's own button, not the panel's Done behind it.
+        for label in ["Close", "Cancel", "Done"] {
+            let button = app.buttons.matching(NSPredicate(
+                format: "label == %@ AND identifier != %@", label, "panel-done")).firstMatch
+            guard button.exists else { continue }
+            button.tap()
             if waitForDisappearance(of: app.otherElements["ActivityListView"], timeout: 5) {
                 return
             }
@@ -2390,14 +2422,19 @@ final class ScorangerUITests: XCTestCase {
 
         // quick drags (a scroll), and slow held ones (what the old finger
         // lasso needed) -- neither may select
-        for (hold, dy) in [(0.05, 0.55), (0.05, 0.45), (0.6, 0.40), (1.0, 0.35)] {
+        // A finger that MOVES never selects: a drag is a pan. A finger held
+        // STILL is the press, with its loupe -- the finger's way to select
+        // (CanvasTap §9.2) -- so the drags are asserted and the presses are
+        // not; the old presses passed only because the crosshair happened
+        // to land on nothing.
+        for dy in [0.55, 0.45, 0.40, 0.35] {
             canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy))
-                .press(forDuration: hold,
+                .press(forDuration: 0.05,
                        thenDragTo: canvas.coordinate(
                         withNormalizedOffset: CGVector(dx: 0.85, dy: dy)))
         }
         XCTAssertFalse(app.staticTexts["selection-chip"].waitForExistence(timeout: 4),
-                       "a finger selected something; fingers only pan and zoom")
+                       "a finger's drag selected something; a drag is a pan")
         shot("finger-never-selects")
     }
 
@@ -2635,12 +2672,13 @@ final class ScorangerUITests: XCTestCase {
         let setlistMenu = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
         XCTAssertTrue(setlistMenu.waitForExistence(timeout: 20), "no ☰ on the set list")
+        settle(setlistRow, still: 0.6)
         setlistMenu.tap()
         // 0.8: the ☰ opens the row's actions; "Set list" is the screen.
         let toScreen = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-setlist-screen-")).firstMatch
-        XCTAssertTrue(toScreen.waitForExistence(timeout: 10), "the set list row's ☰ offers no Set list")
-        toScreen.tap()
+        // A tap that landed on the row itself opens the screen directly.
+        if toScreen.waitForExistence(timeout: 10) { toScreen.tap() }
         XCTAssertTrue(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "setlist-member-"))
                         .firstMatch.waitForExistence(timeout: 30),
@@ -3323,7 +3361,7 @@ final class ScorangerUITests: XCTestCase {
                       "no way to file this arrangement")
         XCTAssertTrue(app.buttons["edit-delete-\(firstArrangement)"].exists,
                       "no way to delete this arrangement")
-        XCTAssertFalse(app.buttons["Move to piece"].exists,
+        XCTAssertFalse(app.menuItems["Move to piece"].exists,
                        "a long press should reach nothing at all now")
     }
 }

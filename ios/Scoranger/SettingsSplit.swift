@@ -40,7 +40,10 @@ struct SettingsSplit: View {
     private var sections: [SettingsSection] {
         SettingsSection.allCases.filter { s in
             switch s {
-            case .titles: return TitleRepair.offer(count: state.titleRepairsNeeded.count) != nil
+            // Titles stays while it is the section being read: the repair
+            // empties the scan, and its result has to be readable after.
+            case .titles: return section == .titles || pushed == .titles
+                || TitleRepair.offer(count: state.titleRepairsNeeded.count) != nil
             case .server: return !state.useLocalEngine
             default:      return true
             }

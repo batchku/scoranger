@@ -110,6 +110,12 @@ final class NamingShot: XCTestCase {
             return XCTFail("no way into Settings")
         }
         settings.tap()
+        // Settings is a split (0.8 §7.17): Titles is a section, offered only
+        // while the scan finds something -- which is the claim under test.
+        let titles = app.buttons["settings-titles"]
+        XCTAssertTrue(titles.waitForExistence(timeout: 30),
+                      "Titles is not in the settings index on a library that needs it")
+        titles.tap()
 
         let fix = app.buttons["repair-titles"]
         XCTAssertTrue(fix.waitForExistence(timeout: 30),
