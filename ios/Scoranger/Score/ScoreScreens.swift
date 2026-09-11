@@ -97,7 +97,7 @@ struct ScoreOptionsScreen: View {
                     .padding(.vertical, 11)
                     .background(Theme.Accent.clayTint)
                     .overlay(alignment: .bottom) {
-                        Rectangle().fill(Theme.Line.line).frame(height: 1)
+                        Theme.Rule()
                     }
             }
 
@@ -238,7 +238,7 @@ struct ScoreOptionsScreen: View {
         .padding(.horizontal, Theme.Metric.s20)
         .padding(.vertical, 11)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
         }
         .accessibilityIdentifier("more-make-editable")
         .accessibilityElement(children: .combine)
@@ -332,8 +332,7 @@ struct ScoreOptionsScreen: View {
                         .background(selected ? Theme.Accent.clayTint : Theme.Surface.panel)
                         .overlay {
                             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                .stroke(selected ? Theme.Accent.clay : Theme.Line.line2,
-                                        lineWidth: 1)
+                                .stroke(selected ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                         .contentShape(Rectangle())
@@ -538,7 +537,7 @@ struct TitleSwitcherBand: View {
         .scrollDisabled(!TitleBandLayout.scrolls(content: contentHeight,
                                                  available: available))
         .background(Theme.Surface.panel)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Theme.Rule() }
         // NO identifier on this container. An identifier on a stack is taken by
         // its children: the two columns became two buttons both called
         // "title-switcher" and every row inside them -- the arrangements, the

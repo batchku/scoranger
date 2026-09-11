@@ -98,10 +98,10 @@ struct LibraryView: View {
                     .padding(.top, Theme.Metric.s12)
                 header
                 controlBar
-                Divider().overlay(Theme.Line.line)
+                Theme.Rule()
                 list
             }
-            .background(Theme.Surface.ground)
+            .background(Theme.Surface.band)
         }
         .overlay(alignment: .bottom) {
             if editing && !selected.isEmpty { actionBar }
@@ -139,7 +139,7 @@ struct LibraryView: View {
                         .overlay {
                             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                                 .stroke(action.isDestructive ? Theme.Status.danger
-                                                             : Theme.Line.line2,
+                                                             : Color.clear,
                                         lineWidth: 1)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
@@ -154,7 +154,7 @@ struct LibraryView: View {
         .padding(.horizontal, Theme.Metric.s16)
         .frame(height: 56)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
         .accessibilityIdentifier("library-actionbar")
     }
@@ -195,10 +195,6 @@ struct LibraryView: View {
         .padding(2)
         .background(Theme.Surface.well)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
     }
 
     /// The library's top row: the gear, and nothing else (#48-#50).
@@ -494,7 +490,7 @@ struct LibraryView: View {
         .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(active ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                .stroke(active ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
         .contentShape(Rectangle())
@@ -509,7 +505,7 @@ struct LibraryView: View {
             .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(active ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                    .stroke(active ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
     }
@@ -570,7 +566,7 @@ struct LibraryView: View {
                                         if !name.isEmpty { onCreate(name) }
                                     },
                                     onCancel: { creatingName = nil })
-                    Divider().overlay(Theme.Line.line)
+                    Theme.Rule()
                 }
 
                 // Imports in flight, at the top where they cannot be missed.
@@ -670,7 +666,7 @@ struct LibraryView: View {
                     .padding(.trailing, Theme.Metric.s12)
                 }
             }
-            Divider().overlay(Theme.Line.line)
+            Theme.Rule()
         }
     }
 
@@ -732,7 +728,7 @@ struct LibraryView: View {
             .padding(.horizontal, Theme.Metric.s20)
             .padding(.vertical, 9)
             .frame(minHeight: 56)
-            Divider().overlay(Theme.Line.line)
+            Theme.Rule()
         }
         .accessibilityIdentifier("importing-\(pending.id.uuidString)")
         .accessibilityLabel("\(pieceName(for: pending) ?? pending.name), importing, \(pending.stage)")

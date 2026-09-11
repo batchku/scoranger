@@ -47,7 +47,7 @@ struct ThumbnailStrip: View {
         }
         .frame(height: Theme.Metric.thumbStripHeight)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .accessibilityIdentifier("thumbnail-strip")
     }
 
@@ -91,7 +91,7 @@ struct ThumbnailStrip: View {
             }
             .overlay {
                 Rectangle()
-                    .stroke(current.contains(index) ? Theme.Accent.clay : Theme.Line.line2,
+                    .stroke(current.contains(index) ? Theme.Accent.clay : Color.clear,
                             lineWidth: current.contains(index) ? 2 : 1)
             }
             .contentShape(Rectangle())
@@ -174,7 +174,7 @@ struct Transport: View {
         // a shortcut for a control that is not on screen does something
         // invisible.
         .background(alignment: .leading) { spaceKey }
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         // Named on the container AND told to contain its children, or the
         // identifier is inherited by every button inside it and the buttons
         // stop existing to a test -- the defect that made the title band
@@ -270,10 +270,6 @@ struct Transport: View {
                         .foregroundStyle(Theme.Accent.clayStrong)
                         .padding(.horizontal, Theme.Metric.s8)
                         .frame(height: 24)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                .stroke(Theme.Line.line2, lineWidth: 1)
-                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -298,8 +294,7 @@ struct Transport: View {
                 .background(playback.isPlaying ? Theme.Accent.clayTint : Theme.Surface.panel)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(playback.isPlaying ? Theme.Accent.clay : Theme.Line.line2,
-                                lineWidth: 1)
+                        .stroke(playback.isPlaying ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
                 .contentShape(Rectangle())
         }
@@ -316,10 +311,6 @@ struct Transport: View {
                 .foregroundStyle(Theme.Ink.ink2)
                 .frame(width: 32, height: 32)
                 .background(Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -374,10 +365,6 @@ struct Transport: View {
             .padding(.horizontal, Theme.Metric.s8)
             .padding(.vertical, 4)
             .background(Theme.Surface.panel)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .accessibilityIdentifier(id)
     }
 
@@ -390,7 +377,7 @@ struct Transport: View {
                 .background(on ? Theme.Accent.clayTint : Theme.Surface.panel)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(on ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                        .stroke(on ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
                 .contentShape(Rectangle())
         }
@@ -408,10 +395,6 @@ struct Transport: View {
                 .foregroundStyle(enabled ? Theme.Ink.ink : Theme.Ink.ink3)
                 .frame(width: 32, height: 32)
                 .background(Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

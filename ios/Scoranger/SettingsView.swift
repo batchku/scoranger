@@ -372,10 +372,6 @@ struct PerfPanel: View {
                 .padding(Theme.Metric.s8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.Surface.well)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .accessibilityIdentifier("perf-readings")
                 HStack(spacing: Theme.Metric.s12) {
                     PanelButton(title: copied ? "Copied" : "Copy") {

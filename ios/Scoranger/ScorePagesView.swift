@@ -913,10 +913,6 @@ struct ScorePagesView: View {
             .padding(.vertical, Theme.Metric.s8)
             .background(Theme.Surface.panel)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .modifier(ChipShadow())
             // A ceiling on a wide canvas, and a margin on a narrow one. Both
             // are needed: the ceiling stops it spanning an iPad, the margin
@@ -1479,9 +1475,6 @@ private struct PageView: View {
         .background(Theme.Surface.paper)
         // the warm ground sits close to paper white in luminance, so without an
         // edge the gap between pages reads as a hole rather than a page break
-        .overlay {
-            Rectangle().stroke(Theme.Line.line2, lineWidth: 1)
-        }
     }
 }
 

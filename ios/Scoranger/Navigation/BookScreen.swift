@@ -145,10 +145,6 @@ struct BookScreen: View {
                 .foregroundStyle(enabled ? Theme.Ink.ink : Theme.Ink.ink3)
                 .frame(width: 32, height: 32)
                 .background(Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -252,7 +248,6 @@ private struct BookPageView: View {
                                                            : "book-page-drawing")
         }
         .background(Theme.Surface.paper)
-        .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
         .frame(maxWidth: .infinity)
     }
 
@@ -362,7 +357,6 @@ private struct BookThumbnails: View {
         }
         .frame(height: Theme.Metric.thumbStripHeight)
         .background(Theme.Surface.panel)
-        .overlay { Rectangle().stroke(Theme.Line.line, lineWidth: 1) }
         .accessibilityIdentifier("book-thumbnails")
     }
 

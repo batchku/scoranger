@@ -265,7 +265,7 @@ final class ScoreBarLayoutTests: XCTestCase {
             + ScoreBarLayout.titleMinimum
             + ScoreBarLayout.numeralWidth + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
-            + ScoreBarLayout.addToSetlistWidth
+            + ScoreBarLayout.addToSetlistWidth + ScoreBarLayout.originNameWidth
         XCTAssertTrue(ScoreBarLayout.fits(widest, in: withoutAChip),
                       "the bar still reserves width for something it no longer draws")
     }
@@ -290,10 +290,15 @@ final class ScoreBarLayoutTests: XCTestCase {
             width -= 1
         }
         // widest, then the + gone, then the count gone: three distinct fits.
-        XCTAssertEqual(seen.count, 3, "the count did not yield second: \(seen)")
+        // Everything, then without the +, then without the origin's name
+        // beside the ‹ [C6], then without the count: four fits. The name is a
+        // courtesy about where the reader was; the count is a shortcut to
+        // versions. Both go before anything the reader cannot reach elsewhere.
+        XCTAssertEqual(seen.count, 4, "the count did not yield third: \(seen)")
         let dropped = try XCTUnwrap(seen.last)
         XCTAssertFalse(dropped.showsVersions)
         XCTAssertFalse(dropped.showsAddToSetlist, "the + should already be gone")
+        XCTAssertFalse(dropped.showsOriginName, "the origin's name should already be gone")
         XCTAssertEqual(dropped.layoutCells, widest.layoutCells,
                        "a layout cell went before the version count did")
         XCTAssertEqual(dropped.showsTransportToggle, widest.showsTransportToggle,

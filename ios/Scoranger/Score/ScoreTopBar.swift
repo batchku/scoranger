@@ -16,6 +16,9 @@ struct ScoreTopBar: View {
     let number: Int?
     let title: String
     let subtitle: String
+    /// Where the reader came from -- a set list's name, a piece's, or
+    /// "Library" -- for the way out [C6]. The bar never leaves with ✕.
+    var origin: String = "Library"
     @Binding var mode: ScoreMode
     @Binding var titleMenuOpen: Bool
     /// Which column the title band is showing. The versions dropdown opens the
@@ -55,8 +58,9 @@ struct ScoreTopBar: View {
             // of the score off it -- on a phone that left no way back at all
             // (#60). The priority and the fixed size are belt and braces over
             // ScoreBarLayout's own arithmetic.
-            barButton("xmark", label: "Close score", identifier: "score-close",
-                      action: onClose)
+            barButton("chevron.left", word: fit.showsOriginName ? origin : nil,
+                      label: "Back to \(origin)",
+                      identifier: "score-close", action: onClose)
                 .fixedSize()
                 .layoutPriority(2)
             Spacer(minLength: Theme.Metric.s8)
@@ -107,7 +111,7 @@ struct ScoreTopBar: View {
         // fits.
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
         }
     }
 
@@ -121,7 +125,7 @@ struct ScoreTopBar: View {
     /// PERFORMANCE beside it.
     private var performanceBar: some View {
         HStack(spacing: Theme.Metric.s8) {
-            barButton("xmark", label: "Leave performance mode",
+            barButton("chevron.left", label: "Leave performance mode",
                       identifier: "score-close") { mode = .read }
             Text("PERFORMANCE").typeRole(.label)
                 .foregroundStyle(Theme.Accent.clayStrong)
@@ -139,7 +143,7 @@ struct ScoreTopBar: View {
         .frame(height: Theme.Metric.scoreTopBarPerformance)
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
         }
         // .contain, or the identifier on this stack takes its children with it:
         // the bar became one element and the version control inside it did not
@@ -194,7 +198,9 @@ struct ScoreTopBar: View {
     /// always been there and reads "Leave performance mode" -- and once
     /// performance mode is on, this bar is not the bar on screen.
     private var performanceToggle: some View {
-        barButton("arrow.up.left.and.arrow.down.right", label: "Performance mode",
+        // A labelled button, glyph and word [C5]; §6 says the perform glyph
+        // never appears without its word.
+        barButton("rectangle.expand.vertical", word: "Perform", label: "Perform",
                   identifier: "score-performance",
                   active: mode == .performance) {
             mode = .performance
@@ -242,16 +248,12 @@ struct ScoreTopBar: View {
                             isCompact: isCompact || fit.layoutCells <= 2).enumerated()),
                     id: \.element) { index, option in
                 if index > 0 {
-                    Rectangle().fill(Theme.Line.line).frame(width: 1, height: 34)
+                    Theme.Rule(vertical: true).frame(height: 34)
                 }
                 layoutCell(option)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("score-layout")
     }
@@ -409,7 +411,7 @@ struct ScoreTopBar: View {
             .overlay {
                 if arrangementsOpen {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
+                        .stroke(Color.clear, lineWidth: 0)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
@@ -455,18 +457,34 @@ struct ScoreTopBar: View {
             }
     }
 
-    private func barButton(_ glyph: String, label: String, identifier: String,
-                           active: Bool = false,
+    /// A capsule control in the bar (§7.5). Glyph alone is a 34pt circle;
+    /// with a `word` it is a capsule carrying both, which is how Perform [C5]
+    /// and the way out [C6] read. The lit state is tint plus a 1.5pt clay
+    /// ring; at rest there is no border (§4).
+    private func barButton(_ glyph: String, word: String? = nil, label: String,
+                           identifier: String, active: Bool = false,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: glyph)
-                .font(.system(size: 15, weight: .regular))
+            HStack(spacing: Theme.Metric.s6) {
+                Image(systemName: glyph)
+                    .font(.system(size: 15, weight: .regular))
+                if let word {
+                    // One line, an ellipsis, and a cap: a set list called
+                    // "Tuesday at the Ship with everybody" is not allowed to
+                    // push the bar's controls off the edge [C8, C16].
+                    Text(word).typeRole(.control).lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 140, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
                 .foregroundStyle(active ? Theme.Accent.clayStrong : Theme.Ink.ink2)
-                .frame(width: 34, height: 34)
-                .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
+                .frame(minWidth: 34, minHeight: 34)
+                .padding(.horizontal, word == nil ? 0 : Theme.Metric.s12)
+                .background(active ? Theme.Accent.clayTint : Theme.Surface.well)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(active ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                        .stroke(active ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .contentShape(Rectangle())
@@ -597,8 +615,7 @@ struct ArtifactMarker: View {
         .background(kind == .notation ? Theme.Accent.clayTint : Theme.Surface.panel)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(kind == .notation ? Theme.Accent.clayBorder : Theme.Line.line2,
-                        lineWidth: 1)
+                .stroke(kind == .notation ? Theme.Accent.clayBorder : Color.clear, lineWidth: 1.5)
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
         .accessibilityElement(children: .ignore)
@@ -648,10 +665,6 @@ struct PositionCounters: View {
             .padding(.horizontal, Theme.Metric.s8)
             .padding(.vertical, 4)
             .background(Theme.Surface.panel)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
             .accessibilityIdentifier(identifier)
     }

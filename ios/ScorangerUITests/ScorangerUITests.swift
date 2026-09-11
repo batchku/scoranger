@@ -1520,16 +1520,16 @@ final class ScorangerUITests: XCTestCase {
 
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
-        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["Arrangement"].waitForExistence(timeout: 10),
                       "the arrangement sheet did not open")
-        XCTAssertTrue(app.staticTexts["SCORED FOR"].exists,
+        XCTAssertTrue(app.staticTexts["Scored for"].exists,
                       "the sheet should list what the arrangement is scored for")
         // destructive action sits in the body, last — never in the header
-        XCTAssertTrue(app.staticTexts["DANGER"].exists)
+        XCTAssertTrue(app.staticTexts["Danger"].exists)
         XCTAssertTrue(app.buttons["Delete arrangement…"].exists)
         shot("arrangement-sheet")
         goBack()
-        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["ARRANGEMENT"], timeout: 5))
+        XCTAssertTrue(waitForDisappearance(of: app.staticTexts["Arrangement"], timeout: 5))
     }
 
     func testRenameArrangementFromTheSheet() {
@@ -1659,7 +1659,7 @@ final class ScorangerUITests: XCTestCase {
 
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
-        XCTAssertTrue(app.staticTexts["SCORED FOR"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Scored for"].waitForExistence(timeout: 20))
         let first = app.buttons["part-0"]
         XCTAssertTrue(scrollTo(first, in: app.scrollViews.firstMatch),
                       "part rows should be editable")
@@ -1684,7 +1684,7 @@ final class ScorangerUITests: XCTestCase {
     func testEveryMetadataFieldIsLabelled() {
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
-        XCTAssertTrue(app.staticTexts["ARRANGEMENT"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Arrangement"].waitForExistence(timeout: 10))
         for label in ["TITLE", "COMPOSER", "ARRANGER", "SLUG"] {
             XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
         }
@@ -3057,7 +3057,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 20),
                       "the set list screen has no way to add arrangements")
         add.tap()
-        XCTAssertTrue(app.staticTexts["IN THIS SET LIST"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["In this set list"].waitForExistence(timeout: 10),
                       "the add-arrangements screen did not open")
         // the seed puts both arrangements in, so they are all members already
         XCTAssertTrue(app.buttons["picker-remove-\(firstArrangement)"].exists,

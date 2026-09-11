@@ -49,7 +49,7 @@ struct Screen<Content: View, Trailing: View>: View {
             .frame(height: Theme.Metric.scoreTopBar)
             .background(Theme.Surface.panel)
             .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                Theme.Rule()
             }
 
             ScrollView {
@@ -61,7 +61,7 @@ struct Screen<Content: View, Trailing: View>: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .background(Theme.Surface.ground)
+        .background(Theme.Surface.band)
     }
 }
 
@@ -126,7 +126,7 @@ struct ScreenRow: View {
             // column of floating text, which is most of why these screens read
             // as unfinished (L34).
             .overlay(alignment: .bottom) {
-                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                Theme.Rule()
             }
         }
         .buttonStyle(.plain)
@@ -257,7 +257,7 @@ struct NoticeBar: View {
         .padding(.horizontal, Theme.Metric.s16)
         .padding(.vertical, Theme.Metric.s12)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
         .accessibilityIdentifier("notice-bar")
     }
@@ -307,7 +307,7 @@ struct BundleOfferBar: View {
         .padding(.vertical, Theme.Metric.s8)
         .frame(minHeight: 56)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
         .accessibilityIdentifier("bundle-offer-bar")
     }
@@ -341,7 +341,7 @@ struct UndoBar: View {
         .padding(.horizontal, Theme.Metric.s16)
         .frame(height: 56)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
         .accessibilityIdentifier("undo-bar")
         .onAppear { remaining = seconds }

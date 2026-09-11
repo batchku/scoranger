@@ -36,10 +36,6 @@ struct SearchField: View {
         .padding(.vertical, 10)
         .background(Theme.Surface.paper)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
     }
 }
 
@@ -146,7 +142,6 @@ struct PageThumb: View {
         .frame(width: width, height: height, alignment: .top)
         .padding(.top, 8)
         .background(Theme.Surface.paper)
-        .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
     }
 }
 
@@ -218,7 +213,7 @@ struct RowShareButton: View {
                 .frame(width: 34, height: 34)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Theme.Line.line, lineWidth: 1)
+                        .stroke(Color.clear, lineWidth: 0)
                 )
                 .frame(width: Theme.Metric.hitTarget,
                        height: Theme.Metric.hitTarget)

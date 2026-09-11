@@ -73,7 +73,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Theme.Surface.ground.ignoresSafeArea()
+            Theme.Surface.band.ignoresSafeArea()
 
             NavigationStack(path: $libraryPath) {
                 library.navigationBarHidden(true)

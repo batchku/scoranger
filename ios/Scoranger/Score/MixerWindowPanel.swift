@@ -240,7 +240,7 @@ struct MixerWindowPanel<G: Gesture>: View {
         VStack(spacing: 0) {
             header
             if !collapsed {
-                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                Theme.Rule()
                 if let index = picking, let part = parts.first(where: { $0.index == index }) {
                     // The picker swaps the BODY and never the header, which is
                     // what keeps the ✕ alive at every size (§6). It was the
@@ -252,17 +252,13 @@ struct MixerWindowPanel<G: Gesture>: View {
                 } else {
                     rackBody
                 }
-                Rectangle().fill(Theme.Line.line).frame(height: 1)
+                Theme.Rule()
                 tempoRow
             }
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             scrubberRow
         }
         .background(Theme.Surface.panel)
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
         .modifier(PanelShadow())
         .accessibilityElement(children: .contain)
@@ -370,7 +366,7 @@ struct MixerWindowPanel<G: Gesture>: View {
         Button(action: onPark) {
             ZStack {
                 RoundedRectangle(cornerRadius: 2)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
+                    .stroke(Color.clear, lineWidth: 0)
                     .frame(width: 16, height: 12)
                 Rectangle().fill(Theme.Accent.clay)
                     .frame(width: 6, height: 5)
@@ -449,7 +445,7 @@ struct MixerWindowPanel<G: Gesture>: View {
     private var rackBody: some View {
         HStack(spacing: 0) {
             masterColumn
-            Rectangle().fill(Theme.Line.line).frame(width: 1)
+            Theme.Rule(vertical: true)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     ForEach(Array(parts.enumerated()), id: \.element.index) { position, part in
@@ -471,7 +467,7 @@ struct MixerWindowPanel<G: Gesture>: View {
     private var masterColumn: some View {
         VStack(spacing: 0) {
             masterButton("ALL\nON", identifier: "voices-all-on", on: true)
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             masterButton("ALL\nOFF", identifier: "voices-all-off", on: false)
         }
         .frame(width: MixerLayout.masterColumnWidth)
@@ -518,7 +514,7 @@ struct MixerWindowPanel<G: Gesture>: View {
             VStack(spacing: 0) {
                 ForEach(Array(parts.enumerated()), id: \.element.index) { position, part in
                     if position > 0 {
-                        Rectangle().fill(Theme.Line.line).frame(height: 1)
+                        Theme.Rule()
                     }
                     MixerChannelRow(playback: playback, part: part,
                                     label: label(for: part, at: position),
@@ -526,7 +522,7 @@ struct MixerWindowPanel<G: Gesture>: View {
                 }
                 HStack(spacing: 0) {
                     masterButton("ALL ON", identifier: "voices-all-on", on: true)
-                    Rectangle().fill(Theme.Line.line).frame(width: 1)
+                    Theme.Rule(vertical: true)
                     masterButton("ALL OFF", identifier: "voices-all-off", on: false)
                 }
                 .accessibilityElement(children: .contain)

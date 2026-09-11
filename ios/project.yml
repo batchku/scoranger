@@ -230,6 +230,18 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.8.0  NOTEBOOK, TOKENS ONLY. design/DESIGN_SYSTEM.md 12 stage 1,
+        #          from design/redesign-0.8/HANDOFF.md. Values change, shapes
+        #          do not: `band` is the ground and `panel` the page; rCtl 999
+        #          and rPage 22; the 1pt dashed rule replaces borders on
+        #          controls and solid dividers; the type ladder of 2 one step
+        #          larger and the tracked caps label retired; the #N numeral as
+        #          a clay ring stamp; knobs without their pointer [C3]; Perform
+        #          as a labelled button in the score bar [C5]; the score bar
+        #          leaves with < and the origin's name, never x [C6]; title and
+        #          subtitle one line each with an ellipsis [C16]. No page casts
+        #          a shadow. Done when the whole app reads as one notebook and
+        #          every screen still does what it did.
         #   0.7.4  WHAT THE FIRST THREE-IPAD TEST FOUND. Scope written before
         #          the work, from Ali's list of 2026-09-10 17:20:
         #            1. the library lists run full width;
@@ -317,7 +329,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 191
-        MARKETING_VERSION: 0.7.4
+        MARKETING_VERSION: 0.8.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

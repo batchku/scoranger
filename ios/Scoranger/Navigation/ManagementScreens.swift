@@ -207,7 +207,7 @@ struct SetlistScreen: View {
                 BandHeader("Running order")
                 ForEach(Array((setlist?.arrangements ?? []).enumerated()), id: \.offset) { index, member in
                     memberRow(member, at: index)
-                    Divider().overlay(Theme.Line.line)
+                    Theme.Rule()
                 }
                 BandHeader("This set list")
                 ScreenRow(title: "Add arrangements", leads: false,
@@ -334,10 +334,6 @@ struct SetlistScreen: View {
                 .padding(.horizontal, Theme.Metric.s8)
                 .padding(.vertical, 5)
                 .background(Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

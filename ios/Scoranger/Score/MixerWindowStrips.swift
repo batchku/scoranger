@@ -157,10 +157,6 @@ struct MixerMuteButton: View {
                 .padding(.horizontal, 6)
                 .frame(minWidth: 26, minHeight: MixerLayout.muteRowMinimum)
                 .background(isOn ? Theme.Surface.well : Theme.Ink.ink2)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .contentShape(Rectangle())
         }
@@ -231,10 +227,10 @@ struct MixerKnob<Centre: View>: View {
         ZStack {
             Circle()
                 .fill(Theme.Surface.panel)
-                .overlay { Circle().strokeBorder(Theme.Line.line2, lineWidth: 1) }
             arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
             arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
-            pointer(face: face)
+            // No pointer tick [C3]: the clay arc alone carries the level, and
+            // the LED in the centre is the mute.
             centre()
         }
         .frame(width: face, height: face)
@@ -325,10 +321,6 @@ struct MixerHorizontalFader: View {
                            height: MixerLayout.faderTrackWidth)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.height,
                            height: MixerLayout.capSize.width)
                     .offset(x: (geo.size.width - MixerLayout.capSize.height)
@@ -403,8 +395,7 @@ struct MixerSoundChip: View {
             .background(chosen ? Theme.Accent.clayTint : Theme.Surface.well)
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(chosen ? Theme.Accent.clayBorder : Theme.Line.line2,
-                            lineWidth: 1)
+                    .stroke(chosen ? Theme.Accent.clayBorder : Color.clear, lineWidth: 1.5)
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
             .contentShape(Rectangle())
@@ -441,10 +432,6 @@ struct MixerTempoSlider: View {
                            height: MixerLayout.tempoTrackHeight)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.height,
                            height: MixerLayout.capSize.width)
                     .offset(x: (geo.size.width - MixerLayout.capSize.height)
@@ -482,10 +469,6 @@ struct MixerScrubber: View {
                     .frame(width: geo.size.width * fraction, height: 4)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.width,
                            height: MixerLayout.capSize.height * 1.6)
                     .offset(x: (geo.size.width - MixerLayout.capSize.width)
@@ -535,12 +518,12 @@ struct MixerSoundPicker: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             GeometryReader { geo in
                 if geo.size.width >= 380 {
                     HStack(spacing: 0) {
                         families.frame(width: MixerLayout.pickerFamilyWidth)
-                        Rectangle().fill(Theme.Line.line).frame(width: 1)
+                        Theme.Rule(vertical: true)
                         instruments(in: family ?? current.bank.defaultFamily)
                     }
                 } else if let chosen = family {
@@ -550,7 +533,7 @@ struct MixerSoundPicker: View {
                 }
             }
             .frame(minHeight: 132, maxHeight: 190)
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             footer
         }
         .accessibilityElement(children: .contain)

@@ -171,7 +171,6 @@ struct AnnotationBar: View {
         .padding(.vertical, Theme.Metric.s6)
         .background(Theme.Surface.panel)
         .clipShape(Capsule())
-        .overlay { Capsule().stroke(Theme.Line.line2, lineWidth: 1) }
         .modifier(InkBarShadow())
         .background {
             GeometryReader { geo in
@@ -209,7 +208,7 @@ struct AnnotationBar: View {
     }
 
     private var separator: some View {
-        Rectangle().fill(Theme.Line.line2).frame(width: 1, height: 20)
+        Theme.Rule(vertical: true).frame(height: 20)
             .padding(.horizontal, Theme.Metric.s2)
     }
 
@@ -230,7 +229,7 @@ struct AnnotationBar: View {
                     }
                 }
                 .overlay {
-                    Circle().stroke(active ? Theme.Ink.ink : Theme.Line.line2,
+                    Circle().stroke(active ? Theme.Ink.ink : Color.clear,
                                     lineWidth: active ? 2 : 1)
                 }
                 .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)

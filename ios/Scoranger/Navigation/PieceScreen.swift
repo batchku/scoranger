@@ -35,7 +35,7 @@ struct PieceScreen: View {
                 ForEach(Array(piece.arrangements.enumerated()), id: \.offset) { index, slug in
                     if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
                         arrangementRow(score, number: index + 1)
-                        Divider().overlay(Theme.Line.line)
+                        Theme.Rule()
                     }
                 }
 
@@ -47,12 +47,12 @@ struct PieceScreen: View {
                            identifier: "piece-composer") { v in
                     Task { _ = await state.setPieceMetadata(piece.slug, composer: v) }
                 }
-                Divider().overlay(Theme.Line.line)
+                Theme.Rule()
                 PieceField(label: "Arranger", value: piece.arranger ?? "",
                            identifier: "piece-arranger") { v in
                     Task { _ = await state.setPieceMetadata(piece.slug, arranger: v) }
                 }
-                Divider().overlay(Theme.Line.line)
+                Theme.Rule()
                 PieceField(label: "Tags", value: (piece.tags ?? []).joined(separator: ", "),
                            hint: "Serbia, Bulgaria", identifier: "piece-tags") { v in
                     let tags = v.split(separator: ",")
@@ -373,8 +373,7 @@ struct RowMenuButton: View {
                 .background(isOpen ? Theme.Accent.clayTint : Theme.Surface.panel)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(isOpen ? Theme.Accent.clay : Theme.Line.line2,
-                                lineWidth: 1)
+                        .stroke(isOpen ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)

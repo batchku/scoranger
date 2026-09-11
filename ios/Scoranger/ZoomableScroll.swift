@@ -115,7 +115,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
         scroll.bouncesZoom = true
-        scroll.backgroundColor = UIColor(Theme.Surface.ground)
+        scroll.backgroundColor = UIColor(Theme.Surface.band)
         // .always, not .never: without it the scroll view contributes no
         // safe-area inset and the score runs under the status bar as soon as
         // you scroll. Our own centring inset is added on top of it.

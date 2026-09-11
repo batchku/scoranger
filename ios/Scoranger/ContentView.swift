@@ -218,7 +218,7 @@ struct ContentView: View {
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
                                onSetlists: { scoreScreen = .setlists })
-                .background(Theme.Surface.ground)
+                .background(Theme.Surface.band)
                 .accessibilityIdentifier("score-options")
         case .setlists:
             // The pieces list's own screen (Route.setlistsFor -> this same
@@ -237,7 +237,7 @@ struct ContentView: View {
                 // is the one thing §16 is trying to avoid.
                 SetlistsForScreen(slug: score.slug,
                                   onBack: { scoreScreen = .options })
-                    .background(Theme.Surface.ground)
+                    .background(Theme.Surface.band)
             }
         case .details:
             if let score = state.selectedScore {
@@ -248,17 +248,17 @@ struct ContentView: View {
                        onBack: { scoreScreen = .options }) {
                     ScoreInfoView(score: score)
                 }
-                .background(Theme.Surface.ground)
+                .background(Theme.Surface.band)
             }
         case .settings:
             Screen(title: "Settings", backLabel: "Options",
                    onBack: { scoreScreen = .options }) {
                 SettingsView()
             }
-            .background(Theme.Surface.ground)
+            .background(Theme.Surface.band)
         case .chatModel:
             ChatModelScreen(onBack: { scoreScreen = nil })
-                .background(Theme.Surface.ground)
+                .background(Theme.Surface.band)
         }
     }
 
@@ -269,6 +269,7 @@ struct ContentView: View {
                             .flatMap { state.placement(of: $0.slug)?.number },
                         title: scoreTitle,
                         subtitle: scoreSubtitle,
+                        origin: scoreOrigin,
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
@@ -306,7 +307,7 @@ struct ContentView: View {
                                   available: scoreHeight)
             }
             ZStack(alignment: .top) {
-                Theme.Surface.ground
+                Theme.Surface.band
                 canvasLayer
                 overlayLayer
                 // The two menus the top bar opens. Plain children of the
@@ -468,7 +469,7 @@ struct ContentView: View {
                                  lanesInset: mixerLaneInset)
             }
         }
-        .background(Theme.Surface.ground)
+        .background(Theme.Surface.band)
         // #59: the music is not resized by a text field taking focus. The
         // avoidance inset is a safe-area inset on the WHOLE screen -- the
         // canvas lost the keyboard's height and the page re-fitted to what was
@@ -539,6 +540,20 @@ struct ContentView: View {
         return ScoreTitle.display(title: score.title, name: score.name,
                                   slug: score.slug, pieceName: piece?.name,
                                   parts: (state.displayedVersion?.parts ?? []).map(\.name))
+    }
+
+    /// Where the reader came from, for the bar's way out [C6]: the set list
+    /// being played, else the arrangement's piece, else the library itself.
+    private var scoreOrigin: String {
+        if let slug = state.currentSetlist,
+           let setlist = state.manifest?.setlists?.first(where: { $0.slug == slug }) {
+            return setlist.name
+        }
+        if let score = state.selectedScore,
+           let piece = state.placement(of: score.slug)?.piece {
+            return piece.name
+        }
+        return "Library"
     }
 
     private var scoreSubtitle: String {
@@ -771,10 +786,6 @@ struct ContentView: View {
                             .fixedSize()
                             .padding(.vertical, Theme.Metric.s4)
                             .padding(.horizontal, Theme.Metric.s6)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                    .stroke(Theme.Line.line2, lineWidth: 1)
-                            }
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
