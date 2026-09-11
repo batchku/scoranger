@@ -40,11 +40,7 @@ final class ContinuousFollows: XCTestCase {
         let continuous = app.descendants(matching: .any)["layout-continuous"].firstMatch
         guard continuous.waitForExistence(timeout: 30) else { return XCTFail("no continuous layout control") }
         continuous.tap()
-        let canvas = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-")).firstMatch
-        guard canvas.waitForExistence(timeout: 60) else { return XCTFail("no strip canvas") }
-        sleep(2)
-        let before = canvas.frame.minX
+        sleep(3)
 
         let play = app.buttons["transport-play"]
         guard play.waitForExistence(timeout: 60) else { return XCTFail("no transport") }
@@ -57,22 +53,22 @@ final class ContinuousFollows: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [playing], timeout: 20), .completed,
                        "playback did not start")
 
-        // Long enough for the line to reach the park point and the score to
-        // start moving behind it, at the default 120 bpm.
-        sleep(14)
-        let after = canvas.frame.minX
-        print("DIAG strip minX before \(before) after \(after)")
-        XCTAssertLessThan(after, before - 100,
-                          "the strip did not scroll: canvas minX \(before) -> \(after)")
-
-        // And the line is parked: a quarter of the way in, give or take a bar.
+        // THE WITNESS IS THE LINE. If the score streams past it, the handle
+        // stands near the park point -- a quarter of the glass in -- and stays
+        // there between two readings. If the score does NOT scroll, the line
+        // travels across the glass and the two readings differ by whole bars.
         let handle = app.descendants(matching: .any)["playhead-handle"]
-        if handle.exists {
-            let window = app.windows.firstMatch.frame
-            let fraction = (handle.frame.midX - window.minX) / window.width
-            print("DIAG handle at \(fraction) of the window width")
-            XCTAssertEqual(fraction, 0.25, accuracy: 0.12,
-                           "the line is not parked near a quarter in: \(fraction)")
-        }
+        guard handle.waitForExistence(timeout: 20) else { return XCTFail("no play head handle") }
+        let window = app.windows.firstMatch.frame
+        // Long enough at 120 bpm for the line to reach the park point.
+        sleep(14)
+        let first = (handle.frame.midX - window.minX) / window.width
+        sleep(5)
+        let second = (handle.frame.midX - window.minX) / window.width
+        print("DIAG handle at \(first) then \(second) of the window width")
+        XCTAssertEqual(first, 0.25, accuracy: 0.12,
+                       "the line is not parked near a quarter in: \(first)")
+        XCTAssertEqual(second, first, accuracy: 0.06,
+                       "the line moved across the glass (\(first) -> \(second)): the score is not scrolling")
     }
 }
