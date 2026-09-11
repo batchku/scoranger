@@ -757,7 +757,6 @@ struct ScorePagesView: View {
                                     page: state.geometry?.page(0),
                                     scale: engraved,
                                     surfaceWidth: surface.width,
-                                    viewportWidth: visibleRect.width,
                                     isFollowing: state.pageFollow.isFollowing,
                                     scroller: scroller,
                                     showsHandle: mode != .performance,
@@ -1223,13 +1222,14 @@ final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
 /// Drawing a line fixed to the viewport instead would need the two to agree
 /// about the scroll offset every frame, and they would not.
 private struct ContinuousPlayheadLayer: View {
+    /// Rate limit for the "not following" log line.
+    nonisolated(unsafe) static var lastFollowLog = Date.distantPast
     @ObservedObject var playback: PlaybackEngine
     /// The strip's engraving: one page, the whole score.
     let page: ScorePage?
     /// Surface points per unit of the engraving's own coordinates.
     let scale: CGFloat
     let surfaceWidth: CGFloat
-    let viewportWidth: CGFloat
     /// False once the reader has scrolled: the line keeps moving, the score
     /// stops being taken away from them.
     let isFollowing: Bool
@@ -1353,10 +1353,21 @@ private struct ContinuousPlayheadLayer: View {
     /// shown where they landed.
     private func follow() {
         guard scrubbed == nil, isFollowing, playback.isPlaying, let position
-        else { return }
-        scroller.follow(to: Playhead.stripOffset(playheadX: position.x * scale,
-                                                 viewportWidth: viewportWidth,
-                                                 surfaceWidth: surfaceWidth))
+        else {
+            // Which gate closed, about once a second, so a strip that does not
+            // scroll can say why from the device log.
+            let now = Date()
+            if now.timeIntervalSince(Self.lastFollowLog) > 1 {
+                Self.lastFollowLog = now
+                Logger(subsystem: "com.irllabs.scoranger", category: "follow").notice(
+                    "not following: scrubbed=\(scrubbed.map(String.init) ?? "nil", privacy: .public) isFollowing=\(isFollowing, privacy: .public) playing=\(playback.isPlaying, privacy: .public) position=\(position == nil ? "nil" : "ok", privacy: .public) page=\(page == nil ? "nil" : "ok", privacy: .public) beat=\(playback.beat, privacy: .public)")
+            }
+            return
+        }
+        // Only WHERE the line is. The scroll view turns that into an offset
+        // from its live bounds; the cached viewport this used to pass could
+        // be zero and stayed zero (CanvasScroller).
+        scroller.follow(playheadX: position.x * scale)
     }
 }
 

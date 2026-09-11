@@ -1,5 +1,9 @@
+import OSLog
 import SwiftUI
 import UIKit
+
+/// Rate limit for the park log line (a generic class cannot hold a static).
+private nonisolated(unsafe) var zoomableScrollLastParkLog = Date.distantPast
 
 /// A scroll view that reports its own resizes.
 ///
@@ -511,13 +515,23 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// that has gone cannot be moved by a sound that is still playing.
         func installScroller(_ scroller: CanvasScroller?) {
             guard scroller !== self.scroller else { return }
-            self.scroller?.move = nil
+            if let previous = self.scroller, previous !== scroller { previous.uninstall(owner: self) }
             self.scroller = scroller
-            scroller?.move = { [weak self] x in
-                guard let scroll = self?.scroll else { return }
-                let zoomed = x * scroll.zoomScale
-                let furthest = max(scroll.contentSize.width - scroll.bounds.width, 0)
-                let clamped = min(max(zoomed, -scroll.contentInset.left), furthest)
+            scroller?.install(owner: self) { [weak self] playheadX in
+                guard let scroll = self?.scroll, scroll.bounds.width > 0 else { return }
+                // The LIVE viewport and content size, read here at the moment
+                // of the move -- never a cached width. See CanvasScroller for
+                // the stuck state a cached zero produced.
+                let offset = Playhead.stripOffset(playheadX: playheadX * scroll.zoomScale,
+                                                  viewportWidth: scroll.bounds.width,
+                                                  surfaceWidth: scroll.contentSize.width)
+                let clamped = max(offset, -scroll.contentInset.left)
+                let now = Date()
+                if now.timeIntervalSince(zoomableScrollLastParkLog) > 1 {
+                    zoomableScrollLastParkLog = now
+                    Logger(subsystem: "com.irllabs.scoranger", category: "follow").notice(
+                        "park: playheadX=\(playheadX, privacy: .public) zoom=\(scroll.zoomScale, privacy: .public) bounds=\(scroll.bounds.width, privacy: .public) content=\(scroll.contentSize.width, privacy: .public) offset=\(clamped, privacy: .public) current=\(scroll.contentOffset.x, privacy: .public)")
+                }
                 guard abs(clamped - scroll.contentOffset.x) > 0.5 else { return }
                 // NOT animated, and NOT setContentOffset(animated:): at twenty
                 // a second each animation is overtaken by the next and the
@@ -526,7 +540,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             }
         }
 
-        deinit { scroller?.move = nil }
+        deinit { scroller?.uninstall(owner: self) }
 
         /// A hand on the score. UIScrollView calls this only for a real drag,
         /// which is exactly the distinction the follow gate needs -- every move
