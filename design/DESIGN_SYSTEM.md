@@ -1,139 +1,186 @@
-# Scoranger design system — "instrument panel"
+# Scoranger design system — "Notebook" (0.8)
 
-Approved direction: **1A 2B 3A 4B 5C 6A 7A**. This document is the spec; the
-combined look is in `scoranger-system.html` and `png/system-*.png`. No app code
-has been changed yet.
+This document is the spec for 0.8. The drawings it describes are
+`design/redesign-0.8/notebook-spec.html` (56 frames: every screen and every
+panel state, iPad and phone), and the CSS layer that produces them is
+`design/redesign-0.8/notebook.css`. The tokens in
+`ios/Scoranger/DesignSystem/Theme.swift` follow this file.
 
-The direction in one line: *a warm paper-and-clay instrument panel, score-first,
-with the arrangement numeral as the app's identity.*
+It supersedes the "instrument panel" direction of 0.5–0.7 (kept in git history
+at this path). The owner's verdict on that direction, from the 0.8 brief: too
+square, too many hard edges, band headers that read as machine labels, menus
+that open to half a screen for three rows, and disclosures that push the page
+down. The palette survives unchanged; the forms do not.
 
-- **Paper & Clay** — warm off-white surfaces, near-black ink, one burnt-clay accent.
-- **Space Grotesk** for titles and the `#N` numerals, **Inter** for everything read
-  as prose, **IBM Plex Mono** for every machine value.
-- **Compressed, weight-driven** ladder: 10–34pt, hierarchy from weight and
-  tracked-out caps labels rather than size jumps.
-- **Instrument panel** surfaces: flat fills, hard 1pt edges, 2–3pt corners,
-  silkscreen band headers, chunky square toggles, the engine state as a real LED.
-- **Score first**: the score is the permanent ground; the library and chat slide
-  over it; every canvas control collapses into one pill.
-- **Light only.** No dark mode, no OS-following palette.
+The direction in one line: *a rehearsal notebook on a warm table — one or two
+paper-coloured pages with soft corners, dashed rules, capsule controls, the
+arrangement numeral stamped in a clay ring, and everything you open beside the
+thing you opened it from, never below it.*
+
+- **Paper & Clay**, unchanged: warm off-white surfaces, near-black ink, one
+  burnt-clay accent. Light only.
+- **Space Grotesk** for anything that names a thing, **Inter** for anything you
+  read, **IBM Plex Mono** for every machine value. The ladder is one step larger
+  than 0.7 at every rung the owner called hard to read.
+- **Capsules and pages.** Every control is a capsule (radius 999); every screen
+  is one or two pages with 22pt top corners on a `band` table.
+- **Score first.** The score is the ground. One bar above, one tray below, a
+  thumbnail rail at the left, the panel at the right. Performance mode removes
+  all four.
+- **Beside, not below.** The next level of anything opens in the right panel at
+  the height of the row that opened it. A row's own actions open inside the
+  row. Nothing pops up at the bottom, nothing pushes the page down, nothing
+  needs closing that did not announce itself as a page.
+
+---
+
+## 0. The sixteen rules from review
+
+The owner reviewed option 8 and draft 1 of the spec with annotated
+screenshots. Each finding became a rule; they are marked `[Cn]` in
+`notebook.css` and in the spec's captions. They are binding.
+
+| # | Rule |
+|---|---|
+| C1 | The right panel is `panel`, never white. `paper` is the score page and the inside of a text field, nothing else. |
+| C2 | No tab column on the panel. The panel shows what the tapped row opened, headed by its name, and closes with Done or with the row's ✕. |
+| C3 | Knobs have no pointer tick. The clay arc alone carries the level; the LED is the centre of the dial and the mute. |
+| C4 | A selected row is a flat tint band the width of the page: no ring, no radius, no indent. Its contents do not move when selected. |
+| C5 | Performance mode is a labelled button, "Perform", in the score bar's right group. |
+| C6 | The score bar leaves with ‹ and the name of where you came from (set list, piece, or Library). Never ✕. |
+| C7 | The search field's label is one line and the field is never narrower than 240pt. When the panel is open, the tool row gives search the first line and the buttons the second. |
+| C8 | Nothing is cut off. When the panel opens the page lays itself out again at the narrower width: tool rows wrap, meta text ends in an ellipsis, the ☰ stays inside the page. |
+| C9 | Filters come from the data model: type (MusicXML, PDF, MIDI, photo), composer, instrument, tag, status. Capsules with counts, grouped, several at once. |
+| C10 | Every library row carries two dates in mono: changed (with its version) and added (its first version). Sort offers Date added. |
+| C11 | Selection starts from Edit in the tool row or a long press on any row, which enters Edit with that row checked. |
+| C12 | A book has a full-width filmstrip of every page under the spread, with a scrub bar. |
+| C13 | A dashed rule never doubles: a block that follows a row takes the row's rule. |
+| C14 | Arrangement Details has a Tags field. Piece tags and arrangement tags are both filterable. |
+| C15 | The chat compose field grows with the prompt and has a grab bar to drag it taller, up to half the panel. |
+| C16 | In the score bar the title and its subtitle are one line each and end in an ellipsis when the panel narrows the bar. |
 
 ---
 
 ## 1. Colour
 
-Three colours, in the sense that matters: one neutral family, one ink family, one
-accent. Everything else on this list is a system signal, not part of the palette,
-and may never be used decoratively.
+Unchanged from 0.7 in value. Changed in role: `band` becomes the app's ground,
+`panel` becomes the page, and `ground` is retired.
 
 ### Surfaces
 
-| Token | Hex | Where |
+| Token | Hex | Where in 0.8 |
 |---|---|---|
-| `paper` | `#FFFFFF` | The score page. Nothing else in the app is pure white. |
-| `ground` | `#F4F0E8` | The canvas the page sits on; the app's base colour. |
-| `panel` | `#FAF7F1` | Overlay panels, sheets, alerts, the pill, cards. |
-| `well` | `#EFEAE0` | Inset areas: self-test output, the displayed-version row, stepper cells. |
-| `band` | `#F1ECE2` | Section header strips and sheet/alert footers only. |
+| `paper` | `#FFFFFF` | The score page, and the inside of a text field. Nothing else. |
+| `band` | `#F1ECE2` | **The table**: the app's base colour behind every page. |
+| `panel` | `#FAF7F1` | Pages: the list page, the right panel, the tray, the ink tools. |
+| `well` | `#EFEAE0` | Controls at rest: capsule buttons, the segment track, chips. |
+| `ground` | `#F4F0E8` | Retired. Keep the token one release for the transition; no new use. |
 
 ### Ink
 
-| Token | Hex | Contrast on `panel` | Rule |
-|---|---|---|---|
-| `ink` | `#1A1917` | 15.0:1 | Titles, body, row names, pen black. |
-| `ink2` | `#6B655C` | 5.5:1 | Secondary prose, label column in sheets, mono values. |
-| `ink3` | `#8A8378` | 3.5:1 | **Supplementary only** — meta lines ≥11pt, carets, counts, separators. Never the only place information appears. |
+| Token | Hex | Rule |
+|---|---|---|
+| `ink` | `#1A1917` | Titles, names, body, keys. |
+| `ink2` | `#6B655C` | Secondary prose, mono values, the tempo arc. |
+| `ink3` | `#8A8378` | Supplementary only, at 12pt and above: meta lines, counts, dates, placeholders. Never the only place information appears. |
 
 ### Accent
 
-| Token | Hex | Contrast on `panel` | Rule |
-|---|---|---|---|
-| `clay` | `#CC5C2E` | 3.9:1 | `#N` numerals, active icons, focus/selection outlines, progress fill. Text only at **≥15pt semibold**. |
-| `clayStrong` | `#A8481F` | 5.4:1 | All small accent text: the 10pt caps band labels, inline accent words. |
-| `clayPress` | `#B14D22` | 5.3:1 vs white | Fill for primary buttons carrying 13pt labels, and pressed states. |
-| `clayTint` | `#F7E7DD` | — | Selected row fill, the user's chat bubble, active pill button. |
-
-`clay` on `clayTint` is 3.3:1 — fine for the numeral, not for 13pt text.
+| Token | Hex | Rule |
+|---|---|---|
+| `clay` | `#CC5C2E` | The numeral's ring and digits, knob arcs, the current thumbnail's ring, the scrub handle, the performance tab, the field focus ring. Text only at ≥15pt semibold. |
+| `clayStrong` | `#A8481F` | All small accent text: the alphabet letters, the lit button's label, back buttons, a link word in a note. |
+| `clayPress` | `#B14D22` | Primary button fill (Open, Play, Add, Convert, Save as vNNN) and the play button. |
+| `clayTint` | `#F7E7DD` | Selected row band, the lit control, the current panel item, the user's chat bubble, an inline confirmation block. |
 
 ### System status — outside the budget
 
-| Token | Hex | Use |
-|---|---|---|
-| `ok` | `#3BA05C` | Engine LED, completed op ticks, self-test pass. |
-| `warn` | `#C8791B` | Range warnings. Always paired with `ink` text; 3.2:1 makes it an icon colour, not a text colour. |
-| `danger` | `#C0392B` | Delete buttons, error bubbles, unreachable LED. |
-| `highlight` | `#FFE25A` @ 40% | The passage band over the engraving. |
-| pen inks | `#D64B3F` `#2A6BD6` `#2E9159` `#E08A25` `ink` | Pencil markup. Fixed; the user's marks are content. |
+Unchanged: `ok #3BA05C` (knob LEDs while a part sounds, the engine LED),
+`warn #C8791B` (the OMR DRAFT chip's text), `danger #C0392B` (destructive
+labels and the Delete confirm button), `highlight`, and the five pen inks.
 
 Rules:
 
-1. One accent per screen region. If clay is already carrying the numeral, the
-   surrounding chrome stays ink and line.
-2. Selection is `clayTint` fill **plus** a 1pt `clay` outline inset by 1pt — the
-   fill alone is too quiet on a warm ground.
-3. Never tint the score page. Engraving colour belongs to Verovio.
+1. One accent per region. A lit capsule (tint + 1.5pt clay ring) marks the one
+   control whose panel is open; nothing else in that row is clay.
+2. Selection is `clayTint` alone, edge to edge, no outline [C4].
+3. Never tint the score page.
 
 ---
 
 ## 2. Typography
 
-Three families, bundled with the app (~1.1 MB total, variable where available).
-No serif anywhere. SF Pro is not used.
+Three families, bundled. No serif, no SF Pro.
 
-| Role | Family | Size / weight | Tracking | Where |
-|---|---|---|---|---|
-| `numeralXL` | Space Grotesk 700 | 34 / lh 0.86 | −0.02em | The numeral on the score page. |
-| `numeralL` | Space Grotesk 700 | 21 | −0.02em | Library rows, sheet headers. |
-| `numeralM` | Space Grotesk 700 | 17 | −0.01em | Chat header, the pill. |
-| `title` | Space Grotesk 600 | 17 | −0.01em | Sheet titles, alert titles, chat subject. |
-| `titleS` | Space Grotesk 600 | 15 | −0.01em | Piece names, page title, state titles. |
-| `row` | Inter 500 | 13.5 | 0 | Arrangement and piece row names. |
-| `body` | Inter 400 | 13 / lh 1.45 | 0 | Chat prose, alert bodies, descriptions. |
-| `control` | Inter 600 | 13 | 0 | Buttons, Done, Cancel. |
-| `label` | Inter 700 | 10 | +0.11em, uppercase | Band headers, card headers, bubble authorship. |
-| `meta` | Inter 400 | 11 | 0 | Part lists, counts, subtitles. |
-| `data` | IBM Plex Mono 400/500 | 11 | −0.01em, tabular | Version ids, slugs, ranges, bar numbers, build stamp, keys, hostnames. |
-| `dataS` | IBM Plex Mono 400 | 10.5 | 0 | Step counts, footers. |
+| Role | Family | Size / weight | Where |
+|---|---|---|---|
+| `screenTitle` | Space Grotesk 700 | 28 / lh 1, −0.025em | "Library" on its page. |
+| `headTitle` | Space Grotesk 700 | 26 / lh 1.1, −0.02em | Piece, set list, arrangement and book names on their screens. |
+| `panelTitle` | Space Grotesk 700 | 20 / lh 1.1, −0.02em | The right panel's header. |
+| `stamp` | Space Grotesk 700 | 15 in a 40pt ring; 22 in 56; 12 in 30 | The `#N` numeral, −0.03em, tabular. |
+| `rowName` | Space Grotesk 600 | 16 / lh 1.2, −0.01em | Row names. |
+| `barTitle` | Space Grotesk 600 | 16 | The score bar's title; one line, ellipsis [C16]. |
+| `key` | Space Grotesk 600 | 15.5 | The key column of a key/value row; settings index items. |
+| `panelItem` | Inter 500 | 14.5 | Items in the panel. |
+| `body` | Inter 400 | 14 / lh 1.45 | Chat prose, notes under controls, empty states. |
+| `control` | Inter 600 | 13.5 | Capsule labels. 12.5 inside a row's actions and in the panel's tool row. |
+| `meta` | Inter 400 | 12.5 | Meta lines under a row name. |
+| `data` | IBM Plex Mono 500 | 12 | Versions, bars, counts, dates, keys, hostnames. |
+| `knobLabel` | Inter 600 | 9.5 | Under a knob; the level beside it in mono 9.5. The one exception to the 12pt floor, carried by VoiceOver. |
 
 Rules:
 
-1. **All numerals that are handles are Space Grotesk 700, tabular.** `#2` is a
-   handle. `14 versions` is not — that is `meta`.
-2. **Every machine value is mono.** Version ids, op names, pitches, measure
-   ranges, slugs, model aliases, file names, the build stamp. If the user could
-   type it into chat verbatim, it is mono.
-3. **Caps labels earn their tracking.** 10pt/700/+0.11em, `clayStrong`, never
-   longer than three words, never a sentence.
-4. Only one size step exists between adjacent levels; if something needs to
-   stand out, change weight, not size. That is the whole point of 3A.
-5. Dynamic Type: sizes above are the `.large` values, declared with
-   `Font.custom(..., size:, relativeTo:)` — `numeral*` → `.title`, `title*` →
-   `.headline`, `row/body/control` → `.body`, `label/meta/data` → `.caption`.
-   Rows grow with the text; the pill and the page numeral cap at +2 steps so the
-   canvas never loses the score.
+1. Space Grotesk names things; Inter is read; anything the user could type into
+   chat verbatim is mono.
+2. The tracked-out 10pt caps `label` role of 0.7 is retired. Section labels in
+   the panel are Inter 600 12 `ink3`, sentence case, with a dashed rule between
+   blocks.
+3. Sentences are notes, not labels. A control's label is one or two words; the
+   explanation is a `body` note in `ink2` under it (§7.9).
+4. Dynamic Type through AX3, declared with `relativeTo:`. At AX1 and above: the
+   knob group and the thumbnail rail become scrolling lists; a row's inline
+   actions wrap to a second line inside the row; the panel scrolls.
 
 ---
 
 ## 3. Space, size, hit targets
 
-Ladder: **2, 4, 6, 8, 12, 16, 20, 24, 32**. Nothing between.
+Ladder: **2, 4, 6, 8, 10, 12, 16, 22, 24**.
 
 | Thing | Value |
 |---|---|
-| Panel padding (horizontal) | 14 |
-| Row padding | 7 × 14, `minHeight` 36 |
-| Version row | 4 × 14, indent 42; step row indent 64 |
-| Band header | 5 × 14 above, 4 below |
-| Sheet row | 9 × 14, `minHeight` 40 |
+| Table margin (edge of screen to a page) | 16 |
+| Page padding (horizontal) | 24 |
+| Panel padding (horizontal) | 22 |
+| Gap between the page and the panel | 10 |
+| Panel width | 380 (iPad); full width, pushed, on phone |
+| Row | 64 minimum; 8 vertical padding; grid: stamp 40 · thumb · name 1fr · dates · ☰ |
+| Ordered row | adds a 28pt right-aligned ordinal before the stamp |
+| Control height | 40 (44 hit area); 36 inside a row's actions; 32 in the panel's tool row |
+| Bar (score) | 56 |
+| Tray (score) | **56, always** |
+| Thumbnail rail | 60 wide; thumbnails 40 × 52, 6 apart |
+| Book filmstrip | thumbnails 20 × 27, 3 apart; scrub bar 4pt with a 16pt handle |
+| Knob | 32pt dial in a 44pt group; 14pt of drag per unit |
+| Settings index | 300 wide (iPad) |
 | Gap between sibling controls | 8 |
-| Gap between blocks | 12 |
-| Library overlay width | 320 |
-| Chat overlay width | 380 |
-| Score page width | 520; 436 when both overlays are open |
-| Pill height | 50 (38pt buttons + 6 padding) |
+| Gap between panel blocks | 12, with the dashed rule |
 
-Every tappable thing gets a **44 × 44** hit area via `contentShape`, even when it
-draws at 26 or 34. Rows already do this; icon buttons must.
+Every tappable thing gets a 44 × 44 hit area via `contentShape`.
+
+### Centring
+
+Inside a capsule, text and glyph centre on the capsule's geometric centre with
+line-height 1 and a 1pt optical lift on lowercase labels. A stamp's numeral
+centres 1pt left of the ring's centre because of the hash. A knob's LED is the
+dial's exact centre and the label centres under the dial. A panel block that
+belongs to a row opens with its title on the row's centre line.
+
+### Travel
+
+A row's own actions replace its meta line inside the row, so the finger moves
+along the row, never off it. The next level opens beside, at the row's height.
+Nothing opens below the row that was tapped.
 
 ---
 
@@ -141,226 +188,265 @@ draws at 26 or 34. Rows already do this; icon buttons must.
 
 | Token | Value | Use |
 |---|---|---|
-| `line` | 1pt `#E2DBCE` | Separators inside a panel. |
-| `line2` | 1pt `#CFC6B6` | Panel edges, control borders, band top/bottom. |
-| `rCtl` | 2pt | Buttons, chips, toggles, fields, icon buttons. |
-| `rPanel` | 3pt | Panels, sheets, alerts, cards. |
-| `rPill` | 999 | The pill and the ink bar — the only round things in the app. |
-| `ePanel` | y10 b34 `rgba(26,25,23,.14)` | Library and chat overlays. |
-| `ePill` | y6 b20 `rgba(26,25,23,.16)` | Pill, ink bar, highlight chip. |
-| `eSheet` | y20 b60 `rgba(26,25,23,.22)` | Sheets and alerts. |
-| dim | `rgba(26,25,23,.34)` | Behind sheets and alerts. |
+| `rCtl` | 999 | Every button, field, chip, segment, panel item, settings index item. |
+| `rPage` | 22 | Top corners of the list page, the panel and the tray. Pages run off the bottom of the table. |
+| `rInner` | 14 | The scroll-mode score strip; message bubbles (16, with a 6pt corner toward the author). |
+| `rScore` | 6 | A score page. 3 for a thumbnail, 2 for a filmstrip thumbnail. |
+| `rule` | 1pt dashed `line2` | Under rows, under key/value rows, between panel blocks. The only line in the app [C13: never doubled]. |
+| `ring` | 2.5pt `clay` | The stamp. 3pt at 56, 2pt at 30. |
+| `focus` | 1.5pt `clay` inset | A focused field, a lit capsule. |
+| shadow | `0 2 10 rgba(26,25,23,.12)` | Only on the two things that float over the score: the ink tools and the selection chip. |
 
-Shadows exist **only** on things that float over the score. Everything anchored
-is flat and separated by a line. No gradients, no inner glows, no blur — the one
-translucency in the app is the highlight band.
+No borders on controls. No shadows on pages. No gradients except the knob's
+conic arc and the fade at the end of an overflowing knob group.
 
 ---
 
 ## 5. Motion
 
-| Move | Duration | Curve |
+| Move | Duration | Rule |
 |---|---|---|
-| Overlay in / out | 220ms | `.spring(response:0.32, dampingFraction:0.86)`, slide + no fade |
-| Page re-centring when an overlay opens | same, matched | the page **never resizes mid-animation**; the centring inset animates |
-| Pill button state | 120ms | `.snappy` |
-| Ink bar appear | 160ms | scale 0.96 → 1 from the pill |
-| Row disclosure | 180ms | `.easeOut` |
-| Version becoming current | 240ms | `clayTint` flash, then settle |
-| Spinner | 1s linear | 2pt ring, clay leading edge |
+| Panel in / out | 220ms spring | The page narrows on the same curve and lays out again at the new width [C8]; rows do not reflow, text truncates. |
+| Row actions | 120ms | Meta fades out, actions fade in; the row's height does not change. |
+| Tray | none | The tray never animates its height. Performance mode slides the tray off the bottom and the bar off the top together, 220ms. |
+| Knob | live | Arc follows the finger; the LED changes instantly. |
+| Inline confirm | 160ms | The destructive row becomes the tinted block in place. |
+| Filmstrip scrub | live | Thumbnails ring under the finger; the spread lands on lift. |
 
-`prefers-reduced-motion` / Reduce Motion: overlays cross-fade in 120ms, nothing
-slides, the spinner stays.
+Reduce Motion: cross-fades at 120ms, nothing slides.
 
 ---
 
 ## 6. Iconography
 
-SF Symbols, `.medium` weight, `.regular` for row-level 13pt glyphs. Sizes: 16pt
-in the pill, 15pt in the ink bar, 13pt in rows and sheets. One glyph per idea and
-the same glyph everywhere: `line.3.horizontal` library, `bubble.left.and.text.bubble.right`
-chat, `gearshape` options, `pencil.tip` markup, `eraser`, `arrow.uturn.backward`,
-`info.circle` details, `plus` add, `xmark` dismiss, `chevron.right` disclosure,
-`circle.fill` displayed-version marker, `checkmark`/`exclamationmark.triangle`
-op results. The engine LED is a drawn circle with a 3pt halo, not a symbol.
+SF Symbols, `.medium`. 16pt in the bar and tray, 14 in rows and the panel.
+One glyph per idea, the same everywhere: `line.3.horizontal` row menu (☰),
+`xmark` the open row's close, `chevron.left` back, `chevron.right` opens
+beside, `plus`, `square.and.arrow.up` share/send, `magnifyingglass`,
+`arrow.up.arrow.down` sort, `line.3.horizontal.decrease` filter,
+`checkmark.circle` edit/select, `pencil.tip` pencil, `lasso` select,
+`bubble.left.and.text.bubble.right` chat, `rectangle.expand.vertical` perform
+(always with its word), `ellipsis` more, `doc` / `doc.on.doc` /
+`arrow.left.and.right` the three layouts, `play.fill` / `pause.fill`,
+`backward.end.fill` to start, `metronome`, `repeat`, `slider.horizontal.3`
+all-on/all-off. The knob LED is a drawn 8pt circle with a 2pt halo, not a
+symbol. The stamp is drawn, not a symbol.
 
 ---
 
 ## 7. Components
 
-### 7.1 Pill (canvas toolbar) — `png/system-01-resting-score-first.png`
-Anatomy, left to right: library toggle · `#N` numeral (17pt, clay) · version chip
-(mono 11, 2pt border) · divider · options gear · pencil · divider · chat toggle.
-38pt round buttons; active buttons take a `clayTint` circle and `clayStrong`
-glyph. Floating bottom-centre, 20 from the bottom edge, `ePill`, radius 999.
-On iPhone the pencil is dropped (markup is iPad-only) and the numeral drops to 15.
+Each component is drawn in the spec's Components section and used across its
+wireframes. The names here are the SwiftUI type names to build.
 
-The pill is the **only** persistent chrome. There is no navigation bar, no title
-bar, no tab bar.
+### 7.1 Page
+`panel` fill, `rPage` top corners, 16 from the table's edge, runs off the
+bottom. Holds a head (screen title or ‹ back + centred title + primary
+action), an optional tool row, and a list. Two pages fit an iPad landscape:
+the list page and the panel.
 
-### 7.2 Overlay panel
-Full-height, opaque `panel`, hard `line2` edge on the score side, `ePanel`.
-Header: brand or subject on the left, state on the right, a 30pt bordered dismiss
-button at the far end. Dismissed by the dismiss button, by tapping the score, or
-by the pill toggle. The library is 320 wide from the left; chat is 380 from the
-right. Both may be open at once; the score page narrows to 436 and stays centred
-in the gap.
+### 7.2 Panel (the right page)
+380 wide, `panel`, `rPage` top corners, 10 from the page. Header: title 20,
+optional mono count, optional ‹ (when it opened from another panel state),
+Done at the trailing edge. Body: items (44pt `band` capsules; current is
+`clayTint`), key/value rows (48pt, dashed rule), blocks separated by a dashed
+rule, `body` notes, a `btns` row of 44pt buttons. Destructive items sit last
+under a "Careful" label and confirm inline (§7.8). Opened by: a tool-row
+button (Sort, Filter, Add to set list), a row's action (Arrangement,
+Versions, Parts, Details, Set lists, Move to piece), the score bar (title,
+Chat, +, More), or at rest on the set list and piece screens ("This set
+list", "This piece"). On phone it is pushed as a page with ‹ in its header.
 
-### 7.3 Band header (the silkscreen label)
-`band` fill, 1pt `line2` top and bottom, full panel width, 10pt caps
-`clayStrong` label, optional 22pt bordered `+` button at the trailing edge.
-Used for: sidebar sections, sheet sections, op-card headers, tile captions,
-alert footers (fill only, no label).
+### 7.3 Row
+64pt, dashed rule under, grid: stamp · thumbnail · name/meta · dates · ☰.
+States: **rest**; **☰ open** — ☰ becomes ✕ and the actions take the meta
+line's slot as 36pt `paper` capsules, the row a flat `clayTint` band [C4], the
+action whose panel is open lit; **Edit** — a 24pt check leads the row, checked
+rows are tint bands, no ☰. Entered by Edit or by a long press on a row [C11].
+Dates: two mono lines at the right, `vNNN · changed` in `ink2` over `added
+date` in `ink3` [C10].
 
-### 7.4 Row
-36pt minimum, 7 × 14 padding. Leading 10pt caret (clay) when the row discloses
-something, then the optional numeral, then a two-line stack (name 13.5/500,
-meta 11/`ink3`), then a trailing 26pt icon button in a 44pt hit area.
-States: **rest** transparent; **selected** `clayTint` + 1pt `clay` inset outline;
-**drop target** `clayTint` + 1pt dashed clay; **pressed** `well`.
-The meta line truncates with a tail ellipsis and never wraps.
+### 7.4 Stamp
+The `#N` numeral in a clay ring: 40pt/2.5pt/15 in rows, 56/3/22 on a head,
+30/2/12 in a panel row. Unfiled arrangements have no stamp and no reserved
+space.
 
-### 7.5 Arrangement row + numeral
-`#N` in Space Grotesk 700/21, clay, tabular, 36pt minimum width so #1 through
-#99 stay left-aligned. Unfiled arrangements have **no** numeral and no reserved
-space — the number only means something inside a piece.
+### 7.5 Capsule controls
+Button: `well` at rest, `clayTint` + 1.5pt clay ring when its panel is open,
+`clayPress` + white when primary, transparent + `danger` text when
+destructive, transparent ("quiet") in a tool row, 45% opacity when
+unavailable and never hidden. Segment: `well` track, `panel` thumb, capsules
+in a capsule. Field: `paper`, 40pt, clay ring on focus, label never wraps,
+never narrower than 240 [C7]; Clear inside the field. Chip: `well`, 11pt
+mono for formats (MUSICXML, PDF), `clayTint` for the people chip, `warn` text
+for OMR DRAFT. Check: 24pt ring, clay fill with a white tick when on.
 
-### 7.6 Version rows
-Group row: caret · `vNNN` (mono 11, `ink2`) · prompt text (12) · step count
-(mono 10.5, `ink3`) · displayed marker (`circle.fill`, clay). The currently
-displayed version's row takes the `well` fill. Step rows indent to 64, drop the
-prompt for the op name in `ink2`, and keep the same marker rule.
+### 7.6 Tool row
+One line: the search field, then the primary actions (Import, New, New set
+list), then Sort (with its value in a lighter weight), Filter (with the count
+of filters on), Edit. When the panel is open the field takes the first line
+and the buttons the second [C7]. In Edit mode the row becomes Select all ·
+the actions for the selection (Add to set list, Move to piece, Duplicate,
+Delete) · Done.
 
-### 7.7 Chat bubble
-Bordered `panel` card, radius 3, 9 × 11 padding, max width 86%. A 10pt caps
-author label (`AGENT` / `YOU`) sits above the text — cheaper than tails and it
-survives having no colour to spare. The user's bubble is `clayTint` with a
-`#E7C4B1` border, right-aligned. Errors use a `#FBEEEC` fill and `#E3B4AE`
-border with the failing value in mono.
+### 7.7 Tray (score)
+56pt, `panel`, `rPage` top corners, 16 from the table's edges, dashed rule on
+top. Left to right: set list step chip and prev/next; play (clay), to start,
+click, loop; one knob per part then a tempo knob; position in mono, and the
+seek scrubber while playing; at the right the all-on/all-off glyph. More
+parts than fit scroll sideways inside the knob slot under a fade; tempo and
+position stay put. While converting a scan the tray carries the progress on
+its one line. It replaces `ScoreFooter` and the mixer window.
 
-### 7.8 Op card (live progress)
-Bordered card with a band header stating the count (`WORKING · 3 OPS`), then one
-step row per op: 13pt status glyph (`ok` tick / `warn` triangle / `ink3` circle),
-the op name in Inter, its arguments in mono `ink2`. The tail row is the 11pt clay
-spinner plus `thinking…`. When the turn completes the card keeps its final state
-and the header changes to `DONE · 3 OPS`.
+### 7.8 Knob
+32pt dial, `panel` face, a 270° conic arc from 7 o'clock in `clay` (`ink2` for
+tempo), no pointer [C3]. The LED (8pt, `ok`, 2pt halo) is the centre; tap it
+to mute, and the arc dims to 50% but keeps its level. Label under: Inter 600
+9.5 with the level in mono beside it. Drag vertically, 14pt per unit; double-
+tap tempo returns to the score's marking. 44pt group.
 
-### 7.9 Ink bar (pencil markup)
-Pill language, 74 from the bottom so it stacks above the toolbar. Pen · eraser ·
-divider · five ink dots · divider · undo · exit. The live ink grows 16 → 24, gains
-a 2pt ink ring and a white tick. Pencil draws, fingers scroll — unchanged.
+### 7.9 Inline confirm
+A destructive item becomes, in place, a `clayTint` block the panel's width:
+a 15pt title as a question, one `body` sentence naming the consequence, and
+two buttons (the verb on `danger`, Keep). No alert, no sheet. Used for
+Delete, Delete for everybody, Leave, Remove a person, Delete a piece.
 
-### 7.10 Highlight chip
-Top-centre panel chip: `PASSAGE` caps label, a bordered stepper group with the
-bar numbers in mono on `well` cells, the sentence `handed to chat`, and a
-dismiss. The band on the page is `highlight` at 40%.
+### 7.10 Note
+`body` in `ink2` under the control it explains, in the panel or the settings
+section. This is where every sentence from 0.7's labels went.
 
-### 7.11 Buttons
-13pt/600 label, 2pt radius, 8 × 12 padding, 1pt `line2` border on `panel`.
-Primary: `clayPress` fill, white label. Destructive: `danger` fill, white label.
-Disabled: 42% opacity, no colour change. Pressed: `well` (default) or 12% darker
-fill (primary/destructive). Icon buttons are 34pt squares with the same border.
+### 7.11 Thumbnail rail
+60 wide at the left of the score in paged reading; every page at 40 × 52
+with its number in mono 8; the current page (or spread) ringed in clay. Tap
+to jump, drag to scrub. Not shown in scroll mode. Replaces the bottom
+thumbnail strip and the Pages panel.
 
-### 7.12 Toggle
-44 × 26, 2pt radius, `well` track with a 20pt square knob on `panel`. On: track
-`clayTint` with a `clay` border, knob `clay` with a `clayPress` border. It reads
-as a panel switch, not an iOS capsule. Never animate the knob more than 120ms.
+### 7.12 Filmstrip (book)
+Full width of the book page under the spread: every page at 20 × 27, 3
+apart, the current spread ringed, page numbers at the ends, a 4pt scrub bar
+with a 16pt clay handle. Drag to fly, tap to land [C12].
 
-### 7.13 Field
-`paper` fill inside a panel, 1pt `line2`, 2pt radius, 9 × 10 padding, 13pt.
-Placeholder `ink3`. Focus: 1pt `clay` border, no glow. Secure fields show a mono
-mask with the last four characters visible.
+### 7.13 Score bar
+56pt. ‹ and where you came from [C6] · the title block (stamp, title 16,
+subtitle mono; one line each [C16]; tap opens Versions) · the layout segment
+· Pencil · Select · Chat · + (set lists) · **Perform** (glyph and word) [C5] ·
+More. On a scan the layout segment and Chat rest at 45%.
 
-### 7.14 LED
-9pt circle with a 3pt halo at 22% of its own colour. `ok` connected, `danger`
-unreachable. It sits next to a mono word (`on-device`, `unreachable`) — colour is
-never the only carrier.
+### 7.14 Ink tools
+One capsule floating 14 above the tray: move · draw · erase · five ink dots
+(live one ringed) · undo · Done. The tray rests at 50% while drawing and
+names the version the ink belongs to.
 
-### 7.15 Sheet
-620 wide, inset 64 top and bottom, `panel`, radius 3, `eSheet`, over a 34% dim.
-Header: title (17 SG 600), optional numeral, `Done` at the trailing edge. Body is
-band headers plus 40pt label/value rows separated by `line`; values right-aligned,
-machine values in mono. Destructive actions sit in the body, last, never in the header.
+### 7.15 Selection chip
+Floats over the page after a lasso: "7 elements from bar 9", staff and voice
+in meta, Use in chat (primary), ✕. Hold to add, tap an element to drop it.
 
-### 7.16 Alert
-420 wide, `panel`, radius 3, `eSheet`. Title 16 SG 600, body 12.5 `ink2`, and a
-`band` footer with right-aligned buttons: cancel first, then the verb. The verb
-names the action (`Delete`, `Create`, `Rename`) — never `OK`. Naming alerts put a
-`paper` field in the body.
+### 7.16 Chat (in the panel)
+Header: Chat, the model alias in mono, Done. Bubbles: agent on `band`, you on
+`clayTint`, 16pt corners with a 6pt corner toward the author; the agent's
+reply carries the ops and version it made in mono with a "Show the steps"
+fold. Compose: a grab bar, then a field that grows with the prompt and can be
+dragged taller up to half the panel [C15], dictation, send.
 
-### 7.17 State view
-Centred: 30pt `ink3` glyph, 17pt SG title, 12.5pt body no wider than 44
-characters, and at most one button. Every state keeps the pill visible so the app
-never looks dead. Failure states name the cause in mono and the fix in prose.
+### 7.17 Settings split
+Index at the left (300 wide; 48pt capsule items, each stating its section's
+answer in meta; current in `clayTint`), the section at the right: an `alpha`
+header, key/value rows with dashed rules, notes. Never more than a screen.
 
-### 7.18 Import progress
-A row inside the library: file name, a 4pt `well` track with a `clay` fill and a
-1pt border, and the stage in mono (`OMR 62%`). Indeterminate work shows the ring
-spinner instead of a track.
+### 7.18 Empty state
+Centred on the page: a 72pt stamp at 50%, a 22pt title, one `body`
+paragraph no wider than 380, up to three buttons. Never a sign-in.
+
+### 7.19 Progress
+On a row: a 4pt `well` track with a `clay` fill in the row's action slot,
+the stage in mono, a Stop. On the tray: the same, on its one line. In the
+panel: a ring spinner beside the item. Never a popup.
 
 ---
 
 ## 8. Screens
 
-| # | Screen | Notes |
+All in `design/redesign-0.8/notebook-spec.html`, by frame id:
+
+| Group | Frames | What they settle |
 |---|---|---|
-| 01 | Resting | Score edge-to-edge, page centred, pill only. The page carries `#2` and `ARRANGEMENT` at 34/8.5pt. |
-| 02 | Library overlay | 320 from the left over the score; page re-centres. Status → Setlists → Pieces → Unfiled → build stamp. |
-| 03 | Chat overlay | 380 from the right; header repeats the numeral, piece and version count; model alias in mono. |
-| 04 | Working | Both overlays, page at 436, op card live. The everyday state. |
-| 05 | Pencil markup | Ink bar above the pill; markup drawn over the engraving. |
-| 06 | Highlight a passage | Chip with mono steppers; band at 40%; chat open to receive it. |
-| 07 | Arrangement details | Sheet: arrangement, scored-for (per part: instrument, clef, range, bars), sources, delete last. |
-| 08 | Settings | Sheet: on-device engine toggle + LED + self-test output in a `well` row, OMR service, keys masked in mono. |
-| 09 | Alerts | Delete confirmation and a naming alert, same width and footer. |
-| 10 | States | No arrangement open · engraving · render failed · engine unreachable. |
-| 11 | iPhone | One pane at a time; overlays go full width; pill drops the pencil. |
-| 12 | Tokens and controls | The board: surfaces, ink, accent, status, type ladder, every control state. |
+| Library | L1–L12 | Pieces at rest, search, Sort, Filter (five groups), Edit mode, a piece row's ☰, Set lists, a set list row's ☰, Books, empty library, Import folder, a Book with its filmstrip. |
+| Piece | P1–P2 | This piece (details, sources, delete); an arrangement row's ☰ with Move to piece. |
+| Arrangement | A1–A4 | Versions, Parts, Details (with Tags), Set lists. |
+| Set list | S1–S7 | At rest (tools, people, marks), a member's ☰, Add, Invite (with the signed-out line), someone else's list, inline delete confirm, empty. |
+| Score | SC1–SC15 | One page with the rail, two pages, scroll mode playing, the title block's Versions, Chat, Select, Pencil, More, Transpose and chord symbols, Export, + set lists, Performance, a scan with Convert, converting, nine parts. |
+| Settings | T1–T10 | Account out and in, Reading, Titles, Engine, Server, Scanning, Model, Diagnostics, About. |
+| Phone | Ph1–Ph6 | Library, set list (actions wrap in the row; the list's tools as a foot strip), the panel as a page, score, performance, settings index. |
 
 ---
 
 ## 9. Accessibility
 
-- Contrast: `ink`, `ink2`, `clayStrong` and white-on-`clayPress` all clear 4.5:1
-  on their surfaces. `clay`, `ink3`, `warn` and `ok` clear 3:1 and are therefore
-  restricted to ≥15pt semibold text, numerals, icons and borders — the tables
-  above state which is which. Nothing carries meaning by colour alone.
-- Hit targets: 44 × 44 minimum, including the pill's 38pt buttons and the ink dots.
-- Dynamic Type as specified in §2; the library and chat panels scroll rather than
-  clip, and rows grow.
-- VoiceOver: the labels already in the app stay. New ones needed for the pill
-  ("Library", "Chat", "Version v014, pick another"), the numeral ("Arrangement
-  number 2"), the LED ("Engine connected / unreachable"), and the ink dots.
-- Reduce Motion and Reduce Transparency both fall back to the flat, non-sliding
-  variants described in §5.
+- Contrast as in §1; `clayStrong` for every piece of clay text under 15pt;
+  `ink3` at 12pt and above only. The knob label at 9.5pt is the one exception
+  and is carried by VoiceOver ("Violin I, level 7, sounding").
+- Hit targets 44 × 44 on everything, including 32pt knobs, 24pt checks, 20pt
+  filmstrip thumbnails (the strip is one control with a scrub gesture), and
+  the 22 × 84 performance tab (44 wide hit area).
+- Dynamic Type through AX3 per §2.4.
+- VoiceOver labels name the object: "Open Versions of Sous le ciel quartet",
+  "Back to Tuesday at the Ship", "Mute Viola", "Page 4 of 9", "Perform".
+- No login gate. Sign in appears in the Account section and in the Invite
+  panel when signed out, nowhere else.
+- Reduce Motion per §5.
 
 ---
 
-## 10. Non-goals
+## 10. Labels
 
-Dark mode. A second accent. Serif type. SF Pro. Rounded cards. Gradients.
-Translucent chrome. Icons in the score page. Restyling the engraving.
+The table in the spec's Labels section is the authority: every header, row
+and button title the app shows today and its 0.8 text. The rule: one or two
+ordinary words; the sentence moves into a note under the control. Notable:
+Options → More; Close score → ‹ and the origin; Manage → gone; Running
+order → gone (the list is the list); PDF conversion (OMR) → Scanning;
+On-device engine / Remote engine → Engine / Server; Add arrangements → Add;
+Play from the top → Play; Whose marks to show → Marks to show; Starts here /
+Ends here → From page / To page.
 
 ---
 
-## 11. Applying it (next step, once approved)
+## 11. Non-goals
 
-1. `Theme.swift` becomes the token file: `Theme.Color` (the tables in §1),
-   `Theme.Font` (§2, custom faces with `relativeTo:`), `Theme.Metric` (§3–4).
-   Bundle Space Grotesk, Inter and IBM Plex Mono; register them in `Info.plist`.
-2. New view components, one per §7 entry, in a `DesignSystem/` group: `Pill`,
-   `OverlayPanel`, `BandHeader`, `Row`, `NumeralBadge`, `VersionRow`, `Bubble`,
-   `OpCard`, `InkBar`, `HighlightChip`, `PanelButton`, `PanelToggle`, `PanelField`,
-   `LED`, `PanelSheet`, `PanelAlert`, `StateView`.
-3. `ContentView` loses `NavigationSplitView`: the detail canvas becomes the root,
-   with the library and chat as overlays driven by two booleans. The existing
-   toolbar items move into the pill; the versions menu keeps its behaviour behind
-   the version chip. This is the largest change and the one to review first.
-4. `ChatView`, `ScorePagesView`, `AnnotationTools`, `SettingsView`, `ScoreInfoView`
-   restyle onto the new components; the six alerts become `PanelAlert`.
-5. Risks worth naming before starting: the split-view removal touches every
-   navigation path including compact width; `AnnotationController.Ink.black`
-   becomes `ink` (`#1A1917`), so previously drawn strokes stay pure black while
-   new ones do not; and `Theme.arrangementNumber` (currently system purple) is
-   replaced by `clay`, which is also the accent — the numeral now shares a hue
-   with the chrome and depends on size and weight to stay distinct.
+Dark mode. A second accent. Serif type. SF Pro. Sheets and alerts as a
+pattern. In-place bands that push the page. A second row on the tray.
+Anything at the bottom that must be dismissed. Restyling the engraving.
+
+---
+
+## 12. Applying it
+
+Staged as internal TestFlight builds, each one a build the owner can react
+to. Each stage runs `ios/scripts/gate.sh` and ships with
+`ios/scripts/deploy_testflight.sh` as 0.7.4 did.
+
+1. **Tokens (0.8.0).** `Theme.swift`: `band` as the ground, `rCtl` 999,
+   `rPage` 22, dashed rules, borders cleared, the type ladder of §2, the
+   stamp, the knob without its pointer, Perform as a labelled button, ‹ back
+   in the score bar. Every existing view restyles without changing shape.
+   Visible everywhere; one day.
+2. **Tray (0.8.1).** `Tray` replaces `ScoreFooter` and `MixerWindowPanel` /
+   `MixerWindowStrips`: one 56pt line, knobs inline with a scrolling slot,
+   LED-as-mute. The mixer's drag, park, clamp and collapse go.
+   `MIXER_WINDOW.md` §13's knob anatomy stays.
+3. **Panel and row actions (0.8.2).** `Panel` and `RowActions`; the
+   management bands, Options, the version dropdown and switcher band, Sort
+   and Filter bands, the OMR offer and `PanelDialogs` fold into them.
+   `ThumbnailRail` replaces `PageScrubber`'s strip.
+4. **Settings, filters, book (0.8.3).** `SettingsSplit`; Filter's five groups
+   (instrument from the parts snapshot, type from the latest artifact, tags
+   from piece and arrangement); Date added on rows and in Sort; Tags on
+   Details; the book filmstrip; the resizable compose.
+5. **Phone (0.8.4).** The panel as a pushed page; the set list's foot strip;
+   the score bar's second row.
+
+Risks worth naming: the tray at 56pt with AX text (fallback: a scrolling knob
+list, as §13 already requires for the strip); the panel at 380 beside a
+1194 page leaves 804 for a score, so paged reading with the panel open is
+smaller (which is why only Versions, Chat and More open it while reading);
+instruments as a filter need a parts snapshot, which a never-converted scan
+does not have (those match no instrument, and the counts show it).

@@ -1,0 +1,94 @@
+/* Round 2 skeleton, shared by options 6, 7 and 8. Loads after common.css.
+   The structure every round-2 option shares, taken from the owner's notes on
+   round 1: full-width lists; the next level opens in a RIGHT PANEL anchored at
+   the row that opened it; a row's own actions stay INSIDE the row; ONE 56pt
+   drawer at the bottom with transport, knobs and tempo in a single row; the
+   settings split of Desk; nothing pops up at the bottom to be dismissed. */
+
+.ipad, .demo { --pw: 380px; --drawer-h: 56px; }
+
+/* the split: main + right panel */
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr var(--pw); }
+.split.closed { grid-template-columns: 1fr; }
+.split.closed .rpanel { display: none; }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.rpanel { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 16px 20px; overflow: hidden; }
+.rpanel .ph { display: flex; align-items: center; gap: 10px; min-height: 40px; margin-bottom: 6px; }
+.rpanel .ph .ttl { font: 600 18px/1.1 var(--sg); letter-spacing: -0.015em; }
+.rpanel .ph .sub { font: 400 12px var(--in); color: var(--ink3); }
+.rpanel .ph .btn { margin-left: auto; height: 34px; min-width: 34px; padding: 0 10px; }
+.rpanel .pi { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: var(--r-ctl); font: 500 14.5px var(--in); color: var(--ink); }
+.rpanel .pi .v { margin-left: auto; font: 400 12.5px var(--in); color: var(--ink3); display: flex; align-items: center; gap: 6px; }
+.rpanel .pi .v .mo { font-size: 12px; }
+.rpanel .pi.danger { color: var(--danger); }
+.rpanel .plabel { font: 600 12px var(--in); color: var(--ink3); padding: 10px 12px 2px; }
+.rpanel .pgap { height: 12px; }
+.rpanel .note { padding: 6px 12px 0; }
+.rpanel .field { height: 40px; }
+/* a block that sits at the height of the row that opened it */
+.rpanel .block { margin-top: var(--at, 0); }
+
+/* one-row library tools */
+.tools1 { display: flex; align-items: center; gap: 8px; padding: 8px 20px; }
+.tools1 .field { flex: 1; }
+.tools1 .grp { display: flex; gap: 6px; }
+
+/* rows: actions stay inside the row */
+.row .acts-inline { display: flex; gap: 6px; align-items: center; }
+.row .acts-inline .btn { height: 36px; padding: 0 12px; font-size: 12.5px; }
+.row .acts-inline .btn.danger { background: transparent; border-color: transparent; color: var(--danger); }
+.ordered .row { grid-template-columns: 28px auto 1fr auto; }
+.ordered .row .ord { font: 700 15px var(--sg); color: var(--ink3); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* the one-row drawer */
+.drawer1 { height: var(--drawer-h); flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px; }
+.drawer1 .grp { display: flex; align-items: center; gap: 6px; }
+.drawer1 .vr { width: 1px; height: 28px; background: var(--line2); opacity: .7; margin: 0 4px; }
+.drawer1 .btn { height: 40px; min-width: 40px; padding: 0 10px; }
+.drawer1 .btn.play { background: var(--clayPress); border-color: var(--clayPress); color: #fff; }
+.drawer1 .pos { font: 500 12px var(--mo); color: var(--ink2); white-space: nowrap; }
+.drawer1 .pos b { color: var(--ink); font-weight: 500; }
+.drawer1 .sp { flex: 1; }
+.drawer1 .knobs { display: flex; gap: 10px; align-items: center; }
+/* knob with the LED at the CENTRE of the dial; the value rides with the label */
+.kg { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 44px; }
+.kg .knob2 { width: 32px; height: 32px; border-radius: 50%; position: relative; display: grid; place-items: center;
+  background: radial-gradient(circle at center, var(--kface, var(--panel)) 0 58%, transparent 59%), conic-gradient(from 225deg, var(--karc, var(--clay)) 0 calc(var(--v, .7) * 270deg), var(--ktrack, var(--well)) calc(var(--v, .7) * 270deg) 270deg, transparent 270deg 360deg); }
+.kg .knob2::after { content: ""; position: absolute; width: 2px; height: 6px; background: var(--kptr, var(--ink)); top: 3px; left: 15px; transform-origin: 1px 13px; transform: rotate(calc(-135deg + var(--v, .7) * 270deg)); }
+.kg .knob2 .led { position: absolute; width: 8px; height: 8px; box-shadow: 0 0 0 2px rgba(59,160,92,.22); }
+.kg .kl { font: 600 9.5px var(--in); color: var(--klbl, var(--ink)); white-space: nowrap; display: flex; gap: 3px; }
+.kg .kl .mo { font-weight: 500; font-size: 9.5px; color: var(--kval, var(--ink3)); }
+.kg.muted .knob2 { opacity: .5; }
+.kg.muted .kl { color: var(--ink3); }
+.kg.muted .led { background: var(--ink3); box-shadow: none; }
+.kg.tempo .knob2 { --karc: var(--ink2); }
+
+/* settings split (Desk's layout): index left, section right */
+.sidx { width: 300px; flex: none; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; }
+.sidx .it { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 14px; border-radius: var(--r-ctl); font: 500 15px var(--in); color: var(--ink); }
+.sidx .it .meta { display: flex; align-items: center; gap: 6px; }
+.sect-body { flex: 1; min-width: 0; padding: 8px 24px; }
+.sect-body .kv { padding-left: 0; padding-right: 0; }
+
+/* score */
+.scorecanvas { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; position: relative; padding-top: 6px; }
+.bar { height: 56px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+.bar .title { display: flex; align-items: center; gap: 12px; margin: 0 auto; }
+.bar .title .t1 { font: 600 16px/1.1 var(--sg); letter-spacing: -0.01em; }
+.bar .title .t2 { font: 400 11px var(--mo); color: var(--ink3); margin-top: 2px; }
+.bar .acts { display: flex; gap: 6px; }
+.screen-head { height: 56px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+.screen-head .ttl { margin: 0 auto; font: 600 16px var(--sg); }
+.head { display: flex; align-items: center; gap: 16px; padding: 10px 20px 12px; }
+.head .h1 { font: 600 24px/1.1 var(--sg); letter-spacing: -0.015em; }
+.head .h2 { font: 400 13px var(--in); color: var(--ink2); margin-top: 6px; display: flex; gap: 8px; align-items: center; }
+.kv { min-height: 52px; }
+.kv .k { font-size: 15px; }
+.vrow { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 12px; min-height: 60px; padding: 8px 12px; border-radius: var(--r-ctl); }
+.vrow .id { font: 500 12.5px var(--mo); color: var(--ink2); }
+.vrow .p { font: 500 14px var(--in); }
+.vrow .m { font: 400 11.5px var(--in); color: var(--ink3); margin-top: 2px; }
+.thumbgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 12px; padding: 4px 12px; }
+.thumbgrid .t { width: 92px; height: 120px; background: var(--paper); border-radius: 4px; position: relative; box-shadow: 0 1px 2px rgba(26,25,23,.12); background-image: repeating-linear-gradient(to bottom, transparent 0 9px, #D8D1C3 9px 10px); background-size: 66px 90px; background-repeat: no-repeat; background-position: 13px 14px; }
+.thumbgrid .t.on { outline: 2px solid var(--clay); outline-offset: 2px; }
+.thumbgrid .t i { position: absolute; right: 6px; bottom: 3px; font: 500 10px var(--mo); color: var(--ink3); font-style: normal; }
