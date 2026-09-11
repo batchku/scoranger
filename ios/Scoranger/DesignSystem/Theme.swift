@@ -86,6 +86,7 @@ enum Theme {
         case title, titleS
         case row, body, control, label, meta
         case data, dataS
+        case knobLabel, knobData   // under a tray knob (§7.8): Inter 600 9.5, mono 9.5
 
         var font: Font { Theme.font(self) }
 
@@ -144,6 +145,8 @@ enum Theme {
         case .meta:      return variable(Face.inter, 12.5, 400, .caption1)  // meta
         case .data:      return staticFace(Face.monoMedium, 12, .caption1)  // data
         case .dataS:     return staticFace(Face.monoRegular, 11, .caption1)
+        case .knobLabel: return variable(Face.inter, 9.5, 600, .caption2)
+        case .knobData:  return staticFace(Face.monoMedium, 9.5, .caption2)
         }
     }
 

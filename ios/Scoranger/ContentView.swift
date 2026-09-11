@@ -48,11 +48,9 @@ struct ContentView: View {
     /// work whether or not this is on.
     /// Defaults to TRUE since 0.6.1. It was false, and playback -- the whole
     /// of 0.6 -- was invisible behind a toggle in a submenu.
-    @AppStorage("showTransport") private var showTransport = true
     /// Whether the transport has ever been put on screen unasked. Carries a
     /// reader holding a stored `false` from the builds where that was the
-    /// default (see TransportReveal).
-    @AppStorage("didRevealTransport") private var didRevealTransport = false
+    /// default.
 
     /// Lane 1 is the ink bar's, and it is only occupied when the bar is out.
     private var inkLaneHeight: CGFloat { state.annotation.isOn ? 56 : 0 }
@@ -60,7 +58,6 @@ struct ContentView: View {
     /// The mixer sits above whichever lanes are occupied. Recomputed when a
     /// lane appears or disappears -- never per frame, or the panel drifts
     /// under the reader's hand.
-    private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
     /// Which list the title band is showing. The versions dropdown and the
     /// title block open the same band on two different columns (0.6.3 #8).
     @State private var titleMenuMode: TitleBandLayout.Mode = .versions
@@ -193,21 +190,12 @@ struct ContentView: View {
         }
     }
 
-    /// Reveal the transport the first time an arrangement can play.
-    private func revealTransportIfNeeded() {
-        let d = TransportReveal.decide(canPlay: state.playbackAvailability.canPlay,
-                                       showTransport: showTransport,
-                                       alreadyRevealed: didRevealTransport)
-        if d.showTransport != showTransport { showTransport = d.showTransport }
-        if d.revealed != didRevealTransport { didRevealTransport = d.revealed }
-    }
 
     @ViewBuilder
     private func scoreScreenView(_ screen: ScoreScreen) -> some View {
         switch screen {
         case .options, .optionsSection:
             ScoreOptionsScreen(mode: $state.scoreMode,
-                               showTransport: $showTransport,
                                barFit: barFit,
                                section: optionsSection,
                                onBack: {
@@ -273,7 +261,6 @@ struct ContentView: View {
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
-                        showTransport: $showTransport,
                         barWidth: $barWidth,
                         moreOpen: Binding(get: { scoreScreen != nil },
                                           set: { on in
@@ -396,41 +383,34 @@ struct ContentView: View {
                                // offset arithmetic left to get wrong
                                onJump: jumpToPage)
             }
-            // The TRANSPORT is about the music, not about pages, so it belongs
-            // in every mode that has chrome at all. It is revealed the first
-            // time something can actually play (TransportReveal) -- a reader
-            // should never have to know the toggle exists to find playback.
-            if state.scoreMode != .performance, showTransport {
-                Transport(setlistLabel: setlistLabel,
-                          canStep: setlistPosition != nil,
-                          onPrevious: { stepSetlist(-1) },
-                          onNext: { stepSetlist(1) },
-                          playback: state.playback,
-                          unavailable: state.playbackAvailability,
-                          preparing: state.playbackPreparing,
-                          onPlay: { state.togglePlayback() },
-                          onResolve: {
-                              // The remote-engine case is fixed in Settings,
-                              // which this view owns; the scan case is the
-                              // engine's business.
-                              if state.playbackAvailability == .needsLocalEngine {
-                                  scoreScreen = .settings
-                              } else {
-                                  state.resolvePlaybackAvailability()
-                              }
-                          },
-                          mixerOpen: state.mixerOpen,
-                          onMixer: { state.mixerOpen.toggle() },
-                          // A phone on its side carries the scrubber IN the
-                          // transport: two rows are 76 of a 130pt chrome
-                          // budget, one deck is 48 (§3 E-B).
-                          leading: mergedScrubber,
-                          height: isPhoneLandscape
-                              ? Theme.Metric.scoreDeckCompact
-                              : Theme.Metric.transportHeight)
-                    // Built when the transport appears, never when the score
-                    // opens: writing the MIDI takes music21 a moment and
-                    // opening an arrangement must not wait on it.
+            // THE TRAY (design/DESIGN_SYSTEM.md §7.7): always there while
+            // reading -- there is no "show transport" any more -- and gone
+            // with the bar in performance mode. It is the transport and the
+            // mixer on one line.
+            if state.scoreMode != .performance {
+                Tray(setlistLabel: setlistLabel,
+                     canStep: setlistPosition != nil,
+                     onPrevious: { stepSetlist(-1) },
+                     onNext: { stepSetlist(1) },
+                     playback: state.playback,
+                     unavailable: state.playbackAvailability,
+                     preparing: state.playbackPreparing,
+                     onPlay: { state.togglePlayback() },
+                     onResolve: {
+                         // The remote-engine case is fixed in Settings, which
+                         // this view owns; the scan case is the engine's.
+                         if state.playbackAvailability == .needsLocalEngine {
+                             scoreScreen = .settings
+                         } else {
+                             state.resolvePlaybackAvailability()
+                         }
+                     },
+                     converting: MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
+                                                      fraction: state.omrFraction),
+                     // A phone on its side carries the page scrubber in the
+                     // tray (§3 E-B), until 0.8.4's phone layout.
+                     leading: mergedScrubber,
+                     dimmed: state.annotation.isOn)
                     .task(id: state.displayedVersionID) {
                         await state.preparePlayback()
                     }
@@ -457,18 +437,6 @@ struct ContentView: View {
                     .padding(.bottom, syncLaneInset)
             }
         }
-        // Lane 3 (§4): the mixer, movable, parked bottom-right above the
-        // highest occupied lane. LAST in the stack, which is the z-order the
-        // spec settles: fixed chrome < ink bar < sync chip < mixer.
-        .overlay {
-            if state.scoreMode != .performance, state.mixerOpen {
-                // The rebuilt window (design/MIXER_WINDOW.md). `MixerLayer` --
-                // the panel positioned by arithmetic that was not what got
-                // drawn -- is what Ali's iPad clipped.
-                MixerWindowLayer(state: state, playback: state.playback,
-                                 lanesInset: mixerLaneInset)
-            }
-        }
         .background(Theme.Surface.band)
         // #59: the music is not resized by a text field taking focus. The
         // avoidance inset is a safe-area inset on the WHOLE screen -- the
@@ -485,12 +453,7 @@ struct ContentView: View {
         }
         .task {
             Theme.verifyFontsRegistered()
-            revealTransportIfNeeded()
         }
-        // and again when what is on screen changes: the first arrangement
-        // opened may be a scan, and the transport should arrive on the first
-        // one that can actually play rather than only at launch.
-        .onChange(of: state.playbackAvailability) { _, _ in revealTransportIfNeeded() }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes,
                       allowsMultipleSelection: true) { result in

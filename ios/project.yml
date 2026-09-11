@@ -230,18 +230,36 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
-        #   0.8.0  NOTEBOOK, TOKENS ONLY. design/DESIGN_SYSTEM.md 12 stage 1,
-        #          from design/redesign-0.8/HANDOFF.md. Values change, shapes
-        #          do not: `band` is the ground and `panel` the page; rCtl 999
-        #          and rPage 22; the 1pt dashed rule replaces borders on
-        #          controls and solid dividers; the type ladder of 2 one step
-        #          larger and the tracked caps label retired; the #N numeral as
-        #          a clay ring stamp; knobs without their pointer [C3]; Perform
-        #          as a labelled button in the score bar [C5]; the score bar
-        #          leaves with < and the origin's name, never x [C6]; title and
-        #          subtitle one line each with an ellipsis [C16]. No page casts
-        #          a shadow. Done when the whole app reads as one notebook and
-        #          every screen still does what it did.
+        #   0.8.0  NOTEBOOK, THE WHOLE OF IT, IN ONE BUILD. Ali, 2026-09-11:
+        #          "one build instead of 5". design/DESIGN_SYSTEM.md is the
+        #          spec and design/redesign-0.8/notebook-spec.html draws every
+        #          screen; the sixteen rules of 0 bind. Done when:
+        #            - tokens: band ground, panel pages, capsules (999), pages
+        #              at 22, dashed rules for every hairline and border, the
+        #              type ladder of 2, the ring stamp, no shadows on pages;
+        #            - the TRAY: one 56pt line replacing ScoreFooter and the
+        #              mixer window -- transport, a knob per part (LED as
+        #              mute), tempo knob, position and scrubber; drag, park,
+        #              clamp and collapse gone;
+        #            - the PANEL (380, panel, no tabs [C1][C2]) and ROW ACTIONS
+        #              (inside the row on a flat tint band [C4]): Options,
+        #              the management bands, the version dropdown and
+        #              switcher, Sort and Filter, the OMR offer, dialogs as
+        #              inline confirms, Add, People, Invite, Join, Import
+        #              folder all fold in; the tool row wraps [C7][C8];
+        #            - the THUMBNAIL RAIL at the left in paged reading;
+        #            - SETTINGS as a split; filters from the data model [C9];
+        #              Date added on rows and in Sort [C10]; long-press
+        #              selection [C11]; the book filmstrip [C12]; Tags on
+        #              Details [C14]; the resizable chat compose [C15];
+        #            - the score bar: < and the origin [C6], Perform with its
+        #              word [C5], one-line title and subtitle [C16];
+        #            - the labels of 10, one or two words each;
+        #            - phone: the panel pushed as a page, the set list's foot
+        #              strip, the score bar's second row.
+        #          Every UI test that pinned a retired shape is rewritten to
+        #          the new one, not deleted; every behaviour it protected is
+        #          still asserted.
         #   0.7.4  WHAT THE FIRST THREE-IPAD TEST FOUND. Scope written before
         #          the work, from Ali's list of 2026-09-10 17:20:
         #            1. the library lists run full width;

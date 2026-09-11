@@ -26,10 +26,6 @@ struct ScoreTopBar: View {
     /// to open one two-column band, so "N versions" put a list of other pieces
     /// on screen beside the thing that was asked for (0.6.3 #8).
     @Binding var titleMenuMode: TitleBandLayout.Mode
-    /// Whether the transport is on screen. Moved here from Options -> Score
-    /// display (0.6.3 #6): it is a property of what you are looking at, and it
-    /// belongs beside the layout cells that are the other one.
-    @Binding var showTransport: Bool
     /// Measured, so the bar can say what it can seat (#60).
     ///
     /// Owned by `ContentView` since 0.6.8, because the Options screen has to
@@ -84,7 +80,6 @@ struct ScoreTopBar: View {
             if fit.showsAddToSetlist { addToSetlistTrigger }
             layoutControl
             if fit.showsPerformanceToggle { performanceToggle }
-            if fit.showsTransportToggle { transportToggle }
             if fit.showsOMRProgress {
                 OMRProgressChip(control: omr) { moreOpen = true; titleMenuOpen = false }
             }
@@ -209,22 +204,6 @@ struct ScoreTopBar: View {
             annotation.isOn = false
         }
         .accessibilityValue(mode == .performance ? "on" : "off")
-    }
-
-    /// The transport, on or off, beside the layout cells.
-    ///
-    /// It was in Options -> Score display, two screens from the music, which is
-    /// where the whole of 0.6's playback hid until `TransportReveal` started
-    /// putting it on screen unasked. That reveal is untouched: this is the
-    /// switch a reader uses to put the chrome AWAY and get it back, and it is
-    /// now beside the other "what am I looking at" control.
-    private var transportToggle: some View {
-        barButton("waveform", label: "Show transport",
-                  identifier: "score-transport-toggle",
-                  active: showTransport) {
-            showTransport.toggle()
-        }
-        .accessibilityValue(showTransport ? "on" : "off")
     }
 
     /// Page / spread / continuous, as one segmented control.

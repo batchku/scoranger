@@ -158,7 +158,9 @@ enum ScoreBarLayout {
     /// The + and the gap before it. The same button as Edit and Ask.
     static let addToSetlistWidth: CGFloat = actionWidth + gap
     /// The transport toggle and the gap before it.
-    static let transportWidth: CGFloat = 34 + 8
+    /// Retired in 0.8: the tray is always there. Kept at zero so the Fit's
+    /// field and the switch arithmetic need not move.
+    static let transportWidth: CGFloat = 0
     /// "Perform", glyph AND word [C5], and the gap before it: 15 + 6 + ~52 of
     /// Inter 600 13.5 + 24 of padding, rounded up.
     static let performanceWidth: CGFloat = 100 + 8

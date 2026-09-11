@@ -21,7 +21,6 @@ enum ScoreScreen: Hashable {
 struct ScoreOptionsScreen: View {
     @EnvironmentObject var state: AppState
     @Binding var mode: ScoreMode
-    @Binding var showTransport: Bool
     /// What the top bar seats at its current width (0.6.8).
     ///
     /// Performance mode and Show transport are BAR controls now -- the two
@@ -123,12 +122,6 @@ struct ScoreOptionsScreen: View {
             // Performance mode follows above. It was in both places at every
             // width, which is one switch too many on an iPad and the reason the
             // bar's copy read as a duplicate rather than as the control.
-            if barFit.optionsCarriesTransportToggle {
-                PanelToggle(title: "Show transport", isOn: $showTransport)
-                    .padding(.horizontal, Theme.Metric.s20)
-                    .padding(.vertical, 6)
-                    .accessibilityIdentifier("more-transport")
-            }
             ScreenRow(title: "Chord symbols", value: "\(state.chordDefaultSize) pt",
                       identifier: "more-chords") { push("Chord symbols") }
             // Every row states its current answer where it has one. A screen of

@@ -1,6 +1,6 @@
 import XCTest
 
-/// A photograph of the mixer, for a person to look at. Two things Ali asked
+/// A photograph of the tray, for a person to look at. Two things Ali asked
 /// about on 2026-09-10 can only be judged by eye: whether ALL ON / ALL OFF
 /// are centred in their boxes, and what the knob looks like with its LED in
 /// the middle and no numeral. No assertions beyond "it opened".
@@ -37,15 +37,16 @@ final class MixerShot: XCTestCase {
         guard app.buttons["score-title"].waitForExistence(timeout: 300) else {
             return XCTFail("the score never opened")
         }
-        let mixer = app.buttons["transport-mixer"].firstMatch
-        guard mixer.waitForExistence(timeout: 60) else { return XCTFail("no mixer button") }
+        // 0.8: the tray IS the mixer. Photograph it at rest, then playing.
+        let play = app.buttons["transport-play"]
+        guard play.waitForExistence(timeout: 60) else { return XCTFail("no tray") }
         let usable = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "isEnabled == true"), object: mixer)
+            predicate: NSPredicate(format: "isEnabled == true"), object: play)
         _ = XCTWaiter().wait(for: [usable], timeout: 120)
-        mixer.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["mixer-header"]
-                        .waitForExistence(timeout: 20), "the mixer did not open")
-        sleep(2)
-        snap("mixer")
+        sleep(1)
+        snap("tray-at-rest")
+        play.tap()
+        sleep(3)
+        snap("tray-playing")
     }
 }
