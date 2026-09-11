@@ -648,6 +648,11 @@ struct RootView: View {
 
     /// X always returns to the library, because there is nowhere else.
     private func close() {
+        // The music stops when the score goes. It did not: back to the set
+        // list, and the performance -- click included -- carried on under a
+        // screen with no transport on it (Ali, 2026-09-10). The beat is left
+        // where it was, so reopening resumes from there.
+        if state.playback.isPlaying { state.playback.stop() }
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = false }
         // Leaving a shared entry stops the band's ink coming in AND stops mine
         // going out. Left installed, the store hook would push the next local

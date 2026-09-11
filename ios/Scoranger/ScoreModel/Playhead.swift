@@ -204,7 +204,10 @@ enum Playhead {
     ///
     /// A third of the way in leaves two thirds of the screen as music the
     /// player has not reached yet, which is what reading ahead means.
-    static let parkFraction: CGFloat = 0.30
+    /// A quarter of the way in (Ali, 2026-09-10: "about 25% from the left").
+    /// Was 0.30. A quarter behind the line for what has just been played,
+    /// three quarters ahead for what is coming, which is what a player reads.
+    static let parkFraction: CGFloat = 0.25
 
     /// Where the strip must sit for the line to stand still under the music.
     ///

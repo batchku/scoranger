@@ -343,11 +343,13 @@ final class ContinuousPlayheadTests: XCTestCase {
     /// Before the park point there is nothing to scroll to, so the score holds
     /// still and the line travels in from the first bar.
     func testAtTheStartTheScoreHoldsStillAndTheLineTravels() {
-        for x in [CGFloat(0), 100, 200, 299] {
+        // The park point is a quarter of the viewport in: 250 of 1000.
+        for x in [CGFloat(0), 100, 200, 249] {
             XCTAssertEqual(Playhead.stripOffset(playheadX: x, viewportWidth: viewport,
                                                 surfaceWidth: surface), 0,
                            "the score should not move before the line reaches the park point")
         }
+        XCTAssertEqual(viewport * Playhead.parkFraction, 250, "the park point is a quarter in")
         XCTAssertGreaterThan(
             Playhead.stripOffset(playheadX: 500, viewportWidth: viewport,
                                  surfaceWidth: surface), 0)
