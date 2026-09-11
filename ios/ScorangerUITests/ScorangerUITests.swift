@@ -1528,7 +1528,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Scored for"].exists,
                       "the sheet should list what the arrangement is scored for")
         // destructive action sits in the body, last — never in the header
-        XCTAssertTrue(app.staticTexts["Danger"].exists)
+        XCTAssertTrue(app.staticTexts["Careful"].exists)
         XCTAssertTrue(app.buttons["Delete arrangement…"].exists)
         shot("arrangement-sheet")
         goBack()

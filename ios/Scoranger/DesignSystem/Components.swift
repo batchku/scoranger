@@ -12,6 +12,7 @@ struct BandHeader<Trailing: View>: View {
     /// Space Grotesk 700 there, which is `.titleS`.
     var role: Theme.Role = .label
     @ViewBuilder var trailing: () -> Trailing
+    @Environment(\.inPanel) private var inPanel
 
     var body: some View {
         HStack(spacing: Theme.Metric.s8) {
@@ -24,11 +25,14 @@ struct BandHeader<Trailing: View>: View {
             Spacer(minLength: 0)
             trailing()
         }
-        .padding(.horizontal, Theme.Metric.panelPadding)
-        .padding(.top, 5)
-        .padding(.bottom, 4)
+        // Inside the panel a header is a block's label (§7.2): sentence case
+        // on the panel's own ground, the dashed rule above separating blocks
+        // [C13]. On a page it is the band it was.
+        .padding(.horizontal, inPanel ? Theme.Metric.panelSide : Theme.Metric.panelPadding)
+        .padding(.top, inPanel ? Theme.Metric.s12 : 5)
+        .padding(.bottom, inPanel ? Theme.Metric.s6 : 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.Surface.band)
+        .background(inPanel ? Color.clear : Theme.Surface.band)
         // ONE rule, above [C13]: the block after a row takes the row's rule,
         // so a header never draws a second line under itself.
         .overlay(alignment: .top) { Theme.Rule() }

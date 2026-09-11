@@ -73,7 +73,7 @@ struct SharedSetlistScreen: View {
 
     private var screen: some View {
         Screen(title: setlist?.name ?? "Shared set list",
-               backLabel: "My library",
+               backLabel: "Library",
                subtitle: subtitle,
                onBack: onBack) {
             EmptyView()
@@ -104,7 +104,7 @@ struct SharedSetlistScreen: View {
     private var subtitle: String? {
         guard let setlist else { return nil }
         let people = setlist.members.count
-        return people == 1 ? "Just you" : "\(people) people"
+        return people == 1 ? "None" : "\(people) people"
     }
 
     // MARK: - offline
@@ -123,7 +123,6 @@ struct SharedSetlistScreen: View {
 
     @ViewBuilder
     private var order: some View {
-        BandHeader("Running order")
         if shared.entries.isEmpty {
             PanelNote(text: mayEdit
                       ? "Nothing yet — add an arrangement below."
@@ -228,7 +227,7 @@ struct SharedSetlistScreen: View {
     private var actions: some View {
         BandHeader("This set list")
         if mayEdit {
-            PanelButton(title: "Add an arrangement", kind: .normal,
+            PanelButton(title: "Add", kind: .normal,
                         identifier: "shared-add") { adding = true }
         }
         if let role, SetlistPermission.allows(role, .invite), !shared.isStale {
@@ -236,7 +235,7 @@ struct SharedSetlistScreen: View {
             // (§6A.0.1: cap 12, seven days, revocable), from here, because
             // this is where the owner comes to see who has joined and the
             // natural next thought is "and send it to one more person".
-            PanelButton(title: mintingLink ? "Making the link…" : "Send the link",
+            PanelButton(title: mintingLink ? "Making the link…" : "Send",
                         kind: .primary, identifier: "shared-send-link") {
                 guard !mintingLink, let setlist else { return }
                 mintingLink = true
@@ -253,7 +252,7 @@ struct SharedSetlistScreen: View {
                     }
                 }
             }
-            PanelButton(title: "Invite somebody by email", kind: .normal,
+            PanelButton(title: "Invite", kind: .normal,
                         identifier: "shared-invite") { inviting = true; address = "" }
             if inviting { inviteField }
         }
@@ -363,7 +362,7 @@ struct SharedSetlistScreen: View {
     /// share path at all and the engine refuses them (`bundle.share_payload`).
     @ViewBuilder
     private var arrangementPicker: some View {
-        BandHeader("Add from my library")
+        BandHeader("Add")
         let already = Set(shared.entries.map(\.scoreUid))
         let mine = (state.manifest?.scores ?? [])
             .sorted { $0.name.lowercased() < $1.name.lowercased() }
@@ -422,7 +421,7 @@ struct SharedSetlistScreen: View {
     @ViewBuilder
     private var whoseMarks: some View {
         if let setlist, setlist.members.count > 1 {
-            BandHeader("Whose marks to show")
+            BandHeader("Marks to show")
             choice("Everybody's", is: .everyone, identifier: "ink-everyone")
             choice("Only mine", is: .mine, identifier: "ink-mine")
             ForEach(setlist.members.keys.sorted().filter { $0 != signIn.account?.uid },
@@ -458,7 +457,7 @@ struct SharedSetlistScreen: View {
     @ViewBuilder
     private var people: some View {
         if let setlist {
-            BandHeader("Who's in it")
+            BandHeader("People")
             ForEach(setlist.members.keys.sorted(), id: \.self) { uid in
                 let theirs = SetlistRole(rawValue: setlist.members[uid] ?? "") ?? .reader
                 HStack(spacing: Theme.Metric.s12) {

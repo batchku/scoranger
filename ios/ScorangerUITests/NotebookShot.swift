@@ -92,11 +92,14 @@ extension NotebookShot {
         app.buttons["score-more"].tap(); sleep(1); snap("score-more-panel")
         let export = app.descendants(matching: .any)["more-export"].firstMatch
         if export.exists { export.tap(); sleep(1); snap("score-export-panel") }
-        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
-        app.buttons["score-ask"].tap(); sleep(1); snap("score-chat-panel")
-        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
-        app.buttons["score-title"].tap(); sleep(1); snap("score-versions-panel")
-        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
+        let bar = app.buttons["score-title"]
+        app.buttons["panel-done"].firstMatch.tap(); settle(bar, still: 0.8)
+        if app.buttons["score-ask"].exists {
+            app.buttons["score-ask"].tap(); sleep(1); snap("score-chat-panel")
+            app.buttons["panel-done"].firstMatch.tap(); settle(bar, still: 0.8)
+        }
+        bar.tap(); sleep(1); snap("score-versions-panel")
+        app.buttons["panel-done"].firstMatch.tap(); settle(bar, still: 0.8)
         let add = app.buttons["score-add-setlist"]
         if add.exists { add.tap(); sleep(1); snap("score-setlists-panel"); app.buttons["panel-done"].firstMatch.tap() }
     }

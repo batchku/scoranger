@@ -35,7 +35,7 @@ struct JoinSetlistScreen: View {
     }
 
     var body: some View {
-        Screen(title: "Join a set list", backLabel: "My library",
+        Screen(title: "Join", backLabel: "Library",
                onBack: onBack) {
             EmptyView()
         } content: {

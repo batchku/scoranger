@@ -260,6 +260,13 @@ targets:
         #          Every UI test that pinned a retired shape is rewritten to
         #          the new one, not deleted; every behaviour it protected is
         #          still asserted.
+        #          WHAT THIS BUILD DOES NOT HAVE, said before it ships: on the
+        #          phone only the panel-as-a-page landed -- the set list's foot
+        #          strip and the score bar's second row are 0.8.1; the OMR offer
+        #          is still More's row and the progress chip rather than a panel
+        #          state (SC13); a book row offers Open and Delete, not Rename,
+        #          because the engine has no rename for books; Settings inside
+        #          the score's 380pt panel is the list, the split is the page.
         #   0.7.4  WHAT THE FIRST THREE-IPAD TEST FOUND. Scope written before
         #          the work, from Ali's list of 2026-09-10 17:20:
         #            1. the library lists run full width;

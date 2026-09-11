@@ -135,7 +135,7 @@ struct ScoreInfoView: View {
             }
 
             // destructive last, in the body (§7.15)
-            BandHeader("Danger")
+            BandHeader("Careful")
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {
                 if confirmingDelete {
                     PanelNote(text: "This removes the arrangement and all its versions. The piece and its other arrangements are untouched.")
@@ -239,13 +239,6 @@ struct ScoreInfoView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("piece-menu")
-            if let piece = currentPiece {
-                // the name is the control: tap it to rename, no pencil button
-                EditableTitle(text: piece.name, role: .body,
-                              identifier: "rename-piece") { name in
-                    Task { await state.renamePiece(piece: piece.slug, name: name) }
-                }
-            }
             Spacer(minLength: 0)
         }
         if pieceListOpen {

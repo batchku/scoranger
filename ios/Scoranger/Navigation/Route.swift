@@ -110,7 +110,7 @@ enum Route: Hashable {
     var backLabel: String {
         switch self {
         case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings:
-            return "My library"
+            return "Library"
         case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
              .versions, .parts, .details, .settingsSection, .folderImport, .book,
              .sort, .filter, .importMenu, .newMenu, .pieceArrangements, .thisPiece,
