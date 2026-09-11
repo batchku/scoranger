@@ -10,6 +10,13 @@ enum ScoreScreen: Hashable {
     case options
     case optionsSection(String)
     case details
+    // 0.8: the score's panel (§7.2) shows these too -- Chat, and what the
+    // title block opens (SC4): Versions and the piece's other arrangements,
+    // and the + button's set lists (SC11).
+    case chat
+    case titleVersions
+    case titleArrangements
+    case titleSetlists
     /// The set list checklist -- the SAME screen the pieces list pushes
     /// (Route.setlistsFor), rendered here because the score's stack is keyed by
     /// this enum and not by Route (§16). One behaviour, two entrances.
@@ -56,11 +63,11 @@ struct ScoreOptionsScreen: View {
     var body: some View {
         Group {
             if let section {
-                Screen(title: section, backLabel: "Options", onBack: onBack) {
+                Screen(title: section, backLabel: "More", onBack: onBack) {
                     sectionBody(section)
                 }
             } else {
-                Screen(title: "Options", backLabel: "Score", onBack: onBack) {
+                Screen(title: "More", backLabel: "Score", onBack: onBack) {
                     root
                 }
             }
@@ -132,12 +139,12 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-annotations") {
                 push("Annotations")
             }
-            ScreenRow(title: "Selection & chat",
+            ScreenRow(title: "Select",
                       value: state.activeSelection.map {
                           "\($0.addresses.count) selected"
                       } ?? "nothing selected",
                       identifier: "more-selection") {
-                push("Selection & chat")
+                push("Select")
             }
             ScreenRow(title: "Transpose", value: "by interval",
                       identifier: "more-transpose") { push("Transpose") }
@@ -146,7 +153,7 @@ struct ScoreOptionsScreen: View {
             // and NOTHING ELSE -- which is what made a second list necessary.
             // The section body below is kept: "All N versions" in the dropdown
             // still pushes it.
-            ScreenRow(title: "Piece & arrangement details",
+            ScreenRow(title: "Details",
                       value: state.selectedScore.flatMap { score in
                           state.placement(of: score.slug)?.piece.name
                       },
@@ -180,9 +187,9 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-setlists") {
                 onSetlists()
             }
-            ScreenRow(title: "Share & export", value: "MusicXML · MIDI · PDF",
+            ScreenRow(title: "Export", value: "MusicXML · MIDI · PDF",
                       identifier: "more-export") {
-                push("Share & export")
+                push("Export")
             }
             ScreenRow(title: "Settings",
                       value: state.useLocalEngine ? "on-device" : "remote",
@@ -404,7 +411,7 @@ struct ScoreOptionsScreen: View {
                     onBack()
                 }
                 note("Ink belongs to the version it was drawn on.")
-            case "Selection & chat":
+            case "Select":
                 ScreenRow(title: "Clear selection", leads: false,
                           identifier: "selection-clear") { state.clearSelection(); onBack() }
                 // The mode used to be named here -- "Pencil: select" -- and
@@ -435,7 +442,7 @@ struct ScoreOptionsScreen: View {
                 }
             case "Chord symbols":
                 chordSymbolRows
-            case "Share & export":
+            case "Export":
                 exportRows
             default:
                 EmptyView()
@@ -467,9 +474,11 @@ struct TitleSwitcherBand: View {
     var onPickArrangement: (String) -> Void
     var onPickVersion: (String?) -> Void
     var onAllVersions: () -> Void
-    /// The height the score has to give: the band takes what it needs of it,
-    /// up to `TitleBandLayout.maxFraction`, and scrolls past that.
     var available: CGFloat = 0
+    /// 0.8: drawn inside the score's panel rather than as a band under the
+    /// bar (SC4) -- the column at its own height, under the panel's header.
+    var inPanel = false
+    var onDone: () -> Void = {}
 
     private var piece: PieceDoc? {
         state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
@@ -522,6 +531,27 @@ struct TitleSwitcherBand: View {
     }
 
     var body: some View {
+        if inPanel {
+            Screen(title: panelTitle, backLabel: "Back",
+                   subtitle: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                                        slug: score.slug),
+                   onBack: onDone) {
+                column.padding(.vertical, Theme.Metric.s8)
+            }
+        } else {
+            band
+        }
+    }
+
+    private var panelTitle: String {
+        switch mode {
+        case .versions:     return "Versions"
+        case .arrangements: return "Arrangements"
+        case .setlists:     return "Set lists"
+        }
+    }
+
+    private var band: some View {
         ScrollView {
             column
         }
@@ -550,7 +580,7 @@ struct TitleSwitcherBand: View {
 
     private var arrangementColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
+            PanelLabel(text: piece.map { "Arrangements of \($0.name)" } ?? "Arrangements", ruled: false)
             ForEach(Array(arrangements.enumerated()), id: \.offset) { index, slug in
                 if let arrangement = state.manifest?.scores.first(where: { $0.slug == slug }) {
                     switchRow(title: arrangementLabels[slug]
@@ -569,7 +599,7 @@ struct TitleSwitcherBand: View {
 
     private var versionColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Versions")
+            PanelLabel(text: "Versions", ruled: false)
             ForEach(shownVersions, id: \.id) { version in
                 // What MADE the version, not just its id: "v003 / v002 /
                 // v001" told a reader nothing, so switching version while
@@ -605,7 +635,7 @@ struct TitleSwitcherBand: View {
     /// putting one arrangement in three set lists should not reopen it twice.
     private var setlistColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Set lists")
+            PanelLabel(text: "Set lists", ruled: false)
             let rows = SetlistMembership.rows(for: score.slug,
                                               in: state.manifest?.setlists ?? [])
             if rows.isEmpty {
@@ -704,7 +734,7 @@ struct ChatModelScreen: View {
     var onBack: () -> Void
 
     var body: some View {
-        Screen(title: "Chat model", backLabel: "Chat", onBack: onBack) {
+        Screen(title: "Model", backLabel: "Chat", onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
                 BandHeader("Models")
                 if let catalog = state.modelCatalog {

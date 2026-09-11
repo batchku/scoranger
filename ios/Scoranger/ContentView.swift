@@ -64,7 +64,51 @@ struct ContentView: View {
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
-    @State private var chatOpen = false
+    /// The score's panel (§7.2) is `scoreScreen`; Chat is one of its states.
+    private var chatOpen: Bool { scoreScreen == .chat }
+    private var panelOpen: Bool { scoreScreen != nil }
+    /// The states More opened, for which the More button stays lit.
+    private var moreOpen: Bool {
+        switch scoreScreen {
+        case nil, .chat, .titleVersions, .titleArrangements, .titleSetlists: return false
+        default: return true
+        }
+    }
+    private var railShown: Bool {
+        state.scoreMode != .performance && !state.layout.isContinuous && !isCompact
+            && state.pdfDocument != nil
+    }
+    /// Done: the panel closes whatever it showed.
+    private func closePanel() {
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            scoreScreen = nil
+            optionsSection = nil
+            state.titleMenuOpen = false
+        }
+    }
+    private func setPanel(_ screen: ScoreScreen?) {
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            if screen != .options { optionsSection = nil }
+            scoreScreen = screen
+            switch screen {
+            case .titleVersions, .titleArrangements, .titleSetlists: break
+            default: state.titleMenuOpen = false
+            }
+        }
+    }
+    /// ‹ inside the panel, when a state opened from another.
+    private func panelBack(for screen: ScoreScreen) -> (() -> Void)? {
+        switch screen {
+        case .options, .optionsSection:
+            return optionsSection == nil ? nil : { optionsSection = nil }
+        case .setlists, .details, .settings:
+            return { setPanel(.options) }
+        case .chatModel:
+            return { setPanel(.chat) }
+        case .chat, .titleVersions, .titleArrangements, .titleSetlists:
+            return nil
+        }
+    }
     @State private var didSetInitialOverlays = false
     /// The height the score view has, so the title band can be capped against
     /// it rather than taking whatever it is offered (L16).
@@ -182,7 +226,6 @@ struct ContentView: View {
         GeometryReader { geo in
             ZStack {
                 scoreBody
-                if let screen = scoreScreen { scoreScreenView(screen) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { barWidth = geo.size.width }
@@ -206,7 +249,6 @@ struct ContentView: View {
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
                                onSetlists: { scoreScreen = .setlists })
-                .background(Theme.Surface.band)
                 .accessibilityIdentifier("score-options")
         case .setlists:
             // The pieces list's own screen (Route.setlistsFor -> this same
@@ -224,29 +266,48 @@ struct ContentView: View {
                 // would have made the two entrances differ in the tree, which
                 // is the one thing §16 is trying to avoid.
                 SetlistsForScreen(slug: score.slug,
-                                  onBack: { scoreScreen = .options })
-                    .background(Theme.Surface.band)
+                                  onBack: { setPanel(.options) })
             }
         case .details:
             if let score = state.selectedScore {
-                Screen(title: "Details", backLabel: "Options",
+                Screen(title: "Details", backLabel: "More",
                        subtitle: ScoreTitle.arrangementName(title: score.title,
                                                             name: score.name,
                                                             slug: score.slug),
-                       onBack: { scoreScreen = .options }) {
+                       onBack: { setPanel(.options) }) {
                     ScoreInfoView(score: score)
                 }
-                .background(Theme.Surface.band)
             }
         case .settings:
-            Screen(title: "Settings", backLabel: "Options",
-                   onBack: { scoreScreen = .options }) {
+            Screen(title: "Settings", backLabel: "More",
+                   onBack: { setPanel(.options) }) {
                 SettingsView()
             }
-            .background(Theme.Surface.band)
         case .chatModel:
-            ChatModelScreen(onBack: { scoreScreen = nil })
-                .background(Theme.Surface.band)
+            ChatModelScreen(onBack: { setPanel(.chat) })
+        case .chat:
+            chatPanel
+        case .titleVersions, .titleArrangements, .titleSetlists:
+            if let score = state.selectedScore {
+                TitleSwitcherBand(score: score,
+                                  mode: titleMenuMode,
+                                  onPickArrangement: { slug in
+                                      closePanel()
+                                      state.select(slug: slug)
+                                  },
+                                  onPickVersion: { version in
+                                      closePanel()
+                                      state.pinnedVersion = version
+                                      Task { await state.renderIfNeeded() }
+                                  },
+                                  onAllVersions: {
+                                      state.titleMenuOpen = false
+                                      optionsSection = "Versions"
+                                      scoreScreen = .options
+                                  },
+                                  inPanel: true,
+                                  onDone: { closePanel() })
+            }
         }
     }
 
@@ -262,37 +323,11 @@ struct ContentView: View {
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
                         barWidth: $barWidth,
-                        moreOpen: Binding(get: { scoreScreen != nil },
-                                          set: { on in
-                                              scoreScreen = on ? .options : nil
-                                              if !on { optionsSection = nil }
-                                          }),
+                        moreOpen: Binding(get: { moreOpen },
+                                          set: { on in setPanel(on ? .options : nil) }),
                         chatOpen: chatOpen,
                         onClose: onClose,
-                        onAsk: {
-                            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
-                                chatOpen.toggle()
-                            }
-                        })
-            if state.titleMenuOpen, let score = state.selectedScore {
-                TitleSwitcherBand(score: score,
-                                  mode: titleMenuMode,
-                                  onPickArrangement: { slug in
-                                      state.titleMenuOpen = false
-                                      state.select(slug: slug)
-                                  },
-                                  onPickVersion: { version in
-                                      state.titleMenuOpen = false
-                                      state.pinnedVersion = version
-                                      Task { await state.renderIfNeeded() }
-                                  },
-                                  onAllVersions: {
-                                      state.titleMenuOpen = false
-                                      optionsSection = "Versions"
-                                      scoreScreen = .options
-                                  },
-                                  available: scoreHeight)
-            }
+                        onAsk: { setPanel(chatOpen ? nil : .chat) })
             ZStack(alignment: .top) {
                 Theme.Surface.band
                 canvasLayer
@@ -346,8 +381,8 @@ struct ContentView: View {
                 // were being drawn over the chat's own header
                 .padding(.trailing,
                          ScorePosition.counterTrailingInset(
-                            chatOpen: chatOpen, isCompact: isCompact,
-                            chatWidth: Theme.Metric.chatWidth,
+                            chatOpen: panelOpen, isCompact: isCompact,
+                            chatWidth: Theme.Metric.panelWidth + Theme.Metric.pagePanelGap,
                             base: Theme.Metric.s12))
             }
             // TWO gates, not one. They were a single condition, and that put
@@ -373,15 +408,6 @@ struct ContentView: View {
                 PageScrubber(pageCount: document.pageCount,
                              current: state.visiblePageIndices.first ?? 0,
                              onJump: jumpToPage)
-            }
-            if state.scoreMode != .performance, !state.layout.isContinuous,
-               !isCompact, let document = state.pdfDocument {
-                ThumbnailStrip(document: document,
-                               current: state.visiblePageIndices,
-                               spread: state.twoPageSpread,
-                               // straight to the unit holding that page: no
-                               // offset arithmetic left to get wrong
-                               onJump: jumpToPage)
             }
             // THE TRAY (design/DESIGN_SYSTEM.md §7.7): always there while
             // reading -- there is no "show transport" any more -- and gone
@@ -416,6 +442,10 @@ struct ContentView: View {
                     }
             }
         }
+        // The title block's menu is a panel state now (SC4): the bar's own
+        // flag says it is open and which mode, and the panel follows.
+        .onChange(of: state.titleMenuOpen) { _, open in titleMenuChanged(open: open) }
+        .onChange(of: titleMenuMode) { _, _ in titleMenuChanged(open: state.titleMenuOpen) }
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -566,6 +596,13 @@ struct ContentView: View {
     @ViewBuilder
     private var canvasLayer: some View {
         HStack(spacing: 0) {
+            // The thumbnail rail (§7.11), in paged reading on an iPad.
+            if railShown, let document = state.pdfDocument {
+                ThumbnailRail(document: document,
+                              current: state.visiblePageIndices,
+                              spread: state.twoPageSpread,
+                              onJump: jumpToPage)
+            }
             // reserve exactly the panels' widths, so what remains IS the canvas
             Group {
                 if let score = state.selectedScore {
@@ -581,14 +618,15 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            Color.clear.frame(width: isCompact ? 0 : (chatOpen ? Theme.Metric.chatWidth : 0))
+            // The panel's lane (§7.2): the score lays itself out again at
+            // the narrower width while Versions, Chat or More is open.
+            Color.clear.frame(width: isCompact || !panelOpen
+                              ? 0 : Theme.Metric.panelWidth + Theme.Metric.pagePanelGap)
         }
-        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: panelOpen)
         // a finished lasso opens chat: the selection has to be visibly received,
         // not silently held
-        .onChange(of: state.chatOpenRequest) { _, _ in
-            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = true }
-        }
+        .onChange(of: state.chatOpenRequest) { _, _ in setPanel(.chat) }
     }
 
     @ViewBuilder
@@ -681,6 +719,24 @@ struct ContentView: View {
         }
     }
 
+    private func titleMenuChanged(open: Bool) {
+        let wanted: ScoreScreen
+        switch titleMenuMode {
+        case .versions:     wanted = .titleVersions
+        case .arrangements: wanted = .titleArrangements
+        case .setlists:     wanted = .titleSetlists
+        }
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            if open {
+                optionsSection = nil
+                scoreScreen = wanted
+            } else if scoreScreen == .titleVersions || scoreScreen == .titleArrangements
+                        || scoreScreen == .titleSetlists {
+                scoreScreen = nil
+            }
+        }
+    }
+
     // MARK: - Overlays
 
     @ViewBuilder
@@ -688,12 +744,20 @@ struct ContentView: View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                if chatOpen {
-                    OverlayPanel(edge: .trailing,
-                                 width: isCompact ? .infinity : Theme.Metric.chatWidth) {
-                        chatPanel
-                    }
-                    .transition(panelTransition(.trailing))
+                if let screen = scoreScreen {
+                    scoreScreenView(screen)
+                        .environment(\.inPanel, true)
+                        .environment(\.panelBack, panelBack(for: screen))
+                        .environment(\.panelDone, { closePanel() })
+                        .frame(maxWidth: isCompact ? .infinity : Theme.Metric.panelWidth)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .pageShape()
+                        .padding(.trailing, isCompact ? 0 : Theme.Metric.s8)
+                        .padding(.top, isCompact ? 0 : Theme.Metric.s8)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("score-panel")
+                        .id(screen)
+                        .transition(panelTransition(.trailing))
                 }
             }
             // the screen ignores the keyboard so the page keeps its size; the
@@ -701,7 +765,7 @@ struct ContentView: View {
             .padding(.bottom,
                      KeyboardInset.panelBottom(keyboard: keyboard.height,
                                                safeAreaBottom: geo.safeAreaInsets.bottom))
-            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: scoreScreen)
             .animation(Theme.Motion.overlay(reduced: reduceMotion), value: keyboard.height)
         }
     }
@@ -715,36 +779,16 @@ struct ContentView: View {
     @ViewBuilder
     private var chatPanel: some View {
         VStack(spacing: 0) {
-            OverlayHeader(subject: {
-                HStack(spacing: Theme.Metric.s6) {
-                    if let slug = state.selectedScore?.slug,
-                       let placement = state.placement(of: slug) {
-                        NumeralBadge(number: placement.number, role: .numeralM)
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(state.selectedScore?.name ?? "Chat")
-                            .typeRole(.title)
-                            .foregroundStyle(Theme.Ink.ink)
-                            .lineLimit(1)
-                        if let slug = state.selectedScore?.slug,
-                           let placement = state.placement(of: slug) {
-                            Text(placement.piece.name)
-                                .typeRole(.meta)
-                                .foregroundStyle(Theme.Ink.ink3)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }, trailing: {
+            PanelHeader(title: state.selectedScore?.name ?? "Chat",
+                        subtitle: state.selectedScore.flatMap { state.placement(of: $0.slug)?.piece.name },
+                        doneLabel: "Close chat") {
                 if let catalog = state.modelCatalog {
-                    // The chat header's model Menu becomes a pushed screen
-                    // (NAV_MODAL_FREE_0.4.2 §7.3): the last popover in the app.
-                    Button { scoreScreen = .chatModel } label: {
+                    // The model, named in the header (SC5); changed in Settings
+                    // or here, as a panel state.
+                    Button { setPanel(.chatModel) } label: {
                         Text(state.chatModel.isEmpty ? (catalog.default) : state.chatModel)
                             .typeRole(.data)
                             .foregroundStyle(Theme.Ink.ink2)
-                            // one line at its natural width: with the title
-                            // taking priority the chip started wrapping instead
                             .lineLimit(1)
                             .fixedSize()
                             .padding(.vertical, Theme.Metric.s4)
@@ -755,9 +799,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("chat-model")
                     .accessibilityLabel("Chat model")
                 }
-            }, onDismiss: {
-                withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = false }
-            }, dismissLabel: "Close chat")
+            }
             ChatView()
         }
     }

@@ -2052,7 +2052,7 @@ final class ScorangerUITests: XCTestCase {
                       "the score never engraved")
         app.buttons["score-more"].tap()
         let row = menuRow("more-export")
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "no Share & export row")
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no Export row")
         row.tap()
         for format in ["musicxml", "midi", "pdf"] {
             XCTAssertTrue(menuRow("export-\(format)").waitForExistence(timeout: 10),

@@ -49,9 +49,42 @@ struct SettingsView: View {
         }
     }
 
+    /// One section, or nil for the whole list in order (the score's own
+    /// narrow panel shows the list; the Settings page shows the split).
+    var section: SettingsSection? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Reading")
+            if let section {
+                block(section)
+            } else {
+                ForEach(SettingsSection.allCases) { block($0) }
+            }
+        }
+        .onAppear {
+            urlDraft = state.engineURLString
+            omrURLDraft = state.omrURLString
+            // Key fields start empty and say what is in use underneath them.
+            // Seeding them with the stored secret and writing back on every
+            // keystroke is what let a stray edit clear a working key.
+            savedChatKey = KeychainStore.openRouterKey
+            savedOMRKey = KeychainStore.omrKey
+            apiKeyDraft = ""
+            omrKeyDraft = ""
+        }
+        .onDisappear { Task { await state.refresh() } }
+    }
+
+    /// A secret field: never pre-filled, saved on demand, and honest about
+    /// which key the app is using right now.
+
+    @ViewBuilder
+    private func block(_ which: SettingsSection) -> some View {
+        switch which {
+        case .account:
+            AccountSection(showsHeader: section == nil)
+        case .reading:
+            if section == nil { BandHeader("Reading") }
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 // One property, every surface. A toggle cannot say
                 // "continuous", and the top bar and this screen disagreeing
@@ -77,12 +110,13 @@ struct SettingsView: View {
             // library, so it appears on every device that holds the damage and
             // disappears from all of them once it is fixed -- no flag, and no
             // large edit made on anyone's behalf at launch.
+        case .titles:
             if let offer = TitleRepair.offer(count: state.titleRepairsNeeded.count) {
-                BandHeader("Titles")
+                if section == nil { BandHeader("Titles") }
                 VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                     PanelNote(text: offer)
                     HStack {
-                        PanelButton(title: repairRunning ? "Fixing…" : "Fix titles",
+                        PanelButton(title: repairRunning ? "Fixing…" : TitleRepair.buttonTitle(count: state.titleRepairsNeeded.count),
                                     kind: .primary) {
                             repairRunning = true
                             repairResult = ""
@@ -108,34 +142,8 @@ struct SettingsView: View {
 
             // Optional, and placed where somebody would go looking for it
             // rather than where it would interrupt them.
-            AccountSection()
-
-            BandHeader("About")
-            VStack(alignment: .leading, spacing: Theme.Metric.s8) {
-                // The build stamp had no home once Home went, and a tester who
-                // cannot say which build they are on cannot report anything
-                // useful about it -- every device report in this project has
-                // turned on knowing that.
-                Text(BuildStamp.short)
-                    .typeRole(.data)
-                    .foregroundStyle(Theme.Ink.ink2)
-                    .accessibilityIdentifier("build-stamp")
-                PanelNote(text: "Quote this when reporting anything.")
-            }
-            .padding(Theme.Metric.panelPadding)
-
-            BandHeader("Diagnostics")
-            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
-                PanelToggle(title: "Show what the canvas is receiving",
-                            isOn: $showTouchDiagnostics)
-                PanelNote(text: "Prints every touch on the score — pencil or finger, how many "
-                          + "are down, how long they were held, and whether a selection "
-                          + "started. For reporting a gesture that is not working.")
-                PerfPanel()
-            }
-            .padding(Theme.Metric.panelPadding)
-
-            BandHeader("On-device engine")
+        case .engine:
+            if section == nil { BandHeader("Engine") }
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 HStack(spacing: Theme.Metric.s12) {
                     PanelToggle(title: "Use on-device engine", isOn: $state.useLocalEngine)
@@ -158,7 +166,7 @@ struct SettingsView: View {
                 }
                 PanelNote(text: "On: scores live on this iPad; no laptop needed. Off: connect to scor serve on your Mac.")
                 HStack {
-                    PanelButton(title: selfTestRunning ? "Running…" : "Run engine self-test") {
+                    PanelButton(title: selfTestRunning ? "Running…" : "Self-test") {
                         runSelfTest()
                     }
                     .disabled(selfTestRunning)
@@ -172,8 +180,9 @@ struct SettingsView: View {
             }
             .padding(Theme.Metric.panelPadding)
 
+        case .server:
             if !state.useLocalEngine {
-                BandHeader("Remote engine")
+                if section == nil { BandHeader("Server") }
                 VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                     LabeledField("Engine URL", text: $urlDraft, isMono: true,
                                  identifier: "engine-url")
@@ -185,7 +194,8 @@ struct SettingsView: View {
                 .padding(Theme.Metric.panelPadding)
             }
 
-            BandHeader("PDF conversion (OMR)")
+        case .scanning:
+            if section == nil { BandHeader("Scanning") }
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 LabeledField("OMR service URL", text: $omrURLDraft, isMono: true,
                              identifier: "omr-url")
@@ -199,7 +209,7 @@ struct SettingsView: View {
                     KeychainStore.omrKey = value
                 }
                 HStack {
-                    PanelButton(title: omrTestRunning ? "Testing…" : "Test connection & key") {
+                    PanelButton(title: omrTestRunning ? "Testing…" : "Test") {
                         omrTestRunning = true
                         omrTestResult = ""
                         Task {
@@ -221,7 +231,8 @@ struct SettingsView: View {
             }
             .padding(Theme.Metric.panelPadding)
 
-            BandHeader("Chat model")
+        case .model:
+            if section == nil { BandHeader("Model") }
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {
                 if let catalog = state.modelCatalog {
                     ForEach(catalog.models.keys.sorted(), id: \.self) { alias in
@@ -249,23 +260,37 @@ struct SettingsView: View {
                 }
             }
             .padding(Theme.Metric.panelPadding)
+        
+        case .diagnostics:
+            if section == nil { BandHeader("Diagnostics") }
+            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                PanelToggle(title: "Show what the canvas is receiving",
+                            isOn: $showTouchDiagnostics)
+                PanelNote(text: "Prints every touch on the score — pencil or finger, how many "
+                          + "are down, how long they were held, and whether a selection "
+                          + "started. For reporting a gesture that is not working.")
+                PerfPanel()
+            }
+            .padding(Theme.Metric.panelPadding)
+
+        case .about:
+            if section == nil { BandHeader("About") }
+            VStack(alignment: .leading, spacing: Theme.Metric.s8) {
+                // The build stamp had no home once Home went, and a tester who
+                // cannot say which build they are on cannot report anything
+                // useful about it -- every device report in this project has
+                // turned on knowing that.
+                Text(BuildStamp.short)
+                    .typeRole(.data)
+                    .foregroundStyle(Theme.Ink.ink2)
+                    .accessibilityIdentifier("build-stamp")
+                PanelNote(text: "Quote this when reporting anything.")
+            }
+            .padding(Theme.Metric.panelPadding)
+
         }
-        .onAppear {
-            urlDraft = state.engineURLString
-            omrURLDraft = state.omrURLString
-            // Key fields start empty and say what is in use underneath them.
-            // Seeding them with the stored secret and writing back on every
-            // keystroke is what let a stray edit clear a working key.
-            savedChatKey = KeychainStore.openRouterKey
-            savedOMRKey = KeychainStore.omrKey
-            apiKeyDraft = ""
-            omrKeyDraft = ""
-        }
-        .onDisappear { Task { await state.refresh() } }
     }
 
-    /// A secret field: never pre-filled, saved on demand, and honest about
-    /// which key the app is using right now.
     @ViewBuilder
     private func keyField(label: String, draft: Binding<String>, saved: Binding<String>,
                           identifier: String, baked: Bool,

@@ -17,10 +17,11 @@ struct AccountSection: View {
     @EnvironmentObject var state: AppState
 
     @State private var pasteNote: String?
+    var showsHeader = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Account")
+            if showsHeader { BandHeader("Account") }
             VStack(alignment: .leading, spacing: Theme.Metric.s12) {
                 switch signIn.state {
                 case .signedOut, .failed:

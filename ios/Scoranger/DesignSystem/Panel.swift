@@ -92,6 +92,9 @@ struct PanelHeader<Trailing: View>: View {
     let title: String
     var subtitle: String?
     var count: Int?
+    /// What VoiceOver calls Done; "Close chat" where a test or a reader
+    /// already knows it by that name.
+    var doneLabel: String = "Done"
     @ViewBuilder var trailing: () -> Trailing
     @Environment(\.panelBack) private var back
     @Environment(\.panelDone) private var done
@@ -142,7 +145,7 @@ struct PanelHeader<Trailing: View>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Done")
+                .accessibilityLabel(doneLabel)
                 .accessibilityIdentifier("panel-done")
             }
         }
@@ -153,8 +156,8 @@ struct PanelHeader<Trailing: View>: View {
 }
 
 extension PanelHeader where Trailing == EmptyView {
-    init(title: String, subtitle: String? = nil, count: Int? = nil) {
-        self.init(title: title, subtitle: subtitle, count: count) { EmptyView() }
+    init(title: String, subtitle: String? = nil, count: Int? = nil, doneLabel: String = "Done") {
+        self.init(title: title, subtitle: subtitle, count: count, doneLabel: doneLabel) { EmptyView() }
     }
 }
 

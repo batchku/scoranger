@@ -17,6 +17,12 @@ import Foundation
 /// while there is damage, on every device, with no state kept anywhere.
 enum TitleRepair {
 
+    /// The button says how many (§10): "Fix 3 titles", "Fix 1 title".
+    static func buttonTitle(count: Int) -> String {
+        count == 1 ? "Fix 1 title" : "Fix \(count) titles"
+    }
+
+
     /// Whether one arrangement is engraving an internal file name.
     ///
     /// Mirrors `workspace.title_repairs`, including its exclusion: an

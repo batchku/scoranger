@@ -11,6 +11,8 @@ struct Screen<Content: View, Trailing: View>: View {
     var onBack: () -> Void
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
+    /// False for content that scrolls itself (the settings split).
+    var scrolls = true
     @Environment(\.inPanel) private var inPanel
     @Environment(\.panelTitle) private var panelTitle
 
@@ -25,13 +27,17 @@ struct Screen<Content: View, Trailing: View>: View {
             } else {
                 navBar
             }
-            ScrollView {
-                // The content column: capped and centred on a pushed page
-                // (a row's label and its chevron 1300pt apart is not a row),
-                // the panel's own width inside the panel.
-                content()
-                    .frame(maxWidth: inPanel ? .infinity : Theme.Metric.readingColumn)
-                    .frame(maxWidth: .infinity)
+            if scrolls {
+                ScrollView {
+                    // The content column: capped and centred on a pushed page
+                    // (a row's label and its chevron 1300pt apart is not a row),
+                    // the panel's own width inside the panel.
+                    content()
+                        .frame(maxWidth: inPanel ? .infinity : Theme.Metric.readingColumn)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                content().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Theme.Surface.panel)
@@ -80,9 +86,10 @@ struct Screen<Content: View, Trailing: View>: View {
 
 extension Screen where Trailing == EmptyView {
     init(title: String, backLabel: String, subtitle: String? = nil,
-         onBack: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+         onBack: @escaping () -> Void, scrolls: Bool = true,
+         @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, backLabel: backLabel, subtitle: subtitle,
-                  onBack: onBack, trailing: { EmptyView() }, content: content)
+                  onBack: onBack, trailing: { EmptyView() }, content: content, scrolls: scrolls)
     }
 }
 

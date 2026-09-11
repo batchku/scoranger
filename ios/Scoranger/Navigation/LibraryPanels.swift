@@ -26,24 +26,28 @@ struct SortPanel: View {
     }
 }
 
-/// L4 · Filter. Capsules with counts, several at once [C9].
+/// L4 · Filter. Five groups from the data model [C9]: capsules with counts,
+/// several at once; the Filter button carries how many are on.
 struct FilterPanel: View {
     @Binding var filters: Set<LibraryFilter>
-    /// How many rows each filter would keep, from the data model.
-    var counts: [LibraryFilter: Int] = [:]
+    var groups: [LibraryModel.FilterGroup] = []
     @Environment(\.panelDone) private var done
 
     var body: some View {
-        Screen(title: "Filter", backLabel: "Back", onBack: { done?() }) {
+        Screen(title: "Filter", backLabel: "Back",
+               subtitle: filters.isEmpty ? nil : "\(filters.count) on", onBack: { done?() }) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(LibraryFilter.allCases, id: \.self) { option in
-                    ScreenRow(title: option.label,
-                              value: counts[option].map { "\($0)" },
-                              leads: false,
-                              isSelected: filters.contains(option),
-                              identifier: "filter-\(option.rawValue)") {
-                        if filters.contains(option) { filters.remove(option) }
-                        else { filters.insert(option) }
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    PanelLabel(text: group.group.title, ruled: index > 0)
+                    ForEach(group.options, id: \.filter) { option in
+                        ScreenRow(title: option.filter.label,
+                                  value: "\(option.count)",
+                                  leads: false,
+                                  isSelected: filters.contains(option.filter),
+                                  identifier: option.filter.identifier) {
+                            if filters.contains(option.filter) { filters.remove(option.filter) }
+                            else { filters.insert(option.filter) }
+                        }
                     }
                 }
                 if !filters.isEmpty {
@@ -53,6 +57,9 @@ struct FilterPanel: View {
                         }
                     }
                 }
+                PanelNote(text: "Instruments come from each arrangement's parts; a scan that has not been converted matches none.")
+                    .padding(.horizontal, Theme.Metric.panelSide)
+                    .padding(.top, Theme.Metric.s8)
             }
             .padding(.vertical, Theme.Metric.s8)
         }

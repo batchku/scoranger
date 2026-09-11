@@ -651,6 +651,29 @@ final class AppState: ObservableObject {
     /// true = embedded Python engine + Verovio (no laptop needed);
     /// false = remote `scor serve` over the network.
     @AppStorage("useLocalEngine") var useLocalEngine = true
+
+    /// Arrangement tags [C14]: saved at once, no version. The counter is what
+    /// views watch; the store is a file beside the library.
+    @Published var arrangementTagsVersion = 0
+    func arrangementTags(_ slug: String) -> [String] {
+        ArrangementTags.shared.tags(for: tagKey(slug))
+    }
+    func setArrangementTags(_ slug: String, _ tags: [String]) {
+        ArrangementTags.shared.set(tags, for: tagKey(slug))
+        arrangementTagsVersion += 1
+    }
+    /// Every arrangement's tags by slug, for the library's rows and filters.
+    var allArrangementTags: [String: [String]] {
+        var out: [String: [String]] = [:]
+        for score in manifest?.scores ?? [] {
+            let tags = arrangementTags(score.slug)
+            if !tags.isEmpty { out[score.slug] = tags }
+        }
+        return out
+    }
+    private func tagKey(_ slug: String) -> String {
+        manifest?.scores.first { $0.slug == slug }?.uid ?? slug
+    }
     /// Guards the one-time rename of the old seeded "Samples" setlist.
     @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
     /// Session-scoped, deliberately not `@AppStorage`: re-running the

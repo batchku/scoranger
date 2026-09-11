@@ -33,6 +33,7 @@ struct ScoreInfoView: View {
     @State private var draftTitle = ""
     @State private var draftComposer = ""
     @State private var draftArranger = ""
+    @State private var draftTags = ""
     /// What was last persisted; comparing against the snapshot would leave the
     /// Save button showing after a successful write.
     @State private var saved = AppState.ScoreMetadata()
@@ -166,6 +167,12 @@ struct ScoreInfoView: View {
                          identifier: "arrangement-composer")
             LabeledField("Arranger", text: $draftArranger,
                          identifier: "arrangement-arranger")
+            // Tags are not notation [C14]: they save as they are typed, with
+            // no version, and are filterable in the library [C9].
+            LabeledField("Tags", text: $draftTags, identifier: "arrangement-tags")
+                .onChange(of: draftTags) { _, typed in
+                    state.setArrangementTags(score.slug, ArrangementTags.parse(typed))
+                }
             if let engravedTitle = engravedMismatch {
                 PanelNote(text: "The page still engraves \u{201C}\(engravedTitle)\u{201D}. "
                           + "Saving makes the title on the score the same as this one.")
@@ -330,6 +337,7 @@ struct ScoreInfoView: View {
         draftTitle = doc.name
         draftComposer = fromNotation?.composer ?? doc.composer ?? ""
         draftArranger = fromNotation?.arranger ?? ""
+        draftTags = state.arrangementTags(doc.slug).joined(separator: ", ")
         saved = AppState.ScoreMetadata(title: draftTitle,
                                        composer: draftComposer,
                                        arranger: draftArranger)

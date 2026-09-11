@@ -72,10 +72,6 @@ struct RootView: View {
     /// The camera roll's own picker, which is not a document picker.
     @State private var showPhotoImport = false
 
-    /// Settings is a panel docked at the trailing edge, not a screen that
-    /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
-    /// but its own ✕ -- the same shape as the chat panel over the score.
-    @State private var settingsOpen = false
 
     var body: some View {
         ZStack {
@@ -137,28 +133,6 @@ struct RootView: View {
             // hidden, not unloaded: coming back to the library should not cost
             // a rebuild, and the score is what is expensive to re-open
             .allowsHitTesting(!scoreOpen)
-
-            if settingsOpen, !scoreOpen {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    OverlayPanel(edge: .trailing, width: Theme.Metric.settingsWidth) {
-                        VStack(spacing: 0) {
-                            OverlayHeader(subject: {
-                                Text("Settings").typeRole(.title)
-                                    .foregroundStyle(Theme.Ink.ink)
-                            }, trailing: { EmptyView() }, onDismiss: {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    settingsOpen = false
-                                }
-                            }, dismissLabel: "Close settings")
-                            ScrollView { SettingsView() }
-                        }
-                    }
-                    .accessibilityIdentifier("settings-panel")
-                    .transition(.move(edge: .trailing))
-                }
-                .ignoresSafeArea(edges: .bottom)
-            }
 
             // Above the score too: a PDF that will not transcribe has its say
             // while the reader is looking at that very score.
@@ -335,20 +309,19 @@ struct RootView: View {
         }
     }
 
-    /// How many rows each filter keeps, for the Filter panel's counts (L4).
-    private var filterCounts: [LibraryFilter: Int] {
-        guard let manifest = state.manifest else { return [:] }
+    /// The Filter panel's groups and counts (L4), from the rows the segment
+    /// shows before any filter is applied.
+    private var filterGroups: [LibraryModel.FilterGroup] {
+        guard let manifest = state.manifest else { return [] }
         let base: [LibraryRow]
         switch segment {
-        case .pieces:   base = LibraryModel.pieceRows(manifest: manifest) + LibraryModel.unfiledRows(manifest: manifest)
+        case .pieces:
+            base = LibraryModel.pieceRows(manifest: manifest, arrangementTags: state.allArrangementTags)
+                + LibraryModel.unfiledRows(manifest: manifest, arrangementTags: state.allArrangementTags)
         case .setlists: base = LibraryModel.setlistRows(manifest: manifest)
         case .books:    base = LibraryModel.bookRows(manifest: manifest)
         }
-        var counts: [LibraryFilter: Int] = [:]
-        for filter in LibraryFilter.allCases {
-            counts[filter] = LibraryModel.filtered(base, by: [filter], manifest: manifest).count
-        }
-        return counts
+        return LibraryModel.filterGroups(rows: base, manifest: manifest)
     }
 
     private func commitDelete(_ row: LibraryRow) {
@@ -395,7 +368,7 @@ struct RootView: View {
         case .sort:
             SortPanel(sort: $sort)
         case .filter:
-            FilterPanel(filters: $filters, counts: filterCounts)
+            FilterPanel(filters: $filters, groups: filterGroups)
         case .importMenu:
             ImportPanel(run: runQuickAction)
         case .newMenu:
@@ -497,10 +470,8 @@ struct RootView: View {
             DetailsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .settings, .settingsSection:
-            Screen(title: "Settings", backLabel: "My library", onBack: pop) {
-                SettingsView()
-            }
-            .navigationBarHidden(true)
+            SettingsPage(onBack: pop)
+                .navigationBarHidden(true)
         }
     }
 
@@ -553,9 +524,7 @@ struct RootView: View {
                     onImportPhotos: { showPhotoImport = true },
                     onImportFolder: { importIntent.ask(for: .folder) },
                     onImportBook: { importIntent.ask(for: .book) },
-                    onSettings: {
-                        withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
-                    },
+                    onSettings: { libraryPath.append(.settings) },
                     onRowAction: handle,
                     onBarAction: handleBar)
     }

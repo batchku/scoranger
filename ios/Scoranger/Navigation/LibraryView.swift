@@ -785,8 +785,9 @@ struct LibraryView: View {
         var base: [LibraryRow]
         switch segment {
         case .pieces:
-            base = LibraryModel.pieceRows(manifest: manifest)
-                + LibraryModel.unfiledRows(manifest: manifest)
+            let tags = state.allArrangementTags
+            base = LibraryModel.pieceRows(manifest: manifest, arrangementTags: tags)
+                + LibraryModel.unfiledRows(manifest: manifest, arrangementTags: tags)
         case .setlists:
             base = LibraryModel.setlistRows(manifest: manifest)
         case .books:

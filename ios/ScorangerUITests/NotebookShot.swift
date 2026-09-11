@@ -77,3 +77,72 @@ final class NotebookShot: XCTestCase {
         }
     }
 }
+
+extension NotebookShot {
+    /// The score: the rail, More, Chat and the title block's Versions in the
+    /// right panel (SC1, SC4, SC5, SC8).
+    func testPhotographTheScore() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetViewPreferences", "-seedTestLibrary"]
+        app.launch()
+        var step = ""
+        guard openTray(app, step: &step) != nil else { return XCTFail(step) }
+        sleep(1)
+        snap("score-reading")
+        app.buttons["score-more"].tap(); sleep(1); snap("score-more-panel")
+        let export = app.descendants(matching: .any)["more-export"].firstMatch
+        if export.exists { export.tap(); sleep(1); snap("score-export-panel") }
+        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
+        app.buttons["score-ask"].tap(); sleep(1); snap("score-chat-panel")
+        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
+        app.buttons["score-title"].tap(); sleep(1); snap("score-versions-panel")
+        app.buttons["panel-done"].firstMatch.tap(); sleep(1)
+        let add = app.buttons["score-add-setlist"]
+        if add.exists { add.tap(); sleep(1); snap("score-setlists-panel"); app.buttons["panel-done"].firstMatch.tap() }
+    }
+}
+
+extension NotebookShot {
+    /// Settings as a split (T1–T10), the Filter panel's groups (L4), and an
+    /// arrangement's Details with Tags (A3).
+    func testPhotographSettingsFilterAndDetails() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetViewPreferences", "-seedTestLibrary"]
+        app.launch()
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
+        waitForTheLibraryToSettle(app)
+        let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
+        _ = row.waitForExistence(timeout: 60)
+        settle(row, still: 0.6)
+
+        app.buttons["library-filter"].tap(); sleep(1); snap("library-filter-panel")
+        app.buttons["panel-done"].firstMatch.tap(); settle(row, still: 0.6)
+
+        app.buttons["library-settings"].tap(); sleep(1); snap("settings-reading")
+        let engine = app.buttons["settings-engine"]
+        if engine.waitForExistence(timeout: 5) { engine.tap(); sleep(1); snap("settings-engine") }
+        let account = app.buttons["settings-account"]
+        if account.exists { account.tap(); sleep(1); snap("settings-account") }
+        app.buttons["Close settings"].firstMatch.tap(); settle(row, still: 0.6)
+
+        app.buttons["row-menu-sous-le-ciel-de-paris"].firstMatch.tap(); sleep(1)
+        let arrangements = app.descendants(matching: .any)["row-arrangements-sous-le-ciel-de-paris"].firstMatch
+        if arrangements.waitForExistence(timeout: 5) {
+            arrangements.tap(); sleep(1)
+            let pieceScreen = app.descendants(matching: .any)["piece-screen-sous-le-ciel-de-paris"].firstMatch
+            if pieceScreen.waitForExistence(timeout: 5) {
+                pieceScreen.tap(); sleep(2)
+                let menu = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
+                menu.tap(); sleep(1)
+                let manage = app.descendants(matching: .any).matching(
+                    NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-manage-")).firstMatch
+                if manage.waitForExistence(timeout: 5) {
+                    manage.tap(); sleep(1); snap("arrangement-panel")
+                    let details = app.descendants(matching: .any).matching(
+                        NSPredicate(format: "identifier BEGINSWITH %@", "row-details-")).firstMatch
+                    if details.exists { details.tap(); sleep(1); snap("arrangement-details-panel") }
+                }
+            }
+        }
+    }
+}
