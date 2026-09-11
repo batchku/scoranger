@@ -2759,6 +2759,44 @@ final class AppState: ObservableObject {
         await runSetlistOp(op: "delete-setlist", args: ["setlist": setlist])
     }
 
+    /// Leave a shared set list: membership first, then the local row.
+    ///
+    /// Both halves, in that order, because they used to be one half each in
+    /// two different places. "Leave this set list" on the shared screen
+    /// removed the membership and left the row in the library; Edit-mode
+    /// delete removed the row and left the membership. Either way a person
+    /// ended up with something they could not get rid of -- Ali's wife with a
+    /// joined set list of 0 arrangements that nothing would delete.
+    ///
+    /// The membership goes FIRST so a failure there leaves the row, which is
+    /// the state that can be retried; the reverse leaves a phantom membership
+    /// with no row to act on it from.
+    func leaveSharedSetlist(_ setlist: SetlistDoc, shared: SharedSetlists,
+                            uid: String) async -> Bool {
+        guard let shareId = setlist.shareId else { return await deleteSetlist(setlist.slug) }
+        do {
+            try await shared.removeMember(uid, from: shareId)
+        } catch {
+            report("leave that set list", error)
+            return false
+        }
+        return await deleteSetlist(setlist.slug)
+    }
+
+    /// Delete a shared set list for everybody: the document, then the local
+    /// row. The owner's alone (`SetlistPermission`), and the shared screen says
+    /// so in those words before it lets them.
+    func deleteSharedSetlistEverywhere(_ setlist: SetlistDoc, shared: SharedSetlists,
+                                       remote: SharedSetlists.Setlist) async -> Bool {
+        do {
+            try await shared.delete(remote)
+        } catch {
+            report("delete that set list", error)
+            return false
+        }
+        return await deleteSetlist(setlist.slug)
+    }
+
     /// This device's copy of a shared set list entry, importing it if this is
     /// the first time the entry has been opened here.
     ///

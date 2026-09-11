@@ -58,9 +58,10 @@ struct PlaybackTimeline: Decodable, Equatable {
 
     /// One part, in the order its MIDI track appears.
     struct Part: Decodable, Equatable {
-        /// The index of the part AND of its sequencer track. music21 writes one
-        /// track per part in score order, and `AVAudioSequencer.tracks` omits
-        /// the tempo track, so the two line up with nothing in between.
+        /// The index of the part, in score order. Its sequencer track is
+        /// `tracks[index + PlaybackGraph.partTrackOffset]`: whether the
+        /// conductor track is included depends on the file, so the graph
+        /// measures the offset rather than assuming none.
         let index: Int
         let name: String
         let instrument: String?

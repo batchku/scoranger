@@ -169,6 +169,8 @@ struct SetlistsForScreen: View {
 /// time, and the open row's ☰ is lit so the two behaviours are told apart.
 struct SetlistScreen: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var shared: SharedSetlists
+    @EnvironmentObject var signIn: SignIn
     let slug: String
     var onBack: () -> Void
     var onOpen: (String) -> Void
@@ -210,8 +212,64 @@ struct SetlistScreen: View {
                 BandHeader("This set list")
                 ScreenRow(title: "Add arrangements", leads: false,
                           identifier: "setlist-add-\(slug)") { push(.addArrangements(slug)) }
+                if let setlist, setlist.isShared {
+                    ScreenRow(title: "People in this set list", leads: true,
+                              identifier: "setlist-people-\(slug)") {
+                        if let shareId = setlist.shareId { push(.sharedSetlist(shareId)) }
+                    }
+                }
+                // A WAY OUT, on the set list's own screen. A joined set list that
+                // arrived with none of its music could not be removed from the
+                // device at all: Edit-mode delete was the only path and it left
+                // the membership behind. Named as what it does -- a member
+                // leaves, the owner deletes for everybody -- with the same
+                // second tap the shared screen asks for.
+                if let setlist {
+                    removal(for: setlist)
+                }
             }
             .padding(.bottom, Theme.Metric.s32)
+        }
+    }
+
+    @State private var confirmingRemoval = false
+
+    @ViewBuilder
+    private func removal(for setlist: SetlistDoc) -> some View {
+        let mine = setlist.ownerUid == nil || setlist.ownerUid == signIn.account?.uid
+        let title: String = {
+            if !setlist.isShared { return "Delete this set list" }
+            return mine ? "Delete for everybody" : "Leave this set list"
+        }()
+        ScreenRow(title: confirmingRemoval ? "\(title) — tap again" : title,
+                  leads: false, isDestructive: true,
+                  identifier: "setlist-remove-\(slug)") {
+            guard confirmingRemoval else { confirmingRemoval = true; return }
+            Task {
+                let done: Bool
+                if !setlist.isShared {
+                    done = await state.deleteSetlist(slug)
+                } else if mine {
+                    guard let shareId = setlist.shareId else { return }
+                    do {
+                        let remote = try await shared.fetch(shareId)
+                        done = await state.deleteSharedSetlistEverywhere(setlist, shared: shared, remote: remote)
+                    } catch {
+                        state.report("delete that set list", error); return
+                    }
+                } else {
+                    guard let uid = signIn.account?.uid else {
+                        state.notice = "Sign in to leave a shared set list."; return
+                    }
+                    done = await state.leaveSharedSetlist(setlist, shared: shared, uid: uid)
+                }
+                if done { onBack() }
+            }
+        }
+        if confirmingRemoval, setlist.isShared, mine {
+            PanelNote(text: "Everybody's copy of the running order and markup goes too. "
+                      + "Nobody else can do this.")
+                .padding(Theme.Metric.panelPadding)
         }
     }
 

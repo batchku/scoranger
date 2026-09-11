@@ -267,8 +267,15 @@ struct SharedSetlistScreen: View {
                         identifier: "shared-delete") {
                 if confirmingDelete {
                     Task {
-                        do { try await shared.delete(setlist); onBack() }
-                        catch { state.report("delete that set list", error) }
+                        // The document AND the local row. Deleting the document
+                        // alone left the row in the library with nothing behind
+                        // it, and nothing on the row could remove it.
+                        if let mine = state.manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
+                            if await state.deleteSharedSetlistEverywhere(mine, shared: shared, remote: setlist) { onBack() }
+                        } else {
+                            do { try await shared.delete(setlist); onBack() }
+                            catch { state.report("delete that set list", error) }
+                        }
                     }
                 } else {
                     confirmingDelete = true
@@ -284,8 +291,13 @@ struct SharedSetlistScreen: View {
                         identifier: "shared-leave") {
                 guard let uid = signIn.account?.uid else { return }
                 Task {
-                    do { try await shared.removeMember(uid, from: setlistId); onBack() }
-                    catch { state.report("leave that set list", error) }
+                    // Membership AND the local row (AppState.leaveSharedSetlist).
+                    if let mine = state.manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
+                        if await state.leaveSharedSetlist(mine, shared: shared, uid: uid) { onBack() }
+                    } else {
+                        do { try await shared.removeMember(uid, from: setlistId); onBack() }
+                        catch { state.report("leave that set list", error) }
+                    }
                 }
             }
         }

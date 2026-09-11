@@ -6,10 +6,13 @@ import XCTest
 /// Everything else about per-voice muting is arithmetic over part names, and
 /// `PlaybackVoicesTests` covers it. This file covers the one claim that
 /// arithmetic rests on and that no amount of pure logic can establish:
-/// **`AVAudioSequencer.tracks[i]` is part `i`.** It was a comment in
-/// `PlaybackEngine`, measured once and then trusted, and if AVFoundation ever
-/// stopped hiding the conductor track every mute in the app would silence the
-/// wrong instrument -- silently, which is the worst way for it to be wrong.
+/// **`AVAudioSequencer.tracks[i]` is part `i` FOR THIS FILE.** It was a
+/// comment in `PlaybackEngine`, measured once and then trusted -- and on
+/// 2026-09-10 a different file (imate-li-vino.mid, see
+/// `SequencerTrackMappingTests`) arrived with the conductor track NOT hidden,
+/// and every mute in the app silenced the wrong instrument, silently. The
+/// graph now measures the offset per file; this file pins the case where it
+/// is zero, that one the case where it is one.
 ///
 /// The fixtures are real engine output (`ops.playback_timeline` then
 /// `write("midi")`), not MIDI assembled here, so what is loaded is what the

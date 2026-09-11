@@ -249,6 +249,87 @@ def main() -> int:
     check("the timeline is as long as the performance",
           timeline["beats"] == 24.0, str(timeline["beats"]))
 
+    # ------------------------------------------- repeats that are not on every part
+    print("\na repeat written on SOME parts is played by ALL of them")
+    # Imate li vino, from Ali's video: the repeat barline at bar 4 on the two
+    # piano staves and not on the voice. music21 expands parts one at a time,
+    # so the piano came out 15 bars and the voice 11, and from the repeat on
+    # the voice's later bars sounded under the piano's repeat.
+    lopsided = stream.Score()
+    for name, marked in (("Piano", True), ("Voice", False)):
+        part = stream.Part()
+        part.partName = name
+        for number in (1, 2, 3, 4):
+            measure = stream.Measure(number=number)
+            if number == 1:
+                measure.insert(0, meter.TimeSignature("4/4"))
+            measure.append(note.Note("C4", quarterLength=4.0))
+            part.append(measure)
+        if marked:
+            ms = part.getElementsByClass(stream.Measure)
+            ms[0].leftBarline = bar.Repeat(direction="start")
+            ms[1].rightBarline = bar.Repeat(direction="end", times=2)
+        lopsided.insert(0, part)
+    performed, timeline = ops.playback_timeline(lopsided)
+    lengths = [float(p.duration.quarterLength) for p in performed.parts]
+    check("the repeat was expanded", timeline["repeats_expanded"] is True)
+    check("every part is the same length after expansion",
+          len(set(lengths)) == 1, f"part lengths {lengths}")
+    check("and that length is the repeat played out: 6 bars",
+          lengths and abs(lengths[0] - 24.0) < 1e-6, str(lengths))
+    counts = [len(p.flatten().notes) for p in performed.parts]
+    check("the unmarked part plays its bars 1-2 twice like the marked one",
+          counts == [6, 6], str(counts))
+
+    # ------------------------------------------- repeats music21 cannot expand
+    print("\na score whose repeats will not expand still plays, straight through")
+    # Two repeat starts and one end: music21 raises ExpanderException. The
+    # first attempt at this promise caught that and left the barlines on the
+    # copy, and music21's MIDI WRITER then attempted the same expansion and
+    # raised the same exception -- so the score refused to play with "Expander
+    # exception: cannot expand stream" from a step that had handled it.
+    malformed = stream.Score()
+    part = stream.Part()
+    part.partName = "P"
+    for number in range(1, 7):
+        measure = stream.Measure(number=number)
+        if number == 1:
+            measure.insert(0, meter.TimeSignature("4/4"))
+        measure.append(note.Note("D4", quarterLength=4.0))
+        part.append(measure)
+    ms = part.getElementsByClass(stream.Measure)
+    ms[0].leftBarline = bar.Repeat(direction="start")
+    ms[2].leftBarline = bar.Repeat(direction="start")
+    ms[4].rightBarline = bar.Repeat(direction="end")
+    malformed.insert(0, part)
+    raised = False
+    try:
+        malformed.expandRepeats()
+    except Exception:
+        raised = True
+    check("the fixture really is one music21 refuses", raised)
+    performed, timeline = ops.playback_timeline(malformed)
+    check("playback_timeline does not refuse it", timeline["repeats_expanded"] is False)
+    check("six written bars, six performed: straight through",
+          (timeline["written_bars"], timeline["performed_bars"]) == (6, 6),
+          str((timeline["written_bars"], timeline["performed_bars"])))
+    midi_path = Path(workspace_dir) / "malformed.mid"
+    wrote = True
+    try:
+        performed.write("midi", fp=str(midi_path))
+    except Exception as e:  # noqa: BLE001 -- the failure IS the finding
+        wrote = False
+        print("      writer raised:", type(e).__name__, str(e)[:80])
+    check("and the MIDI writer does not attempt the expansion again", wrote)
+    if wrote:
+        back = converter.parse(str(midi_path), forceSource=True)
+        check("six notes in the MIDI, as written",
+              len(back.flatten().notes) == 6, str(len(back.flatten().notes)))
+    # The page is untouched: the ORIGINAL still carries its repeats.
+    still = [m for m in malformed.parts[0].getElementsByClass(stream.Measure)
+             if isinstance(m.leftBarline, bar.Repeat) or isinstance(m.rightBarline, bar.Repeat)]
+    check("the score on the page still has its repeat barlines", len(still) == 3, str(len(still)))
+
     print("\nand the MIDI agrees with the map, because it is the same object")
     performed, timeline = ops.playback_timeline(repeated)
     midi_path = Path(workspace_dir) / "repeat.mid"

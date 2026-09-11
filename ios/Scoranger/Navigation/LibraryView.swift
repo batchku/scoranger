@@ -598,7 +598,11 @@ struct LibraryView: View {
                 case .empty, .noMatches: empty
                 }
             }
-            .frame(maxWidth: Theme.Metric.readingColumn)
+            // FULL WIDTH. The reading-column cap was a deliberate design and
+            // Ali reversed it on 2026-09-10 with a screenshot: two thirds of an
+            // iPad landscape screen empty either side of the list, every row's
+            // subtitle truncated at "..." in the middle. The list is a list,
+            // not a page of prose; it gets the width it is given.
             .frame(maxWidth: .infinity)
             .padding(.bottom, 90)
             // The build stamp used to end this scroll view. It is in the top

@@ -66,9 +66,9 @@ struct PlaybackVoices: Equatable, Codable {
         isOn(channel) ? PlaybackGain.amplitude(for: fader(channel)) : 0
     }
 
-    /// The sequencer tracks to mute. The index IS the track index: music21
-    /// writes one track per part in score order and `AVAudioSequencer.tracks`
-    /// omits the conductor track, so nothing is offset between them.
+    /// The PART indices to mute. `PlaybackGraph.apply` adds its measured
+    /// track offset when it reaches for the track: on some files the
+    /// sequencer includes the conductor track ahead of the parts.
     func mutedTracks(in parts: [PlaybackTimeline.Part]) -> Set<Int> {
         Set(parts.map(\.index).filter { silenced.contains($0) })
     }

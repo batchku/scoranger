@@ -3691,13 +3691,32 @@ def _performed(score):
     from music21 import harmony as m21harmony
 
     played = score
+    # A REPEAT IS A FACT ABOUT THE BAR, NOT ABOUT ONE STAFF. Imate li vino, from
+    # optical recognition, carried its repeat barline at bar 4 on the two piano
+    # staves and not on the voice. music21 expands each part on its own, so the
+    # piano came out 15 bars long and the voice 11: from the repeat onward the
+    # voice's later bars sounded under the piano's repeated bars 1-4. Ali heard
+    # "notes where there are no notes" and "the bottom voice misses the repeat",
+    # and they were one fault. Every part gets the union of the repeat marks
+    # before expansion, by measure position -- what `set-structure` already
+    # does for marks this engine writes, applied to marks that arrived.
+    played = _with_repeats_on_every_part(played)
     expanded = False
     try:
         candidate = played.expandRepeats()
         if candidate is not None and candidate.parts:
             played, expanded = candidate, True
     except Exception:
-        pass
+        # music21 could not resolve the repeats. Playing STRAIGHT THROUGH is the
+        # promise made in this docstring, and it was not being kept: the
+        # repeat barlines were left on the copy, and music21's MIDI writer
+        # attempts the same expansion itself and raises the same
+        # ExpanderException -- so a score with badly formed repeats refused to
+        # play with a message about expansion, from a step that had "handled"
+        # it. Reproduced with two repeat starts and one end, and with a
+        # D.C. al Coda that has no coda. The marks are taken off the performed
+        # copy so nothing downstream tries again; the page is untouched.
+        played = _without_repeats(played)
     sounding = False
     try:
         candidate = played.toSoundingPitch()
@@ -3731,6 +3750,66 @@ def _performed(score):
                 symbols_silenced += 1
     return played, {"repeats_expanded": expanded, "sounding_pitch": sounding,
                     "chord_symbols_silenced": symbols_silenced}
+
+
+def _with_repeats_on_every_part(score):
+    """Every part carries the union of the score's repeat barlines, by bar.
+
+    Works on a copy. Barlines are matched by measure INDEX within the part,
+    not by number: OMR numbering is not trustworthy and the parts of one score
+    are laid out bar for bar. A part shorter than the longest is left as it
+    is beyond its own end.
+    """
+    from music21 import bar as m21bar
+
+    copy = _deep(score)
+    parts = list(copy.parts)
+    if len(parts) < 2:
+        return copy
+    per_part = [list(p.getElementsByClass(stream.Measure)) for p in parts]
+    length = max(len(ms) for ms in per_part)
+    for index in range(length):
+        left = right = None
+        for ms in per_part:
+            if index < len(ms):
+                if left is None and isinstance(ms[index].leftBarline, m21bar.Repeat):
+                    left = ms[index].leftBarline
+                if right is None and isinstance(ms[index].rightBarline, m21bar.Repeat):
+                    right = ms[index].rightBarline
+        for ms in per_part:
+            if index < len(ms):
+                if left is not None and not isinstance(ms[index].leftBarline, m21bar.Repeat):
+                    ms[index].leftBarline = m21bar.Repeat(direction="start")
+                if right is not None and not isinstance(ms[index].rightBarline, m21bar.Repeat):
+                    ms[index].rightBarline = m21bar.Repeat(direction="end", times=right.times)
+    return copy
+
+
+def _without_repeats(score):
+    """The score with every repeat barline made plain and every repeat
+    expression (D.C., D.S., segno, coda, fine) removed -- so it plays straight
+    through and nothing downstream attempts an expansion that has already
+    failed. Works on a copy; the notation on the page is not touched."""
+    from music21 import bar as m21bar
+    from music21 import repeat as m21repeat
+
+    copy = _deep(score)
+    for part in copy.parts:
+        for measure in part.getElementsByClass(stream.Measure):
+            if isinstance(measure.leftBarline, m21bar.Repeat):
+                measure.leftBarline = None
+            if isinstance(measure.rightBarline, m21bar.Repeat):
+                measure.rightBarline = m21bar.Barline("regular")
+        for mark in list(part.recurse().getElementsByClass(m21repeat.RepeatMark)):
+            holder = mark.activeSite
+            if holder is not None:
+                holder.remove(mark)
+    return copy
+
+
+def _deep(score):
+    import copy as _copy
+    return _copy.deepcopy(score)
 
 
 def _timeline_spine(played):

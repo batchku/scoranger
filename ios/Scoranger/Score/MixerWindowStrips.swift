@@ -46,11 +46,14 @@ struct MixerChannelStrip: View {
             MixerMuteButton(playback: playback, part: part).opacity(dim)
             // The KNOB, and the value inside its face (§13). The separate
             // value row is gone -- that is the row the knob spends on itself.
-            HStack(spacing: MixerLayout.ledInset) {
-                MixerKnob(playback: playback, part: part)
-                MixerLED(on: isSounding, part: part).opacity(dim)
-            }
-            .frame(minHeight: MixerLayout.knobRow(text: typeSize))
+            // The LED sits in the CENTRE of the knob and the knob is centred
+            // in its column (Ali, 2026-09-10). One control reads as one thing:
+            // the ring is the level, the light in the middle is whether the
+            // part is sounding right now.
+            MixerKnob(playback: playback, part: part,
+                      centre: { MixerLED(on: isSounding, part: part).opacity(dim) })
+                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(minHeight: MixerLayout.knobRow(text: typeSize))
             MixerSoundChip(playback: playback, part: part, action: onPickSound)
                 .opacity(dim)
             // Two lines, and `.fixedSize` so the text decides its own height.
@@ -206,9 +209,11 @@ struct MixerLED: View {
 /// four.
 ///
 /// Flat, like everything else here: no bevel, no gradient, no shadow (§0).
-struct MixerKnob: View {
+struct MixerKnob<Centre: View>: View {
     @ObservedObject var playback: PlaybackEngine
     let part: PlaybackTimeline.Part
+    /// What sits in the middle of the face: the strip puts its LED there.
+    @ViewBuilder var centre: () -> Centre
 
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The level the finger went down on. The drag is measured from here, not
@@ -219,25 +224,20 @@ struct MixerKnob: View {
 
     var body: some View {
         let face = MixerLayout.knobFace(text: typeSize)
-        let numeral = MixerLayout.knobNumeralWidth("\(fader)", text: typeSize)
-        let inside = MixerLayout.knobValueFitsInFace(numeralWidth: numeral,
-                                                     face: face)
-        VStack(spacing: 2) {
-            ZStack {
-                Circle()
-                    .fill(Theme.Surface.panel)
-                    .overlay { Circle().strokeBorder(Theme.Line.line2, lineWidth: 1) }
-                arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
-                arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
-                pointer(face: face)
-                if inside { value }
-            }
-            .frame(width: face, height: face)
-            // The numeral takes its OWN row rather than being clipped when it
-            // outgrows the face (§13.4, §6.3 rule 1). By §13.2's table that
-            // does not happen before AX3, but it must exist.
-            if !inside { value.frame(minHeight: max(16, numeral * 0 + 16)) }
+        // No numeral. The level is the ring, and the ring is what a player
+        // reads on a real desk; the number was a second statement of the same
+        // fact taking a row of its own (Ali, 2026-09-10). It is still SPOKEN:
+        // the accessibility value below carries it.
+        ZStack {
+            Circle()
+                .fill(Theme.Surface.panel)
+                .overlay { Circle().strokeBorder(Theme.Line.line2, lineWidth: 1) }
+            arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
+            arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
+            pointer(face: face)
+            centre()
         }
+        .frame(width: face, height: face)
         // THE ROW IS THE HIT TARGET, never the face: at Large the face is 36pt
         // and a 36pt circle is not something to aim at (§13.2).
         .frame(maxWidth: .infinity, minHeight: MixerLayout.knobRow(text: typeSize))

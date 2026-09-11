@@ -13,9 +13,10 @@ import Foundation
 /// The shape was measured on the iOS 26.5 runtime before it was written:
 ///
 ///   - music21 writes one MIDI track per part plus a leading conductor track,
-///     and `AVAudioSequencer.tracks` OMITS the conductor track. So `tracks[i]`
-///     is part `i` with nothing offset between them, which is what makes
-///     muting one part a one-line operation.
+///     and whether `AVAudioSequencer.tracks` includes that conductor track
+///     DEPENDS ON THE FILE: omitted for quartet-playback.mid, present for
+///     imate-li-vino.mid. `PlaybackGraph` measures the offset at load and
+///     applies it wherever a track is looked up.
 ///   - A track appended AFTER loading lands after the parts, so the click is
 ///     always last and the part indices stay put.
 ///   - `currentPositionInBeats` is in quarter notes and runs through the tempo
