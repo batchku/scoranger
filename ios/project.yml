@@ -253,6 +253,13 @@ targets:
         #          this build and tracked: muting that does not mute, the
         #          spacebar, playback stopping when the mixer opens, loop
         #          playback (which does not exist yet).
+        #          BUILD 191, the second list of the same day:
+        #            6b. closing the score stops the performance, click and all;
+        #            7b. in scroll mode the score streams past the line, which
+        #                parks a QUARTER of the way in (was 0.30) -- and
+        #                following is re-armed on load and on Play, because
+        #                nothing ever re-armed it: one pan during playback
+        #                switched it off for the rest of the session.
         #   0.7.3  ONE KIND OF SET LIST, BOTH ENDS. Written before the work,
         #          because 187's predecessor was called "sharing" when only the
         #          sender's half existed. This build is done when, on three

@@ -1677,6 +1677,12 @@ final class AppState: ObservableObject {
             try playback.load(midi: performance.midi, timeline: performance.timeline,
                               key: key, slug: score.slug)
             playback.report(unavailable: nil)
+            // A new performance is a new start: following is on. Nothing else
+            // ever turned it back on -- `loadedSomethingElse()` existed and was
+            // never called -- so one pan during playback switched the continuous
+            // strip's following off for the rest of the session, across every
+            // score, until the Sync chip was tapped. "The score doesn't scroll."
+            pageFollow.loadedSomethingElse()
         } catch {
             // Said in the TRANSPORT, which is where someone who just pressed
             // play is looking, and not also in a notice: one failure, one
@@ -1690,6 +1696,10 @@ final class AppState: ObservableObject {
     /// first press is the only thing they have to do.
     func togglePlayback() {
         if playback.isPlaying { playback.stop(); return }
+        // Pressing Play asks to be shown where the music is: the DAW rule, and
+        // the way back from a pan that switched following off. The Sync chip
+        // stays for asking without stopping.
+        pageFollow.syncTapped()
         if playback.canPlay, playback.loadedKey == playbackKey {
             playback.play()
             return
