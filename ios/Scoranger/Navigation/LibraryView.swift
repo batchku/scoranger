@@ -803,9 +803,10 @@ struct LibraryView: View {
             onOpenBook(row.id)
             return
         }
-        if segment == .setlists,
-           let setlist = (state.manifest?.setlists ?? []).first(where: { $0.slug == row.id }) {
-            onOpenSetlist(setlist)
+        if segment == .setlists {
+            // L7/L8: the row opens the set list's own screen; Play, beside the
+            // ☰, is what plays it from the top.
+            onOpenSetlistScreen(row.id)
             return
         }
         // A piece is not openable (§2): opening one means opening one of its

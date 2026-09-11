@@ -119,10 +119,14 @@ final class LandscapeFits: XCTestCase {
             .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND NOT "
                                   + "(identifier BEGINSWITH %@)", "row-", "row-menu-"))
             .firstMatch
+        // 0.8: the page has the table's width (L1) and rows have the page's;
+        // what must hold is that the row sits inside the page, 16 from the
+        // table's edge, and not off it.
         if row.waitForExistence(timeout: 60) {
-            XCTAssertLessThan(row.frame.width, window.width - 40,
-                              "a library row spans the whole landscape width; "
-                              + "A-B caps the column and centres it")
+            XCTAssertGreaterThanOrEqual(row.frame.minX, 15,
+                                        "a library row runs into the table's margin")
+            XCTAssertLessThanOrEqual(row.frame.maxX, window.width - 15,
+                                     "a library row runs off the page")
         }
     }
 

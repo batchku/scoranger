@@ -501,7 +501,8 @@ struct RootView: View {
                                 // making, so naming one leads straight to
                                 // choosing what goes in it
                                 if let slug = await state.createSetlist(name: name) {
-                                    libraryPath.append(.addArrangements(slug))
+                                    // S3: Add opens beside the new list's row.
+                                    panel.open(.addArrangements(slug))
                                 }
                             } else {
                                 _ = await state.createPiece(named: name)

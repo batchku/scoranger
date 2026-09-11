@@ -84,8 +84,18 @@ final class StateReset: XCTestCase {
                       "the seeded library never finished importing")
     }
 
+    /// Settings is a split (0.8 §7.17): one section at a time, so the toggle's
+    /// section is opened from the index before the toggle is looked for.
     private func toggle(_ title: String) -> XCUIElement {
-        app.switches[title].firstMatch
+        let section: String
+        switch title {
+        case "Show what the canvas is receiving": section = "settings-diagnostics"
+        case "Use on-device engine":              section = "settings-engine"
+        default:                                  section = "settings-reading"
+        }
+        let item = app.buttons[section]
+        if item.waitForExistence(timeout: 10), !item.isSelected { item.tap() }
+        return app.switches[title].firstMatch
     }
 
     private func setToggle(_ title: String, to wanted: Bool) {

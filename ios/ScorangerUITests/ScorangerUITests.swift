@@ -181,8 +181,16 @@ final class ScorangerUITests: XCTestCase {
     ///
     /// Reached by the piece row's ☰, which is the one visible control a row
     /// carries. No long press: that is the rule this revision adds.
+    /// The piece screen. 0.8: the row itself opens it (a piece with several
+    /// arrangements pushes its screen); the row's ☰ opens the row's actions.
     private func openPieceSheet() {
-        rowMenu(piece)
+        resetToLibraryRoot()
+        if app.buttons["segment-pieces"].exists { app.buttons["segment-pieces"].tap() }
+        let row = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@) "
+                        + "AND label CONTAINS %@", "row-", "row-menu-", piece)).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 180), "no row for \(piece)")
+        row.tap()
         XCTAssertTrue(app.buttons["piece-new-arrangement-\(pieceSlug)"]
                         .waitForExistence(timeout: 20),
                       "the piece screen did not open")
@@ -221,11 +229,16 @@ final class ScorangerUITests: XCTestCase {
     }
 
     /// The arrangement screen: the per-item actions screen (§3.2).
+    /// The arrangement's panel (0.8, A1): the piece screen, the row's ☰, and
+    /// the row's Arrangement action, which opens it beside the row.
     private func openArrangementScreen(_ slug: String) {
         openPieceSheet()
         tapAnyway(app.buttons["row-menu-\(slug)"], in: app.scrollViews.firstMatch)
+        let manage = app.buttons["arrangement-manage-\(slug)"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 20), "the row's ☰ offers no Arrangement")
+        manage.tap()
         XCTAssertTrue(app.buttons["arrangement-title"].waitForExistence(timeout: 20),
-                      "the arrangement screen did not open")
+                      "the arrangement panel did not open")
     }
 
     /// The seeded piece's slug, for the ids the screens carry.
@@ -358,6 +371,12 @@ final class ScorangerUITests: XCTestCase {
     }
 
     private func goBack() {
+        // 0.8: inside the panel, back is the panel's own ‹, and from its root
+        // state Done; on a page it is ‹ and the place it goes.
+        let panelBack = app.buttons["panel-back"].firstMatch
+        if panelBack.exists && panelBack.isHittable { panelBack.tap(); return }
+        let panelDone = app.buttons["panel-done"].firstMatch
+        if panelDone.exists && panelDone.isHittable { panelDone.tap(); return }
         let byId = app.buttons["screen-back"].firstMatch
         if byId.exists && byId.isHittable { byId.tap(); return }
         let byLabel = app.buttons.matching(
@@ -1775,11 +1794,18 @@ final class ScorangerUITests: XCTestCase {
     /// boxes, one of which is a URL and two of which are secrets.
     func testSettingsFieldsAreLabelled() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["On-device engine"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.buttons["settings-engine"].waitForExistence(timeout: 10),
                       "settings did not open")
-        for label in ["OpenRouter API key", "OMR service URL", "OMR service API key"] {
-            XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
+        // The split shows one section at a time (0.8 §7.17): the key lives
+        // in Engine, the service in Scanning.
+        app.buttons["settings-engine"].tap()
+        XCTAssertTrue(app.staticTexts["OpenRouter API key"].waitForExistence(timeout: 5),
+                      "no visible OpenRouter API key label")
+        app.buttons["settings-scanning"].tap()
+        for label in ["OMR service URL", "OMR service API key"] {
+            XCTAssertTrue(app.staticTexts[label].waitForExistence(timeout: 5), "no visible \(label) label")
         }
+        app.buttons["settings-engine"].tap()
         // and the key fields say which key is actually in use, rather than
         // showing an empty box that means two different things
         // CONTAINS[c], not CONTAINS. The third branch of keyStatus reads "No
@@ -2574,6 +2600,10 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-"))
         XCTAssertTrue(menu.count >= 3, "no ☰ on the new arrangement's row")
         tapAnyway(menu.element(boundBy: 2), in: app.scrollViews.firstMatch)
+        let manage = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-manage-")).firstMatch
+        XCTAssertTrue(manage.waitForExistence(timeout: 15), "the row's ☰ offers no Arrangement")
+        manage.tap()
         let addToSet = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-setlists-")).firstMatch
         guard addToSet.waitForExistence(timeout: 15) else {
@@ -2606,6 +2636,11 @@ final class ScorangerUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
         XCTAssertTrue(setlistMenu.waitForExistence(timeout: 20), "no ☰ on the set list")
         setlistMenu.tap()
+        // 0.8: the ☰ opens the row's actions; "Set list" is the screen.
+        let toScreen = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "row-setlist-screen-")).firstMatch
+        XCTAssertTrue(toScreen.waitForExistence(timeout: 10), "the set list row's ☰ offers no Set list")
+        toScreen.tap()
         XCTAssertTrue(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "setlist-member-"))
                         .firstMatch.waitForExistence(timeout: 30),
@@ -2898,8 +2933,9 @@ final class ScorangerUITests: XCTestCase {
     /// every surface -- and one page is still the default.
     func testTheLayoutIsInSettingsAndOnePageIsTheDefault() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["Reading"].waitForExistence(timeout: 10),
-                      "settings has no Reading band")
+        XCTAssertTrue(app.buttons["settings-reading"].waitForExistence(timeout: 10),
+                      "settings has no Reading section")
+        app.buttons["settings-reading"].tap()
         let onePage = app.switches["One page"]
         XCTAssertTrue(onePage.waitForExistence(timeout: 5), "no layout choice in settings")
         XCTAssertEqual(onePage.value as? String, "1",
@@ -3014,7 +3050,7 @@ final class ScorangerUITests: XCTestCase {
         app.buttons["inline-rename-save"].tap()
 
         // the picker opens on the new set list, listing arrangements
-        XCTAssertTrue(app.staticTexts["Add arrangements"].waitForExistence(timeout: 20),
+        XCTAssertTrue(app.staticTexts["In this set list"].waitForExistence(timeout: 20),
                       "naming a set list should lead straight to picking its arrangements")
         let add = app.buttons["picker-add-\(firstArrangement)"]
         XCTAssertTrue(add.waitForExistence(timeout: 10),
@@ -3033,6 +3069,7 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(gigMenu.waitForExistence(timeout: 20),
                       "the new set list is not in the library")
         gigMenu.tap()
+        app.buttons["row-setlist-screen-gig-night"].tap()
         XCTAssertTrue(app.buttons["setlist-member-\(firstArrangement)"]
                         .waitForExistence(timeout: 20),
                       "the set list does not list the arrangement")
@@ -3058,6 +3095,7 @@ final class ScorangerUITests: XCTestCase {
         let menu = app.buttons["row-menu-test-setlist"]
         XCTAssertTrue(menu.waitForExistence(timeout: 20), "no ☰ on the seeded set list")
         menu.tap()
+        app.buttons["row-setlist-screen-test-setlist"].tap()
         let add = app.buttons["setlist-add-test-setlist"]
         XCTAssertTrue(add.waitForExistence(timeout: 20),
                       "the set list screen has no way to add arrangements")
@@ -3090,11 +3128,14 @@ final class ScorangerUITests: XCTestCase {
 
 
 
+    /// Settings is a page with an index and one section beside it (0.8
+    /// §7.17), reached from the library's gear and left with Close settings.
     func testSettingsIsAPanel() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["On-device engine"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.descendants(matching: .any)["settings-split"].waitForExistence(timeout: 10),
                       "settings did not open")
-        XCTAssertTrue(app.staticTexts["Chat model"].exists)
+        XCTAssertTrue(app.buttons["settings-engine"].exists, "no Engine section")
+        XCTAssertTrue(app.buttons["settings-model"].exists, "no Model section")
         shot("settings-sheet")
         closeSettings()
     }

@@ -60,4 +60,24 @@ One internal TestFlight build per stage, `ios/scripts/gate.sh` then
 
 ## Questions
 
-(none yet)
+From the implementing session, 2026-09-11 (build 192, the whole Notebook in
+one build at Ali's word):
+
+1. **Import and New in the tool row.** §7.6 lists Import, New and New set
+   list as primary actions. Import has four ways in (file, photos, folder,
+   book) and the row's fit model has two verbs, so Import and New each open
+   a panel state listing their choices, with the sentence under each as a
+   note. Say if a third button is wanted instead.
+2. **A set list row's Rename and a book's Rename.** A set list renames in
+   place (L8). The engine has no rename for books, so a book row offers Open
+   and Delete only (L9 lists Rename).
+3. **The knob's LED** lights while the part sounds (§1 `ok`) and is the mute
+   when tapped (§7.8): both hold, so at rest on bar 1 only the parts with a
+   note on the downbeat are lit. If the LED should read "on" for every
+   unmuted part regardless, the spec should say which.
+4. **The OMR offer** is still More's Make editable row and the progress chip,
+   not a panel state (SC13) -- deferred to 0.8.1 with the phone's foot strip
+   and the score bar's second row (Ph2, Ph4).
+5. **Set list rows**: the row and its Open action open the set list's screen;
+   the Play capsule beside ☰ plays from the top (L7). 0.7 opened playback on
+   the row tap; tell Ali if that muscle memory matters more than L7.
