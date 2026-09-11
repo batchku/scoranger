@@ -118,8 +118,11 @@ struct PanelHeader<Trailing: View>: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s6) {
+                    // The title gives way first [C16]: Done and the trailing
+                    // control keep their size, the name ends in an ellipsis.
                     Text(title).typeRole(.panelTitle).foregroundStyle(Theme.Ink.ink)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                         .accessibilityIdentifier("panel-title")
                     if let count {
                         Text("\(count)").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
@@ -131,9 +134,10 @@ struct PanelHeader<Trailing: View>: View {
                         .lineLimit(1)
                 }
             }
-            .layoutPriority(1)
+            .layoutPriority(0)
             Spacer(minLength: Theme.Metric.s8)
             trailing()
+                .layoutPriority(1)
             if let done {
                 Button(action: done) {
                     Text("Done").typeRole(.control)
@@ -145,6 +149,8 @@ struct PanelHeader<Trailing: View>: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
+                .layoutPriority(2)
                 .accessibilityLabel(doneLabel)
                 .accessibilityIdentifier("panel-done")
             }
