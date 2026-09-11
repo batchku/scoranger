@@ -148,7 +148,7 @@ struct PieceArrangementsPanel: View {
                 }
                 PanelLabel(text: "This piece")
                 ScreenRow(title: "New arrangement", leads: false,
-                          identifier: "piece-new-arrangement-\(slug)") {
+                          identifier: "panel-new-arrangement-\(slug)") {
                     Task { _ = await state.createArrangement(pieceSlug: slug) }
                 }
                 ScreenRow(title: "Import into this piece", leads: false,
@@ -230,7 +230,7 @@ struct ThisPiecePanel: View {
                     ScreenRow(title: "Import into this piece", leads: false,
                               identifier: "piece-import-\(piece.slug)") { onImport(piece.slug) }
                     ScreenRow(title: "New arrangement", leads: false,
-                              identifier: "piece-new-arrangement-\(piece.slug)") {
+                              identifier: "panel-new-arrangement-\(piece.slug)") {
                         Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
                     }
 

@@ -185,7 +185,16 @@ final class ScorangerUITests: XCTestCase {
     /// arrangements pushes its screen); the row's ☰ opens the row's actions.
     private func openPieceSheet() {
         resetToLibraryRoot()
-        if app.buttons["segment-pieces"].exists { app.buttons["segment-pieces"].tap() }
+        // The pop is still animating when the library is first there; a tap
+        // on the segment then is swallowed, so switch until it has switched.
+        let pieces = app.buttons["segment-pieces"]
+        if pieces.waitForExistence(timeout: 20) {
+            for _ in 0..<4 where !pieces.isSelected {
+                settle(pieces, still: 0.5)
+                pieces.tap()
+                usleep(400_000)
+            }
+        }
         let row = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@ AND NOT (identifier BEGINSWITH %@) "
                         + "AND label CONTAINS %@", "row-", "row-menu-", piece)).firstMatch
@@ -2662,23 +2671,34 @@ final class ScorangerUITests: XCTestCase {
         // and it now shows in that set list's own screen, as well as keeping
         // its place in the piece
         resetToLibraryRoot()
-        app.buttons["segment-setlists"].tap()
+        // The pop is still animating when the library is first there; a tap
+        // on the segment then is swallowed, so switch until it has switched.
+        let setlistsSegment = app.buttons["segment-setlists"]
+        XCTAssertTrue(setlistsSegment.waitForExistence(timeout: 20), "no Set lists segment")
+        for _ in 0..<4 where !setlistsSegment.isSelected {
+            settle(setlistsSegment, still: 0.5)
+            setlistsSegment.tap()
+            usleep(400_000)
+        }
+        XCTAssertTrue(setlistsSegment.isSelected, "the library would not switch to set lists")
         let setlistRow = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-")).firstMatch
         XCTAssertTrue(setlistRow.waitForExistence(timeout: 40),
                       "no set list \(setlistName) to look in")
-        // the ☰, not the row: tapping a set-list row PLAYS it from the top,
-        // which is what a set list is for
+        // the ☰, not the row: 0.8 opens the row's actions there, and "Set
+        // list" among them is the screen
         let setlistMenu = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
         XCTAssertTrue(setlistMenu.waitForExistence(timeout: 20), "no ☰ on the set list")
-        settle(setlistRow, still: 0.6)
-        setlistMenu.tap()
-        // 0.8: the ☰ opens the row's actions; "Set list" is the screen.
         let toScreen = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "row-setlist-screen-")).firstMatch
-        // A tap that landed on the row itself opens the screen directly.
-        if toScreen.waitForExistence(timeout: 10) { toScreen.tap() }
+        for _ in 0..<3 where !toScreen.exists {
+            settle(setlistMenu, still: 0.6)
+            setlistMenu.tap()
+            _ = toScreen.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(toScreen.exists, "the set list row's ☰ offers no Set list")
+        toScreen.tap()
         XCTAssertTrue(app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "setlist-member-"))
                         .firstMatch.waitForExistence(timeout: 30),
