@@ -11,57 +11,70 @@ struct Screen<Content: View, Trailing: View>: View {
     var onBack: () -> Void
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
+    @Environment(\.inPanel) private var inPanel
+    @Environment(\.panelTitle) private var panelTitle
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: Theme.Metric.s8) {
-                Button(action: onBack) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text(backLabel).typeRole(.control)
-                    }
-                    .foregroundStyle(Theme.Accent.clayStrong)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // collapsed to ONE element: a Button whose label is a stack is
-                // reported as a container, and the identifier lands on
-                // something untappable -- the selection chip's bug, third time
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Back to \(backLabel)")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("screen-back")
-
-                Spacer(minLength: Theme.Metric.s8)
-                VStack(spacing: 0) {
-                    Text(title).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
-                        .lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: Theme.Metric.s8)
-                trailing()
+            if inPanel {
+                // 0.8: inside the panel the screen IS a panel state (§7.2):
+                // its header is the panel's -- ‹ when the panel opened from
+                // another state, the name, Done -- and there is no nav bar.
+                PanelHeader(title: title.isEmpty ? (panelTitle ?? "") : title,
+                            subtitle: subtitle, trailing: trailing)
+            } else {
+                navBar
             }
-            .padding(.horizontal, Theme.Metric.s16)
-            .frame(height: Theme.Metric.scoreTopBar)
-            .background(Theme.Surface.panel)
-            .overlay(alignment: .bottom) {
-                Theme.Rule()
-            }
-
             ScrollView {
-                // The content column is capped and centred. Full-bleed rows on
-                // a 13" iPad put a label and its own chevron 1300pt apart
-                // (L34); a row has to read as one thing.
+                // The content column: capped and centred on a pushed page
+                // (a row's label and its chevron 1300pt apart is not a row),
+                // the panel's own width inside the panel.
                 content()
-                    .frame(maxWidth: Theme.Metric.readingColumn)
+                    .frame(maxWidth: inPanel ? .infinity : Theme.Metric.readingColumn)
                     .frame(maxWidth: .infinity)
             }
         }
-        .background(Theme.Surface.band)
+        .background(Theme.Surface.panel)
+    }
+
+    private var navBar: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Button(action: onBack) {
+                HStack(spacing: 2) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(backLabel).typeRole(.control)
+                }
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // collapsed to ONE element: a Button whose label is a stack is
+            // reported as a container, and the identifier lands on
+            // something untappable -- the selection chip's bug, third time
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Back to \(backLabel)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("screen-back")
+
+            Spacer(minLength: Theme.Metric.s8)
+            VStack(spacing: 0) {
+                Text(title).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: Theme.Metric.s8)
+            trailing()
+        }
+        .padding(.horizontal, Theme.Metric.s16)
+        .frame(height: Theme.Metric.scoreTopBar)
+        .background(Theme.Surface.panel)
+        .overlay(alignment: .bottom) {
+            Theme.Rule()
+        }
     }
 }
 
@@ -90,17 +103,15 @@ struct ScreenRow: View {
     var isSelected: Bool = false
     var identifier: String
     var action: () -> Void
+    @Environment(\.inPanel) private var inPanel
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.Metric.s8) {
                 Text(title).typeRole(.row)
                     .foregroundStyle(isDestructive ? Theme.Status.danger : Theme.Ink.ink)
-                    // WRAPS rather than overflowing (§6.3 rule 1). At XXXL
-                    // "Chord symbols" plus its value plus the chevron is wider
-                    // than a phone, and an HStack that cannot fit its children
-                    // draws them outside itself: the rows measured 429pt in a
-                    // 402pt window, 13.7 off each edge.
+                    // WRAPS rather than overflowing (§6.3 rule 1): an HStack
+                    // that cannot fit its children draws them outside itself.
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: Theme.Metric.s8)
                 if let value {
@@ -112,24 +123,19 @@ struct ScreenRow: View {
                         .foregroundStyle(Theme.Ink.ink3)
                 }
             }
-            .padding(.horizontal, Theme.Metric.s20)
-            .padding(.vertical, 11)
+            .padding(.horizontal, Theme.Metric.s16)
+            .padding(.vertical, Theme.Metric.s8)
             .frame(minHeight: 44)
-            .background(isSelected ? Theme.Accent.clayTint : Color.clear)
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Rectangle().fill(Theme.Accent.clay).frame(width: 3)
-                }
-            }
-            .contentShape(Rectangle())
-            // A rule under every row. Without one the rows ran together into a
-            // column of floating text, which is most of why these screens read
-            // as unfinished (L34).
-            .overlay(alignment: .bottom) {
-                Theme.Rule()
-            }
+            // A panel item (§7.2): a `band` capsule, `clayTint` when it is the
+            // current one, transparent with `danger` text when destructive.
+            .background(isSelected ? Theme.Accent.clayTint
+                        : (isDestructive ? Color.clear : Theme.Surface.band))
+            .clipShape(Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, inPanel ? Theme.Metric.panelSide : Theme.Metric.s16)
+        .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(value.map { "\(title), \($0)" } ?? title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
@@ -137,54 +143,66 @@ struct ScreenRow: View {
     }
 }
 
-/// The two-step delete's first step (§5.2).
+/// The inline confirm (§7.9).
 ///
-/// The row becomes a strip that states WHAT will go -- which an alert usually
-/// does not -- on an error-tinted ground. Nothing floats, nothing dims, and
-/// there is nothing to dismiss: `Keep` puts the row back.
+/// A destructive item becomes, in place, a `clayTint` block the panel's
+/// width: the question, one sentence naming the consequence, and two buttons,
+/// the verb on `danger` and Keep. No alert, no sheet, nothing to dismiss.
+/// Used for Delete, Delete for everybody, Leave, Remove a person, Delete a
+/// piece. `what` is the question; `consequence` the sentence.
 struct ConfirmDeleteStrip: View {
     let what: String
-    /// What the confirming button says. Deleting is the common case, but the
-    /// same two-step strip is the app's answer to any irreversible action --
-    /// a reset that throws away every nudge in a part is one.
+    var consequence: String?
     var verb: String = "Delete"
     var identifier: String
     var onDelete: () -> Void
     var onKeep: () -> Void
+    @Environment(\.inPanel) private var inPanel
 
     var body: some View {
-        HStack(spacing: Theme.Metric.s8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.Status.danger)
-            Text(what).typeRole(.row).foregroundStyle(Theme.Ink.ink)
+        VStack(alignment: .leading, spacing: Theme.Metric.s8) {
+            Text(what).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: Theme.Metric.s8)
-            PanelButton(title: "Keep", action: onKeep)
-                .accessibilityIdentifier("\(identifier)-keep")
-            Button(action: onDelete) {
-                Text(verb).typeRole(.control)
-                    .foregroundStyle(Theme.Surface.paper)
-                    .padding(.horizontal, Theme.Metric.s12)
-                    .padding(.vertical, Theme.Metric.s6)
-                    .background(Theme.Status.danger)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-                    .contentShape(Rectangle())
+            if let consequence, !consequence.isEmpty {
+                Text(consequence).typeRole(.body).foregroundStyle(Theme.Ink.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(identifier)
+            HStack(spacing: Theme.Metric.s8) {
+                Button(action: onDelete) {
+                    Text(verb).typeRole(.control)
+                        .foregroundStyle(Theme.Surface.paper)
+                        .padding(.horizontal, Theme.Metric.s16)
+                        .frame(height: 40)
+                        .background(Theme.Status.danger)
+                        .clipShape(Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(identifier)
+                Button(action: onKeep) {
+                    Text("Keep").typeRole(.control)
+                        .foregroundStyle(Theme.Ink.ink)
+                        .padding(.horizontal, Theme.Metric.s16)
+                        .frame(height: 40)
+                        .background(Theme.Surface.panel)
+                        .clipShape(Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("\(identifier)-keep")
+            }
+            .padding(.top, Theme.Metric.s4)
         }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.vertical, 10)
-        .background(Theme.Status.errorFill)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Theme.Status.danger).frame(width: 2)
-        }
+        .padding(Theme.Metric.s16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.Accent.clayTint)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rInner))
+        .padding(.horizontal, inPanel ? Theme.Metric.panelSide : Theme.Metric.s16)
+        .padding(.vertical, Theme.Metric.s4)
+        .accessibilityElement(children: .contain)
     }
 }
 
-/// Renaming, in the row itself (§5.1). The keyboard is the only thing that
-/// overlays, and that is the OS.
 struct InlineRenameRow: View {
     @Binding var text: String
     var onSave: () -> Void

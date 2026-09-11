@@ -612,21 +612,18 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["score-spread"].exists,
                        "the old two-state spread button should be gone")
         XCTAssertTrue(app.buttons["score-title"].exists, "no title block to switch from")
-        // The two switches came UP from Options (0.6.8): what you are looking
-        // at and what mode you are in are decided on the bar, beside the layout
-        // cells. On a bar too narrow to seat them they yield and Options
-        // carries them -- so this asserts the pair, not one of them, and it
-        // asserts the fallback where the bar has yielded.
-        let onBar = app.buttons["score-performance"].exists
-        XCTAssertEqual(onBar, app.buttons["score-transport-toggle"].exists,
-                       "the two switches yield together: the bar is showing one "
-                       + "of them and not the other")
-        if !onBar {
+        // Perform came UP from Options (0.6.8) and is a labelled button
+        // (0.8 [C5]); on a bar too narrow to seat it Options carries it. The
+        // transport switch it used to yield with is gone: the tray is always
+        // there (§7.7), so the bar has no such control and Options no such row.
+        XCTAssertFalse(app.buttons["score-transport-toggle"].exists,
+                       "the bar has a transport switch again: the tray is not switchable")
+        if !app.buttons["score-performance"].exists {
             app.buttons["score-more"].tap()
             XCTAssertTrue(app.switches["Performance mode"].waitForExistence(timeout: 20),
-                          "the bar yielded Performance mode and Options has not got it")
-            XCTAssertTrue(app.switches["Show transport"].exists,
-                          "the bar yielded Show transport and Options has not got it")
+                          "the bar yielded Perform and Options has not got it")
+            XCTAssertFalse(app.switches["Show transport"].exists,
+                           "Options carries a Show transport switch for a tray that cannot be hidden")
             goBack()
         }
         XCTAssertFalse(app.buttons["pill-library"].exists,
@@ -681,32 +678,38 @@ final class ScorangerUITests: XCTestCase {
                       "leaving performance mode did not restore the full bar")
     }
 
-    /// The transport switch, from the bar, turns the transport off and on.
+    /// The tray is always there while reading, and Perform is what hides it.
     ///
-    /// `revealTransport` already walks every route the switch has; this is the
-    /// other direction, which nothing covered: the switch is what puts the
-    /// chrome AWAY, and a toggle that only ever turns something on is half a
-    /// control. It runs only where the bar seats it -- on a phone the Options
-    /// switch is the route and `revealTransport` is what exercises it.
-    func testTheTransportSwitchOnTheBarTurnsTheTransportOffAndBackOn() {
+    /// This was the transport switch's test: the switch put the chrome away
+    /// and brought it back. 0.8 has no switch (§7.7); the one thing that
+    /// takes the tray off the screen is performance mode, and the one thing
+    /// that brings it back is leaving. Both directions, as before.
+    func testTheTrayIsAlwaysThereAndPerformHidesIt() {
         openArrangement(firstArrangement)
         XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 180))
-        let toggle = app.buttons["score-transport-toggle"]
-        guard toggle.exists else {
-            return XCTAssertFalse(app.buttons["score-performance"].exists,
-                                  "the bar seats Performance mode but not the "
-                                  + "transport switch: they yield together")
-        }
+        XCTAssertFalse(app.buttons["score-transport-toggle"].exists,
+                       "the bar has a transport switch: the tray is not switchable")
         revealTransport()
-        let transport = app.otherElements["transport"]
-        XCTAssertTrue(transport.exists, "nothing to turn off")
+        let tray = app.otherElements["transport"]
+        XCTAssertTrue(tray.exists, "no tray to hide")
 
-        toggle.tap()
-        XCTAssertTrue(waitForDisappearance(of: transport, timeout: 20),
-                      "the bar's switch would not put the transport away")
-        toggle.tap()
-        XCTAssertTrue(transport.waitForExistence(timeout: 20),
-                      "the bar's switch would not bring the transport back")
+        let perform = app.buttons["score-performance"]
+        if perform.exists {
+            perform.tap()
+        } else {
+            app.buttons["score-more"].tap()
+            let row = app.switches["Performance mode"]
+            XCTAssertTrue(row.waitForExistence(timeout: 20),
+                          "the bar yielded Perform and Options has not got it")
+            row.tap()
+        }
+        XCTAssertTrue(app.otherElements["performance-bar"].waitForExistence(timeout: 20),
+                      "Perform did not put the score into performance mode")
+        XCTAssertTrue(waitForDisappearance(of: tray, timeout: 20),
+                      "performance mode left the tray on screen")
+        app.buttons["score-close"].tap()
+        XCTAssertTrue(tray.waitForExistence(timeout: 20),
+                      "leaving performance mode did not bring the tray back")
     }
 
     /// Reading happens over the library, and X ALWAYS lands back on it -- there
@@ -3300,11 +3303,12 @@ extension ScorangerUITests {
     /// destination, not an error, and the app says the metronome is what is
     /// left.
     ///
-    /// It walks the MIXER now. The inline voice list under the transport is
-    /// gone (0.6.6) and every control it had is here: the per-staff switch is
-    /// a strip's mute, All on and All off are in the header under their own
-    /// old identifiers, and the summary that used to be the transport button's
-    /// label is beside the title. Retargeted rather than deleted, because the
+    /// It walks the TRAY now (0.8). The inline voice list went in 0.6.6 and
+    /// the mixer window in 0.8; every control they had is on the tray: the
+    /// per-staff switch is the LED at a knob's centre, All on / All off is
+    /// the one glyph at the right under whichever identifier says what it
+    /// will do, and the summary that used to be the transport button's label
+    /// is that glyph's value. Retargeted rather than deleted, because the
     /// journey is the same journey -- reach playback, silence every voice,
     /// find the app still telling the truth about what will sound.
     func testTheTransportIsReachableAndEveryVoiceCanBeSwitchedOff() {
@@ -3327,25 +3331,19 @@ extension ScorangerUITests {
                        "the voice dropdown is still on the transport")
 
         // Preparing writes the MIDI with music21 on-device, which takes a
-        // moment. The mixer has no strips until it lands, so this waits for
+        // moment. The tray has no knobs until it lands, so this waits for
         // one rather than for a fixed number of seconds.
-        let mixerButton = app.buttons["transport-mixer"]
-        XCTAssertTrue(mixerButton.waitForExistence(timeout: 60), "no way to the mixer")
-        mixerButton.tap()
         let firstVoice = app.descendants(matching: .any)["strip-mute-0"].firstMatch
         if !firstVoice.waitForExistence(timeout: 180) {
             shot("transport-no-voices")
-            XCTFail("the mixer never listed a part."
-                    + " mixer=\(app.descendants(matching: .any)["mixer"].firstMatch.exists)"
+            XCTFail("the tray never grew a knob."
                     + " notice=\(app.staticTexts["notice-text"].exists ? app.staticTexts["notice-text"].label : "-")")
         }
-        let summary = app.staticTexts["mixer-summary"]
-        XCTAssertTrue(summary.waitForExistence(timeout: 20),
-                      "the mixer does not say what will be heard")
+        XCTAssertFalse(voicesSummary(app).isEmpty, "the tray does not say what will be heard")
 
         // Start from a known state: an earlier tap in this session may have
         // left a voice off.
-        app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
+        turnEveryVoiceOn(app)
 
         XCTAssertEqual(firstVoice.value as? String, "off",
                        "a part starts sounding, so its MUTE is off")
@@ -3358,20 +3356,19 @@ extension ScorangerUITests {
         // claiming a click that is not playing sends a reader hunting for a
         // broken speaker.
         app.buttons["transport-metronome"].tap()
-        app.descendants(matching: .any)["voices-all-off"].firstMatch.tap()
-        XCTAssertTrue(waitForLabel(summary, contains: "metronome only", timeout: 10),
+        turnEveryVoiceOff(app)
+        XCTAssertTrue(waitForVoices(app, contains: "metronome only"),
                       "every voice off with the click on is metronome only, "
-                      + "and the mixer said: \(summary.label)")
+                      + "and the tray said: \(voicesSummary(app))")
         app.buttons["transport-metronome"].tap()
-        XCTAssertTrue(waitForLabel(summary, contains: "silent", timeout: 10),
+        XCTAssertTrue(waitForVoices(app, contains: "silent"),
                       "every voice off with the click off is silence, "
-                      + "and the mixer said: \(summary.label)")
+                      + "and the tray said: \(voicesSummary(app))")
         shot("transport-all-voices-off")
 
         app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
-        XCTAssertTrue(waitForLabel(summary, contains: "all voices", timeout: 10),
-                      "All on did not bring them back: \(summary.label)")
-        app.descendants(matching: .any)["mixer-close"].firstMatch.tap()
+        XCTAssertTrue(waitForVoices(app, contains: "all voices"),
+                      "All on did not bring them back: \(voicesSummary(app))")
 
         // And it PLAYS. The strongest evidence there is without a listener in
         // the room: the bar readout stops being a dash, which happens only
@@ -3391,56 +3388,16 @@ extension ScorangerUITests {
 
 extension ScorangerUITests {
 
-    /// Get the transport on screen, and say which of the three ways got it
-    /// there.
+    /// The tray is on screen, or say so.
     ///
-    /// It used to be one way: … → Score display → the switch. That menu is
-    /// gone (0.6.3 #6) and the switch moved to the top bar beside the layout
-    /// cells, so this walks the routes a reader now has, in the order a reader
-    /// meets them:
-    ///
-    ///   1. it is ALREADY there. `TransportReveal` puts it up unasked on the
-    ///      first playable arrangement and `showTransport` now defaults to
-    ///      true, so on these fixtures this is the usual answer.
-    ///   2. the top bar's `score-transport-toggle`, which is where the switch
-    ///      went.
-    ///   3. … → Show transport, which `ScoreBarLayout` keeps as the route for
-    ///      a bar too narrow to seat the toggle.
-    ///
-    /// All three end in the same assertion, so this cannot pass by finding a
-    /// control -- only by the transport actually being on screen.
+    /// It used to walk three routes -- already there, the bar's toggle, … →
+    /// Show transport -- because 0.6 had a switch. 0.8 has none: the tray is
+    /// always there while reading (§7.7), so the only thing left to prove is
+    /// that it IS. Kept under its old name because every playback test
+    /// starts here, and the name still says what the caller wants.
     func revealTransport() {
-        let transport = app.otherElements["transport"]
-        if transport.waitForExistence(timeout: 30) { return }
-
-        // (2) the toggle on the bar. `active:` is what a barButton exposes as
-        // selected, so an already-on toggle is left alone rather than pressed
-        // back off.
-        let barToggle = app.buttons["score-transport-toggle"]
-        if barToggle.exists {
-            if !barToggle.isSelected { barToggle.tap() }
-        } else {
-            // (3) the switch in Options, which the bar yields to at narrow
-            // widths. If this is missing too, the feature has no route at all.
-            let more = app.buttons["score-more"]
-            XCTAssertTrue(more.waitForExistence(timeout: 20), "no … button")
-            more.tap()
-            let row = menuRow("more-transport")
-            XCTAssertTrue(row.waitForExistence(timeout: 20),
-                          "the bar has no transport toggle at this width and "
-                          + "Options no longer carries the switch either — the "
-                          + "transport is unreachable")
-            // A PanelToggle is a Toggle to a screen reader, named by its title.
-            let switchElement = app.switches["Show transport"]
-            XCTAssertTrue(switchElement.waitForExistence(timeout: 20),
-                          "the Show transport row is not a switch")
-            if (switchElement.value as? String) != "1" { switchElement.tap() }
-            XCTAssertEqual(switchElement.value as? String, "1",
-                           "the transport switch did not take")
-            goBack()
-        }
-        XCTAssertTrue(transport.waitForExistence(timeout: 30),
-                      "the transport was turned on and is still not on screen")
+        XCTAssertTrue(app.otherElements["transport"].waitForExistence(timeout: 30),
+                      "the tray is not on screen: there is no switch to put it there any more")
     }
 
     /// Press play and wait for the play head to actually move.
@@ -3694,33 +3651,25 @@ extension ScorangerUITests {
                        "selecting stopped playback")
     }
 
-    /// The mixer: reachable, one strip per staff, and its controls live.
-    func testTheMixerOpensWithAStripPerStaff() {
+    /// The tray's knobs: one per staff, and their controls live (0.8 §7.7).
+    func testTheTrayHasAKnobPerStaff() {
         openArrangement(firstArrangement)
         waitForEngraving(of: firstArrangement)
         revealTransport()
         startPlaying()
 
-        // The voice list is GONE (0.6.6), one build after the mixer arrived to
-        // replace it -- which is the order CLAUDE.md asks for: the old path
-        // survived the build that ADDED the new one, and goes in the next.
+        // The voice list is GONE (0.6.6), and the mixer window (0.8): the
+        // knobs are on the tray and there is nothing to open.
         XCTAssertFalse(app.buttons["transport-voices"].exists,
                        "the voice dropdown is back on the transport")
-
-        let mixerButton = app.buttons["transport-mixer"]
-        XCTAssertTrue(mixerButton.waitForExistence(timeout: 20), "no way to the mixer")
-        mixerButton.tap()
-
-        let mixer = app.descendants(matching: .any)["mixer"].firstMatch
-        if !mixer.waitForExistence(timeout: 20) {
-            shot("mixer-did-not-open")
-            XCTFail("the mixer did not open."
-                    + " button=\(mixerButton.value as? String ?? "-")"
-                    + " grip=\(app.descendants(matching: .any)["mixer-park"].firstMatch.exists)"
-                    + " strip0=\(app.descendants(matching: .any)["strip-mute-0"].firstMatch.exists)")
+        XCTAssertFalse(app.buttons["transport-mixer"].exists,
+                       "there is a mixer button again: the tray IS the mixer")
+        if !app.descendants(matching: .any)["strip-mute-0"].waitForExistence(timeout: 180) {
+            shot("tray-without-knobs")
+            XCTFail("the tray never grew a knob")
         }
 
-        // A strip per staff -- the seeded quartet has four.
+        // A knob per staff -- the seeded quartet has four.
         let strips = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "strip-mute-"))
         XCTAssertEqual(strips.count, 4, "expected one strip per staff")
@@ -3773,29 +3722,29 @@ extension ScorangerUITests {
             mute.tap()
         }
 
-        // The mute is live, and it is the SAME mute the panel's own summary
+        // The mute is live, and it is the SAME mute the tray's own summary
         // counts. That summary was the transport voice button's label until
-        // 0.6.6 and it came here when the button went, so the claim this makes
-        // is unchanged: a strip and the readout beside it cannot disagree.
+        // 0.6.6, the mixer header's until 0.8, and is the all-on/off glyph's
+        // value now; the claim is unchanged: a knob and the readout beside it
+        // cannot disagree.
+        turnEveryVoiceOn(app)
         let firstMute = app.descendants(matching: .any)["strip-mute-0"].firstMatch
         XCTAssertEqual(firstMute.value as? String, "off")
         firstMute.tap()
-        XCTAssertEqual(firstMute.value as? String, "on", "the strip mute did nothing")
-        let summary = app.staticTexts["mixer-summary"]
-        XCTAssertTrue(waitForLabel(summary, contains: "3 of 4", timeout: 10),
-                      "the strip and the mixer's own summary disagree about the "
-                      + "mutes: \(summary.exists ? summary.label : "no summary")")
+        XCTAssertEqual(firstMute.value as? String, "on", "the knob's mute did nothing")
+        XCTAssertTrue(waitForVoices(app, contains: "3 of 4"),
+                      "the knob and the tray's own summary disagree about the "
+                      + "mutes: \(voicesSummary(app))")
 
-        // All off, then All on: the two things a rack of strips cannot do
-        // between them, and the reason they moved here rather than being
-        // dropped with the list.
-        app.descendants(matching: .any)["voices-all-off"].firstMatch.tap()
-        XCTAssertTrue(waitForLabel(summary, contains: "silent", timeout: 10)
-                        || waitForLabel(summary, contains: "metronome only", timeout: 1),
-                      "All off did not silence the rack: \(summary.label)")
+        // All off, then All on: the two things a row of knobs cannot do
+        // between them, and the reason the glyph is there.
+        turnEveryVoiceOff(app)
+        XCTAssertTrue(waitForVoices(app, contains: "silent")
+                        || waitForVoices(app, contains: "metronome only", timeout: 1),
+                      "All off did not silence the row: \(voicesSummary(app))")
         app.descendants(matching: .any)["voices-all-on"].firstMatch.tap()
-        XCTAssertTrue(waitForLabel(summary, contains: "all voices", timeout: 10),
-                      "All on did not bring them back: \(summary.label)")
+        XCTAssertTrue(waitForVoices(app, contains: "all voices"),
+                      "All on did not bring them back: \(voicesSummary(app))")
 
         // The fader is adjustable, which is also the VoiceOver path.
         let fader = app.descendants(matching: .any)["strip-fader-1"].firstMatch
@@ -3822,48 +3771,17 @@ extension ScorangerUITests {
                       "scrubbing did not move the play head")
         shot("mixer-scrubbed")
 
-        // PARK moves it without a drag -- the path for readers who cannot drag
-        // at all, which is the whole reason it is a tap and not only a handle.
-        // Four corners, and back to where it started.
-        //
-        // It was `mixer-grip` until the window rebuild. MIXER_WINDOW §1.1/§1.2
-        // split that one control in two: a grab bar that is NOT a button (a
-        // Button swallows the drag that looks like it belongs to it, which is
-        // why the old panel would not move) and a park button that is. The
-        // behaviour asserted below is the park button's and is unchanged.
-        let grip = app.descendants(matching: .any)["mixer-park"].firstMatch
-        var corners: [CGPoint] = [grip.frame.origin]
-        var labels: [String] = [grip.value as? String ?? "?"]
-        for _ in 0..<4 {
-            grip.tap()
-            // Read AFTER the move has settled: the value is queried faster
-            // than SwiftUI redraws, and reading straight after the tap
-            // returned the previous corner twice.
-            usleep(500_000)
-            corners.append(grip.frame.origin)
-            labels.append(grip.value as? String ?? "?")
-        }
-        XCTAssertEqual(Set(labels.dropLast()).count, 4,
-                       "the grip should cycle four distinct corners: \(labels)")
-        XCTAssertEqual(corners.first, corners.last,
-                       "four taps should come back round to the start")
-        grip.tap()
-        shot("mixer-moved")
-
-        // Re-found after the move: the panel is in another corner now, and the
-        // element captured before it moved is at the old frame.
-        let close = app.descendants(matching: .any)["mixer-close"].firstMatch
-        XCTAssertTrue(close.waitForExistence(timeout: 10), "no close control")
-        if close.isHittable {
-            close.tap()
-        } else {
-            close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
-        XCTAssertTrue(waitForDisappearance(
-            of: app.descendants(matching: .any)["mixer-park"].firstMatch, timeout: 10),
-                      "the mixer would not close")
-        XCTAssertEqual(app.buttons["transport-mixer"].value as? String, "off",
-                       "the transport still says the mixer is open")
+        // And the tray is STILL THERE, where it was: nothing here opened it
+        // and nothing closes it. The window's park and close went with the
+        // window (0.8 §7.7).
+        let tray = app.otherElements["transport"].firstMatch
+        XCTAssertTrue(tray.exists, "the tray went away while its knobs were worked")
+        XCTAssertFalse(app.descendants(matching: .any)["mixer-close"].exists,
+                       "the tray has a close control: there is nothing to close")
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(tray.frame.maxY, window.maxY + 0.5,
+                                 "the tray hangs off the bottom of the screen")
+        shot("tray-after-its-knobs-were-worked")
     }
 
     /// The sound each channel is played with: guessed, changed, heard at once,
@@ -3885,15 +3803,11 @@ extension ScorangerUITests {
         revealTransport()
         startPlaying()
 
-        let mixerButton = app.buttons["transport-mixer"]
-        XCTAssertTrue(mixerButton.waitForExistence(timeout: 20), "no way to the mixer")
-        mixerButton.tap()
-
         func chip(_ index: Int) -> XCUIElement {
             app.descendants(matching: .any)["strip-sound-\(index)"].firstMatch
         }
-        XCTAssertTrue(chip(0).waitForExistence(timeout: 20),
-                      "no sound control under the first fader")
+        XCTAssertTrue(chip(0).waitForExistence(timeout: 180),
+                      "no sound label under the first knob")
 
         // Auto-set, and SAYING it is auto-set: a reader who has never touched
         // a channel has to be able to tell that from one they have.
@@ -3904,9 +3818,9 @@ extension ScorangerUITests {
         chip(0).tap()
         let picker = app.descendants(matching: .any)["mixer-picker"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 10), "the sound list did not open")
-        // The strips are behind it, not gone with it: the way back is the ✕.
+        // The tray is under it, not gone with it: the way back is the ✕.
         XCTAssertTrue(app.descendants(matching: .any)["mixer-picker-close"]
-                        .firstMatch.exists, "no way back to the strips")
+                        .firstMatch.exists, "no way back to the tray")
 
         // Families, not 128 rows. The piano family, then the plain piano.
         let family = app.descendants(matching: .any)["picker-family-0"].firstMatch

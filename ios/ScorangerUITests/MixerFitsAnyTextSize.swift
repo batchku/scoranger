@@ -1,38 +1,23 @@
 import XCTest
 
-/// The mixer at the text size the reader actually uses.
+/// The tray at the text size the reader actually uses.
 ///
-/// Ali, on his iPad: the mixer is "NOT draggable at all, and its text/UI is
-/// cut off". Both were invisible to every test in this suite, and this is the
-/// half that explains the cut-off half.
-///
-/// `MixerLayout` computes the panel's size from hard-coded points -- a 64pt
-/// strip, a 16pt label row, a 22pt picker row -- and `MixerLayout.origin`
-/// positions it on the assumption that arithmetic is what SwiftUI will draw.
-/// Every type role in this app scales with Dynamic Type
-/// (`Theme.Role.font` -> `UIFontMetrics.scaledFont`), so at any content size
-/// above the default the panel's CONTENT outgrows those frames: the panel
-/// renders wider than the number it was placed by, and the difference hangs
-/// off the screen edge.
-///
-/// Measured on iPad Pro 13-inch (M5), iOS 26.5, 1032x1376pt:
-///
-///     content size                 panel drawn      right edge
-///     large (the default)          268.0 x 173.0    inside
-///     accessibility-extra-large    320.5 x 182.0    23pt off screen
-///
-/// and at that size the ✕ close button, the "all voices" caption, the tempo
-/// value and both transport readouts are off the panel or truncated to an
-/// ellipsis.
+/// Ali, on his iPad, about the mixer window this tray replaced: its "text/UI
+/// is cut off". The cause was a panel positioned by arithmetic that was not
+/// what SwiftUI drew, because every type role scales with Dynamic Type
+/// (`Theme.Role.font` -> `UIFontMetrics.scaledFont`) and the frames did not.
+/// The tray has no arithmetic of that kind -- it is a line in the layout, and
+/// it grows with its content -- but the claim is the same one and this is
+/// where it is checked: at every size the tray is wholly on screen, and the
+/// controls a reader needs are still ON it and hittable.
 ///
 /// The size is set with `-UIPreferredContentSizeCategoryName` on the launch
 /// rather than `simctl ui content_size`, so it belongs to the test rather
 /// than to the machine and the gate carries it.
 final class MixerFitsAnyTextSize: XCTestCase {
 
-    /// The sizes asserted. Not every category -- these are the default, one
-    /// step up (which many readers set and no test had ever run), and the
-    /// accessibility size that made the failure obvious.
+    /// The default, one step up (which many readers set), and the
+    /// accessibility size that made the old failure obvious.
     private static let sizes = [
         ("large", "UICTContentSizeCategoryL"),
         ("extra-extra-large", "UICTContentSizeCategoryXXL"),
@@ -46,44 +31,9 @@ final class MixerFitsAnyTextSize: XCTestCase {
         add(shot)
     }
 
-    private func openMixer(_ app: XCUIApplication) -> XCUIElement? {
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
-        let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS[c] %@",
-                                  "row-", "Sous le ciel")).firstMatch
-        guard row.waitForExistence(timeout: 120) else { return nil }
-        row.tap()
-        if app.buttons["score-title"].waitForExistence(timeout: 5) == false {
-            let choice = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "identifier BEGINSWITH %@",
-                                      "arrangement-choice-")).firstMatch
-            if choice.waitForExistence(timeout: 30) { settle(choice); choice.tap() }
-        }
-        guard app.buttons["score-title"].waitForExistence(timeout: 240) else { return nil }
-        let page = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-")).firstMatch
-        _ = page.waitForExistence(timeout: 180)
-        settle(page, still: 0.6)
-        if app.otherElements["transport"].exists == false,
-           app.buttons["score-transport-toggle"].exists {
-            app.buttons["score-transport-toggle"].tap()
-            _ = app.otherElements["transport"].waitForExistence(timeout: 20)
-        }
-        guard app.buttons["transport-mixer"].waitForExistence(timeout: 120) else { return nil }
-        app.buttons["transport-mixer"].tap()
-        let panel = app.otherElements["mixer"].firstMatch
-        guard panel.waitForExistence(timeout: 30) else { return nil }
-        settle(panel)
-        return panel
-    }
-
-    /// At every text size: the panel is wholly on screen, and the controls a
-    /// reader needs are still ON it and hittable.
-    ///
-    /// Hittability rather than pixels, because that is the failure: the ✕ was
-    /// not small at accessibility size, it was off the panel entirely. An
-    /// element XCTest cannot hit is one a finger cannot reach.
-    func testTheMixerFitsAndKeepsItsControlsAtEveryTextSize() {
+    /// Hittability rather than pixels, because that is the failure: a
+    /// control off the tray is one a finger cannot reach.
+    func testTheTrayFitsAndKeepsItsControlsAtEveryTextSize() {
         for (label, category) in Self.sizes {
             let app = XCUIApplication()
             app.launchArguments = ["-seedTestLibrary",
@@ -91,47 +41,56 @@ final class MixerFitsAnyTextSize: XCTestCase {
             app.launch()
             defer { app.terminate() }
 
-            guard let panel = openMixer(app) else {
-                snap("no-mixer-at-\(label)", app)
-                XCTFail("[\(label)] no mixer opened")
+            var step = ""
+            guard let tray = openTray(app, step: &step) else {
+                snap("no-tray-at-\(label)", app)
+                XCTFail("[\(label)] \(step)")
                 continue
             }
-            snap("mixer-at-\(label)", app)
+            snap("tray-at-\(label)", app)
 
             let screen = app.windows.firstMatch.frame
-            let box = panel.frame
-            print("[\(label)] panel \(box) in screen \(screen)")
+            let box = tray.frame
+            print("[\(label)] tray \(box) in screen \(screen)")
+            assertInside(box, screen, label)
 
-            XCTAssertLessThanOrEqual(box.maxX - screen.maxX, 0.5,
-                                     "[\(label)] \(box.maxX - screen.maxX)pt off the right")
-            XCTAssertLessThanOrEqual(box.maxY - screen.maxY, 0.5,
-                                     "[\(label)] \(box.maxY - screen.maxY)pt off the bottom")
-            XCTAssertGreaterThanOrEqual(box.minX, -0.5, "[\(label)] off the left")
-            XCTAssertGreaterThanOrEqual(box.minY, -0.5, "[\(label)] off the top")
-
-            // The way out of the panel, which is the one that actually went
-            // missing. A panel with no reachable close is the mixer trapping
-            // the reader, which is #60's lesson on a different control.
-            let close = app.buttons["mixer-close"]
-            XCTAssertTrue(close.exists && close.isHittable,
-                          "[\(label)] the mixer's ✕ is not reachable")
-
-            // One strip's controls, so the panel is usable and not merely
-            // present: the mute, the fader and the sound chip of channel 0.
-            for id in ["strip-mute-0", "strip-fader-0", "strip-sound-0"] {
-                let control = app.descendants(matching: .any)[id]
+            // The controls a reader needs: play, one knob's mute and sound,
+            // the tempo knob and the all-on/off glyph.
+            for id in ["transport-play", "strip-mute-0", "strip-fader-0",
+                       "strip-sound-0", "transport-tempo"] {
+                let control = app.descendants(matching: .any)[id].firstMatch
                 XCTAssertTrue(control.exists && control.isHittable,
                               "[\(label)] \(id) is not reachable")
             }
+            let voices = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "voices-all-")).firstMatch
+            XCTAssertTrue(voices.exists && voices.isHittable,
+                          "[\(label)] the all-on/off glyph is not reachable")
 
-            // And the transport's own two readouts, which collapsed to "0…"
-            // and "3…" -- a clock that says nothing is not a clock.
-            for id in ["mixer-elapsed", "mixer-total"] {
-                let readout = app.descendants(matching: .any)[id]
-                XCTAssertTrue(readout.exists, "[\(label)] \(id) is gone")
-                XCTAssertFalse((readout.label).contains("…"),
-                               "[\(label)] \(id) is truncated: \(readout.label)")
+            // The readouts, which collapsed to "0…" on the window -- a clock
+            // that says nothing is not a clock. The bar at rest; the clock
+            // once the music runs.
+            let bar = app.staticTexts["transport-bar"]
+            XCTAssertTrue(bar.exists, "[\(label)] no bar readout")
+            XCTAssertFalse(bar.label.contains("…"), "[\(label)] the bar readout is truncated: \(bar.label)")
+
+            let play = app.buttons["transport-play"]
+            let usable = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isEnabled == true"), object: play)
+            _ = XCTWaiter().wait(for: [usable], timeout: 120)
+            play.tap()
+            let clock = app.descendants(matching: .any)["mixer-elapsed"].firstMatch
+            if clock.waitForExistence(timeout: 30) {
+                XCTAssertFalse(clock.label.contains("…"),
+                               "[\(label)] the clock is truncated: \(clock.label)")
+                snap("tray-playing-at-\(label)", app)
+                // And still wholly on screen with the scrubber out.
+                assertInside(app.otherElements["transport"].firstMatch.frame,
+                             screen, "\(label) playing")
+            } else {
+                XCTFail("[\(label)] playback never started, so the clock was never seen")
             }
+            play.tap()
         }
     }
 }

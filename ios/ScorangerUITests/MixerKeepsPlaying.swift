@@ -2,11 +2,12 @@ import XCTest
 
 /// "When I open the mixer transport, playback stops." (Ali, 2026-09-10)
 ///
-/// PlaybackCrash already opens the mixer while a score plays and asserts the
-/// app SURVIVES it. This asserts the music does: the play button, whose label
-/// is "Stop" while the transport runs, still says "Stop" after the mixer has
-/// been open for a couple of seconds. If opening the mixer stops the
-/// sequencer, the label flips back to "Play" and this says so, naming the step.
+/// 0.8: there is no mixer to open -- the tray carries the knobs -- but the
+/// things a reader does on it while the music runs are the same: mute a
+/// part, open the sound picker. This asserts the music survives them: the
+/// play button, whose label is "Stop" while the transport runs, still says
+/// "Stop" after a mute and a couple of seconds with the picker open. If either
+/// stops the sequencer, the label flips back to "Play" and this says which.
 final class MixerKeepsPlaying: XCTestCase {
     var app: XCUIApplication!
 
@@ -17,23 +18,12 @@ final class MixerKeepsPlaying: XCTestCase {
         app.launch()
     }
 
-    func testOpeningTheMixerDoesNotStopPlayback() throws {
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
-        let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
-        guard row.waitForExistence(timeout: 180) else { return XCTFail("no piece") }
-        row.tap()
-        let choice = app.descendants(matching: .any)[
-            "arrangement-choice-under-paris-skies-accordion-solo"]
-        if choice.waitForExistence(timeout: 60) { choice.tap() }
-        guard app.buttons["score-title"].waitForExistence(timeout: 300) else {
-            return XCTFail("the score never opened")
-        }
+    func testWorkingTheTrayDoesNotStopPlayback() throws {
+        var step = ""
+        guard openTray(app, arrangement: "under-paris-skies-accordion-solo",
+                       step: &step) != nil else { return XCTFail(step) }
 
         let play = app.buttons["transport-play"]
-        guard play.waitForExistence(timeout: 60) else {
-            return XCTFail("no play button: the transport never appeared")
-        }
-        // The transport may still be preparing; wait for it to be usable.
         let usable = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "isEnabled == true"), object: play)
         XCTAssertEqual(XCTWaiter().wait(for: [usable], timeout: 120), .completed,
@@ -44,13 +34,22 @@ final class MixerKeepsPlaying: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [playing], timeout: 20), .completed,
                        "playback did not start: the button still reads \(play.label)")
 
-        let mixer = app.buttons["transport-mixer"].firstMatch
-        guard mixer.waitForExistence(timeout: 20) else { return XCTFail("no mixer button") }
-        mixer.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["mixer-header"]
-                        .waitForExistence(timeout: 20), "the mixer did not open")
+        // A mute, and back.
+        let mute = app.descendants(matching: .any)["strip-mute-0"].firstMatch
+        mute.tap()
+        sleep(1)
+        XCTAssertEqual(play.label, "Stop", "muting a part stopped playback")
+        mute.tap()
+
+        // The sound picker, open for a couple of seconds, then closed.
+        app.descendants(matching: .any)["strip-sound-0"].firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mixer-picker"]
+                        .waitForExistence(timeout: 20), "the sound picker did not open")
         sleep(2)
         XCTAssertEqual(play.label, "Stop",
-                       "opening the mixer stopped playback: the button reads \(play.label)")
+                       "opening the sound picker stopped playback: the button reads \(play.label)")
+        app.descendants(matching: .any)["mixer-picker-close"].firstMatch.tap()
+        sleep(1)
+        XCTAssertEqual(play.label, "Stop", "closing the sound picker stopped playback")
     }
 }

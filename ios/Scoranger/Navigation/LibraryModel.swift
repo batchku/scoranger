@@ -17,6 +17,9 @@ struct LibraryRow: Identifiable, Equatable {
     let composer: String
     let changed: String
     let arrangementCount: Int
+    /// When it was added -- the first version's day -- for the second mono
+    /// line on the row and the Date added sort [C10]. Empty when unknown.
+    var added: String = ""
 
     struct Chip: Equatable {
         let text: String
@@ -31,6 +34,52 @@ struct LibraryRow: Identifiable, Equatable {
 /// the derived filters, the alphabet rail and the search all decide what a
 /// person sees, and none of them needs a screen to be checked.
 enum LibraryModel {
+
+    /// The rows a set of filters keeps. Pure, so the Filter panel can count
+    /// what each capsule would keep (L4) with the same rule the list uses.
+    static func filtered(_ rows: [LibraryRow], by filters: Set<LibraryFilter>,
+                         manifest: Manifest) -> [LibraryRow] {
+        guard !filters.isEmpty else { return rows }
+        let inSetlist = Set((manifest.setlists ?? []).flatMap(\.arrangements))
+        let piecesWithSetlisted = Set((manifest.pieces ?? [])
+            .filter { !$0.arrangements.filter(inSetlist.contains).isEmpty }
+            .map(\.slug))
+        return rows.filter { row in
+            filters.allSatisfy { filter in
+                switch filter {
+                case .unfiled:    return row.chips.contains { $0.text == "UNFILED" }
+                case .omrDrafts:  return row.chips.contains { $0.text == "OMR DRAFT" }
+                case .hasSources: return row.chips.contains { $0.text.hasSuffix("SOURCE") }
+                case .inASetlist: return piecesWithSetlisted.contains(row.id) || inSetlist.contains(row.id)
+                }
+            }
+        }
+    }
+
+    /// A day for a row's mono line [C10]: "today", "Tue" within the week,
+    /// "3 Sep" this year, "3 Sep 2025" before. Empty for nothing.
+    static func day(_ iso: String?, now: Date = Date()) -> String {
+        guard let iso, let date = parse(iso) else { return "" }
+        let cal = Calendar.current
+        if cal.isDate(date, inSameDayAs: now) { return "today" }
+        if let week = cal.date(byAdding: .day, value: -6, to: now), date > week {
+            let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("EEE"); return f.string(from: date)
+        }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate(cal.isDate(date, equalTo: now, toGranularity: .year) ? "d MMM" : "d MMM y")
+        return f.string(from: date)
+    }
+
+    private static func parse(_ iso: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: iso) { return d }
+        let plain = ISO8601DateFormatter()
+        if let d = plain.date(from: iso) { return d }
+        // The engine writes local timestamps without a zone in older libraries.
+        let local = DateFormatter(); local.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return local.date(from: String(iso.prefix(19)))
+    }
 
     // MARK: - Pieces
 

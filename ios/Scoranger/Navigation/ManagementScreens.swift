@@ -26,7 +26,7 @@ struct MoveToPieceScreen: View {
                     .padding(.horizontal, Theme.Metric.s20)
                     .padding(.vertical, Theme.Metric.s12)
 
-                BandHeader("Pieces")
+                PanelLabel(text: "Pieces", ruled: false)
                 ForEach(state.manifest?.pieces ?? []) { piece in
                     ScreenRow(title: piece.name,
                               value: current == piece.slug ? "current" : nil,
@@ -36,7 +36,6 @@ struct MoveToPieceScreen: View {
                     }
                 }
 
-                BandHeader("Or")
                 if creating {
                     InlineRenameRow(text: $draft,
                                     onSave: { commitNewPiece() },
@@ -100,7 +99,7 @@ struct SetlistsForScreen: View {
     var body: some View {
         Screen(title: "Set lists", backLabel: "Back", subtitle: name, onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("In these set lists")
+                PanelLabel(text: "Set lists", ruled: false)
                 ForEach(state.manifest?.setlists ?? []) { setlist in
                     let member = setlist.arrangements.contains(slug)
                     Button {
@@ -131,7 +130,6 @@ struct SetlistsForScreen: View {
                     .accessibilityIdentifier("chooser-\(setlist.slug)")
                     .accessibilityAddTraits(member ? [.isSelected] : [])
                 }
-                BandHeader("Or")
                 if creating {
                     InlineRenameRow(text: $draft, onSave: commitNew,
                                     onCancel: { creating = false })
@@ -171,11 +169,13 @@ struct SetlistScreen: View {
     @EnvironmentObject var state: AppState
     @EnvironmentObject var shared: SharedSetlists
     @EnvironmentObject var signIn: SignIn
+    @EnvironmentObject var panel: PanelModel
     let slug: String
     var onBack: () -> Void
     var onOpen: (String) -> Void
     var push: (Route) -> Void
 
+    /// The member whose ☰ is open, its actions in the row (S2).
     @State private var expanded: String?
 
     private var setlist: SetlistDoc? {
@@ -183,163 +183,103 @@ struct SetlistScreen: View {
     }
 
     var body: some View {
-        Screen(title: "", backLabel: "My library",
+        Screen(title: "", backLabel: "Library",
                subtitle: summary, onBack: onBack,
                trailing: {
-                   PanelButton(title: "Play from the top", kind: .primary) {
+                   PanelButton(title: "Play", kind: .primary, identifier: "setlist-play") {
                        if let first = setlist?.arrangements.first { onOpen(first) }
                    }
-                   .accessibilityIdentifier("setlist-play")
+                   .disabled((setlist?.arrangements ?? []).isEmpty)
                }) {
             VStack(alignment: .leading, spacing: 0) {
-                // A set list could not be renamed at all (#52). The name IS
-                // the control, the same as a piece's and an arrangement's --
-                // the engine has had `rename-setlist` all along and nothing on
-                // screen ever called it.
-                EditableTitle(text: setlist?.name ?? "Set list", role: .title,
-                              identifier: "setlist-title") { name in
-                    Task { _ = await state.renameSetlist(setlist: slug, name: name) }
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s12) {
+                    EditableTitle(text: setlist?.name ?? "Set list", role: .title,
+                                  identifier: "setlist-title") { name in
+                        Task { _ = await state.renameSetlist(setlist: slug, name: name) }
+                    }
+                    if let summary {
+                        Text(summary).typeRole(.meta).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                    }
                 }
-                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.horizontal, Theme.Metric.pageSide)
                 .padding(.top, Theme.Metric.s12)
-                .padding(.bottom, Theme.Metric.s8)
+                .padding(.bottom, Theme.Metric.s12)
 
-                BandHeader("Running order")
+                // The list is the list: no "Running order" header (§10).
                 ForEach(Array((setlist?.arrangements ?? []).enumerated()), id: \.offset) { index, member in
                     memberRow(member, at: index)
                     Theme.Rule()
                 }
-                BandHeader("This set list")
-                ScreenRow(title: "Add arrangements", leads: false,
-                          identifier: "setlist-add-\(slug)") { push(.addArrangements(slug)) }
-                if let setlist, setlist.isShared {
-                    ScreenRow(title: "People in this set list", leads: true,
-                              identifier: "setlist-people-\(slug)") {
-                        if let shareId = setlist.shareId { push(.sharedSetlist(shareId)) }
+                if (setlist?.arrangements ?? []).isEmpty {
+                    // S7: one button opens Add beside it.
+                    VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                        Text("Nothing in this set list yet.").typeRole(.body)
+                            .foregroundStyle(Theme.Ink.ink2)
+                        PanelButton(title: "Add", kind: .primary,
+                                    identifier: "setlist-add-\(slug)") { push(.addArrangements(slug)) }
                     }
-                }
-                // A WAY OUT, on the set list's own screen. A joined set list that
-                // arrived with none of its music could not be removed from the
-                // device at all: Edit-mode delete was the only path and it left
-                // the membership behind. Named as what it does -- a member
-                // leaves, the owner deletes for everybody -- with the same
-                // second tap the shared screen asks for.
-                if let setlist {
-                    removal(for: setlist)
+                    .padding(Theme.Metric.pageSide)
                 }
             }
             .padding(.bottom, Theme.Metric.s32)
         }
     }
 
-    @State private var confirmingRemoval = false
-
-    @ViewBuilder
-    private func removal(for setlist: SetlistDoc) -> some View {
-        let mine = setlist.ownerUid == nil || setlist.ownerUid == signIn.account?.uid
-        let title: String = {
-            if !setlist.isShared { return "Delete this set list" }
-            return mine ? "Delete for everybody" : "Leave this set list"
-        }()
-        ScreenRow(title: confirmingRemoval ? "\(title) — tap again" : title,
-                  leads: false, isDestructive: true,
-                  identifier: "setlist-remove-\(slug)") {
-            guard confirmingRemoval else { confirmingRemoval = true; return }
-            Task {
-                let done: Bool
-                if !setlist.isShared {
-                    done = await state.deleteSetlist(slug)
-                } else if mine {
-                    guard let shareId = setlist.shareId else { return }
-                    do {
-                        let remote = try await shared.fetch(shareId)
-                        done = await state.deleteSharedSetlistEverywhere(setlist, shared: shared, remote: remote)
-                    } catch {
-                        state.report("delete that set list", error); return
-                    }
-                } else {
-                    guard let uid = signIn.account?.uid else {
-                        state.notice = "Sign in to leave a shared set list."; return
-                    }
-                    done = await state.leaveSharedSetlist(setlist, shared: shared, uid: uid)
-                }
-                if done { onBack() }
-            }
-        }
-        if confirmingRemoval, setlist.isShared, mine {
-            PanelNote(text: "Everybody's copy of the running order and markup goes too. "
-                      + "Nobody else can do this.")
-                .padding(Theme.Metric.panelPadding)
-        }
-    }
-
     private func memberRow(_ member: String, at index: Int) -> some View {
-        VStack(spacing: 0) {
+        let open = expanded == member
+        return HStack(spacing: Theme.Metric.s12) {
             HStack(spacing: Theme.Metric.s12) {
-                Button { onOpen(member) } label: {
-                    HStack(spacing: Theme.Metric.s12) {
-                        NumeralBadge(number: index + 1, role: .numeralM)
-                        Text(label(for: member)).typeRole(.row)
-                            .foregroundStyle(Theme.Ink.ink)
-                        Spacer()
+                    // The ordinal, then the arrangement's stamp (§3 ordered row).
+                    Text("\(index + 1)").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                        .frame(width: 28, alignment: .trailing)
+                    if let number = state.placement(of: member)?.number {
+                        NumeralBadge(number: number)
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("setlist-member-\(member)")
-
-                RowMenuButton(identifier: "row-menu-\(member)",
-                              label: "Manage \(label(for: member))",
-                              isOpen: expanded == member) {
-                    expanded = expanded == member ? nil : member
-                }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(label(for: member)).typeRole(.titleS)
+                            .foregroundStyle(Theme.Ink.ink).lineLimit(1)
+                        if open {
+                            RowActionsBar(actions: memberActions(member, at: index))
+                        } else {
+                            Text(memberMeta(member)).typeRole(.meta)
+                                .foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                        }
+                    }
+                    Spacer()
             }
-            .padding(.horizontal, Theme.Metric.s20)
-            .padding(.vertical, 9)
+            .rowTappable(label: label(for: member), identifier: "setlist-member-\(member)",
+                         container: open) { onOpen(member) }
 
-            if expanded == member { memberActions(member, at: index) }
+            RowMenuButton(identifier: "row-menu-\(member)",
+                          label: open ? "Close the actions" : "Manage \(label(for: member))",
+                          isOpen: open) {
+                if open { expanded = nil; panel.done() } else { expanded = member }
+            }
         }
+        .padding(.horizontal, Theme.Metric.pageSide)
+        .padding(.vertical, Theme.Metric.s8)
+        .frame(minHeight: 64)
+        .background(open ? Theme.Accent.clayTint : Color.clear)
     }
 
-    private func memberActions(_ member: String, at index: Int) -> some View {
-        HStack(spacing: Theme.Metric.s6) {
-            action("Move up", id: "arr-up-\(member)", enabled: index > 0) {
-                move(member, by: -1)
-            }
-            action("Move down", id: "arr-down-\(member)",
-                   enabled: index + 1 < (setlist?.arrangements.count ?? 0)) {
-                move(member, by: 1)
-            }
-            action("Manage", id: "setlist-manage-\(member)", enabled: true) {
-                push(.arrangement(member))
-            }
-            action("Remove", id: "setlist-remove-\(member)", enabled: true,
-                   destructive: true) {
-                Task { _ = await state.removeFromSetlist(setlist: slug, score: member) }
+    /// S2: Up, Down, Open, Arrangement, Remove -- on the row.
+    private func memberActions(_ member: String, at index: Int) -> [RowActionItem] {
+        [
+            RowActionItem(id: "arr-up-\(member)", title: "Up", glyph: "chevron.up",
+                          enabled: index > 0) { move(member, by: -1) },
+            RowActionItem(id: "arr-down-\(member)", title: "Down", glyph: "chevron.down",
+                          enabled: index + 1 < (setlist?.arrangements.count ?? 0)) { move(member, by: 1) },
+            RowActionItem(id: "setlist-open-\(member)", title: "Open") { onOpen(member) },
+            RowActionItem(id: "setlist-manage-\(member)", title: "Arrangement",
+                          lit: panel.isShowing(.arrangement(member))) {
+                panel.toggle(.arrangement(member))
+            },
+            RowActionItem(id: "setlist-remove-\(member)", title: "Remove", destructive: true,
+                          confirm: "Remove?") {
                 expanded = nil
-            }
-            Spacer()
-        }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.bottom, Theme.Metric.s8)
-        .background(Theme.Surface.well)
-    }
-
-    private func action(_ title: String, id: String, enabled: Bool,
-                        destructive: Bool = false,
-                        run: @escaping () -> Void) -> some View {
-        Button(action: run) {
-            Text(title).typeRole(.meta)
-                .foregroundStyle(destructive ? Theme.Status.danger : Theme.Ink.ink2)
-                .padding(.horizontal, Theme.Metric.s8)
-                .padding(.vertical, 5)
-                .background(Theme.Surface.panel)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.42)
-        .accessibilityIdentifier(id)
+                Task { _ = await state.removeFromSetlist(setlist: slug, score: member) }
+            },
+        ]
     }
 
     private func move(_ member: String, by delta: Int) {
@@ -352,15 +292,25 @@ struct SetlistScreen: View {
     }
 
     private func label(for member: String) -> String {
-        if let p = state.placement(of: member) { return "\(p.piece.name) #\(p.number)" }
-        return state.manifest?.scores.first { $0.slug == member }
-            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name,
-                                              slug: $0.slug) } ?? member
+        state.manifest?.scores.first { $0.slug == member }
+            .map { ScoreTitle.arrangementName(title: $0.title, name: $0.name, slug: $0.slug) }
+            ?? member
+    }
+
+    /// "Sous le ciel de Paris · v003"
+    private func memberMeta(_ member: String) -> String {
+        var bits: [String] = []
+        if let p = state.placement(of: member) { bits.append(p.piece.name) }
+        if let latest = state.manifest?.scores.first(where: { $0.slug == member })?.versions.last {
+            bits.append(latest.name)
+        }
+        return bits.joined(separator: " · ")
     }
 
     private var summary: String? {
-        guard let n = setlist?.arrangements.count else { return nil }
-        return "\(n) arrangement\(n == 1 ? "" : "s")"
+        guard let setlist else { return nil }
+        let n = setlist.arrangements.count
+        return "\(n) arrangement\(n == 1 ? "" : "s")" + (setlist.isShared ? " · shared" : "")
     }
 }
 
@@ -371,9 +321,9 @@ struct AddArrangementsScreen: View {
     var onBack: () -> Void
 
     var body: some View {
-        Screen(title: "Add arrangements", backLabel: "Back", onBack: onBack) {
+        Screen(title: "Add", backLabel: "Back", onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("In this set list")
+                PanelLabel(text: "In this set list", ruled: false)
                 ForEach(state.manifest?.scores ?? []) { score in
                     let member = (state.manifest?.setlists?
                         .first { $0.slug == slug }?.arrangements ?? []).contains(score.slug)
@@ -427,7 +377,6 @@ struct VersionsScreen: View {
     var body: some View {
         Screen(title: "Versions", backLabel: "Back", subtitle: name, onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("History")
                 ForEach(groups) { group in
                     groupRow(group)
                     if expanded.contains(group.id) {
@@ -526,10 +475,9 @@ struct PartsScreen: View {
     var onBack: () -> Void
 
     var body: some View {
-        Screen(title: "Parts and ranges", backLabel: "Back", subtitle: name,
+        Screen(title: "Parts", backLabel: "Back", subtitle: name,
                onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("Parts")
                 let parts = score?.versions.last?.parts ?? []
                 if parts.isEmpty {
                     Text("No parts recorded for this version.")

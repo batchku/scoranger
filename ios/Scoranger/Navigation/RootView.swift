@@ -28,6 +28,12 @@ struct RootView: View {
     /// survive going back and returning.
     @State private var libraryPath: [Route] = []
     @State private var scoreOpen = false
+    /// The right page (design/DESIGN_SYSTEM.md §7.2): what a tool-row button
+    /// or a row's action opened, beside the page. One for the library side;
+    /// the score has its own.
+    @StateObject private var panel = PanelModel()
+    /// A new piece or set list being named in place at the top of the list.
+    @State private var libraryNaming: String?
 
     /// Whether the app is frontmost, for ScreenWake. The idle timer is an
     /// application-wide flag, so the app's claim on the screen is dropped on
@@ -75,10 +81,22 @@ struct RootView: View {
         ZStack {
             Theme.Surface.band.ignoresSafeArea()
 
-            NavigationStack(path: $libraryPath) {
-                library.navigationBarHidden(true)
-                    .navigationDestination(for: Route.self) { screen($0) }
+            // The table (§7.1): the page 16 from the edges, the panel beside
+            // it when something is open. Pushed pages ride inside the stack;
+            // the panel stays put and each page sets what it shows at rest.
+            PanelHost(panel: panel) {
+                NavigationStack(path: $libraryPath) {
+                    library.navigationBarHidden(true)
+                        .navigationDestination(for: Route.self) { screen($0) }
+                }
+                .pageShape()
+            } content: { route in
+                screen(route, inPanel: true)
             }
+            .padding(.horizontal, Theme.Metric.tableMargin)
+            .environmentObject(panel)
+            // A page change closes what a row on the page before had open.
+            .onChange(of: libraryPath) { _, _ in panel.done() }
             // SHARING'S PROGRESS AND FAILURES, through the app's own notice
             // bar rather than a second surface invented for this one feature.
             //
@@ -305,6 +323,34 @@ struct RootView: View {
 
     /// Deleting knows what it is deleting: a set list is unmade, a piece takes
     /// its arrangements with it, an arrangement goes on its own.
+    /// A quick action from the Import or New panel.
+    private func runQuickAction(_ action: LibraryQuickAction) {
+        switch action {
+        case .importScore:  importIntent.ask(for: .file)
+        case .importPhotos: showPhotoImport = true
+        case .importFolder: importIntent.ask(for: .folder)
+        case .importBook:   importIntent.ask(for: .book)
+        case .new:          segment = .pieces; libraryNaming = ""
+        case .newSetlist:   segment = .setlists; libraryNaming = ""
+        }
+    }
+
+    /// How many rows each filter keeps, for the Filter panel's counts (L4).
+    private var filterCounts: [LibraryFilter: Int] {
+        guard let manifest = state.manifest else { return [:] }
+        let base: [LibraryRow]
+        switch segment {
+        case .pieces:   base = LibraryModel.pieceRows(manifest: manifest) + LibraryModel.unfiledRows(manifest: manifest)
+        case .setlists: base = LibraryModel.setlistRows(manifest: manifest)
+        case .books:    base = LibraryModel.bookRows(manifest: manifest)
+        }
+        var counts: [LibraryFilter: Int] = [:]
+        for filter in LibraryFilter.allCases {
+            counts[filter] = LibraryModel.filtered(base, by: [filter], manifest: manifest).count
+        }
+        return counts
+    }
+
     private func commitDelete(_ row: LibraryRow) {
         if segment == .setlists {
             Task { _ = await state.deleteSetlist(row.id) }
@@ -315,11 +361,22 @@ struct RootView: View {
         }
     }
 
-    /// What a route shows.
+    /// What a route shows. Page routes are pushed on the stack; panel routes
+    /// are drawn in the panel (`inPanel`), where back is the panel's own ‹ or
+    /// Done and a push from inside opens beside. A push of a page route from
+    /// anywhere goes on the stack.
     @ViewBuilder
-    private func screen(_ route: Route) -> some View {
-        let pop = { _ = libraryPath.popLast() }
-        let push: (Route) -> Void = { libraryPath.append($0) }
+    private func screen(_ route: Route, inPanel: Bool = false) -> some View {
+        let pop: () -> Void = inPanel
+            ? { if panel.canGoBack { panel.back() } else { panel.done() } }
+            : { _ = libraryPath.popLast() }
+        let push: (Route) -> Void = { next in
+            if next.presentation == .panel { panel.push(next) } else { libraryPath.append(next) }
+        }
+        let importInto: (String) -> Void = { pieceSlug in
+            importIntoPiece = pieceSlug
+            importIntent.ask(for: .file)
+        }
         // A route holds the slug it was pushed with, and an arrangement can be
         // MOVED to a new slug from the screen the route points at. Follow the
         // move rather than resolving to nothing.
@@ -328,12 +385,35 @@ struct RootView: View {
             if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
                 PieceScreen(piece: piece, onBack: pop,
                             onOpen: { open($0) }, push: push,
-                            onImport: { pieceSlug in
-                                importIntoPiece = pieceSlug
-                                importIntent.ask(for: .file)
-                            })
+                            onImport: importInto)
                     .navigationBarHidden(true)
                     .accessibilityIdentifier("screen-piece-\(slug)")
+                    // The panel at rest on this page (P1).
+                    .onAppear { panel.setRest(.thisPiece(slug)) }
+                    .onDisappear { panel.clearRest(.thisPiece(slug)) }
+            }
+        case .sort:
+            SortPanel(sort: $sort)
+        case .filter:
+            FilterPanel(filters: $filters, counts: filterCounts)
+        case .importMenu:
+            ImportPanel(run: runQuickAction)
+        case .newMenu:
+            NewPanel(run: runQuickAction)
+        case .pieceArrangements(let slug):
+            PieceArrangementsPanel(slug: slug, onOpen: { open($0) },
+                                   onPieceScreen: { libraryPath.append(.piece(slug)) },
+                                   onImport: importInto)
+        case .thisPiece(let slug):
+            ThisPiecePanel(slug: slug, onImport: importInto,
+                           onDeleted: { if libraryPath.last == .piece(slug) { _ = libraryPath.popLast() } })
+        case .thisSetlist(let slug):
+            ThisSetlistPanel(slug: slug, push: push,
+                             onShare: { shareSetlist(slug) },
+                             onRemoved: { if libraryPath.last == .setlist(slug) { _ = libraryPath.popLast() } })
+        case .setlistInvite(let slug):
+            if let shareId = (state.manifest?.setlists ?? []).first(where: { $0.slug == slug })?.shareId {
+                SharedSetlistScreen(setlistId: shareId, onBack: pop, onOpen: { open($0) })
             }
         case .arrangement(let slug):
             if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
@@ -368,6 +448,9 @@ struct RootView: View {
                           push: push)
                 .navigationBarHidden(true)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
+                // The panel at rest on this page (S1).
+                .onAppear { panel.setRest(.thisSetlist(slug)) }
+                .onDisappear { panel.clearRest(.thisSetlist(slug)) }
         case .joinSetlist(let inviteId):
             JoinSetlistScreen(inviteId: inviteId, onBack: pop,
                               onJoined: { slug in
@@ -431,24 +514,15 @@ struct RootView: View {
     private var library: some View {
         LibraryView(segment: $segment, search: $librarySearch, sort: $sort,
                     filters: $filters, editing: $editing,
+                    creatingName: $libraryNaming,
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
                     onOpenSharedSetlist: { libraryPath.append(.sharedSetlist($0)) },
                     onShareSetlist: { slug in shareSetlist(slug) },
                     onOpenBook: { libraryPath.append(.book($0)) },
-                    onRowMenu: { row in
-                        // A piece opens its own screen; an unfiled arrangement
-                        // opens the arrangement screen (§3.5's rule: both need
-                        // a target list, so both push).
-                        if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
-                            libraryPath.append(.piece(row.id))
-                        } else if segment == .setlists {
-                            libraryPath.append(.setlist(row.id))
-                        } else {
-                            libraryPath.append(.arrangement(row.id))
-                        }
-                    },
+                    onOpenPieceScreen: { libraryPath.append(.piece($0)) },
+                    onOpenSetlistScreen: { libraryPath.append(.setlist($0)) },
                     onCreate: { name in
                         Task {
                             if segment == .setlists {

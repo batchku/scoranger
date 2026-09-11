@@ -11,7 +11,7 @@ enum LibrarySegment: String, CaseIterable, Equatable {
     var title: String {
         switch self {
         case .pieces:   return "Pieces"
-        case .setlists: return "Setlists"
+        case .setlists: return "Set lists"
         case .books:    return "Books"
         }
     }

@@ -14,10 +14,10 @@ final class ShareRoundTrip: XCTestCase {
 
     private func openSetlists() -> Bool {
         _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
-        let seg = app.descendants(matching: .any)["Setlists"]
+        let seg = app.descendants(matching: .any)["Set lists"]
         if seg.waitForExistence(timeout: 20) { seg.tap(); return true }
         // segmented control may expose differently
-        let alt = app.buttons.matching(NSPredicate(format: "label == %@", "Setlists")).firstMatch
+        let alt = app.buttons.matching(NSPredicate(format: "label == %@", "Set lists")).firstMatch
         if alt.waitForExistence(timeout: 10) { alt.tap(); return true }
         return false
     }

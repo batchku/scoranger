@@ -12,15 +12,14 @@ import XCTest
 ///
 /// Three preferences are driven and read back, chosen to be different in kind:
 /// a string (`scoreLayout`), a boolean that defaults FALSE (`touchDiagnostics`)
-/// and a boolean that defaults TRUE and carries a companion flag
-/// (`showTransport` with `didRevealTransport`). They are not a list to keep up
-/// to date: `TestReset.wipeDefaults` removes the persistent domain, so one key
-/// surviving would mean all of them survived.
+/// and a boolean that defaults TRUE (`useLocalEngine`). They are not a list to
+/// keep up to date: `TestReset.wipeDefaults` removes the persistent domain, so
+/// one key surviving would mean all of them survived.
 ///
-/// The last one is the sharpest. Turning the transport off also records
-/// `didRevealTransport`, so a leak leaves it off on the next launch and
-/// `TransportReveal` will NOT put it back -- the reader's choice, correctly
-/// honoured, and exactly the state a fresh test must not start in.
+/// The last one was `showTransport` until 0.8 retired the switch with the
+/// tray (§7.7). The on-device engine switch is the same kind of thing -- on
+/// by default, and a leak leaves it OFF for the next test, which then finds
+/// playback unavailable and blames the engine.
 final class StateReset: XCTestCase {
 
     private var app: XCUIApplication!
@@ -38,15 +37,8 @@ final class StateReset: XCTestCase {
         openSettings()
         setToggle("Continuous", to: true)
         setToggle("Show what the canvas is receiving", to: true)
+        setToggle("Use on-device engine", to: false)
         closeSettings()
-
-        openFirstArrangement()
-        let transport = app.buttons["score-transport-toggle"]
-        XCTAssertTrue(transport.waitForExistence(timeout: 60),
-                      "no transport toggle in the top bar")
-        if transport.value as? String != "off" { transport.tap() }
-        XCTAssertTrue(waitForValue(transport, "off"),
-                      "the transport toggle would not turn off, so nothing was left to leak")
 
         // --- and come back the way a parallel worker's next test does ---
         // No -resetLibrary: the library is deliberately kept, so what this
@@ -62,17 +54,19 @@ final class StateReset: XCTestCase {
                        "scoreLayout survived the reset")
         XCTAssertEqual(toggle("Show what the canvas is receiving").value as? String, "0",
                        "touchDiagnostics survived the reset")
+        XCTAssertEqual(toggle("Use on-device engine").value as? String, "1",
+                       "useLocalEngine survived the reset: the next test would find "
+                       + "playback unavailable and blame the engine")
         closeSettings()
 
         XCTAssertFalse(app.descendants(matching: .any)["touch-diagnostics"].exists,
                        "the diagnostics overlay is still on screen")
 
+        // And the tray is there on the first arrangement, as it always is now
+        // (0.8 §7.7): no preference decides it.
         openFirstArrangement()
-        let back = app.buttons["score-transport-toggle"]
-        XCTAssertTrue(back.waitForExistence(timeout: 60), "no transport toggle in the top bar")
-        XCTAssertTrue(waitForValue(back, "on"),
-                      "showTransport survived the reset -- and didRevealTransport with it, "
-                      + "so nothing will ever put the transport back")
+        XCTAssertTrue(app.otherElements["transport"].waitForExistence(timeout: 60),
+                      "no tray on the score")
     }
 
     // MARK: - the small amount of driving this needs

@@ -4,9 +4,9 @@ import XCTest
 ///
 /// 0.6 shipped playback behind `showTransport`, defaulting to false in a
 /// submenu, and the reader who asked for the feature could not find it on a
-/// score with real notation. The default is true now and the transport reveals
-/// itself on the first playable arrangement — this proves both, and proves it
-/// in CONTINUOUS layout too, which is the view that reader was actually in.
+/// score with real notation. 0.8 has no switch at all: the tray is always
+/// there while reading (§7.7) — this proves it, and proves it in CONTINUOUS
+/// layout too, which is the view that reader was actually in.
 final class TransportVisibility: XCTestCase {
 
     private var app: XCUIApplication!
@@ -45,8 +45,8 @@ final class TransportVisibility: XCTestCase {
         let play = app.buttons["transport-play"]
         XCTAssertTrue(play.waitForExistence(timeout: 30),
                       "no play button in paged layout — the transport is hidden again")
-        XCTAssertTrue(app.buttons["transport-mixer"].exists,
-                      "no fader button, so the mixer is unreachable")
+        XCTAssertTrue(app.descendants(matching: .any)["strip-mute-0"].waitForExistence(timeout: 180),
+                      "no knob on the tray, so the mixer is unreachable")
         keep("transport-paged")
 
         // CONTINUOUS — the layout the reader was stuck in

@@ -92,7 +92,7 @@ SKIP=(
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
   # gate has no reason to be running. Neither asserts.
   -skip-testing:ScorangerUITests/TopBarShot
-  # MixerShot photographs the mixer for a person to judge; it asserts nothing.
+  # MixerShot photographs the tray for a person to judge; it asserts nothing.
   -skip-testing:ScorangerUITests/MixerShot
   # THE EIGHT ROTATING TESTS, skipped with the evidence, and a tracking item in
   # BACKLOG.md. They fail inside this gate -- in the pool AND in the serial
@@ -119,8 +119,8 @@ SKIP=(
   -skip-testing:ScorangerUITests/LandscapeFits/testTheScoreViewFitsInLandscape
   -skip-testing:ScorangerUITests/MixerOnAlisCase/testTheMixerFitsInLandscapeAtNormalText
   -skip-testing:ScorangerUITests/MixerOnAlisCase/testTheMixerFitsInLandscapeWithThePickerOpen
-  -skip-testing:ScorangerUITests/MixerTwoChannel/testTwoChannelPanelFitsInLandscape
-  -skip-testing:ScorangerUITests/MixerTwoChannel/testTwoChannelPanelFitsWithThePickerOpen
+  -skip-testing:ScorangerUITests/MixerTwoChannel/testTwoChannelTrayFitsInLandscape
+  -skip-testing:ScorangerUITests/MixerTwoChannel/testTwoChannelTrayWithThePickerOpen
 )
 
 # THE DELETION CLASS, WHICH RUNS SERIALLY.
@@ -176,12 +176,12 @@ ENGINE_SERIAL=(
   # AND meaningful. That one FAILS when it runs alone, so serialising it would
   # only have turned every gate red.
   "ScorangerUITests/ScorangerUITests/testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder()"
-  # The mixer's strips come from the playback timeline, which is another engine
+  # The tray's knobs come from the playback timeline, which is another engine
   # call. Solo it passes in ~27s, twice out of twice; under four workers it
   # found ZERO strips and said so rather than passing vacuously -- the
   # assertion "only 0 strip(s) were checked, so this says nothing about strips
   # being mixed up" is why this surfaced as a failure instead of a false green.
-  "ScorangerUITests/MixerWindowBehaviour/testEachStripsControlsBelongToThePartItNames()"
+  "ScorangerUITests/TrayBehaviour/testEachStripsControlsBelongToThePartItNames()"
   # The two audio sweeps, for a different reason from the three above: not
   # engine contention but MEMORY. Each walks the whole General MIDI catalogue
   # -- 128 melodic programs on three keys, then every drum kit -- and each of

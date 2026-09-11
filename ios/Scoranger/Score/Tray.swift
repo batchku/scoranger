@@ -41,9 +41,20 @@ struct Tray: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        line
+        Group {
+            if typeSize.isAccessibilitySize {
+                // SC15 / §12: at accessibility sizes the one line is wider
+                // than a screen, and nothing grows downward -- so the line
+                // scrolls sideways, play and the knobs first.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    line.fixedSize(horizontal: true, vertical: false)
+                }
+            } else {
+                line
+            }
+        }
             .padding(.horizontal, Theme.Metric.s16)
-            .frame(height: Theme.Metric.transportHeight)
+            .frame(minHeight: Theme.Metric.transportHeight)
             .background(Theme.Surface.panel)
             .clipShape(UnevenRoundedRectangle(
                 topLeadingRadius: Theme.Metric.rPage, bottomLeadingRadius: 0,
@@ -230,6 +241,10 @@ struct Tray: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(anyOff ? "voices-all-on" : "voices-all-off")
         .accessibilityLabel(anyOff ? "All voices on" : "All voices off")
+        // What will be heard -- "all voices", "3 of 4 voices", "silent",
+        // "metronome only". The mixer header's summary, carried by the one
+        // control that changes all of it at once.
+        .accessibilityValue(playback.voices.summary(in: parts, metronome: playback.metronome))
     }
 
     // MARK: - converting
@@ -344,6 +359,8 @@ struct TrayPartKnob: View {
 
     private var isOn: Bool { playback.voices.isOn(part.index) }
     private var isSounding: Bool { isOn && part.isSounding(at: playback.beat) }
+    private var patch: (program: UInt8, bank: GeneralMIDI.Bank) { playback.instrument(for: part) }
+    private var chosen: Bool { playback.hasChosenInstrument(for: part) }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -356,9 +373,15 @@ struct TrayPartKnob: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                // A CONTAINER, so the LED inside keeps its own identifier and
+                // value ("sounding: yes/no") for the tests and VoiceOver that
+                // read the lamp separately from the mute.
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("strip-mute-\(part.index)")
-                .accessibilityLabel(isOn ? "Mute \(part.name)" : "Unmute \(part.name)")
-                .accessibilityValue(isOn ? "on" : "muted")
+                .accessibilityLabel("\(part.name), mute")
+                // The value is the MUTE's state, as it was on the strip: "off"
+                // while the part sounds. Tests read it, so it is a contract.
+                .accessibilityValue(isOn ? "off" : "on")
             }
             .opacity(isOn ? 1 : 0.5)
             Button { choosingSound = true } label: {
@@ -373,7 +396,12 @@ struct TrayPartKnob: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("strip-sound-\(part.index)")
-            .accessibilityLabel("Sound for \(part.name)")
+            .accessibilityLabel("\(part.name), sound")
+            // "automatic" and not "from the staff name" (MixerWindowStrips'
+            // note, kept): the suffix is a contract a test reads.
+            .accessibilityValue(GeneralMIDI.name(program: patch.program, bank: patch.bank)
+                                + (chosen ? ", chosen" : ", automatic"))
+            .accessibilityHint("Opens the list of sounds")
             .popover(isPresented: $choosingSound) {
                 MixerSoundPicker(playback: playback, part: part) { choosingSound = false }
                     .frame(width: 320, height: 420)
@@ -382,6 +410,7 @@ struct TrayPartKnob: View {
         .frame(width: TrayLayout.knobGroup)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("strip-\(part.index)")
+        .accessibilityLabel(part.name)
     }
 }
 

@@ -13,98 +13,59 @@ struct PieceScreen: View {
     var push: (Route) -> Void
     var onImport: (String) -> Void
 
-    @State private var confirmingDelete = false
+    /// The arrangement row whose ☰ is open, its actions in the row (P2).
+    @State private var openArrangement: String?
+    @EnvironmentObject var panel: PanelModel
 
     var body: some View {
-        Screen(title: "", backLabel: "My library",
-               subtitle: summary, onBack: onBack) {
+        Screen(title: "", backLabel: "Library",
+               subtitle: summary, onBack: onBack,
+               trailing: {
+                   PanelButton(title: "New arrangement", kind: .primary,
+                               identifier: "piece-new-arrangement-\(piece.slug)") {
+                       Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
+                   }
+               }) {
             VStack(alignment: .leading, spacing: 0) {
-                // The name IS the control: tap it to rename. There is no
-                // Rename button, because a button whose only job is to let you
-                // edit the thing beside it exists only because the thing was
-                // not tappable.
-                EditableTitle(text: piece.name, role: .title,
-                              identifier: "piece-title") { name in
-                    Task { _ = await state.renamePiece(piece: piece.slug, name: name) }
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s12) {
+                    EditableTitle(text: piece.name, role: .title,
+                                  identifier: "piece-title") { name in
+                        Task { _ = await state.renamePiece(piece: piece.slug, name: name) }
+                    }
+                    Text(headMeta).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        .lineLimit(1)
                 }
-                .padding(.horizontal, Theme.Metric.s20)
+                .padding(.horizontal, Theme.Metric.pageSide)
                 .padding(.top, Theme.Metric.s12)
-                .padding(.bottom, Theme.Metric.s8)
+                .padding(.bottom, Theme.Metric.s12)
 
-                BandHeader("Arrangements — tap to open")
                 ForEach(Array(piece.arrangements.enumerated()), id: \.offset) { index, slug in
                     if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
                         arrangementRow(score, number: index + 1)
                         Theme.Rule()
                     }
                 }
-
-                // Whatever the migration wrote, a person can change. Tags
-                // arrived from Newzik; nothing about them should be harder to
-                // correct than it was to import.
-                BandHeader("Details")
-                PieceField(label: "Composer", value: piece.composer ?? "",
-                           identifier: "piece-composer") { v in
-                    Task { _ = await state.setPieceMetadata(piece.slug, composer: v) }
-                }
-                Theme.Rule()
-                PieceField(label: "Arranger", value: piece.arranger ?? "",
-                           identifier: "piece-arranger") { v in
-                    Task { _ = await state.setPieceMetadata(piece.slug, arranger: v) }
-                }
-                Theme.Rule()
-                PieceField(label: "Tags", value: (piece.tags ?? []).joined(separator: ", "),
-                           hint: "Serbia, Bulgaria", identifier: "piece-tags") { v in
-                    let tags = v.split(separator: ",")
-                        .map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }
-                    Task { _ = await state.setPieceMetadata(piece.slug, tags: tags) }
-                }
-
-                BandHeader("This piece")
-                ScreenRow(title: "New arrangement", leads: false,
-                          identifier: "piece-new-arrangement-\(piece.slug)") {
-                    Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
-                }
-                ScreenRow(title: "Import into this piece", leads: false,
-                          identifier: "piece-import-\(piece.slug)") { onImport(piece.slug) }
-
-                BandHeader("Sources")
-                Text(sourceSummary).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                    .padding(.horizontal, Theme.Metric.s20)
-                    .padding(.vertical, Theme.Metric.s8)
-
-                // Separated by its own band so Delete and Delete piece are never
-                // adjacent -- one destroys an arrangement, the other the folder.
-                BandHeader("Careful")
-                if confirmingDelete {
-                    ConfirmDeleteStrip(what: deleteWarning,
-                                       identifier: "confirm-delete-\(piece.slug)",
-                                       onDelete: {
-                                           confirmingDelete = false
-                                           state.deletePiece(piece.slug)
-                                           onBack()
-                                       },
-                                       onKeep: { confirmingDelete = false })
-                } else {
-                    ScreenRow(title: "Delete piece", leads: false, isDestructive: true,
-                              identifier: "piece-delete-\(piece.slug)") {
-                        confirmingDelete = true
-                    }
+                if piece.arrangements.isEmpty {
+                    Text("No arrangements yet. New arrangement starts an empty one; Import brings a file in.")
+                        .typeRole(.body).foregroundStyle(Theme.Ink.ink2)
+                        .padding(Theme.Metric.pageSide)
                 }
             }
             .padding(.bottom, Theme.Metric.s32)
         }
     }
 
-    /// What each arrangement of this piece is CALLED, none of them the same.
-    ///
-    /// The rows read `score.title ?? score.name`, so a title poisoned before
-    /// the engine guarded the way in beat the real name -- and since every
-    /// arrangement OMR'd before the fix was poisoned with the SAME string,
-    /// this piece listed two arrangements both labelled "v001.mxl". The
-    /// judgement is ScoreTitle's, over the whole piece at once, because
-    /// telling two rows apart is not something one row can do alone.
+    /// "Hubert Giraud · 2 arrangements · in 1 set list"
+    private var headMeta: String {
+        var bits: [String] = []
+        if let composer = piece.composer, !composer.isEmpty { bits.append(composer) }
+        bits.append(summary)
+        let lists = (state.manifest?.setlists ?? [])
+            .filter { !$0.arrangements.filter(piece.arrangements.contains).isEmpty }.count
+        if lists > 0 { bits.append("in \(lists) set list" + (lists == 1 ? "" : "s")) }
+        return bits.joined(separator: " · ")
+    }
+
     private var labels: [String: String] {
         let scores = piece.arrangements.compactMap { slug in
             state.manifest?.scores.first { $0.slug == slug }
@@ -136,66 +97,89 @@ struct PieceScreen: View {
     }
 
     private func arrangementRow(_ score: ScoreDoc, number: Int) -> some View {
-        HStack(spacing: Theme.Metric.s12) {
-            Button { onOpen(score.slug) } label: {
-                HStack(spacing: Theme.Metric.s12) {
+        let open = openArrangement == score.slug
+        return HStack(spacing: Theme.Metric.s12) {
+            HStack(spacing: Theme.Metric.s12) {
                     NumeralBadge(number: number)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(label(score)).typeRole(.titleS)
-                            .foregroundStyle(Theme.Ink.ink)
-                        HStack(spacing: Theme.Metric.s4) {
-                            Text("\(score.versions.count) version"
-                                 + (score.versions.count == 1 ? "" : "s"))
-                                .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                            // The same tag the library row carries (0.6.3 #3):
-                            // one treatment everywhere an arrangement is
-                            // listed, so it is learnt once.
-                            ForEach(Array(ArtifactTag.chips(
-                                            files: score.versions.map(\.file))
-                                            .enumerated()), id: \.offset) { _, chip in
-                                DerivedChip(chip: chip)
+                            .foregroundStyle(Theme.Ink.ink).lineLimit(1)
+                        if open {
+                            RowActionsBar(actions: arrangementActions(score, number: number))
+                        } else {
+                            HStack(spacing: Theme.Metric.s4) {
+                                Text(arrangementMeta(score))
+                                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                                ForEach(Array(ArtifactTag.chips(
+                                                files: score.versions.map(\.file))
+                                                .enumerated()), id: \.offset) { _, chip in
+                                    DerivedChip(chip: chip)
+                                }
                             }
                         }
                     }
                     Spacer()
+            }
+            .rowTappable(label: arrangementLabel(score, number: number),
+                         identifier: "arrangement-choice-\(score.slug)",
+                         isSelected: state.selectedSlug == score.slug,
+                         container: open) { onOpen(score.slug) }
+
+            if !open {
+                Text(LibraryModel.day(score.versions.last?.time ?? nil))
+                    .typeRole(.data).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
+                PanelButton(title: "Open", identifier: "arrangement-open-\(score.slug)") {
+                    onOpen(score.slug)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            // one element, not a stack: a Button whose label is a stack is
-            // reported as a container, and the highlight has to live on the
-            // element a test can see
-            .accessibilityElement(children: .ignore)
-            // "Arrangement number N" is the phrase the numeral badge used, and
-            // the chat context hands the model the same number
-            .accessibilityLabel(arrangementLabel(score, number: number))
-            .accessibilityAddTraits(state.selectedSlug == score.slug
-                                    ? [.isButton, .isSelected] : [.isButton])
-            .accessibilityIdentifier("arrangement-choice-\(score.slug)")
-
-            // Order, in place. This is what dragging one arrangement onto
-            // another used to do -- the same inline pattern the set list screen
-            // already uses, and the only way to reorder now that dragging is
-            // gone from the app entirely.
-            orderButton("chevron.up", label: "Move \(label(score)) up",
-                        id: "arr-up-\(score.slug)", enabled: number > 1) {
-                move(score.slug, by: -1)
-            }
-            orderButton("chevron.down", label: "Move \(label(score)) down",
-                        id: "arr-down-\(score.slug)",
-                        enabled: number < piece.arrangements.count) {
-                move(score.slug, by: 1)
-            }
-
-            // §8.1's own mitigation: a ☰ here pushes straight to the
-            // arrangement's screen, so filing is two pushes rather than three.
             RowMenuButton(identifier: "row-menu-\(score.slug)",
-                          label: "Manage \(label(score))") {
-                push(.arrangement(score.slug))
+                          label: open ? "Close \(label(score))'s actions" : "Manage \(label(score))",
+                          isOpen: open) {
+                if open { openArrangement = nil; panel.done() } else { openArrangement = score.slug }
             }
         }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Theme.Metric.pageSide)
+        .padding(.vertical, Theme.Metric.s8)
+        .frame(minHeight: 64)
+        // [C4]: the open row is a flat tint band the width of the page.
+        .background(open ? Theme.Accent.clayTint : Color.clear)
+    }
+
+    /// "v003 · 4 parts · Tuesday at the Ship"
+    private func arrangementMeta(_ score: ScoreDoc) -> String {
+        var bits: [String] = []
+        if let latest = score.versions.last { bits.append(latest.name) }
+        let parts = score.versions.last?.parts?.count ?? 0
+        bits.append("\(parts) part" + (parts == 1 ? "" : "s"))
+        let lists = (state.manifest?.setlists ?? []).filter { $0.arrangements.contains(score.slug) }
+        if let first = lists.first { bits.append(first.name) }
+        return bits.joined(separator: " · ")
+    }
+
+    /// P2: Up, Down, Duplicate, Move to piece, Arrangement, Delete.
+    private func arrangementActions(_ score: ScoreDoc, number: Int) -> [RowActionItem] {
+        [
+            RowActionItem(id: "arr-up-\(score.slug)", title: "Up", glyph: "chevron.up",
+                          enabled: number > 1) { move(score.slug, by: -1) },
+            RowActionItem(id: "arr-down-\(score.slug)", title: "Down", glyph: "chevron.down",
+                          enabled: number < piece.arrangements.count) { move(score.slug, by: 1) },
+            RowActionItem(id: "arrangement-duplicate-\(score.slug)", title: "Duplicate") {
+                Task { _ = await state.duplicateScore(slug: score.slug) }
+            },
+            RowActionItem(id: "arrangement-move-\(score.slug)", title: "Move to piece",
+                          lit: panel.isShowing(.moveToPiece([score.slug]))) {
+                panel.toggle(.moveToPiece([score.slug]))
+            },
+            RowActionItem(id: "arrangement-manage-\(score.slug)", title: "Arrangement",
+                          lit: panel.isShowing(.arrangement(score.slug))) {
+                panel.toggle(.arrangement(score.slug))
+            },
+            RowActionItem(id: "edit-delete-\(score.slug)", title: "Delete", destructive: true,
+                          confirm: "Delete?") {
+                openArrangement = nil
+                state.deleteScore(slug: score.slug)
+            },
+        ]
     }
 
     private func orderButton(_ glyph: String, label: String, id: String,
@@ -230,21 +214,6 @@ struct PieceScreen: View {
         return "\(n) arrangement\(n == 1 ? "" : "s")"
     }
 
-    private var deleteWarning: String {
-        let n = piece.arrangements.count
-        return n == 0
-            ? "Delete \(piece.name)?"
-            : "Delete \(piece.name) and its \(n) arrangement\(n == 1 ? "" : "s")?"
-    }
-
-    private var sourceSummary: String {
-        let count = piece.arrangements.compactMap { slug in
-            state.manifest?.scores.first { $0.slug == slug }?.sources?.count
-        }.reduce(0, +)
-        return count == 0 ? "No other editions imported."
-                          : "\(count) read-only source\(count == 1 ? "" : "s")."
-    }
-
 }
 
 /// One arrangement's actions — the per-item screen a row's ☰ opens (§3.2).
@@ -261,7 +230,7 @@ struct ArrangementScreen: View {
     @State private var confirmingDelete = false
 
     var body: some View {
-        Screen(title: "", backLabel: "Back",
+        Screen(title: "Arrangement", backLabel: "Back",
                subtitle: placement, onBack: onBack,
                trailing: {
                    PanelButton(title: "Open", kind: .primary, action: onOpen)
@@ -279,8 +248,7 @@ struct ArrangementScreen: View {
                 .padding(.top, Theme.Metric.s12)
                 .padding(.bottom, Theme.Metric.s8)
 
-                BandHeader("Do")
-                ScreenRow(title: "Move to piece", value: pieceName ?? "unfiled",
+                ScreenRow(title: "Piece", value: pieceName ?? "unfiled",
                           identifier: "arrangement-move-\(score.slug)") {
                     push(.moveToPiece([score.slug]))
                 }
@@ -293,12 +261,12 @@ struct ArrangementScreen: View {
                     Task { _ = await state.duplicateScore(slug: score.slug) }
                 }
 
-                BandHeader("Look at")
                 ScreenRow(title: "Versions", value: "\(score.versions.count)",
                           identifier: "edit-versions-\(score.slug)") {
                     push(.versions(score.slug))
                 }
-                ScreenRow(title: "Parts and ranges",
+                ScreenRow(title: "Parts",
+                          value: "\(score.versions.last?.parts?.count ?? 0)",
                           identifier: "arrangement-parts-\(score.slug)") {
                     push(.parts(score.slug))
                 }
@@ -306,9 +274,10 @@ struct ArrangementScreen: View {
                     push(.details(score.slug))
                 }
 
-                BandHeader("Careful")
+                PanelLabel(text: "Careful")
                 if confirmingDelete {
                     ConfirmDeleteStrip(what: deleteWarning,
+                                       consequence: "Every version goes with it; the piece and its other arrangements stay.",
                                        identifier: "confirm-delete-\(score.slug)",
                                        onDelete: {
                                            confirmingDelete = false
@@ -363,18 +332,15 @@ struct RowMenuButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "line.3.horizontal")
+            // ☰ becomes ✕ while the row's actions are open (§7.3).
+            Image(systemName: isOpen ? "xmark" : "line.3.horizontal")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(isOpen ? Theme.Accent.clayStrong : Theme.Ink.ink2)
                 // A BUTTON, like every other icon in the app. It was a naked
                 // glyph sitting in the row's trailing edge, so the one control
                 // a row carries did not look like a control at all.
                 .frame(width: RowMenuButton.side, height: RowMenuButton.side)
-                .background(isOpen ? Theme.Accent.clayTint : Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(isOpen ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
-                }
+                .background(isOpen ? Theme.Surface.paper : Theme.Surface.well)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
                 .contentShape(Rectangle())

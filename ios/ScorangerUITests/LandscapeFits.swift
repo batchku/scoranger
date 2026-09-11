@@ -207,6 +207,9 @@ final class LandscapeFits: XCTestCase {
         }
     }
 
+    /// The tray in landscape: a line at the foot of a 402pt screen, with its
+    /// knobs, tempo and readout inside the window, and no more than a quarter
+    /// of the height -- the music is what landscape is for.
     func testTheMixerFitsInLandscape() {
         let app = launched()
         let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
@@ -219,23 +222,19 @@ final class LandscapeFits: XCTestCase {
         XCTAssertTrue(app.buttons["score-title"].waitForExistence(timeout: 300),
                       "the score never opened")
         let window = rotateToLandscape(app)
-        let open = app.buttons["transport-mixer"]
-        guard open.waitForExistence(timeout: 120) else {
-            return XCTFail("no mixer button in landscape")
+        let tray = app.otherElements["transport"].firstMatch
+        guard tray.waitForExistence(timeout: 120) else {
+            return XCTFail("no tray in landscape")
         }
-        open.tap()
-        let panel = app.descendants(matching: .any)["mixer"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 60),
-                      "the mixer never opened in landscape")
-        settle(panel, still: 0.5)
-        snap("mixer-landscape")
-        assertFitsOnScreen(["mixer", "mixer-header", "mixer-grab",
-                            "mixer-close", "mixer-collapse"],
-                           in: app, context: "mixer landscape \(window.size)")
-        // §12's height rule: above 60% of the canvas it opens collapsed. At
-        // 402pt tall that is what landscape is for.
-        XCTAssertLessThan(panel.frame.height, window.height * 0.75,
-                          "the mixer is \(panel.frame.height)pt of "
-                          + "\(window.height): it should open collapsed here")
+        XCTAssertTrue(app.descendants(matching: .any)["strip-mute-0"].waitForExistence(timeout: 180),
+                      "the tray never grew a knob in landscape")
+        settle(tray, still: 0.5)
+        snap("tray-landscape")
+        assertFitsOnScreen(["transport", "tray-knobs", "transport-tempo",
+                            "transport-play", "transport-bar"],
+                           in: app, context: "tray landscape \(window.size)")
+        XCTAssertLessThan(tray.frame.height, window.height * 0.25,
+                          "the tray is \(tray.frame.height)pt of "
+                          + "\(window.height): it is taking the music's room")
     }
 }

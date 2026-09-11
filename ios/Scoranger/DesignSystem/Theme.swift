@@ -83,7 +83,7 @@ enum Theme {
     /// spec attaches to the role, so callers cannot get them out of step.
     enum Role {
         case numeralXL, numeralL, numeralM
-        case title, titleS
+        case title, titleS, panelTitle
         case row, body, control, label, meta
         case data, dataS
         case knobLabel, knobData   // under a tray knob (§7.8): Inter 600 9.5, mono 9.5
@@ -98,6 +98,7 @@ enum Theme {
             case .numeralM:  return -0.03 * 12
             case .title:     return -0.02 * 26
             case .titleS:    return -0.01 * 16
+            case .panelTitle: return -0.015 * 20
             // The tracked-out caps label of 0.7 is retired (§2 rule 2): a
             // section label is Inter 600 12, sentence case, no tracking.
             case .label:     return 0
@@ -138,6 +139,7 @@ enum Theme {
         case .numeralM:  return variable(Face.grotesk, 12, 700, .title2)    // stamp in a 30 ring
         case .title:     return variable(Face.grotesk, 26, 700, .title1)    // headTitle
         case .titleS:    return variable(Face.grotesk, 16, 600, .headline)  // rowName / barTitle
+        case .panelTitle: return variable(Face.grotesk, 20, 700, .title3)  // the panel's header (§7.2)
         case .row:       return variable(Face.inter, 14.5, 500, .body)      // panelItem
         case .body:      return variable(Face.inter, 14, 400, .body)        // body
         case .control:   return variable(Face.inter, 13.5, 600, .body)      // control
@@ -258,6 +260,14 @@ enum Theme {
         /// things rather than as a row (L34). Books stop their measure for the
         /// same reason.
         static let readingColumn: CGFloat = 720
+
+        // The Notebook's table (§3): pages 16 from the table's edges, the
+        // panel 380 wide and 10 from the page, 22 of padding inside it.
+        static let tableMargin: CGFloat = 16
+        static let pagePanelGap: CGFloat = 10
+        static let panelWidth: CGFloat = 380
+        static let panelSide: CGFloat = 22
+        static let pageSide: CGFloat = 24
 
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let scoreTopBar: CGFloat = 52

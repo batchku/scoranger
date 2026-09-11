@@ -102,14 +102,13 @@ final class PlaybackCrash: XCTestCase {
                        "the app crashed while a press held the loupe open "
                        + "during playback")
 
-        // STAGE 4: THE MIXER, OPEN AND WORKED, WHILE IT PLAYS.
+        // STAGE 4: THE TRAY'S KNOBS, WORKED, WHILE IT PLAYS.
         //
-        // Every channel muted and unmuted and faded under the running
-        // performance, and the sound picker opened on one of them -- which
-        // reloads a patch into a sampler the sequencer is feeding.
-        let mixer = app.buttons["transport-mixer"].firstMatch
-        if mixer.waitForExistence(timeout: 20) {
-            mixer.tap()
+        // Every channel muted and unmuted under the running performance, and
+        // the sound picker opened on one of them -- which reloads a patch into
+        // a sampler the sequencer is feeding. The knobs are on the tray (0.8);
+        // there is nothing to open first.
+        if app.descendants(matching: .any)["strip-mute-0"].waitForExistence(timeout: 60) {
             let strips = app.descendants(matching: .any)
                 .matching(NSPredicate(format: "identifier BEGINSWITH %@", "strip-"))
             snap(app, "mixer-open-while-playing")
@@ -138,8 +137,11 @@ final class PlaybackCrash: XCTestCase {
                     choice.tap()
                 }
             }
+            // The picker is a popover; put it away before the scrubbing.
+            let close = app.descendants(matching: .any)["mixer-picker-close"].firstMatch
+            if close.exists { close.tap() }
             XCTAssertEqual(app.state, .runningForeground,
-                           "the app crashed with the mixer open and worked "
+                           "the app crashed with the tray's knobs worked "
                            + "during playback")
         }
 

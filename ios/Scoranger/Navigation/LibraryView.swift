@@ -21,6 +21,9 @@ struct LibraryView: View {
     @Binding var sort: LibrarySort
     @Binding var filters: Set<LibraryFilter>
     @Binding var editing: Bool
+    /// A new piece or set list being named in place; owned by the root so the
+    /// New panel can start it.
+    @Binding var creatingName: String?
     var onOpenPiece: (String) -> Void
     var onOpenArrangement: (String) -> Void
     var onOpenSetlist: (SetlistDoc) -> Void
@@ -35,9 +38,9 @@ struct LibraryView: View {
     var onOpenBook: (String) -> Void = { _ in }
     /// The row's ☰. Pushes to the item's screen, or expands in place, by the
     /// rule in RowMenuBehaviour.
-    var onRowMenu: (LibraryRow) -> Void
-    /// Naming a new piece or set list, in a band at the top of the list --
-    /// not a popup and not a screen, because it is one field (§5.1).
+    /// The full piece screen and set list screen, from a row's actions.
+    var onOpenPieceScreen: (String) -> Void = { _ in }
+    var onOpenSetlistScreen: (String) -> Void = { _ in }
     var onCreate: (String) -> Void
     var onImport: () -> Void
     /// A whole exported library: one folder per piece. Planned before it is run.
@@ -59,13 +62,17 @@ struct LibraryView: View {
             .filter(\.isShared).map(\.slug))
     }
 
-    @State private var showSort = false
-    @State private var showFilter = false
+    /// The panel beside the page (§7.2): Sort, Filter, Import and New open
+    /// there, and a row's actions open there too.
+    @EnvironmentObject var panel: PanelModel
+    /// The row whose ☰ is open, its actions in the row (§7.3) [C4].
+    @State private var openRow: String?
+    /// A set list being renamed in place (L8).
+    @State private var renaming: String?
+    @State private var renameDraft = ""
     /// The two verb bands (§14.3). Mutually exclusive with Sort and Filter,
     /// which is what makes them the pattern this row already had rather than
     /// a new one.
-    @State private var showImport = false
-    @State private var showNew = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// How tall the row's own slot is. It holds one line normally, two when
@@ -85,7 +92,6 @@ struct LibraryView: View {
     /// The width the row was last given, measured by the row itself.
     @State private var measuredRowWidth: CGFloat = 0
     @State private var scrollTo: String?
-    @State private var creatingName: String?
     @State private var selected: Set<String> = []
 
     var body: some View {
@@ -101,13 +107,13 @@ struct LibraryView: View {
                 Theme.Rule()
                 list
             }
-            .background(Theme.Surface.band)
+            .background(Theme.Surface.panel)
         }
         .overlay(alignment: .bottom) {
             if editing && !selected.isEmpty { actionBar }
         }
         .onChange(of: editing) { _, on in if !on { selected = [] } }
-        .onChange(of: segment) { _, _ in selected = [] }
+        .onChange(of: segment) { _, _ in selected = []; openRow = nil; panel.done() }
     }
 
     /// The action bar (§2.2): what you can do to what is highlighted.
@@ -220,7 +226,7 @@ struct LibraryView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Metric.s8) {
-            Text("My library").typeRole(.title).foregroundStyle(Theme.Ink.ink)
+            Text("Library").typeRole(.title).foregroundStyle(Theme.Ink.ink)
             // a phrase, not a bare number: "My library 1" names nothing, and
             // "My library 0" is a count where a new reader needs a sentence
             Text(LibraryModel.countPhrase(segment: segment, rows: rows))
@@ -259,10 +265,6 @@ struct LibraryView: View {
             }
             .frame(height: rowHeight)
 
-            if showImport { RevealBand { importOptions } }
-            if showNew { RevealBand { newOptions } }
-            if showSort { RevealBand { sortOptions } }
-            if showFilter { RevealBand { filterOptions } }
         }
         .padding(.horizontal, LibraryActionRow.sidePadding)
         .padding(.top, Theme.Metric.s12)
@@ -327,7 +329,7 @@ struct LibraryView: View {
             }
         } label: {
             rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
-                      active: verb == .importing ? showImport : showNew,
+                      active: panel.isShowing(verb == .importing ? .importMenu : .newMenu),
                       icon: labels.iconButton)
         }
         .buttonStyle(.plain)
@@ -337,9 +339,9 @@ struct LibraryView: View {
 
     private func sortButton(_ fit: LibraryBarLayout.Fit,
                             labels: LibraryBarLayout.Labels) -> some View {
-        Button { toggle(.sort) } label: {
+        Button { panel.toggle(.sort) } label: {
             rowButton(sortTitle(fit.sort), glyph: "arrow.up.arrow.down",
-                      iconOnly: false, icon: labels.iconButton)
+                      iconOnly: false, active: panel.isShowing(.sort), icon: labels.iconButton)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("library-sort")
@@ -347,18 +349,18 @@ struct LibraryView: View {
 
     private func sortTitle(_ style: LibraryBarLayout.SortStyle) -> String {
         switch style {
-        case .full:  return "Sort: \(sort.buttonLabel)"
-        case .short: return "Sort: \(sort.shortButtonLabel)"
+        case .full:  return "Sort \(sort.buttonLabel)"
+        case .short: return "Sort \(sort.shortButtonLabel)"
         case .bare:  return "Sort"
         }
     }
 
     private func filterButton(_ fit: LibraryBarLayout.Fit,
                               labels: LibraryBarLayout.Labels) -> some View {
-        Button { toggle(.filter) } label: {
+        Button { panel.toggle(.filter) } label: {
             rowButton(filters.isEmpty ? "Filter" : "Filter · \(filters.count)",
                       glyph: "line.3.horizontal.decrease",
-                      iconOnly: !fit.filterLabelled, icon: labels.iconButton)
+                      iconOnly: !fit.filterLabelled, active: panel.isShowing(.filter), icon: labels.iconButton)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("library-filter")
@@ -375,97 +377,20 @@ struct LibraryView: View {
         .accessibilityIdentifier("library-edit")
     }
 
+    /// The verbs open the panel (§7.6): Import lists the ways in, New the two
+    /// things to make. Sort and Filter open theirs the same way. One panel
+    /// state at a time, and no floating menus.
+    private func toggle(_ band: Band) {
+        switch band {
+        case .importing: panel.toggle(.importMenu)
+        case .creating:  panel.toggle(.newMenu)
+        case .sort:      panel.toggle(.sort)
+        case .filter:    panel.toggle(.filter)
+        }
+    }
+
     private enum Band { case importing, creating, sort, filter }
 
-    /// Open one band, closing the rest.
-    ///
-    /// The four are mutually exclusive, as Sort and Filter always were: one
-    /// answer open at a time, and no floating menus
-    /// (NAV_MODAL_FREE_0.4.2). Written as ONE function that clears everything
-    /// and then opens the one asked for -- the first version toggled the band
-    /// and then called a closer that cleared it again, so Sort opened and shut
-    /// in the same tap and its band never appeared.
-    private func toggle(_ band: Band) {
-        let wasOpen: Bool
-        switch band {
-        case .importing: wasOpen = showImport
-        case .creating:  wasOpen = showNew
-        case .sort:      wasOpen = showSort
-        case .filter:    wasOpen = showFilter
-        }
-        showImport = false
-        showNew = false
-        showSort = false
-        showFilter = false
-        guard !wasOpen else { return }
-        switch band {
-        case .importing: showImport = true
-        case .creating:  showNew = true
-        case .sort:      showSort = true
-        case .filter:    showFilter = true
-        }
-    }
-
-    /// What `Import ▾` reveals: the three things it can take, in words. Three
-    /// glyphs a reader has to guess become three names.
-    private var importOptions: some View {
-        // ROWS, not a line of chips (§15). Each carries the one line that says
-        // what it takes -- and that line is what keeps Score findable for a
-        // picture already in Files, now that a picture has no row of its own.
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(LibraryQuickAction.imports) { action in
-                Button { showImport = false; run(action) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.bandTitle).typeRole(.row)
-                            .foregroundStyle(Theme.Ink.ink)
-                        Text(action.bandSubtitle).typeRole(.meta)
-                            .foregroundStyle(Theme.Ink.ink3)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, Theme.Metric.s6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(action.identifier)
-                // The rule after Photos IS the meaning: above it, one
-                // arrangement out of one thing; below it, a collection.
-                if action == LibraryQuickAction.importsDividerAfter {
-                    Rectangle().fill(Theme.Line.line)
-                        .frame(height: 1)
-                        .padding(.vertical, Theme.Metric.s6)
-                }
-            }
-        }
-    }
-
-    private var newOptions: some View {
-        HStack(spacing: Theme.Metric.s6) {
-            ForEach(LibraryQuickAction.creations) { action in
-                Button { showNew = false; run(action) } label: {
-                    controlLabel(action.bandTitle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(action.identifier)
-            }
-            Spacer()
-        }
-    }
-
-    private func run(_ action: LibraryQuickAction) {
-        switch action {
-        case .importScore:  onImport()
-        case .importPhotos: onImportPhotos()
-        case .importFolder: onImportFolder()
-        case .importBook:   onImportBook()
-        case .new:          creatingName = ""
-        case .newSetlist:   segment = .setlists; creatingName = ""
-        }
-    }
-
-    /// One button of the action row: 32pt, bordered, panel fill, no emphasis.
-    /// At four buttons in a bar a clay fill would shout, and the accent belongs
-    /// to selection and to `#N` (§4C).
     private func rowButton(_ text: String, glyph: String,
                            iconOnly: Bool, active: Bool = false,
                            icon: CGFloat = LibraryActionRow.buttonHeight) -> some View {
@@ -509,37 +434,6 @@ struct LibraryView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
     }
-
-    private var sortOptions: some View {
-        HStack(spacing: Theme.Metric.s6) {
-            ForEach(LibrarySort.allCases, id: \.self) { option in
-                Button { sort = option; showSort = false } label: {
-                    controlLabel(option.label, active: sort == option)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("sort-\(option.rawValue)")
-            }
-            Spacer()
-        }
-    }
-
-    private var filterOptions: some View {
-        HStack(spacing: Theme.Metric.s6) {
-            ForEach(LibraryFilter.allCases, id: \.self) { option in
-                Button {
-                    if filters.contains(option) { filters.remove(option) }
-                    else { filters.insert(option) }
-                } label: {
-                    controlLabel(option.label, active: filters.contains(option))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("filter-\(option.rawValue)")
-            }
-            Spacer()
-        }
-    }
-
-    // MARK: - The list
 
     private var list: some View {
         ScrollView {
@@ -633,49 +527,125 @@ struct LibraryView: View {
 
     private func rowView(_ row: LibraryRow) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if editing { checkbox(row) }
-                // The ☰ stays in EDIT mode too. It was swapped for a chevron
-                // there, which undoes the rule the row was just given (L14):
-                // the ☰ is the one control a row carries, and a chevron beside
-                // a checkbox is a second thing pretending to be one.
-                LRow(row: row, identifier: "row-\(row.id)",
-                     action: { editing ? toggle(row) : open(row) },
-                     onMenu: { onRowMenu(row) },
-                     // Set lists ONLY. Books and sources have no share path
-                     // at all -- guard rails 3 and 4 stand unamended (§8.2),
-                     // so this is absent rather than disabled for them.
-                     onShare: segment == .setlists && !editing
-                              ? { onShareSetlist(row.id) } : nil,
-                     isShared: sharedSetlistIds.contains(row.id))
-                // A set list's own "+": choosing which arrangements are in it,
-                // which is the other direction from an arrangement's "add to
-                // set list" and answers a different question.
-                if segment == .setlists {
-                    Button { onRowAction(row, .addToSetlist) } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Theme.Accent.clayStrong)
-                            .frame(width: Theme.Metric.hitTarget,
-                                   height: Theme.Metric.hitTarget)
-                            .contentShape(Rectangle())
+            if renaming == row.id {
+                InlineRenameRow(text: $renameDraft,
+                                onSave: { commitRename(row) },
+                                onCancel: { renaming = nil })
+            } else {
+                HStack(spacing: 0) {
+                    if editing { checkbox(row) }
+                    LRow(row: row, identifier: "row-\(row.id)",
+                         action: { editing ? toggle(row) : open(row) },
+                         onMenu: editing ? nil : { toggleRow(row) },
+                         // Set lists ONLY. Books and sources have no share path
+                         // at all -- guard rails 3 and 4 stand unamended (§8.2),
+                         // so this is absent rather than disabled for them.
+                         onShare: segment == .setlists && !editing
+                                  ? { onShareSetlist(row.id) } : nil,
+                         isShared: sharedSetlistIds.contains(row.id),
+                         isSelected: editing && selected.contains(row.id),
+                         menuIsOpen: openRow == row.id,
+                         actions: openRow == row.id ? rowActions(row) : [],
+                         onLongPress: editing ? nil : { enterEditing(with: row) })
+                    if segment == .setlists, !editing {
+                        // L7: Play sits beside ☰ on every set list row, since
+                        // playing from the top is what a set list is for.
+                        Button { onRowAction(row, .open) } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.Surface.paper)
+                                .frame(width: 32, height: 32)
+                                .background(Theme.Accent.clayPress)
+                                .clipShape(Circle())
+                                .frame(width: Theme.Metric.hitTarget, height: Theme.Metric.hitTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(row.arrangementCount == 0)
+                        .opacity(row.arrangementCount == 0 ? 0.45 : 1)
+                        .accessibilityIdentifier("setlist-play-\(row.id)")
+                        .accessibilityLabel("Play \(row.title) from the top")
+                        .padding(.trailing, Theme.Metric.s8)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("add-to-setlist-\(row.id)")
-                    .accessibilityLabel("Add arrangements to \(row.title)")
-                    .padding(.trailing, Theme.Metric.s12)
                 }
+                // [C4]: the open row is a flat tint band the width of the page.
+                .background(openRow == row.id ? Theme.Accent.clayTint : Color.clear)
             }
             Theme.Rule()
         }
     }
 
-    // Dragging is gone from the app entirely. Every use it had has a named
-    // screen instead: filing happens at import time or through the
-    // arrangement's Move to piece, set-list membership through the set list's
-    // Add arrangements, and order through Move up / Move down. A gesture that
-    // is the only way to reach a feature was already against the rules here;
-    // this removes the gesture rather than adding a second path to it.
+    /// ☰: the row's actions, in the row (§7.3). One row open at a time.
+    private func toggleRow(_ row: LibraryRow) {
+        if openRow == row.id { openRow = nil; panel.done() } else { openRow = row.id }
+    }
+
+    /// A long press enters Edit with that row checked [C11].
+    private func enterEditing(with row: LibraryRow) {
+        openRow = nil
+        editing = true
+        selected = [row.id]
+    }
+
+    /// The row's own actions, by what the row is (L6, L8, L9). A book has no
+    /// rename in the engine yet, so its row offers Open and Delete.
+    private func rowActions(_ row: LibraryRow) -> [RowActionItem] {
+        var items: [RowActionItem] = []
+        items.append(RowActionItem(id: "row-open-\(row.id)", title: "Open") { open(row) })
+        switch segment {
+        case .pieces:
+            if isPiece(row) {
+                items.append(RowActionItem(id: "row-arrangements-\(row.id)", title: "Arrangements",
+                                           count: row.arrangementCount,
+                                           lit: panel.isShowing(.pieceArrangements(row.id))) {
+                    panel.toggle(.pieceArrangements(row.id))
+                })
+                items.append(RowActionItem(id: "row-details-\(row.id)", title: "Details",
+                                           lit: panel.isShowing(.thisPiece(row.id))) {
+                    panel.toggle(.thisPiece(row.id))
+                })
+            } else {
+                items.append(RowActionItem(id: "row-versions-\(row.id)", title: "Versions",
+                                           lit: panel.isShowing(.versions(row.id))) {
+                    panel.toggle(.versions(row.id))
+                })
+                items.append(RowActionItem(id: "row-details-\(row.id)", title: "Details",
+                                           lit: panel.isShowing(.details(row.id))) {
+                    panel.toggle(.details(row.id))
+                })
+                items.append(RowActionItem(id: "row-setlists-\(row.id)", title: "Set lists",
+                                           lit: panel.isShowing(.setlistsFor(row.id))) {
+                    panel.toggle(.setlistsFor(row.id))
+                })
+            }
+        case .setlists:
+            items.append(RowActionItem(id: "row-share-action-\(row.id)",
+                                       title: sharedSetlistIds.contains(row.id) ? "Shared" : "Share") {
+                onShareSetlist(row.id)
+            })
+            items.append(RowActionItem(id: "row-rename-\(row.id)", title: "Rename") {
+                renameDraft = row.title; renaming = row.id; openRow = nil
+            })
+            items.append(RowActionItem(id: "row-setlist-screen-\(row.id)", title: "Set list") {
+                onOpenSetlistScreen(row.id)
+            })
+        case .books:
+            break
+        }
+        items.append(RowActionItem(id: "row-delete-\(row.id)", title: "Delete", destructive: true,
+                                   confirm: "Delete?") {
+            openRow = nil
+            onRowAction(row, .delete)
+        })
+        return items
+    }
+
+    private func commitRename(_ row: LibraryRow) {
+        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        renaming = nil
+        guard !name.isEmpty, name != row.title, segment == .setlists else { return }
+        Task { _ = await state.renameSetlist(setlist: row.id, name: name) }
+    }
 
     /// The leading checkbox (§2.1). Selecting is what raises the action bar.
     private func checkbox(_ row: LibraryRow) -> some View {
@@ -822,33 +792,11 @@ struct LibraryView: View {
         case .books:
             base = LibraryModel.bookRows(manifest: manifest)
         }
-        base = applyFilters(base, manifest: manifest)
+        base = LibraryModel.filtered(base, by: filters, manifest: manifest)
         return LibraryModel.sorted(LibraryModel.searched(base, query: search), by: sort)
     }
 
     /// Derived filters, computed from the manifest -- not a tag store (§7).
-    private func applyFilters(_ rows: [LibraryRow], manifest: Manifest) -> [LibraryRow] {
-        guard !filters.isEmpty else { return rows }
-        let inSetlist = Set((manifest.setlists ?? []).flatMap(\.arrangements))
-        let piecesWithSetlisted = Set((manifest.pieces ?? [])
-            .filter { !$0.arrangements.filter(inSetlist.contains).isEmpty }
-            .map(\.slug))
-        return rows.filter { row in
-            filters.allSatisfy { filter in
-                switch filter {
-                case .unfiled:
-                    return row.chips.contains { $0.text == "UNFILED" }
-                case .omrDrafts:
-                    return row.chips.contains { $0.text == "OMR DRAFT" }
-                case .hasSources:
-                    return row.chips.contains { $0.text.hasSuffix("SOURCE") }
-                case .inASetlist:
-                    return piecesWithSetlisted.contains(row.id) || inSetlist.contains(row.id)
-                }
-            }
-        }
-    }
-
     private func open(_ row: LibraryRow) {
         if segment == .books {
             onOpenBook(row.id)
