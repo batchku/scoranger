@@ -1685,11 +1685,13 @@ final class ScorangerUITests: XCTestCase {
         openArrangementScreen(firstArrangement)
         app.buttons["row-details-\(firstArrangement)"].tap()
         XCTAssertTrue(app.staticTexts["Arrangement"].waitForExistence(timeout: 10))
-        for label in ["TITLE", "COMPOSER", "ARRANGER", "SLUG"] {
+        // Sentence case (0.8, §2 rule 2): the caps silkscreen is retired.
+        for label in ["Title", "Composer", "Arranger", "Slug"] {
             XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
         }
-        // and exactly one title field: the old read-only Title row is gone
-        XCTAssertFalse(app.staticTexts["Title"].exists,
+        // and exactly one title field: the old read-only Title row is gone.
+        // The label itself now reads "Title", so the check is a COUNT.
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "Title")).count, 1,
                        "a second, title-ish row is back in the sheet")
         shot("labelled-metadata-fields")
         goBack()
@@ -1770,9 +1772,9 @@ final class ScorangerUITests: XCTestCase {
     /// boxes, one of which is a URL and two of which are secrets.
     func testSettingsFieldsAreLabelled() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["ON-DEVICE ENGINE"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["On-device engine"].waitForExistence(timeout: 10),
                       "settings did not open")
-        for label in ["OPENROUTER API KEY", "OMR SERVICE URL", "OMR SERVICE API KEY"] {
+        for label in ["OpenRouter API key", "OMR service URL", "OMR service API key"] {
             XCTAssertTrue(app.staticTexts[label].exists, "no visible \(label) label")
         }
         // and the key fields say which key is actually in use, rather than
@@ -2893,7 +2895,7 @@ final class ScorangerUITests: XCTestCase {
     /// every surface -- and one page is still the default.
     func testTheLayoutIsInSettingsAndOnePageIsTheDefault() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["READING"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["Reading"].waitForExistence(timeout: 10),
                       "settings has no Reading band")
         let onePage = app.switches["One page"]
         XCTAssertTrue(onePage.waitForExistence(timeout: 5), "no layout choice in settings")
@@ -3087,9 +3089,9 @@ final class ScorangerUITests: XCTestCase {
 
     func testSettingsIsAPanel() {
         app.buttons["Settings"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["ON-DEVICE ENGINE"].waitForExistence(timeout: 10),
+        XCTAssertTrue(app.staticTexts["On-device engine"].waitForExistence(timeout: 10),
                       "settings did not open")
-        XCTAssertTrue(app.staticTexts["CHAT MODEL"].exists)
+        XCTAssertTrue(app.staticTexts["Chat model"].exists)
         shot("settings-sheet")
         closeSettings()
     }

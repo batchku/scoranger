@@ -146,8 +146,8 @@ enum ScoreBarLayout {
     static let closeWidth: CGFloat = 34
     /// What the origin's NAME adds to it [C6]: a 6pt gap, a word capped at
     /// 140 in the view, and the capsule's 24 of padding less the 34 the bare
-    /// glyph already had. An optional seat -- the first to yield after the +
-    /// -- because on a phone the name cannot fit and the way out must.
+    /// glyph already had. An optional seat, and the FIRST to yield: a
+    /// courtesy about where the reader was, ahead of every shortcut.
     static let originNameWidth: CGFloat = 6 + 140 + 24 - 34 + 15
     static let actionWidth: CGFloat = 34          // Edit, Select, Ask, …
     static let gap: CGFloat = 8
@@ -239,16 +239,18 @@ enum ScoreBarLayout {
             + addToSetlistWidth + originNameWidth
         if barWidth >= forAll { return everything }
 
-        // The + goes first: the library's set list picker still offers the
-        // same operation, so this costs a shortcut rather than a feature.
-        let withoutAdd = forAll - addToSetlistWidth
-        if barWidth >= withoutAdd {
-            return Fit(showsVersions: true, layoutCells: 3)
-        }
-        // Then the origin's NAME beside the ‹ [C6]: a bare ‹ still leaves, and
-        // the name is where the reader just was.
-        let withoutOriginName = withoutAdd - originNameWidth
+        // The origin's NAME beside the ‹ goes first [C6]: a bare ‹ still
+        // leaves, and the name is a courtesy about where the reader was. On
+        // an iPad in portrait (834) it is what yields; in landscape it fits.
+        let withoutOriginName = forAll - originNameWidth
         if barWidth >= withoutOriginName {
+            return Fit(showsVersions: true, showsAddToSetlist: true, layoutCells: 3,
+                       showsOriginName: false)
+        }
+        // Then the +: the library's set list picker still offers the same
+        // operation, so this costs a shortcut rather than a feature.
+        let withoutAdd = withoutOriginName - addToSetlistWidth
+        if barWidth >= withoutAdd {
             return Fit(showsVersions: true, layoutCells: 3, showsOriginName: false)
         }
         // Then the version count. The title block opens VERSIONS when this
@@ -257,7 +259,7 @@ enum ScoreBarLayout {
         // so the title opened arrangements only, and a phone at reading width
         // had no route to versions at all. Whoever changes what the title opens
         // must keep this true (ScoreTopBar.titleBlock).
-        let withoutVersions = withoutOriginName - versionsWidth
+        let withoutVersions = withoutAdd - versionsWidth
         if barWidth >= withoutVersions {
             return Fit(showsVersions: false, layoutCells: 3, showsOriginName: false)
         }
