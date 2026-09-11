@@ -1,5 +1,6 @@
 import PDFKit
 import PencilKit
+import OSLog
 import SwiftUI
 
 /// The score as a vertical stack of pages with a PencilKit canvas over each:
@@ -976,10 +977,15 @@ private struct PlayheadLayer: View {
     /// does not re-seek to its downbeat twenty times. Nil when nothing is
     /// being dragged.
     @State private var scrubbed: Int?
+    /// The last position drawn, so a tick with none cannot blank the line
+    /// mid-performance (`Playhead.hold`).
+    @State private var lastDrawn: Playhead.Position?
 
     var body: some View {
         GeometryReader { geo in
-            if let position = position, pageSize.width > 0, pageSize.height > 0 {
+            if let position = Playhead.hold(current: position, last: lastDrawn,
+                                            isPlaying: playback.isPlaying),
+               pageSize.width > 0, pageSize.height > 0 {
                 let sx = geo.size.width / pageSize.width
                 let sy = geo.size.height / pageSize.height
                 let over = Playhead.onScreen(Playhead.overshoot, zoom: zoom)
@@ -1010,6 +1016,14 @@ private struct PlayheadLayer: View {
                 // stroke would make selection fail wherever the music happened
                 // to be playing.
                 .allowsHitTesting(false)
+                .onChange(of: playback.beat, initial: true) { _, beat in
+                    if let now = self.position {
+                        lastDrawn = now
+                    } else if playback.isPlaying {
+                        Logger(subsystem: "com.irllabs.scoranger", category: "playhead")
+                            .notice("no position at beat \(beat, privacy: .public); holding the last one")
+                    }
+                }
                 .accessibilityHidden(true)
                 // The handle is the one exception, and it is a view of its
                 // own so that "the only hit-testable thing in this layer" is

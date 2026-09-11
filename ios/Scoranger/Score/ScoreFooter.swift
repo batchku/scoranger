@@ -331,6 +331,11 @@ struct Transport: View {
             playback.metronome.toggle()
         }
 
+        toggleButton("loop", glyph: "repeat",
+                     on: playback.loop, id: "transport-loop") {
+            playback.loop.toggle()
+        }
+
         toggleButton("mixer", glyph: "slider.vertical.3",
                      on: mixerOpen, id: "transport-mixer", action: onMixer)
     }

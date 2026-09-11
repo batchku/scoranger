@@ -43,6 +43,22 @@ enum Playhead {
     /// per measure -- a quartet gives four entries for bar 12. Their union is
     /// the vertical span the line draws across, and that is why the frames are
     /// combined rather than the first one taken.
+    /// The position to DRAW, given the one just computed and the one drawn
+    /// last time.
+    ///
+    /// Ali's video (2026-09-10): the line vanishes for a flash at barlines.
+    /// Every bar in that score resolves to an engraved frame and the timeline
+    /// tiles without gaps, so the nil that blanks the layer has not been
+    /// caught in the act. This removes its EFFECT rather than its cause -- a
+    /// deliberate, labelled choice: while the music is playing, a tick that
+    /// yields no position keeps the last one, so the line cannot blink. The
+    /// layer logs the beat it happened at, so a device can name the cause.
+    /// Stopped, nil means nil: the line goes when the music does.
+    static func hold(current: Position?, last: Position?, isPlaying: Bool) -> Position? {
+        if let current { return current }
+        return isPlaying ? last : nil
+    }
+
     static func position(measure: Int, fraction: CGFloat,
                          bars: [BarPosition.Bar]) -> Position? {
         let frames = bars.filter { $0.number == measure }.map(\.frame)

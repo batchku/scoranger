@@ -253,6 +253,20 @@ targets:
         #          this build and tracked: muting that does not mute, the
         #          spacebar, playback stopping when the mixer opens, loop
         #          playback (which does not exist yet).
+        #          BUILD 192 (the fourth of 2026-09-10), the rest of the list:
+        #            4.  the play head cannot blink: while playing, a tick that
+        #                yields no position keeps the last one, and the beat is
+        #                logged. The CAUSE is not found -- every bar has a
+        #                frame, the timeline has no gaps -- so this is the
+        #                symptom removed and labelled as such.
+        #            5.  LOOP: a transport toggle beside the metronome; at the
+        #                end the music goes round again instead of stopping.
+        #            6.  ALL ON / ALL OFF: photographed from a test and judged
+        #                by eye before anything was changed.
+        #          Not changed: the spacebar, which exists (ScoreFooter, a
+        #          hidden button with .keyboardShortcut(.space)) and cannot be
+        #          driven in the simulator; and "opening the mixer stops
+        #          playback", which a test now shows does not happen there.
         #          BUILD 191, the second list of the same day:
         #            6b. closing the score stops the performance, click and all;
         #            7b. in scroll mode the score streams past the line, which

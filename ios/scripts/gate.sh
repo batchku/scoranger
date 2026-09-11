@@ -92,6 +92,8 @@ SKIP=(
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
   # gate has no reason to be running. Neither asserts.
   -skip-testing:ScorangerUITests/TopBarShot
+  # MixerShot photographs the mixer for a person to judge; it asserts nothing.
+  -skip-testing:ScorangerUITests/MixerShot
   # THE EIGHT ROTATING TESTS, skipped with the evidence, and a tracking item in
   # BACKLOG.md. They fail inside this gate -- in the pool AND in the serial
   # phase -- and pass in every configuration tried by hand on the same build:

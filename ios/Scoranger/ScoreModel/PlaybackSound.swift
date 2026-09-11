@@ -107,6 +107,14 @@ enum PlaybackSound {
     static func hasFinished(beat: Double, end: Double) -> Bool {
         end > 0 && beat >= end
     }
+
+    /// What the transport does when the music runs out.
+    enum AtEnd: Equatable { case stop, rewind }
+
+    /// Loop on: go round again without stopping (Ali, 2026-09-10 -- the
+    /// practice case, a passage or a whole tune played until it sits). Loop
+    /// off: stop and rewind, as before.
+    static func atEnd(loop: Bool) -> AtEnd { loop ? .rewind : .stop }
 }
 
 /// Only so `Bundle(for:)` has a class to name. `PlaybackSound` is an enum and

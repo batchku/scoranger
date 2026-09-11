@@ -50,6 +50,9 @@ final class PlaybackEngine: ObservableObject {
     /// move through the arrangement.
     @Published var voices = PlaybackVoices() { didSet { applyMutes() } }
     @Published var metronome = false { didSet { applyMutes() } }
+    /// Round again at the end, rather than stopping. Kept across scores like
+    /// the mutes: a person practising loops everything they open.
+    @Published var loop = false
 
     /// Which SOUND each part is played with.
     ///
@@ -330,9 +333,15 @@ final class PlaybackEngine: ObservableObject {
                 // nothing has to be kept in step with anything.
                 self.beat = now
                 if PlaybackSound.hasFinished(beat: now, end: self.timeline.beats) {
-                    self.stop()
-                    self.seek(toBeat: 0)
-                    return
+                    switch PlaybackSound.atEnd(loop: self.loop) {
+                    case .rewind:
+                        // The sequencer keeps running; only its position moves.
+                        self.seek(toBeat: 0)
+                    case .stop:
+                        self.stop()
+                        self.seek(toBeat: 0)
+                        return
+                    }
                 }
             }
         }

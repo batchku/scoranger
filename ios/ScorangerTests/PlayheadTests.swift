@@ -405,4 +405,27 @@ final class ContinuousPlayheadTests: XCTestCase {
     func testNothingIsLitBeforeTheFirstNote() {
         XCTAssertTrue(Playhead.sounding(notes: [note(1, 40)], x: 10).isEmpty)
     }
+
+    // MARK: - holding through a tick with no position
+
+    private let somewhere = Playhead.Position(x: 120, top: 10, bottom: 90)
+
+    func testAPositionIsDrawnAsItIs() {
+        let fresh = Playhead.Position(x: 300, top: 10, bottom: 90)
+        XCTAssertEqual(Playhead.hold(current: fresh, last: somewhere, isPlaying: true), fresh)
+    }
+
+    func testWhilePlayingANilTickKeepsTheLastLine() {
+        // The blink Ali filmed: a tick with no position blanked the layer for a
+        // frame. Held, the line stays where it was until the next tick.
+        XCTAssertEqual(Playhead.hold(current: nil, last: somewhere, isPlaying: true), somewhere)
+    }
+
+    func testStoppedANilTickMeansNoLine() {
+        XCTAssertNil(Playhead.hold(current: nil, last: somewhere, isPlaying: false))
+    }
+
+    func testNothingToHoldIsStillNothing() {
+        XCTAssertNil(Playhead.hold(current: nil, last: nil, isPlaying: true))
+    }
 }

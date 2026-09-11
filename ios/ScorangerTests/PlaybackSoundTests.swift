@@ -59,4 +59,14 @@ final class PlaybackSoundTests: XCTestCase {
     func testTheClickComesFromThePercussionBank() {
         XCTAssertNotEqual(PlaybackSound.percussionBankMSB, PlaybackSound.melodicBankMSB)
     }
+
+    // MARK: - the end of the music
+
+    func testWithLoopOffTheEndStops() {
+        XCTAssertEqual(PlaybackSound.atEnd(loop: false), .stop)
+    }
+
+    func testWithLoopOnTheEndGoesRoundAgain() {
+        XCTAssertEqual(PlaybackSound.atEnd(loop: true), .rewind)
+    }
 }
