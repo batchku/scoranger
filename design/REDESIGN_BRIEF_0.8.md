@@ -167,3 +167,204 @@ sheet, and a short note on what it would cost to build against the current
 SwiftUI code (which components change shape, which change only tokens). The
 owner picks one, or a combination; then `design/DESIGN_SYSTEM.md` is rewritten
 as the spec for 0.8 and the tokens in `Theme.swift` follow it.
+
+---
+
+# 7. Two fixes from build 193 testing (2026-09-11)
+
+## 7.1 Inline creation: why it looks messy
+
+`InlineRenameRow` (`Navigation/Screen.swift:213`) puts a text field and two
+buttons in one `HStack`. Four measurable faults, all visible at once:
+
+| Fault | Numbers |
+|---|---|
+| Field and buttons are different heights | field is `.typeRole(.body)` (Inter 13, line height 15.7) plus 7pt padding each side = **29.7pt**; `PanelButton` is `.frame(minHeight: 34)`. The `HStack` centres them, so neither edge lines up |
+| The row is shorter than its neighbours | 8 + 34 + 8 = **50pt** against `LibraryRow`'s `minHeight: 56`. A 6pt jog in the list rhythm |
+| Save hangs past the `☰` column | the row uses `.padding(.horizontal, s20)`; rows with a menu reserve `rowMenuInset` = 60, and set list rows now reserve `rowTwoControlInset` = 104. Save's right edge sits **40 to 84pt** right of every `☰` above it |
+| Cancel and Save are different widths | both take their intrinsic width; "Cancel" is six characters and "Save" is four |
+
+Plus one bug worth fixing in the same pass: **`inline-name-field` is dead.**
+Lines 221 and 233 both call `.accessibilityIdentifier` on the same `TextField`,
+so `inline-rename-field` wins and any test querying `inline-name-field` finds
+nothing.
+
+## 7.2 Inline creation: the layout
+
+**Two lines, not one.** At 393pt a single row leaves the field 189pt, about 27
+characters. Two lines give it 365pt, about 52, and let both lines align to the
+list's own grid.
+
+```
+┌──────────────────────────────────────────────────┐
+│  ┌────────────────────────────────────────────┐  │   line 1: field, full width
+│  │ Set list name                              │  │
+│  └────────────────────────────────────────────┘  │
+│                          [ Cancel ]  [  Save  ]  │   line 2: right-aligned
+└──────────────────────────────────────────────────┘
+ 20                                              8
+```
+
+| | Value | Derived from |
+|---|---|---|
+| Row height | **92pt** = 8 + 34 + 8 + 34 + 8 | two control heights, not a literal |
+| Leading | `s20` | aligns with row titles. In Edit mode, `s20 + checkboxGutter` |
+| Trailing | `s8` | the same edge `RowMenuButton` sits at, so Save aligns with the `☰` column |
+| Field | full width, `minHeight` 34, `Surface.paper`, 1pt `Accent.clay`, `rCtl` | one height for field and buttons |
+| Buttons | `minWidth: 80`, `minHeight: 34`, `s8` apart | equal widths, so the pair reads as a pair |
+| Row fill | `Accent.clayTint`, flat, no inner rounded block | the app's in-progress colour. Two fills (tint, then paper) and no third |
+| Gap between lines | `s8` | |
+
+Behaviour:
+
+- Autofocus on appear. The row scrolls above the keyboard
+  (`IPHONE_0.6.14.md` §17.7 rule 2); `.ignoresSafeArea(.keyboard)` must not
+  apply to this list.
+- Return saves: `.submitLabel(.done)` and `.onSubmit`.
+- Save is disabled at 42% while the trimmed text is empty. Disabled, not hidden,
+  so the row does not reflow as the first character lands.
+- Cancel is the only discard. Tapping elsewhere does not silently throw the name
+  away.
+- The row sits at the **top** of the segment's list, so it is visible without
+  scrolling.
+- Heights scale with Dynamic Type: `max(34, scaled)`, and the 92 follows from
+  them. No literal survives at accessibility sizes (§6.3 rule 1).
+
+One component, both tabs. Only the placeholder differs: `Piece name` and
+`Set list name`. Identifiers: keep `inline-rename-field`, `inline-rename-cancel`,
+`inline-rename-save`, and give the container `inline-create-row` so the two
+purposes are separable in tests.
+
+## 7.3 Set list from a selection: where it lives
+
+**The Edit-mode action bar, as a new `LibraryAction` case. Not the New panel.**
+
+The New panel creates from nothing and its rows carry descriptions of what a
+piece and a set list are. A row that appears there only when a selection exists
+on another screen makes the panel's contents depend on state the reader cannot
+see from it. Verbs that act on a selection already have a home, and
+`LibraryActions.bar(for:)` is it.
+
+```swift
+case newSetlist          // LibraryAction
+identifier: "bar-new-setlist"
+bar(for: .pieces) -> [.newArrangement, .newSetlist, .delete]
+needsExactlyOne: false
+```
+
+`.setlists`, `.arrangements` and `.mixed` are unchanged. Arrangements already
+have `Add to set list…`, which is a different verb with a different target.
+
+### The bar does not fit, so it yields
+
+At 393pt the bar has **353pt**. Measured:
+
+| Rung | Contents | Width | |
+|---|---|---|---|
+| 0 | `5 selected` · New arrangement · New set list · Delete 5 pieces | 469 | over by 116 |
+| 1 | drop the `N selected` readout | 395 | over by 42 |
+| 2 | **+ short verb labels** | **336** | **fits, 17 spare** |
+| 3 | + Delete loses its count | 270 | fits, 82 spare |
+
+Yield in that order, and stop at the first rung that fits. At 393 that is rung 2:
+
+```
+│              [ Arrangement ] [ Set list ] [ Delete 5 pieces ] │
+```
+
+- The readout goes first because it is a readout, and every selected row already
+  carries a checked box.
+- `Delete` keeps its count as long as possible. It is the destructive verb and
+  the count is the safety.
+- Short forms are `Arrangement` and `Set list`. The visible label is a noun and
+  the selection supplies the verb; the **accessibility label carries the whole
+  sentence**: `New set list from 5 pieces`.
+- Rung 4, if a rung 3 bar still does not fit (accessibility sizes), is two rows,
+  constructive above destructive, which is `IPHONE_0.6.14.md` §6.3 rule 4
+  arriving one control early.
+
+Same measured discipline as §14 of that document: a pure function that takes the
+bar width and returns the rung, testable without a screen.
+
+## 7.4 Set list from a selection: what it builds
+
+**A set list holds arrangements, and a piece is a folder.** `LibraryActions`
+says so at the top of the file and it is the reason `.addToSetlist` is not in
+the pieces bar today. So this action has to choose an arrangement per piece, and
+the choice must be stated rather than silent.
+
+Rules:
+
+1. **Arrangement #1 of each piece**, in the order the pieces appear under the
+   list's current sort.
+2. A piece with **no arrangements is skipped**.
+3. Nothing is created if every selected piece is skipped; the notice says so and
+   the selection survives.
+4. After creating, the app switches to the Setlists segment, scrolls to the new
+   row, and opens §7.2's inline row **pre-filled with the auto-name, focused,
+   with the text selected**, so one keystroke replaces it. Edit mode ends.
+5. A notice bar states what was assumed, and only when there was an assumption:
+   `Added #1 of 3 pieces with several arrangements. Change them in the set list.`
+   and `2 pieces had no arrangements and were skipped.`
+
+## 7.5 The auto-name heuristic
+
+Four rules, first match wins. Every input is the selected pieces, in sort order.
+
+```
+1. TITLES      2 ≤ count ≤ 3, and the joined names fit 34 characters:
+               "Autumn Leaves, Sous le ciel"          (", " between)
+
+2. COMPOSER    every piece has the same non-empty composer:
+               "Piazzolla, 7 pieces"
+
+3. WEEKDAY     "Thursday set"
+
+4. DEDUPE      if the name is taken, append " 2", " 3", … until it is free
+```
+
+**34 characters** is measured, not chosen: a set list row now reserves
+`rowTwoControlInset` (104) for share and `☰`, leaving 253pt of title at 13.5pt,
+which is 34 characters before truncation. A generated name that truncates in the
+row it is generated into is the wrong default.
+
+**Composer equality is strict**: trimmed, case-folded, punctuation stripped,
+compared whole. No surname matching. OMR yields `J.S. Bach`, `Johann Sebastian
+Bach` and `BACH, J.S.` for one person, and a fuzzy matcher that gets it wrong
+produces a confidently wrong name. Rule 2 not firing costs a weekday; firing
+wrongly costs a lie. If the strings differ, fall through.
+
+**Weekday, not a date.** `Thursday set` is what a gigging musician writes, and
+the dedupe rule handles a second one the same day. `Set list, 11 Sep` is more
+precise and less like anything anyone says.
+
+**No tag rule.** There are no user tags: `LibraryFilter` is four derived filters
+(`unfiled`, `omrDrafts`, `hasSources`, `inASetlist`), and real tags need an
+engine change (§7 of `NAVIGATION_SYSTEM.md`). A rule over a field that does not
+exist is not a rule.
+
+**No `New set list N` fallback.** Rule 3 always produces a name, and rule 4
+always makes it unique, so the generic fallback is unreachable. If the engineer
+finds a path to it, that path is a bug.
+
+## 7.6 Acceptance
+
+1. `inlineCreateAlignsWithTheList`: the inline row's field leading edge equals a
+   row title's, and Save's trailing edge equals the `☰` column's, on both tabs.
+2. `inlineCreateIsOneHeight`: field and both buttons report the same height at
+   Large, xxxLarge and AX3, and no frame is a literal.
+3. `inlineNameFieldIsAddressable`: `inline-create-row` and
+   `inline-rename-field` both resolve. Fails today: two identifiers sit on one
+   `TextField`.
+4. `theBarFitsAtEveryWidth`: for 320 to 1366 and every `DynamicTypeSize`, the
+   chosen rung's width is ≤ the bar width.
+5. `setlistFromSelectionPicksFirstArrangements`: three pieces selected produce a
+   set list of their three `#1` arrangements, in sort order.
+6. `emptyPiecesAreSkippedAndReported`: a piece with no arrangements is absent
+   from the set list and named in the notice.
+7. `autoNameRules`: two pieces give joined titles; seven by one composer give
+   `<Composer>, 7 pieces`; a mixed seven give `<Weekday> set`; a repeat gives
+   ` 2`; no output exceeds 34 characters except a composer name that is itself
+   longer.
+8. `theNameIsAProposal`: after creation the inline row is focused with the
+   generated name selected, and one keystroke replaces it whole.
