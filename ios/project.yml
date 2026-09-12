@@ -230,6 +230,17 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.8.0  BUILD 194 IS THE EXTERNAL CANDIDATE (Ali, 2026-09-11: external
+        #          testers, including Echo). Its Release archive was checked at
+        #          deploy time: no samples-seed, no score of its own
+        #          (check_no_bundled_scores.py, B1); PrivacyInfo.xcprivacy on
+        #          every OpenSSL framework (ITMS-91061); GoogleService-Info.plist
+        #          in the archive for project scoranger, with the Apple sign-in
+        #          controller retained (8c93cbc7) and the session restored
+        #          (8307e555); the 0.7.3 sharing rework merged (56fc0353,
+        #          e63d6107, b41890f5); ITSAppUsesNonExemptEncryption false.
+        #          Promoting it to an external group is an App Store Connect
+        #          action, not a rebuild.
         #   0.8.0  BUILD 194+: WHAT ALI FOUND IN 193. Scope written before the
         #          work, from his list of 2026-09-11, functional first:
         #            1. an import OPENS what it brought in -- in-app Import and
