@@ -17,13 +17,18 @@ final class ClosingStopsPlayback: XCTestCase {
         app.launch()
     }
 
+    /// From the library's root, or from the piece's screen -- which is where
+    /// closing lands when the score was opened from it (0.8: a piece with
+    /// several arrangements pushes its screen, and Close goes back one).
     private func openTheScore() -> Bool {
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
-        let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
-        guard row.waitForExistence(timeout: 180) else { return false }
-        row.tap()
         let choice = app.descendants(matching: .any)[
             "arrangement-choice-under-paris-skies-accordion-solo"]
+        if !choice.exists {
+            _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
+            let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
+            guard row.waitForExistence(timeout: 180) else { return false }
+            row.tap()
+        }
         if choice.waitForExistence(timeout: 60) { choice.tap() }
         return app.buttons["score-title"].waitForExistence(timeout: 300)
     }
@@ -45,8 +50,16 @@ final class ClosingStopsPlayback: XCTestCase {
         let close = app.buttons["score-close"]
         guard close.waitForExistence(timeout: 10) else { return XCTFail("no close button") }
         close.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["library-search"]
-                        .waitForExistence(timeout: 30), "did not return to the library")
+        // Back where the reader came from: the piece's screen (its Back to
+        // Library button) or the library itself.
+        let left = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: app.descendants(matching: .any)["score-title"])
+        XCTAssertEqual(XCTWaiter().wait(for: [left], timeout: 30), .completed,
+                       "the score did not close")
+        XCTAssertTrue(app.descendants(matching: .any)["screen-back"].waitForExistence(timeout: 30)
+                        || app.descendants(matching: .any)["library-search"].exists,
+                      "did not return to the piece screen or the library")
         sleep(1)
 
         // The witness.
