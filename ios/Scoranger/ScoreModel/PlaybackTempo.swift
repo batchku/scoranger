@@ -15,7 +15,7 @@ enum PlaybackTempo {
     /// 1 to 300 bpm. 1 is absurd and it is also the whole point: someone
     /// learning a passage sets it as slow as it will go.
     static let minimum: Double = 1
-    static let maximum: Double = 300
+    static let maximum: Double = 480
 
     /// What a score that names no tempo is played at. The same 120
     /// `PlaybackTimeline.openingTempo` falls back to, stated once.

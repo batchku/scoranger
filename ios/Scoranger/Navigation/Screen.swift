@@ -216,29 +216,43 @@ struct InlineRenameRow: View {
     var onCancel: () -> Void
 
     var body: some View {
-        HStack(spacing: Theme.Metric.s8) {
+        // One line at the row's height: a 40pt field with the focus ring,
+        // Cancel quiet, Save primary, centred on one line (§7.5; 0.8.0
+        // build 194, Ali's item 4 -- the designer's spec may refine it).
+        HStack(alignment: .center, spacing: Theme.Metric.s8) {
             TextField("Name", text: $text)
                 .accessibilityIdentifier("inline-name-field")
                 .typeRole(.body)
                 .foregroundStyle(Theme.Ink.ink)
                 .tint(Theme.Accent.clay)
                 .textFieldStyle(.plain)
-                .padding(.horizontal, Theme.Metric.s8)
-                .padding(.vertical, 7)
+                .submitLabel(.done)
+                .onSubmit(onSave)
+                .padding(.horizontal, Theme.Metric.s16)
+                .frame(height: 40)
+                .frame(maxWidth: .infinity)
                 .background(Theme.Surface.paper)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Accent.clay, lineWidth: 1)
-                }
+                .overlay { Capsule().strokeBorder(Theme.Accent.clay, lineWidth: 1.5) }
+                .clipShape(Capsule())
                 .accessibilityIdentifier("inline-rename-field")
-            PanelButton(title: "Cancel", action: onCancel)
-                .accessibilityIdentifier("inline-rename-cancel")
-            PanelButton(title: "Save", kind: .primary, action: onSave)
-                .accessibilityIdentifier("inline-rename-save")
+            Button(action: onCancel) {
+                Text("Cancel").typeRole(.control).foregroundStyle(Theme.Ink.ink2)
+                    .padding(.horizontal, Theme.Metric.s12).frame(height: 40)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("inline-rename-cancel")
+            Button(action: onSave) {
+                Text("Save").typeRole(.control).foregroundStyle(Theme.Surface.paper)
+                    .padding(.horizontal, Theme.Metric.s16).frame(height: 40)
+                    .background(Theme.Accent.clayPress).clipShape(Capsule()).contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("inline-rename-save")
         }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.vertical, 8)
-        .background(Theme.Surface.well)
+        .padding(.horizontal, Theme.Metric.pageSide)
+        .padding(.vertical, Theme.Metric.s12)
+        .frame(minHeight: 64)
     }
 }
 

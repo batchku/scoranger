@@ -149,3 +149,54 @@ extension NotebookShot {
         }
     }
 }
+
+extension NotebookShot {
+    /// Build 194's two visible changes, for Ali and the designer to look at:
+    /// the tidied inline New set list row (4), and Edit mode's "Set list from
+    /// N pieces" with the set list it makes (5).
+    func testPhotographBuild194() throws {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetLibrary", "-resetViewPreferences", "-seedTestLibrary"]
+        app.launch()
+        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 240)
+        waitForTheLibraryToSettle(app)
+        sleep(1)
+
+        // 4. the inline row, empty and then with a name in it
+        app.descendants(matching: .any)["segment-setlists"].firstMatch.tap(); sleep(1)
+        app.descendants(matching: .any)["library-new"].firstMatch.tap(); sleep(1)
+        app.descendants(matching: .any)["library-new-setlist"].firstMatch.tap(); sleep(1)
+        let field = app.textFields.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "inline-")).firstMatch
+        guard field.waitForExistence(timeout: 10) else { return XCTFail("no inline New set list row") }
+        snap("setlists-new-inline-row")
+        field.tap(); app.typeText("Sunday service"); sleep(1)
+        snap("setlists-new-inline-row-named")
+        app.descendants(matching: .any)["inline-rename-cancel"].firstMatch.tap(); sleep(1)
+        XCTAssertFalse(field.exists, "Cancel should take the inline row away")
+
+        // 5. two pieces checked, the bar's offer, and what it makes
+        app.descendants(matching: .any)["segment-pieces"].firstMatch.tap(); sleep(1)
+        snap("pieces-after-cancel")
+        XCTAssertFalse(app.textFields.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "inline-")).firstMatch.exists,
+                       "the naming row followed the reader to Pieces")
+        app.descendants(matching: .any)["library-edit"].firstMatch.tap(); sleep(1)
+        // In Edit mode a row tap checks the row (LibraryView: `editing ? toggle : open`).
+        let rows = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@",
+            "row-", "row-menu-", "row-share-", "row-select-"))
+        // The seeded library has one piece; check what there is (two if two).
+        guard rows.count >= 1 else { return XCTFail("no piece to check") }
+        for index in 0..<min(rows.count, 2) { rows.element(boundBy: index).tap(); sleep(1) }
+        snap("pieces-edit-checked")
+        let make = app.descendants(matching: .any)["bar-new-setlist"].firstMatch
+        guard make.waitForExistence(timeout: 10) else { return XCTFail("no Set list from N pieces in the bar") }
+        print("SHOT: bar offers \"\(make.label)\"")
+        make.tap(); sleep(2)
+        snap("setlist-from-selection")
+        let title = app.descendants(matching: .any)["panel-title"].firstMatch
+        if title.exists { print("SHOT: set list named \"\(title.label)\"") }
+    }
+}
+

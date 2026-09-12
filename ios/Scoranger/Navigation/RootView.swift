@@ -93,6 +93,13 @@ struct RootView: View {
             .environmentObject(panel)
             // A page change closes what a row on the page before had open.
             .onChange(of: libraryPath) { _, _ in panel.done() }
+            // An import opens what it brought in (Ali, build 193): from Files
+            // and from another app's share sheet alike.
+            .onChange(of: state.openAfterImport) { _, slug in
+                guard let slug else { return }
+                state.openAfterImport = nil
+                open(slug)
+            }
             // SHARING'S PROGRESS AND FAILURES, through the app's own notice
             // bar rather than a second surface invented for this one feature.
             //
@@ -560,6 +567,31 @@ struct RootView: View {
             libraryPath.append(.moveToPiece(scores.map(\.slug)))
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
+        case .newSetlist:
+            // 0.8.0 build 194 (Ali's item 5): the checked pieces' arrangements
+            // in their pieces' order, or the checked arrangements, become a
+            // set list named for them; then its screen opens.
+            let pieces = state.manifest?.pieces ?? []
+            let members: [String]
+            let names: [String]
+            switch kind {
+            case .pieces:
+                let chosen = pieces.filter { ids.contains($0.slug) }
+                members = chosen.flatMap(\.arrangements)
+                names = chosen.map(\.name)
+            default:
+                members = scores.map(\.slug)
+                names = scores.map { ScoreTitle.arrangementName(title: $0.title, name: $0.name, slug: $0.slug) }
+            }
+            let taken = Set((state.manifest?.setlists ?? []).map(\.name))
+            let name = SetlistNaming.name(for: names, taken: taken)
+            editing = false
+            Task {
+                guard let slug = await state.createSetlist(name: name) else { return }
+                for member in members { _ = await state.addToSetlist(setlist: slug, score: member) }
+                segment = .setlists
+                libraryPath.append(.setlist(slug))
+            }
         case .duplicate:
             Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }
         case .delete:

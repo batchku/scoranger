@@ -10,7 +10,7 @@ final class LibraryActionsTests: XCTestCase {
     // MARK: - A piece is a folder
 
     func testAPieceCanBeFilledOrThrownAway() {
-        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .delete])
+        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .newSetlist, .delete])
     }
 
     /// There is no Rename anywhere in the bars. A name is edited by TAPPING IT
@@ -46,7 +46,7 @@ final class LibraryActionsTests: XCTestCase {
 
     func testAnArrangementCarriesTheFullSet() {
         XCTAssertEqual(LibraryActions.bar(for: .arrangements),
-                       [.moveToPiece, .addToSetlist, .duplicate, .delete])
+                       [.moveToPiece, .addToSetlist, .newSetlist, .duplicate, .delete])
     }
 
     // MARK: - Mixed selections
@@ -95,7 +95,7 @@ final class LibraryActionsTests: XCTestCase {
     /// they add a second row to the selection.
     func testTheBarKeepsItsShapeWhateverIsSelected() {
         for count in 1...5 {
-            XCTAssertEqual(LibraryActions.bar(for: .arrangements).count, 4,
+            XCTAssertEqual(LibraryActions.bar(for: .arrangements).count, 5,
                            "the bar changed length at \(count) selected")
         }
     }
@@ -119,5 +119,35 @@ final class LibraryActionsTests: XCTestCase {
                        "two actions share an accessibility id")
         XCTAssertTrue(ids.contains("bar-move"))
         XCTAssertTrue(ids.contains("bar-duplicate"))
+    }
+
+    /// 0.8.0 build 194 (Ali's item 5): checked pieces or arrangements can
+    /// become a set list, named for what was checked.
+    func testASelectionCanBecomeASetList() {
+        XCTAssertTrue(LibraryActions.bar(for: .pieces).contains(.newSetlist))
+        XCTAssertTrue(LibraryActions.bar(for: .arrangements).contains(.newSetlist))
+        XCTAssertFalse(LibraryActions.bar(for: .setlists).contains(.newSetlist),
+                       "a set list of set lists is not a thing")
+        XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 1))
+        XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 5))
+        XCTAssertEqual(LibraryAction.newSetlist.identifier, "bar-new-setlist")
+        XCTAssertEqual(LibraryAction.newSetlist.title(count: 3, kind: .pieces), "Set list from 3 pieces")
+        XCTAssertEqual(LibraryAction.newSetlist.title(count: 1, kind: .pieces), "Set list from this piece")
+    }
+
+    /// The name: the pieces' names while they fit, then a count; never a
+    /// date or a number a person has to rename.
+    func testTheNewSetListIsNamedForWhatWasChecked() {
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa"]), "Blue Bossa")
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa", "Libertango"]),
+                       "Blue Bossa and Libertango")
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa", "Libertango", "Cavatina"]),
+                       "Blue Bossa, Libertango and Cavatina")
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa", "Libertango", "Cavatina", "Sous le ciel de Paris"]),
+                       "Blue Bossa, Libertango and 2 more")
+        XCTAssertEqual(SetlistNaming.name(for: []), "New set list")
+        // Taken names get a count, not a collision.
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa"], taken: ["Blue Bossa"]), "Blue Bossa 2")
+        XCTAssertEqual(SetlistNaming.name(for: ["Blue Bossa"], taken: ["Blue Bossa", "Blue Bossa 2"]), "Blue Bossa 3")
     }
 }

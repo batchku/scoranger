@@ -7,8 +7,9 @@ import SwiftUI
 /// loop · one knob per part, then the tempo knob · the position in mono and,
 /// while playing, the seek scrubber · at the right, all-on/all-off. More parts
 /// than fit scroll sideways inside the knob slot under a fade; tempo and the
-/// position stay put. While a scan is converting, the tray carries the
-/// progress on its one line.
+/// position stay put. A scan being converted shows its progress in More and
+/// nowhere else (0.8.0 build 194, Ali's item 2: the tray had a second copy);
+/// the tray is the transport, or the reason there is none.
 ///
 /// It replaces `ScoreFooter`'s Transport and the mixer WINDOW -- the thing
 /// that could be dragged, parked, clamped and collapsed. Nothing here moves.
@@ -30,9 +31,6 @@ struct Tray: View {
     var preparing: Bool
     var onPlay: () -> Void
     var onResolve: () -> Void = {}
-    /// A scan being converted: the tray shows the stage and its progress
-    /// instead of a transport the scan cannot have yet (§7.19).
-    var converting: OMRControl?
     /// The phone's merged page scrubber (§9.6), until the phone layout of 0.8.4.
     var leading: AnyView?
     /// While the ink tools are out the tray rests at half (§7.14).
@@ -71,43 +69,41 @@ struct Tray: View {
 
     @ViewBuilder
     private var line: some View {
-        if let converting, converting.isOn {
-            convertingLine(converting)
-        } else {
-            HStack(spacing: Theme.Metric.s8) {
-                if let leading {
-                    leading.frame(maxWidth: .infinity)
-                    Theme.Rule(vertical: true).frame(height: 20)
-                }
-                if let setlistLabel {
-                    Text(setlistLabel).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
-                        .accessibilityIdentifier("transport-setlist")
-                    stepButton("chevron.left", label: "Previous in set list",
-                               id: "transport-prev", enabled: canStep, action: onPrevious)
-                    stepButton("chevron.right", label: "Next in set list",
-                               id: "transport-next", enabled: canStep, action: onNext)
-                    Theme.Rule(vertical: true).frame(height: 20)
-                }
+        HStack(spacing: Theme.Metric.s8) {
+            if let leading {
+                leading.frame(maxWidth: .infinity)
+                Theme.Rule(vertical: true).frame(height: 20)
+            }
+            if let setlistLabel {
+                Text(setlistLabel).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                    .accessibilityIdentifier("transport-setlist")
+                stepButton("chevron.left", label: "Previous in set list",
+                           id: "transport-prev", enabled: canStep, action: onPrevious)
+                stepButton("chevron.right", label: "Next in set list",
+                           id: "transport-next", enabled: canStep, action: onNext)
+                Theme.Rule(vertical: true).frame(height: 20)
+            }
 
-                if !unavailable.canPlay || playback.unavailable != nil {
-                    unavailableRow
-                    Spacer(minLength: 0)
+            if !unavailable.canPlay || playback.unavailable != nil {
+                unavailableRow
+                Spacer(minLength: 0)
+            } else {
+                playControls
+                Theme.Rule(vertical: true).frame(height: 20)
+                knobs.layoutPriority(2)
+                Theme.Rule(vertical: true).frame(height: 20)
+                position.fixedSize().layoutPriority(1)
+                if playback.isPlaying {
+                    TrayScrubber(playback: playback)
+                        .frame(minWidth: 60, maxWidth: 220)
                 } else {
-                    playControls
-                    Theme.Rule(vertical: true).frame(height: 20)
-                    knobs.layoutPriority(2)
-                    Theme.Rule(vertical: true).frame(height: 20)
-                    position.fixedSize().layoutPriority(1)
-                    if playback.isPlaying {
-                        TrayScrubber(playback: playback)
-                            .frame(minWidth: 60, maxWidth: 220)
-                    } else {
-                        Spacer(minLength: 0)
-                    }
-                    allOnOff
+                    Spacer(minLength: 0)
                 }
+                allOnOff
             }
         }
+    
+
     }
 
     // MARK: - transport
@@ -245,35 +241,6 @@ struct Tray: View {
         // "metronome only". The mixer header's summary, carried by the one
         // control that changes all of it at once.
         .accessibilityValue(playback.voices.summary(in: parts, metronome: playback.metronome))
-    }
-
-    // MARK: - converting
-
-    /// "Converting · page 4 of 9 ······ keep reading; v002 opens when it is
-    /// done." There is no Stop: the transcription cannot be cancelled today,
-    /// and a button that did nothing would be worse than none.
-    private func convertingLine(_ control: OMRControl) -> some View {
-        HStack(spacing: Theme.Metric.s12) {
-            Text(control.detail).typeRole(.data).foregroundStyle(Theme.Ink.ink)
-                .lineLimit(1)
-                .accessibilityIdentifier("transport-preparing")
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.Surface.well).frame(height: 4)
-                    if let fraction = control.fraction {
-                        Capsule().fill(Theme.Accent.clay)
-                            .frame(width: geo.size.width * min(max(fraction, 0), 1), height: 4)
-                    }
-                }
-                .frame(maxHeight: .infinity)
-            }
-            .frame(maxWidth: 240)
-            Text("keep reading; the notation opens when it is done")
-                .typeRole(.meta).foregroundStyle(Theme.Ink.ink3).lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("tray-converting")
     }
 
     // MARK: - pieces
@@ -445,7 +412,7 @@ struct TrayTempoKnob: View {
     @State private var startBPM: Double?
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private static let range: ClosedRange<Double> = 30...240
+    private static let range: ClosedRange<Double> = 30...480
 
     var body: some View {
         let face = MixerLayout.knobFace(text: typeSize)

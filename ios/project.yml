@@ -230,6 +230,50 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.8.0  BUILD 194+: WHAT ALI FOUND IN 193. Scope written before the
+        #          work, from his list of 2026-09-11, functional first:
+        #            1. an import OPENS what it brought in -- in-app Import and
+        #               the share/inbox path both land in the new arrangement,
+        #               not on the Pieces list;
+        #            6. Make editable is offered for an IMAGE artifact as it
+        #               is for a PDF (the More panel gated on .scan only);
+        #            7. saving Details on an image, and Make editable on it,
+        #               go the image -> PDF -> OMR path (0.6.13) and never run
+        #               a JPEG through music21's converter
+        #               (ConverterFileException on img-0229/...jpeg);
+        #            8. the playhead keeps within a small tolerance of the
+        #               sounding position through the last bar -- it fell a
+        #               bar behind by the end; the cause is found and a
+        #               measured test holds it;
+        #            2. one "uploading" progress, in More; the strip's goes;
+        #            3. the tempo knob runs to 480 and the sequencer honours it;
+        #            4. the inline New set list row is tidied (designer's
+        #               spec to follow);
+        #            5. Set list from selection: Edit mode's checked pieces
+        #               become a set list with a sensible name (designer's
+        #               spec for placement and naming to follow).
+        #          What was found, doing it:
+        #            - 8's cause was never the clock. Measured: the sequencer
+        #              keeps pace with the audio device to 0.05% in real
+        #              time, and the first note sounds where the map says.
+        #              music21 lays a part's bars out by what they HOLD, so a
+        #              bar OMR filled past its meter pushes that part's every
+        #              later bar late: Ali's accordion R.H. has 15 such bars
+        #              and sounded 12 bars behind the violin by the end. The
+        #              engine now puts every part's bar k on one grid, as the
+        #              page does (ops._on_one_grid), carries voltas to every
+        #              part, and check_playback.py proves it;
+        #            - 6/7 were not a lost 0.6.13 fix: the image path was
+        #              intact. Two gaps predate 0.6.13 -- the More gate and
+        #              makeEditable() asked for .scan, and set_score_metadata
+        #              parsed the latest artifact whatever it was;
+        #            - 4 and 5 ship as an interim: the tidied row and the
+        #              bar's "Set list from N pieces" named for what was
+        #              checked ("A and B", "A, B and 3 more"). The designer's
+        #              spec supersedes both when it lands.
+        #          Not in this build: the in-app Import path is asserted
+        #          through the same receiveFile the inbox uses, not through
+        #          the Files picker itself.
         #   0.8.0  NOTEBOOK, THE WHOLE OF IT, IN ONE BUILD. Ali, 2026-09-11:
         #          "one build instead of 5". design/DESIGN_SYSTEM.md is the
         #          spec and design/redesign-0.8/notebook-spec.html draws every

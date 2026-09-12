@@ -100,7 +100,11 @@ def main() -> int:
           "applyBundledMetadataIfNeeded" in app)
     check("the app can set a piece's metadata by hand",
           "set-piece-metadata" in app)
-    piece_screen = (ROOT / "ios" / "Scoranger" / "Navigation" / "PieceScreen.swift").read_text()
+    # The piece's fields live on the Notebook's right page since 0.8
+    # (LibraryPanels.swift); the screen file is where they were before.
+    piece_screen = "".join(
+        (ROOT / "ios" / "Scoranger" / "Navigation" / name).read_text()
+        for name in ("LibraryPanels.swift", "PieceScreen.swift"))
     for field in ("piece-composer", "piece-arranger", "piece-tags"):
         check(f"{field} is editable in the app", field in piece_screen)
 

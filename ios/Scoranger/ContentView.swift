@@ -447,8 +447,6 @@ struct ContentView: View {
                              state.resolvePlaybackAvailability()
                          }
                      },
-                     converting: MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
-                                                      fraction: state.omrFraction),
                      // A phone on its side carries the page scrubber in the
                      // tray (§3 E-B), until 0.8.4's phone layout.
                      leading: mergedScrubber,

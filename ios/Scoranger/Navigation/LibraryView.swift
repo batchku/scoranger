@@ -70,6 +70,13 @@ struct LibraryView: View {
     /// A set list being renamed in place (L8).
     @State private var renaming: String?
     @State private var renameDraft = ""
+    /// The name being typed for a NEW piece or set list. Kept apart from
+    /// `creatingName`, which is only the flag that the row is up: with the
+    /// TextField bound straight to the flag, Cancel set it nil and the field's
+    /// own write-back on losing focus set it "" again -- an empty naming row
+    /// that followed the reader from Set lists to Pieces (build 194's
+    /// photographs caught it). The rename row has always worked this way.
+    @State private var creatingDraft = ""
     /// The two verb bands (§14.3). Mutually exclusive with Sort and Filter,
     /// which is what makes them the pattern this row already had rather than
     /// a new one.
@@ -162,6 +169,9 @@ struct LibraryView: View {
         .background(Theme.Surface.panel)
         .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
+        // A container, or its identifier lands on every capsule in it and
+        // `bar-new-setlist` cannot be addressed (the header lesson of 0.8).
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("library-actionbar")
     }
 
@@ -451,15 +461,16 @@ struct LibraryView: View {
                 // Naming a new thing happens here, in place: the list moves
                 // down, nothing dims, and there is nothing to dismiss.
                 if creatingName != nil {
-                    InlineRenameRow(text: Binding(get: { creatingName ?? "" },
-                                                  set: { creatingName = $0 }),
+                    InlineRenameRow(text: $creatingDraft,
                                     onSave: {
-                                        let name = (creatingName ?? "")
+                                        let name = creatingDraft
                                             .trimmingCharacters(in: .whitespacesAndNewlines)
                                         creatingName = nil
+                                        creatingDraft = ""
                                         if !name.isEmpty { onCreate(name) }
                                     },
-                                    onCancel: { creatingName = nil })
+                                    onCancel: { creatingName = nil; creatingDraft = "" })
+                    .onAppear { creatingDraft = creatingName ?? "" }
                     Theme.Rule()
                 }
 

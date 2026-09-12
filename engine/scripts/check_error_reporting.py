@@ -47,6 +47,10 @@ VIEWS = ROOT / "ios" / "Scoranger"
 # Adding a name to this list is a decision to be made deliberately and written
 # down -- which is the whole point. "It is not wired up yet" is not a reason.
 INTERNAL = {
+    "arrangementTagsVersion": "a counter bumped when a tag changes so every "
+                              "view observing AppState re-reads the tag store "
+                              "(ArrangementTags.shared, a file); nothing "
+                              "displays the number itself",
     "previewedSlug": "the row being previewed; AppState resolves it into "
                      "selectedSlug before any view asks",
     "omrPendingID": "which pending import the OMR run belongs to; the row is "

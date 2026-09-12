@@ -13,14 +13,14 @@ import Foundation
 /// item's own screen -- the value is the control, so a button whose only job
 /// was to make it editable has nothing left to do.
 enum LibraryAction: String, CaseIterable, Equatable {
-    case newArrangement, moveToPiece, addToSetlist, duplicate, delete
+    case newArrangement, moveToPiece, addToSetlist, newSetlist, duplicate, delete
 
     /// Actions that only make sense on exactly one row. They grey to 42% rather
     /// than disappearing, so the bar never re-flows as the selection changes.
     var needsExactlyOne: Bool {
         switch self {
         case .newArrangement: return true
-        case .moveToPiece, .addToSetlist, .duplicate, .delete: return false
+        case .moveToPiece, .addToSetlist, .newSetlist, .duplicate, .delete: return false
         }
     }
 
@@ -31,6 +31,7 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .newArrangement: return "bar-new-arrangement"
         case .moveToPiece:    return "bar-move"
         case .addToSetlist:   return "bar-setlists"
+        case .newSetlist:     return "bar-new-setlist"
         case .duplicate:      return "bar-duplicate"
         case .delete:         return "bar-delete"
         }
@@ -41,6 +42,11 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .newArrangement: return "New arrangement"
         case .moveToPiece:    return "Move to piece…"
         case .addToSetlist:   return "Add to set list…"
+        case .newSetlist:
+            // 0.8.0 build 194 (Ali's item 5): the checked things become a
+            // set list, named for them (SetlistNaming).
+            guard count > 1 else { return "Set list from this \(kind.singular)" }
+            return "Set list from \(count) \(kind.plural)"
         case .duplicate:      return "Duplicate"
         case .delete:
             guard count > 1 else { return "Delete" }
@@ -63,6 +69,14 @@ enum LibrarySelectionKind: Equatable {
         case .mixed:        return "items"
         }
     }
+    var singular: String {
+        switch self {
+        case .pieces:       return "piece"
+        case .setlists:     return "set list"
+        case .arrangements: return "arrangement"
+        case .mixed:        return "item"
+        }
+    }
 }
 
 enum LibraryActions {
@@ -72,11 +86,11 @@ enum LibraryActions {
         switch kind {
         case .pieces:
             // a folder: rename it, put something in it, or throw it away
-            return [.newArrangement, .delete]
+            return [.newArrangement, .newSetlist, .delete]
         case .setlists:
             return [.delete]
         case .arrangements:
-            return [.moveToPiece, .addToSetlist, .duplicate, .delete]
+            return [.moveToPiece, .addToSetlist, .newSetlist, .duplicate, .delete]
         case .mixed:
             // only what is true of everything highlighted
             return [.delete]

@@ -81,3 +81,19 @@ one build at Ali's word):
 5. **Set list rows**: the row and its Open action open the set list's screen;
    the Play capsule beside ☰ plays from the top (L7). 0.7 opened playback on
    the row tap; tell Ali if that muscle memory matters more than L7.
+
+From the follow-up session, 2026-09-11 (build 194, Ali's list from 193):
+
+6. **The inline New set list row** (Ali's item 4) is tidied as an interim:
+   a 40pt paper field with a clay ring, quiet Cancel, primary Save, Return
+   saves. Photograph: `design/shots-0.8.0/setlists-new-inline-row.png`.
+   The designer's spec supersedes it; the identifiers stay
+   (`inline-name-field`, `inline-rename-cancel`, `inline-rename-save`).
+7. **Set list from selection** (item 5) is a bar action in Edit mode,
+   "Set list from N pieces" (or "from this piece"), for pieces and for
+   arrangements. The set list is named for what was checked: one name,
+   "A and B", "A, B and C", "A, B and 3 more"; a taken name gets " 2".
+   Placement and the naming rule are the designer's to overrule
+   (`SetlistNaming.swift`, `LibraryActions.newSetlist`). Photograph:
+   `design/shots-0.8.0/pieces-edit-checked.png` and
+   `setlist-from-selection.png`.
