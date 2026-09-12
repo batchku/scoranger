@@ -173,13 +173,13 @@ final class DesignerSweep: XCTestCase {
         toLibrary("before making a piece")
         guard tap("library-new", wait: 4) else { return }
         settle(0.8)
-        let field = app.textFields["inline-name-field"]
+        let field = app.textFields["inline-rename-field"]
         if field.waitForExistence(timeout: 3) {
             field.tap(); field.typeText(name)
             if !tap("inline-rename-save", wait: 2) { app.keyboards.buttons["return"].tap() }
             settle(2.0)
         } else {
-            print("SWEEP: no inline-name-field for the new piece")
+            print("SWEEP: no inline-rename-field for the new piece")
         }
         toLibrary("after making a piece")
     }

@@ -34,6 +34,9 @@ struct RootView: View {
     @StateObject private var panel = PanelModel()
     /// A new piece or set list being named in place at the top of the list.
     @State private var libraryNaming: String?
+    /// A row the library should open a rename on -- the set list just made
+    /// from a selection (REDESIGN_BRIEF_0.8 §7.4 rule 4).
+    @State private var libraryRenameRequest: String?
 
     /// Whether the app is frontmost, for ScreenWake. The idle timer is an
     /// application-wide flag, so the app's claim on the screen is dropped on
@@ -546,7 +549,8 @@ struct RootView: View {
                     onImportBook: { importIntent.ask(for: .book) },
                     onSettings: { libraryPath.append(.settings) },
                     onRowAction: handle,
-                    onBarAction: handleBar)
+                    onBarAction: handleBar,
+                    renameRequest: $libraryRenameRequest)
     }
 
     /// Choosing between the arrangements of a piece (§4.4). A piece is not
@@ -556,7 +560,7 @@ struct RootView: View {
     // MARK: - Row actions -- the sidebar's management, rehomed (§8)
 
     /// The Edit-mode action bar (§2.2), over whatever is highlighted.
-    private func handleBar(_ action: LibraryAction, _ ids: Set<String>,
+    private func handleBar(_ action: LibraryAction, _ ids: [String],
                            _ kind: LibrarySelectionKind) {
         let scores = ids.compactMap { id in state.manifest?.scores.first { $0.slug == id } }
         switch action {
@@ -568,29 +572,29 @@ struct RootView: View {
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
         case .newSetlist:
-            // 0.8.0 build 194 (Ali's item 5): the checked pieces' arrangements
-            // in their pieces' order, or the checked arrangements, become a
-            // set list named for them; then its screen opens.
+            // A set list from the checked pieces (REDESIGN_BRIEF_0.8 §7.4):
+            // arrangement #1 of each, in the list's order; a piece with none
+            // is skipped and said so; the proposed name (§7.5) arrives in the
+            // new row's rename field, selected, so one keystroke replaces it.
             let pieces = state.manifest?.pieces ?? []
-            let members: [String]
-            let names: [String]
-            switch kind {
-            case .pieces:
-                let chosen = pieces.filter { ids.contains($0.slug) }
-                members = chosen.flatMap(\.arrangements)
-                names = chosen.map(\.name)
-            default:
-                members = scores.map(\.slug)
-                names = scores.map { ScoreTitle.arrangementName(title: $0.title, name: $0.name, slug: $0.slug) }
+            let chosen = ids.compactMap { id in pieces.first { $0.slug == id } }
+            let plan = SetlistFromSelection.plan(pieces: chosen)
+            guard !plan.members.isEmpty else {
+                // Nothing to make; the selection survives (rule 3).
+                state.notice = plan.notices.joined(separator: " ")
+                return
             }
             let taken = Set((state.manifest?.setlists ?? []).map(\.name))
-            let name = SetlistNaming.name(for: names, taken: taken)
+            let name = SetlistNaming.name(
+                for: chosen.map { SetlistNaming.Piece(title: $0.name, composer: $0.composer) },
+                taken: taken)
             editing = false
             Task {
                 guard let slug = await state.createSetlist(name: name) else { return }
-                for member in members { _ = await state.addToSetlist(setlist: slug, score: member) }
+                for member in plan.members { _ = await state.addToSetlist(setlist: slug, score: member) }
                 segment = .setlists
-                libraryPath.append(.setlist(slug))
+                if !plan.notices.isEmpty { state.notice = plan.notices.joined(separator: " ") }
+                libraryRenameRequest = slug
             }
         case .duplicate:
             Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }

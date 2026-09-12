@@ -168,6 +168,30 @@ enum Theme {
         return Font(UIFontMetrics(forTextStyle: style).scaledFont(for: base))
     }
 
+    /// The control role as a UIFont at a given text size, for MEASURING a
+    /// label before it is drawn (LibraryActionBarMetrics). The same face,
+    /// weight and scaling as `.control`, so what is measured is what is drawn.
+    static func controlUIFont(for size: DynamicTypeSize) -> UIFont {
+        let wght = UIFontDescriptor.AttributeName(
+            rawValue: kCTFontVariationAttribute as String)
+        let descriptor = UIFontDescriptor(fontAttributes: [
+            .name: Face.inter, wght: [0x77676874: 600.0],
+        ])
+        let base = UIFont(descriptor: descriptor, size: 13.5)
+        return UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: base, compatibleWith: UITraitCollection(
+                preferredContentSizeCategory: TextScale.category(for: size)))
+    }
+
+    /// The data role the same way (the bar's "N selected" readout).
+    static func dataUIFont(for size: DynamicTypeSize) -> UIFont {
+        let base = UIFont(name: Face.monoMedium, size: 12)
+            ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        return UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: base, compatibleWith: UITraitCollection(
+                preferredContentSizeCategory: TextScale.category(for: size)))
+    }
+
     private static func staticFace(_ name: String, _ size: CGFloat,
                                    _ style: UIFont.TextStyle) -> Font {
         guard let base = UIFont(name: name, size: size) else {

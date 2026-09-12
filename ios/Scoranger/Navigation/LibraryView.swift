@@ -50,7 +50,13 @@ struct LibraryView: View {
     var onImportBook: () -> Void = {}
     var onSettings: () -> Void
     var onRowAction: (LibraryRow, RowAction) -> Void
-    var onBarAction: (LibraryAction, Set<String>, LibrarySelectionKind) -> Void
+    /// The selection in the LIST'S order, so a set list made from it keeps
+    /// the order the reader saw.
+    var onBarAction: (LibraryAction, [String], LibrarySelectionKind) -> Void
+    /// The root asks the list to open a rename on this row -- the set list it
+    /// just made from a selection, whose proposed name arrives selected
+    /// (REDESIGN_BRIEF_0.8 §7.4 rule 4). Cleared once honoured.
+    @Binding var renameRequest: String?
 
     /// Slugs of set lists that have already been promoted.
     ///
@@ -70,6 +76,8 @@ struct LibraryView: View {
     /// A set list being renamed in place (L8).
     @State private var renaming: String?
     @State private var renameDraft = ""
+    /// The rename row's text arrives selected whole (a proposed name).
+    @State private var renameSelectAll = false
     /// The name being typed for a NEW piece or set list. Kept apart from
     /// `creatingName`, which is only the flag that the row is up: with the
     /// TextField bound straight to the flag, Cancel set it nil and the field's
@@ -121,6 +129,8 @@ struct LibraryView: View {
         }
         .onChange(of: editing) { _, on in if !on { selected = [] } }
         .onChange(of: segment) { _, _ in selected = []; openRow = nil; panel.done() }
+        .onChange(of: renameRequest) { _, _ in honourRenameRequest() }
+        .onChange(of: rows.map(\.id)) { _, _ in honourRenameRequest() }
     }
 
     /// The action bar (§2.2): what you can do to what is highlighted.
@@ -131,41 +141,42 @@ struct LibraryView: View {
     /// never re-flows under a finger.
     private var actionBar: some View {
         let kind = selectionKind
-        return HStack(spacing: Theme.Metric.s8) {
-            Text("\(selected.count) selected").typeRole(.data)
-                .foregroundStyle(Theme.Ink.ink2)
-            Spacer(minLength: Theme.Metric.s8)
-            ForEach(LibraryActions.bar(for: kind), id: \.self) { action in
-                let on = LibraryActions.isEnabled(action, count: selected.count)
-                Button {
-                    onBarAction(action, selected, kind)
-                    if action == .delete { selected = [] }
-                } label: {
-                    Text(action.title(count: selected.count, kind: kind))
-                        .typeRole(.control)
-                        .foregroundStyle(action.isDestructive ? Theme.Surface.paper
-                                                              : Theme.Ink.ink)
-                        .padding(.horizontal, Theme.Metric.s12)
-                        .padding(.vertical, Theme.Metric.s6)
-                        .background(action.isDestructive ? Theme.Status.danger
-                                                         : Theme.Surface.panel)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                .stroke(action.isDestructive ? Theme.Status.danger
-                                                             : Color.clear,
-                                        lineWidth: 1)
+        let actions = LibraryActions.bar(for: kind)
+        return GeometryReader { geo in
+            let labels = LibraryActionBarMetrics.labels(count: selected.count, kind: kind, size: typeSize)
+            let rung = LibraryActionBarLayout.rung(width: geo.size.width, actions: actions, labels: labels)
+            Group {
+                if rung == .twoRows {
+                    // Constructive above destructive: §6.3 rule 4 arriving one
+                    // control early.
+                    VStack(alignment: .trailing, spacing: Theme.Metric.s8) {
+                        HStack(spacing: Theme.Metric.s8) {
+                            Spacer(minLength: 0)
+                            ForEach(actions.filter { !$0.isDestructive }, id: \.self) { barButton($0, kind: kind, rung: rung) }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-                        .contentShape(Rectangle())
+                        HStack(spacing: Theme.Metric.s8) {
+                            Spacer(minLength: 0)
+                            ForEach(actions.filter(\.isDestructive), id: \.self) { barButton($0, kind: kind, rung: rung) }
+                        }
+                    }
+                } else {
+                    HStack(spacing: Theme.Metric.s8) {
+                        if rung.showsReadout {
+                            Text("\(selected.count) selected").typeRole(.data)
+                                .foregroundStyle(Theme.Ink.ink2)
+                                .accessibilityIdentifier("library-actionbar-count")
+                        }
+                        Spacer(minLength: Theme.Metric.s8)
+                        ForEach(actions, id: \.self) { barButton($0, kind: kind, rung: rung) }
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!on)
-                .opacity(on ? 1 : 0.42)
-                .accessibilityIdentifier(action.identifier)
             }
+            .padding(.horizontal, Theme.Metric.s16)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .padding(.horizontal, Theme.Metric.s16)
-        .frame(height: 56)
+        // The bar yields by measurement, in a stated order, until it fits
+        // (LibraryActionBarLayout); at accessibility sizes it is two rows.
+        .frame(height: typeSize.isAccessibilitySize ? 112 : 56)
         .background(Theme.Surface.panel)
         .overlay(alignment: .top) { Theme.Rule() }
         .shadow(color: Color(hex: 0x1A1917).opacity(0.07), radius: 18, y: -6)
@@ -173,6 +184,40 @@ struct LibraryView: View {
         // `bar-new-setlist` cannot be addressed (the header lesson of 0.8).
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("library-actionbar")
+    }
+
+    private func barButton(_ action: LibraryAction, kind: LibrarySelectionKind,
+                           rung: LibraryActionBarLayout.Rung) -> some View {
+        let on = LibraryActions.isEnabled(action, count: selected.count)
+        let label: String = action == .delete
+            ? action.deleteTitle(count: selected.count, kind: kind, counted: rung.deleteIsCounted)
+            : (rung.usesShortLabels ? action.shortTitle(count: selected.count, kind: kind)
+                                    : action.title(count: selected.count, kind: kind))
+        return Button {
+            onBarAction(action, rows.map(\.id).filter(selected.contains), kind)
+            if action == .delete { selected = [] }
+        } label: {
+            Text(label)
+                .typeRole(.control)
+                .lineLimit(1)
+                .fixedSize()
+                .foregroundStyle(action.isDestructive ? Theme.Surface.paper : Theme.Ink.ink)
+                .padding(.horizontal, Theme.Metric.s12)
+                .padding(.vertical, Theme.Metric.s6)
+                .background(action.isDestructive ? Theme.Status.danger : Theme.Surface.panel)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
+                        .stroke(action.isDestructive ? Theme.Status.danger : Color.clear, lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!on)
+        .opacity(on ? 1 : 0.42)
+        // The visible label may be a noun; VoiceOver gets the sentence.
+        .accessibilityLabel(action.accessibilityTitle(count: selected.count, kind: kind))
+        .accessibilityIdentifier(action.identifier)
     }
 
     private var selectionKind: LibrarySelectionKind {
@@ -462,6 +507,9 @@ struct LibraryView: View {
                 // down, nothing dims, and there is nothing to dismiss.
                 if creatingName != nil {
                     InlineRenameRow(text: $creatingDraft,
+                                    placeholder: segment == .setlists ? "Set list name" : "Piece name",
+                                    containerIdentifier: "inline-create-row",
+                                    leading: Theme.Metric.s20 + (editing ? Theme.Metric.checkboxGutter : 0),
                                     onSave: {
                                         let name = creatingDraft
                                             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -540,8 +588,11 @@ struct LibraryView: View {
         VStack(spacing: 0) {
             if renaming == row.id {
                 InlineRenameRow(text: $renameDraft,
-                                onSave: { commitRename(row) },
-                                onCancel: { renaming = nil })
+                                containerIdentifier: "inline-rename-row",
+                                leading: Theme.Metric.s20 + (editing ? Theme.Metric.checkboxGutter : 0),
+                                selectAll: renameSelectAll,
+                                onSave: { commitRename(row); renameSelectAll = false },
+                                onCancel: { renaming = nil; renameSelectAll = false })
             } else {
                 HStack(spacing: 0) {
                     if editing { checkbox(row) }
@@ -649,6 +700,16 @@ struct LibraryView: View {
             onRowAction(row, .delete)
         })
         return items
+    }
+
+    /// A rename the root asked for, once the row is in the list.
+    private func honourRenameRequest() {
+        guard let slug = renameRequest, let row = rows.first(where: { $0.id == slug }) else { return }
+        renameDraft = row.title
+        renameSelectAll = true
+        renaming = row.id
+        openRow = nil
+        renameRequest = nil
     }
 
     private func commitRename(_ row: LibraryRow) {

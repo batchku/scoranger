@@ -193,10 +193,10 @@ extension NotebookShot {
         let make = app.descendants(matching: .any)["bar-new-setlist"].firstMatch
         guard make.waitForExistence(timeout: 10) else { return XCTFail("no Set list from N pieces in the bar") }
         print("SHOT: bar offers \"\(make.label)\"")
-        make.tap(); sleep(2)
+        make.tap(); sleep(3)
         snap("setlist-from-selection")
-        let title = app.descendants(matching: .any)["panel-title"].firstMatch
-        if title.exists { print("SHOT: set list named \"\(title.label)\"") }
+        let proposed = app.textFields["inline-rename-field"]
+        if proposed.exists { print("SHOT: set list proposed as \"\(proposed.value as? String ?? "")\"") }
     }
 }
 

@@ -267,10 +267,12 @@ targets:
         #              intact. Two gaps predate 0.6.13 -- the More gate and
         #              makeEditable() asked for .scan, and set_score_metadata
         #              parsed the latest artifact whatever it was;
-        #            - 4 and 5 ship as an interim: the tidied row and the
-        #              bar's "Set list from N pieces" named for what was
-        #              checked ("A and B", "A, B and 3 more"). The designer's
-        #              spec supersedes both when it lands.
+        #            - 4 and 5 are built to the designer's brief, which
+        #              landed mid-session (design/REDESIGN_BRIEF_0.8.md §7):
+        #              the two-line naming row on the list's grid; the
+        #              Edit-mode bar's "New set list" yielding by measurement;
+        #              #1 of each checked piece with a notice; the four naming
+        #              rules; the proposed name arriving selected.
         #          Not in this build: the in-app Import path is asserted
         #          through the same receiveFile the inbox uses, not through
         #          the Files picker itself.
@@ -574,6 +576,9 @@ targets:
       # on -- §14.5 says in terms not to copy ScoreBarLayout's 1.0x literals
       - path: Scoranger/Navigation/LibraryBarLayout.swift
       - path: Scoranger/Navigation/LibraryBarMetrics.swift
+      # the Edit-mode bar's rungs, the same way (REDESIGN_BRIEF_0.8 §7.3)
+      - path: Scoranger/Navigation/LibraryActionBarLayout.swift
+      - path: Scoranger/Navigation/LibraryActionBarMetrics.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
       - path: Scoranger/Navigation/Route.swift

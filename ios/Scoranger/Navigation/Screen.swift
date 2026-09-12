@@ -212,47 +212,119 @@ struct ConfirmDeleteStrip: View {
 
 struct InlineRenameRow: View {
     @Binding var text: String
+    /// "Piece name", "Set list name", or "Name" for a rename.
+    var placeholder: String = "Name"
+    /// `inline-create-row` for a new thing, `inline-rename-row` for a rename,
+    /// so the two purposes are separable in tests.
+    var containerIdentifier: String = "inline-rename-row"
+    /// The list's title edge: `s20`, plus the checkbox gutter in Edit mode.
+    var leading: CGFloat = Theme.Metric.s20
+    /// A proposed name arrives selected whole, so one keystroke replaces it.
+    var selectAll: Bool = false
     var onSave: () -> Void
     var onCancel: () -> Void
 
+    @FocusState private var focused: Bool
+    @ScaledMetric(relativeTo: .body) private var scaledControl: CGFloat = 34
+
+    /// One height for the field and both buttons: `max(34, scaled)`, so no
+    /// literal survives at accessibility sizes. The row's 92 follows.
+    private var control: CGFloat { max(34, scaledControl) }
+    private var canSave: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     var body: some View {
-        // One line at the row's height: a 40pt field with the focus ring,
-        // Cancel quiet, Save primary, centred on one line (§7.5; 0.8.0
-        // build 194, Ali's item 4 -- the designer's spec may refine it).
-        HStack(alignment: .center, spacing: Theme.Metric.s8) {
-            TextField("Name", text: $text)
-                .accessibilityIdentifier("inline-name-field")
-                .typeRole(.body)
-                .foregroundStyle(Theme.Ink.ink)
-                .tint(Theme.Accent.clay)
-                .textFieldStyle(.plain)
-                .submitLabel(.done)
-                .onSubmit(onSave)
-                .padding(.horizontal, Theme.Metric.s16)
-                .frame(height: 40)
+        // Two lines, not one (REDESIGN_BRIEF_0.8 §7.2). At 393pt a single row
+        // left the field 189pt; two lines give it 365 and let both lines sit
+        // on the list's own grid: the field at the title edge, Save at the
+        // ☰ column's edge. The row fill is the app's in-progress tint, the
+        // field is paper, and there is no third fill.
+        VStack(alignment: .trailing, spacing: Theme.Metric.s8) {
+            field
                 .frame(maxWidth: .infinity)
-                .background(Theme.Surface.paper)
-                .overlay { Capsule().strokeBorder(Theme.Accent.clay, lineWidth: 1.5) }
-                .clipShape(Capsule())
-                .accessibilityIdentifier("inline-rename-field")
-            Button(action: onCancel) {
-                Text("Cancel").typeRole(.control).foregroundStyle(Theme.Ink.ink2)
-                    .padding(.horizontal, Theme.Metric.s12).frame(height: 40)
-                    .contentShape(Capsule())
+            HStack(spacing: Theme.Metric.s8) {
+                Button(action: onCancel) {
+                    Text("Cancel").typeRole(.control).foregroundStyle(Theme.Ink.ink2)
+                        .padding(.horizontal, Theme.Metric.s12)
+                        .frame(minWidth: 80, minHeight: control)
+                        .background(Theme.Surface.paper)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                        .contentShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("inline-rename-cancel")
+                Button(action: onSave) {
+                    Text("Save").typeRole(.control).foregroundStyle(Theme.Surface.paper)
+                        .padding(.horizontal, Theme.Metric.s12)
+                        .frame(minWidth: 80, minHeight: control)
+                        .background(Theme.Accent.clayPress)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                        .contentShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+                }
+                .buttonStyle(.plain)
+                // Disabled, not hidden, so the row does not reflow as the
+                // first character lands.
+                .disabled(!canSave)
+                .opacity(canSave ? 1 : 0.42)
+                .accessibilityIdentifier("inline-rename-save")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("inline-rename-cancel")
-            Button(action: onSave) {
-                Text("Save").typeRole(.control).foregroundStyle(Theme.Surface.paper)
-                    .padding(.horizontal, Theme.Metric.s16).frame(height: 40)
-                    .background(Theme.Accent.clayPress).clipShape(Capsule()).contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("inline-rename-save")
         }
-        .padding(.horizontal, Theme.Metric.pageSide)
-        .padding(.vertical, Theme.Metric.s12)
-        .frame(minHeight: 64)
+        .padding(.leading, leading)
+        .padding(.trailing, Theme.Metric.s8)
+        .padding(.vertical, Theme.Metric.s8)
+        .frame(maxWidth: .infinity)
+        .background(Theme.Accent.clayTint)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(containerIdentifier)
+        .onAppear { focused = true }
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        Group {
+            if #available(iOS 18.0, *) {
+                SelectingTextField(placeholder: placeholder, text: $text,
+                                   selectAll: selectAll, focused: $focused)
+            } else {
+                TextField(placeholder, text: $text).focused($focused)
+            }
+        }
+        .typeRole(.body)
+        .foregroundStyle(Theme.Ink.ink)
+        .tint(Theme.Accent.clay)
+        .textFieldStyle(.plain)
+        .submitLabel(.done)
+        .onSubmit { if canSave { onSave() } }
+        .padding(.horizontal, Theme.Metric.s12)
+        .frame(minHeight: control)
+        .background(Theme.Surface.paper)
+        .overlay { RoundedRectangle(cornerRadius: Theme.Metric.rCtl).strokeBorder(Theme.Accent.clay, lineWidth: 1) }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        .accessibilityIdentifier("inline-rename-field")
+    }
+}
+
+/// A text field that can arrive with its text SELECTED, so a proposed name is
+/// replaced whole by the first keystroke (REDESIGN_BRIEF_0.8 §7.4 rule 4).
+/// `TextSelection` is iOS 18; the row falls back to a plain field before it.
+@available(iOS 18.0, *)
+private struct SelectingTextField: View {
+    var placeholder: String
+    @Binding var text: String
+    var selectAll: Bool
+    var focused: FocusState<Bool>.Binding
+    @State private var selection: TextSelection?
+
+    var body: some View {
+        TextField(placeholder, text: $text, selection: $selection)
+            .focused(focused)
+            .onChange(of: focused.wrappedValue) { _, isFocused in
+                guard isFocused, selectAll else { return }
+                // After the field has taken focus, or the caret placement
+                // that comes with focusing lands on top of this.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    selection = TextSelection(range: text.startIndex..<text.endIndex)
+                }
+            }
     }
 }
 

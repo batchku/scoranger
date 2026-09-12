@@ -42,15 +42,42 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .newArrangement: return "New arrangement"
         case .moveToPiece:    return "Move to piece…"
         case .addToSetlist:   return "Add to set list…"
-        case .newSetlist:
-            // 0.8.0 build 194 (Ali's item 5): the checked things become a
-            // set list, named for them (SetlistNaming).
-            guard count > 1 else { return "Set list from this \(kind.singular)" }
-            return "Set list from \(count) \(kind.plural)"
+        case .newSetlist:     return "New set list"
         case .duplicate:      return "Duplicate"
-        case .delete:
-            guard count > 1 else { return "Delete" }
-            return "Delete \(count) \(kind.plural)"
+        case .delete:         return deleteTitle(count: count, kind: kind, counted: true)
+        }
+    }
+
+    /// The short form the bar yields to when the full labels do not fit
+    /// (REDESIGN_BRIEF_0.8 §7.3, rung 2): a noun, the selection supplying the
+    /// verb. Delete keeps its count here; losing it is rung 3.
+    func shortTitle(count: Int, kind: LibrarySelectionKind) -> String {
+        switch self {
+        case .newArrangement: return "Arrangement"
+        case .moveToPiece:    return "Move…"
+        case .addToSetlist:   return "Set list…"
+        case .newSetlist:     return "Set list"
+        case .duplicate:      return "Duplicate"
+        case .delete:         return deleteTitle(count: count, kind: kind, counted: true)
+        }
+    }
+
+    /// Delete with or without its count. The count is the safety on the
+    /// destructive verb, so it is the last thing the bar gives up.
+    func deleteTitle(count: Int, kind: LibrarySelectionKind, counted: Bool) -> String {
+        guard counted, count > 1 else { return "Delete" }
+        return "Delete \(count) \(kind.plural)"
+    }
+
+    /// The whole sentence, for VoiceOver, whatever the visible label yielded
+    /// to: "New set list from 5 pieces".
+    func accessibilityTitle(count: Int, kind: LibrarySelectionKind) -> String {
+        switch self {
+        case .newSetlist:
+            guard count > 1 else { return "New set list from this \(kind.singular)" }
+            return "New set list from \(count) \(kind.plural)"
+        default:
+            return title(count: count, kind: kind)
         }
     }
 }
@@ -90,7 +117,10 @@ enum LibraryActions {
         case .setlists:
             return [.delete]
         case .arrangements:
-            return [.moveToPiece, .addToSetlist, .newSetlist, .duplicate, .delete]
+            // Add to set list is already here, and it is a different verb with
+            // a different target; a set list FROM a selection is the pieces
+            // bar's (REDESIGN_BRIEF_0.8 §7.3).
+            return [.moveToPiece, .addToSetlist, .duplicate, .delete]
         case .mixed:
             // only what is true of everything highlighted
             return [.delete]
