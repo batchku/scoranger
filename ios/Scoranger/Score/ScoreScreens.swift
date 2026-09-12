@@ -111,11 +111,12 @@ struct ScoreOptionsScreen: View {
             // arrangement has a notation version and the row has nothing left
             // to offer. A row that stays and does nothing is worse than a row
             // that goes.
-            if state.displayedArtifact == .scan {
+            // A PDF or a picture (0.8.0 build 194, Ali's item 6: the gate
+            // said PDF only since 0.5.0, and 0.6.13's image path never
+            // reached it).
+            if ScoreArtifact.canBeMadeEditable(state.displayedArtifact) {
                 makeEditableRow
-                note("This arrangement is a PDF. Reading it produces a notation "
-                     + "version you can transpose, select and ask about — the "
-                     + "PDF stays as it is, so you can compare them.")
+                note(ScoreArtifact.makeEditableNote(state.displayedArtifact))
             }
             // "Score display" is gone (0.6.3 #6). It held page/spread/
             // continuous -- which are three buttons at the TOP of the score,

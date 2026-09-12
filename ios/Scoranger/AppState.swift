@@ -621,6 +621,12 @@ final class AppState: ObservableObject {
     }
     @Published var pendingImports: [PendingImport] = []
 
+    /// What an import just brought in, for the root to OPEN (0.8.0 build
+    /// 194, Ali's item 1): a reader who imported a score, from Files or from
+    /// another app's share sheet, wants to see it, not the Pieces list. Set
+    /// by every import path that yields an arrangement; the root clears it.
+    @Published var openAfterImport: String?
+
     private func updatePending(_ id: UUID, stage: String, fraction: Double?) {
         print("SCORANGER-OMR \(stage)")
         if let i = pendingImports.firstIndex(where: { $0.id == id }) {
@@ -1062,6 +1068,7 @@ final class AppState: ObservableObject {
         guard useLocalEngine else { return }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let inbox = docs.appending(path: "inbox")
+        seedInboxOnce(into: inbox)
         let staging = docs.appending(path: ".ingesting")
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         // Notation, PDFs, and pictures of a page. The image list comes from
@@ -1077,6 +1084,50 @@ final class AppState: ObservableObject {
             // atomic move claims the file; skip if Files is still copying it
             guard (try? FileManager.default.moveItem(at: f, to: staged)) != nil else { continue }
             receiveFile(at: staged)
+        }
+    }
+
+    /// `-seedInboxFixture`: a UI test drops the bundled sample into the inbox
+    /// the way the share extension does, once per launch, so the path from
+    /// "something arrived" to "it is open" can be driven without a share sheet.
+    ///
+    /// `-seedInboxImage`: the same, with a PHOTOGRAPH -- page 1 of the bundled
+    /// scan rasterised to a real .jpeg -- because an image is its own kind of
+    /// artifact in the engine and the app, and 0.8's build 193 shipped with
+    /// both halves broken for it (no Make editable, Details save failing on
+    /// a music21 parse of the JPEG) while every PDF test stayed green.
+    private var inboxSeeded = false
+    private func seedInboxOnce(into inbox: URL) {
+        let arguments = ProcessInfo.processInfo.arguments
+        let wantsScore = arguments.contains("-seedInboxFixture")
+        let wantsImage = arguments.contains("-seedInboxImage")
+        guard !inboxSeeded, wantsScore || wantsImage else { return }
+        inboxSeeded = true
+        guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed") else { return }
+        let samples = ((try? FileManager.default.contentsOfDirectory(
+            at: seed, includingPropertiesForKeys: nil)) ?? [])
+            .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        if wantsScore, let sample = samples.first(where: { $0.pathExtension.lowercased() == "mxl" }) {
+            let dropped = inbox.appending(path: "Inbox test " + sample.lastPathComponent)
+            try? FileManager.default.removeItem(at: dropped)
+            try? FileManager.default.copyItem(at: sample, to: dropped)
+            print("SCORANGER-SEED dropped \(dropped.lastPathComponent) in the inbox")
+        }
+        if wantsImage, let scan = samples.first(where: { $0.pathExtension.lowercased() == "pdf" }),
+           let page = PDFDocument(url: scan)?.page(at: 0) {
+            // A phone photographs a page at a few thousand pixels a side;
+            // 1654 x 2339 is A4 at 200 dpi, enough for OMR to read.
+            let bounds = page.bounds(for: .mediaBox)
+            let scale = 1654 / max(bounds.width, 1)
+            let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+            let image = page.thumbnail(of: size, for: .mediaBox)
+            if let jpeg = image.jpegData(compressionQuality: 0.9) {
+                let dropped = inbox.appending(path: "Photo test.jpeg")
+                try? FileManager.default.removeItem(at: dropped)
+                try? jpeg.write(to: dropped)
+                print("SCORANGER-SEED dropped \(dropped.lastPathComponent) (\(jpeg.count) bytes) in the inbox")
+            }
         }
     }
 
@@ -1712,7 +1763,8 @@ final class AppState: ObservableObject {
     func makeEditable() {
         guard let slug = selectedSlug,
               let version = displayedVersion,
-              ScoreArtifact.kind(ofFile: version.file) == .scan else { return }
+              ScoreArtifact.canBeMadeEditable(ScoreArtifact.kind(ofFile: version.file))
+        else { return }
         // Claimed HERE, not inside convertPDF: fetching the artifact's path is
         // a round trip to the engine, and until this was set both ways in --
         // the More screen's switch and the transport's button -- read as idle
@@ -2029,6 +2081,7 @@ final class AppState: ObservableObject {
                 previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
+                openAfterImport = slug
             } catch {
                 report("open that PDF", error)
             }
@@ -2297,6 +2350,7 @@ final class AppState: ObservableObject {
                 previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
+                openAfterImport = slug
             } catch {
                 report("import that file", error)
             }

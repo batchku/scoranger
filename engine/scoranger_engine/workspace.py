@@ -847,6 +847,24 @@ def set_score_metadata(slug: str, title: str | None = None,
     if title is None and composer is None and arranger is None:
         raise ValueError("Nothing to change: pass a title, composer or arranger")
 
+    # A scan -- a PDF or a picture -- has no notation to carry a title, so its
+    # details live on the document until OMR gives it notation (which reads
+    # the document's name as its title). Parsing the artifact was the bug:
+    # music21 has no reader for a JPEG and died inside its converter with
+    # "cannot find format from file extensions" (Ali, 0.8.0 build 193).
+    if version_kind(slug) != "musicxml":
+        if title is not None:
+            doc["name"] = title.strip()
+            doc["title"] = title.strip()
+        for role, value in (("composer", composer), ("arranger", arranger)):
+            if value is not None:
+                doc[role] = value.strip() or None
+        repo.set_score(slug, doc)
+        rebuild_manifest()
+        return {"score": slug, "version": None, "name": doc["name"],
+                "title": doc.get("title"), "composer": doc.get("composer"),
+                "arranger": doc.get("arranger"), "scan": True}
+
     score = converter.parse(str(resolve_path(slug)), forceSource=True)
     applied = ops.set_metadata(score, title=title, composer=composer,
                               arranger=arranger)
