@@ -373,6 +373,98 @@ def main() -> int:
     check("it still produces a timeline", len(timeline["bars"]) > 0,
           "a score OMR mangled must still be playable")
 
+    # ------------------------------------------------ the parts stay in step
+    print("\na bar filled past its meter in ONE part -- optical recognition again")
+    # music21 lays each part out by what its bars HOLD, so the part with the
+    # overfull bar ran late from that bar to the end -- twelve bars late on
+    # Ali's arrangement -- while the map followed a well-formed part. The
+    # cursor is only ever as right as the parts are aligned.
+    overfull = stream.Score()
+    for name, fat in (("Violin", False), ("Accordion", True)):
+        part = stream.Part()
+        part.partName = name
+        for number in (1, 2, 3):
+            measure = stream.Measure(number=number)
+            if number == 1:
+                measure.insert(0, meter.TimeSignature("4/4"))
+            beats = 6 if (fat and number == 2) else 4
+            for _ in range(beats):
+                measure.append(note.Note("C4", quarterLength=1.0))
+            part.append(measure)
+        overfull.insert(0, part)
+    check("the fixture really has the accordion's bar 3 late",
+          float(overfull.parts[1].getElementsByClass(stream.Measure)[2].offset) == 10.0
+          and float(overfull.parts[0].getElementsByClass(stream.Measure)[2].offset) == 8.0)
+    performed, timeline = ops.playback_timeline(overfull)
+    spans = [(b["start"], b["end"]) for b in timeline["bars"]]
+    check("the map gives the wide bar its width, for everyone",
+          spans == [(0.0, 4.0), (4.0, 10.0), (10.0, 14.0)], str(spans))
+    thirds = [float(p.getElementsByClass(stream.Measure)[2].getOffsetInHierarchy(p))
+              for p in performed.parts]
+    check("bar 3 starts on the same beat in both parts, where the map says",
+          thirds == [10.0, 10.0], str(thirds))
+    ends = [float(p.highestTime) for p in performed.parts]
+    check("both parts end where the map ends",
+          all(abs(e - timeline["beats"]) < 1e-6 for e in ends),
+          f"{ends} vs {timeline['beats']}")
+    midi_path = Path(workspace_dir) / "overfull.mid"
+    performed.write("midi", fp=str(midi_path))
+    back = converter.parse(str(midi_path), forceSource=True)
+    onsets = sorted({round(float(n.getOffsetInHierarchy(back)), 3)
+                     for n in back.flatten().notes if 9.5 < float(n.getOffsetInHierarchy(back)) < 10.5})
+    check("and in the MIDI the sequencer plays, both parts' bar 3 sounds at beat 10",
+          onsets == [10.0], str(onsets))
+    check("the sounding intervals moved with the bars",
+          timeline["parts"][0]["sounding"] == [[0.0, 8.0], [10.0, 14.0]],
+          str(timeline["parts"][0]["sounding"]))
+
+    print("\nvoltas on the top staff only -- how optical recognition writes them")
+    from music21 import spanner as m21spanner
+    lonely = stream.Score()
+    for name in ("Melody", "Bass"):
+        part = stream.Part()
+        part.partName = name
+        for number in (1, 2, 3, 4, 5):
+            measure = stream.Measure(number=number)
+            if number == 1:
+                measure.insert(0, meter.TimeSignature("4/4"))
+                measure.leftBarline = bar.Repeat(direction="start")
+            if number == 4:
+                measure.rightBarline = bar.Repeat(direction="end")
+            measure.append(note.Note("C4", quarterLength=4.0))
+            part.append(measure)
+        lonely.insert(0, part)
+    top = lonely.parts[0].getElementsByClass(stream.Measure)
+    lonely.parts[0].insert(0, m21spanner.RepeatBracket([top[3]], number=1))
+    lonely.parts[0].insert(0, m21spanner.RepeatBracket([top[4]], number=2))
+    performed, timeline = ops.playback_timeline(lonely)
+    order = [b["measure"] for b in timeline["bars"]]
+    check("the map takes the endings", order == [1, 2, 3, 4, 1, 2, 3, 5], str(order))
+    counts = [len(p.getElementsByClass(stream.Measure)) for p in performed.parts]
+    # Without the bracket the bass plays 1-2-3-4 twice: nine bars to the
+    # melody's eight, a bar behind from the second ending to the end.
+    check("and the bass takes them too, so both parts play eight bars",
+          counts == [8, 8], str(counts))
+
+    print("\na mark that sends the parts different ways falls back to straight through")
+    from music21 import repeat as m21repeat
+    astray = stream.Score()
+    for name in ("Melody", "Bass"):
+        part = stream.Part()
+        part.partName = name
+        for number in (1, 2, 3):
+            measure = stream.Measure(number=number)
+            if number == 1:
+                measure.insert(0, meter.TimeSignature("4/4"))
+            measure.append(note.Note("C4", quarterLength=4.0))
+            part.append(measure)
+        astray.insert(0, part)
+    astray.parts[0].getElementsByClass(stream.Measure)[2].append(m21repeat.DaCapo())
+    performed, timeline = ops.playback_timeline(astray)
+    counts = [len(p.getElementsByClass(stream.Measure)) for p in performed.parts]
+    check("the D.C. on one part alone does not leave that part twice as long",
+          counts[0] == counts[1], str(counts))
+
     # --------------------------------------------------- transposing pitch
     print("\na B-flat clarinet sounds a tone below what is written")
     clarinet = stream.Score()

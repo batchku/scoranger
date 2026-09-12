@@ -105,17 +105,22 @@ final class PlaybackCrashHuntTests: XCTestCase {
         XCTAssertEqual(timeline.parts.map(\.name),
                        ["Violin I", "Accordion R.H.", "Acc. Chords", "Acc. Bass"])
         XCTAssertEqual(timeline.bars.count, 136)
-        // 3:24 at 120bpm, not the 14:36 the earlier note reached for
-        XCTAssertEqual(timeline.bars.last?.end, 408.0)
+        // 3:48 at 120bpm, not the 14:36 the earlier note reached for. It was
+        // 3:24 (136 bars of 3/4) until the engine gave the accordion's bars
+        // filled past their meter -- fifteen in the right hand, five in the
+        // bass -- their width for every part, so the parts stay in step
+        // (ops._on_one_grid; PlayheadDriftTests measures the cursor against
+        // the sound to the last bar).
+        XCTAssertEqual(timeline.bars.last?.end, 456.0)
     }
 
     func testTheWholePerformanceRendersWithoutFallingOver() throws {
         let timeline = try realTimeline()
         let graph = try realGraph(timeline)
         try start(graph)
-        // the entire 3:24, in one go
-        let peak = try render(graph, seconds: 205)
-        XCTAssertGreaterThan(rendered(graph), 204,
+        // the entire 3:48, in one go
+        let peak = try render(graph, seconds: 229)
+        XCTAssertGreaterThan(rendered(graph), 228,
                              "the offline clock did not reach the end of the piece")
         XCTAssertGreaterThan(peak, 1e-4,
                              "it rendered silence -- the transport was not running, "
@@ -181,7 +186,7 @@ final class PlaybackCrashHuntTests: XCTestCase {
     /// back, and `Int(nan)` is a trap rather than an error.
     func testTheTimelineSurvivesBeatsThatShouldNotHappen() throws {
         let timeline = try realTimeline()
-        for beat in [-1.0, -1e9, 0.0, 407.999, 408.0, 1e9,
+        for beat in [-1.0, -1e9, 0.0, 407.999, 408.0, 455.999, 456.0, 1e9,
                      .infinity, -.infinity, .nan] as [Double] {
             _ = timeline.bar(atBeat: beat)
             _ = timeline.span(atBeat: beat)

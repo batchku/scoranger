@@ -3705,6 +3705,12 @@ def _performed(score):
     try:
         candidate = played.expandRepeats()
         if candidate is not None and candidate.parts:
+            if not _in_step(played, candidate):
+                # Some mark one part carries and the others do not (a D.C., a
+                # segno) sent the parts different ways. Out of step is the
+                # one thing playback must never be, so the score plays
+                # straight through rather than with one part a phrase behind.
+                raise ValueError("the parts expanded to different lengths")
             played, expanded = candidate, True
     except Exception:
         # music21 could not resolve the repeats. Playing STRAIGHT THROUGH is the
@@ -3753,14 +3759,22 @@ def _performed(score):
 
 
 def _with_repeats_on_every_part(score):
-    """Every part carries the union of the score's repeat barlines, by bar.
+    """Every part carries the union of the score's repeat barlines AND voltas,
+    by bar.
 
     Works on a copy. Barlines are matched by measure INDEX within the part,
     not by number: OMR numbering is not trustworthy and the parts of one score
     are laid out bar for bar. A part shorter than the longest is left as it
     is beyond its own end.
+
+    Voltas too, for the same reason and with a worse failure: a first and
+    second ending written on the top staff alone (which is how optical
+    recognition delivers them) makes music21 expand that part as 1-2-3-4,
+    1-2-3-5 and every other part as 1-2-3-4, 1-2-3-4 -- one bar longer, and
+    out of step with the melody from the second ending to the last note.
     """
     from music21 import bar as m21bar
+    from music21 import spanner as m21spanner
 
     copy = _deep(score)
     parts = list(copy.parts)
@@ -3782,7 +3796,76 @@ def _with_repeats_on_every_part(score):
                     ms[index].leftBarline = m21bar.Repeat(direction="start")
                 if right is not None and not isinstance(ms[index].rightBarline, m21bar.Repeat):
                     ms[index].rightBarline = m21bar.Repeat(direction="end", times=right.times)
+    # A volta is a bracket over a run of bars; carry each one, as INDICES, to
+    # every part that has no bracket touching those bars.
+    brackets = []
+    for part, ms in zip(parts, per_part):
+        position = {id(m): k for k, m in enumerate(ms)}
+        for bracket in part.getElementsByClass(m21spanner.RepeatBracket):
+            covered = [position[id(m)] for m in bracket.getSpannedElements() if id(m) in position]
+            if covered:
+                brackets.append((covered, bracket.number))
+    for part, ms in zip(parts, per_part):
+        taken = set()
+        position = {id(m): k for k, m in enumerate(ms)}
+        for bracket in part.getElementsByClass(m21spanner.RepeatBracket):
+            taken.update(position[id(m)] for m in bracket.getSpannedElements() if id(m) in position)
+        for covered, number in brackets:
+            if taken & set(covered) or max(covered) >= len(ms):
+                continue
+            part.insert(0, m21spanner.RepeatBracket([ms[k] for k in covered], number=number))
+            taken.update(covered)
     return copy
+
+
+def _on_one_grid(played) -> list:
+    """Every part's k-th bar starts on the same beat. Returns the grid: the
+    length, in quarter notes, of each performed bar.
+
+    music21 lays a part's bars out end to end by what each bar HOLDS, and a
+    bar optical recognition filled past its meter -- six quarters in 3/4 --
+    pushes every later bar of that one part late. Ali's own arrangement has
+    fifteen such bars in the accordion's right hand and five in its bass, so
+    at the last bar the right hand sounded twelve bars behind the violin and
+    the bass four, while the map, read from the violin, agreed with neither.
+    Measured: the sequencer's clock keeps pace with the audio device to
+    0.05%; this was the whole of the play head's drift.
+
+    The page already answers what to do. Verovio draws one barline through
+    all the staves, so an overfull bar is a wide bar for EVERY part, with the
+    shorter parts' notes in its left portion. The grid is that: each bar as
+    long as the longest part's reading of it, every part's bar k placed at
+    the same start, nothing cut and nothing overlapped.
+    """
+    per_part = [list(p.getElementsByClass(stream.Measure)) for p in played.parts]
+    if not per_part:
+        return []
+    length = max(len(ms) for ms in per_part)
+    grid = [max(float(ms[k].duration.quarterLength) for ms in per_part if k < len(ms))
+            for k in range(length)]
+    starts, at = [], 0.0
+    for span in grid:
+        starts.append(at)
+        at += span
+    for part, ms in zip(played.parts, per_part):
+        for k, measure in enumerate(ms):
+            if abs(float(measure.offset) - starts[k]) > 1e-9:
+                part.setElementOffset(measure, starts[k])
+    return grid
+
+
+def _in_step(before, after) -> bool:
+    """Did every part that had the same bar count before expansion keep the
+    same bar count as each other after it?"""
+    counts_before = [len(p.getElementsByClass(stream.Measure)) for p in before.parts]
+    counts_after = [len(p.getElementsByClass(stream.Measure)) for p in after.parts]
+    if len(counts_before) != len(counts_after):
+        return False
+    for i in range(len(counts_before)):
+        for j in range(i + 1, len(counts_before)):
+            if counts_before[i] == counts_before[j] and counts_after[i] != counts_after[j]:
+                return False
+    return True
 
 
 def _without_repeats(score):
@@ -3884,15 +3967,18 @@ def playback_timeline(score) -> tuple:
     from music21 import tempo as m21tempo
 
     played, flags = _performed(score)
+    widths = _on_one_grid(played)
     spine = _timeline_spine(played)
 
     bars, clicks = [], []
     signature = None
     if spine is not None:
-        for measure in spine.getElementsByClass(stream.Measure):
+        for k, measure in enumerate(spine.getElementsByClass(stream.Measure)):
             signature = measure.timeSignature or signature or m21meter.TimeSignature("4/4")
             start = float(measure.offset)
-            span = float(measure.duration.quarterLength)
+            # The bar's length on the shared grid, not this part's reading of
+            # it: see _on_one_grid.
+            span = widths[k] if k < len(widths) else float(measure.duration.quarterLength)
             unit = float(signature.beatDuration.quarterLength) or 1.0
             pad = float(measure.paddingLeft or 0)
             bars.append({"measure": int(measure.number), "start": start,
