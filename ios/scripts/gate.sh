@@ -423,7 +423,13 @@ serial &= ids
 if not serial:
     sys.exit("the serial list is empty after matching the enumeration")
 ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/") and i not in serial)
-unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/"))
+# Unit tests named in the serial list are held out of the worker's lump the
+# same way, by a -skip-testing per test (unit-skip.txt), since the lump is
+# the whole target and cannot be enumerated back in without them.
+unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/") and i not in serial)
+with open(os.path.join(out, "unit-skip.txt"), "w") as f:
+    held = sorted(i for i in serial if not i.startswith("ScorangerUITests/"))
+    f.write("\n".join(held) + ("\n" if held else ""))
 
 dur = {}
 if os.path.exists(durfile):
@@ -467,6 +473,10 @@ for n in $(seq 1 "$WORKERS"); do
   args=()
   while read -r t; do [[ -n "$t" ]] && args+=("-only-testing:$t"); done < "$OUT/shard-$n.txt"
   if (( ${#args[@]} == 0 )); then pids+=(0); continue; fi
+  # The serial list's UNIT tests, kept out of the unit lump (see unit-skip.txt).
+  if grep -q "^ScorangerTests$" "$OUT/shard-$n.txt" && [[ -s "$OUT/unit-skip.txt" ]]; then
+    while read -r t; do [[ -n "$t" ]] && args+=("-skip-testing:$t"); done < "$OUT/unit-skip.txt"
+  fi
   ( xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
       -destination "platform=iOS Simulator,id=$udid" \
       -resultBundlePath "$OUT/worker-$n.xcresult" \

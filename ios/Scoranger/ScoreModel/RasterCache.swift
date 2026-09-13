@@ -274,14 +274,42 @@ enum RasterWork {
         let queue = OperationQueue()
         queue.name = "com.irllabs.scoranger.raster"
         queue.maxConcurrentOperationCount = 2
-        queue.qualityOfService = .userInitiated
+        // Utility, not user-initiated: a raster is a picture that will
+        // replace the one standing in, and the embedded engine's thread --
+        // which the tray and the transport wait on -- must win the cores
+        // when they are short. On an idle device utility work starts at once.
+        queue.qualityOfService = .utility
         return queue
     }()
 
-    /// Run `make` on the raster queue and hand back its result.
-    static func run<T: Sendable>(_ make: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            queue.addOperation { continuation.resume(returning: make()) }
+    /// One raster per key at a time. A tile's `.task(id:)` is cancelled and
+    /// restarted every time the page stack is re-rooted, which under load is
+    /// often; without this each restart queued the same raster again, and a
+    /// strip's two dozen tiles became a hundred renders.
+    private static let lock = NSLock()
+    private static var inFlight: [RasterKey: Task<UIImage, Never>] = [:]
+
+    /// The image for `key`: what the cache holds, or one raster shared by
+    /// everyone asking for it, made on the raster queue.
+    static func image(for key: RasterKey, make: @escaping @Sendable () -> UIImage) async -> UIImage {
+        if let held = CanvasRasters.shared.held(key) { return held }
+        lock.lock()
+        if let running = inFlight[key] {
+            lock.unlock()
+            return await running.value
         }
+        let task = Task<UIImage, Never> {
+            let made: UIImage = await withCheckedContinuation { continuation in
+                queue.addOperation {
+                    continuation.resume(returning: CanvasRasters.shared.value(
+                        for: key, cost: CanvasRasters.bytes, make: make))
+                }
+            }
+            lock.lock(); inFlight[key] = nil; lock.unlock()
+            return made
+        }
+        inFlight[key] = task
+        lock.unlock()
+        return await task.value
     }
 }

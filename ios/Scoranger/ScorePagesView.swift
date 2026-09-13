@@ -1535,13 +1535,11 @@ private struct PDFPageImage: View {
             let wanted = key
             if let held = CanvasRasters.shared.held(wanted) { image = held; return }
             let page = self.page, size = self.size, scale = self.scale
-            let made = await RasterWork.run {
-                CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes) {
-                    PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
-                        page.thumbnail(
-                            of: CGSize(width: size.width * scale, height: size.height * scale),
-                            for: .mediaBox)
-                    }
+            let made = await RasterWork.image(for: wanted) {
+                PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
+                    page.thumbnail(
+                        of: CGSize(width: size.width * scale, height: size.height * scale),
+                        for: .mediaBox)
                 }
             }
             if !Task.isCancelled { image = made }
@@ -1618,10 +1616,8 @@ private struct ContinuousTileView: View {
             // Whatever is held at the other depth is better than paper.
             if image == nil, let other = CanvasRasters.shared.held(key(atDepth: !atDepth)) { image = other }
             let page = self.page, tile = self.tile, scale = self.scale, atDepth = self.atDepth
-            let made = await RasterWork.run {
-                CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes) {
-                    ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
-                }
+            let made = await RasterWork.image(for: wanted) {
+                ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
             }
             if !Task.isCancelled { image = made }
         }
