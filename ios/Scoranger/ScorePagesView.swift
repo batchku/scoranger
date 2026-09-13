@@ -1535,13 +1535,24 @@ private struct PDFPageImage: View {
             let wanted = key
             if let held = CanvasRasters.shared.held(wanted) { image = held; return }
             let page = self.page, size = self.size, scale = self.scale
-            let made = await RasterWork.image(for: wanted) {
+            let make: @Sendable () -> UIImage = {
                 PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
                     page.thumbnail(
                         of: CGSize(width: size.width * scale, height: size.height * scale),
                         for: .mediaBox)
                 }
             }
+            // The FIRST picture is drawn here and now, as it always was: with
+            // nothing to stand in, a blank page is worse than a late frame,
+            // and the machine is not asked to raster in parallel with the
+            // engine that is preparing the same score's playback. Only a
+            // SHARPER picture -- after a pinch -- is made off the main thread,
+            // behind the one already showing.
+            if image == nil {
+                image = CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes, make: make)
+                return
+            }
+            let made = await RasterWork.image(for: wanted, make: make)
             if !Task.isCancelled { image = made }
         }
     }
@@ -1616,9 +1627,19 @@ private struct ContinuousTileView: View {
             // Whatever is held at the other depth is better than paper.
             if image == nil, let other = CanvasRasters.shared.held(key(atDepth: !atDepth)) { image = other }
             let page = self.page, tile = self.tile, scale = self.scale, atDepth = self.atDepth
-            let made = await RasterWork.image(for: wanted) {
+            let make: @Sendable () -> UIImage = {
                 ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
             }
+            // The first picture of a tile is drawn now, on the main thread, as
+            // before (see PDFPageImage); the shallow one is cheap. Only the
+            // deep raster a drag brings a tile into is made off-main, behind
+            // the shallow one already showing -- which is the case the frame
+            // probe measured at 3 fps.
+            if image == nil {
+                image = CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes, make: make)
+                return
+            }
+            let made = await RasterWork.image(for: wanted, make: make)
             if !Task.isCancelled { image = made }
         }
     }

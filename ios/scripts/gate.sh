@@ -176,36 +176,11 @@ SKIP=(
 # one engine call be in flight at a time would let the rest stay parallel.
 # Adding a fourth entry without reading that note is the mistake to avoid.
 ENGINE_SERIAL=(
-  # THE PLAYBACK-TIMELINE CLASS, 2026-09-12. Every one of these waits for the
-  # tray's transport, which is the engine's `playback` call. Three gates on
-  # the 0.8.0 build 195 work failed between eleven and fifteen of them with
-  # "no transport" / "the timeline did not arrive", on different workers,
-  # and every one passed alone on the same simulators in 16-41 seconds --
-  # the pattern this list was written for, the same engine call named in
-  # the note above. Serialised, not skipped: they still count.
-  "ScorangerUITests/ClosingStopsPlayback/testClosingTheScoreStopsTheMusic()"
-  "ScorangerUITests/ContinuousFollows/testTheScoreStreamsPastTheLineInScrollMode()"
-  "ScorangerUITests/MixerKeepsPlaying/testWorkingTheTrayDoesNotStopPlayback()"
-  "ScorangerUITests/MixerOnAlisCase/testTheKnobTurnsAndTheTrayDoesNot()"
-  "ScorangerUITests/ReorgShot/testTheMixerSoundPicker()"
-  "ScorangerUITests/ReorgShot/testTheTrayAndItsTempoKnob()"
-  "ScorangerUITests/TransportVisibility/testTheTransportIsThereWithoutBeingTurnedOn()"
-  "ScorangerUITests/TrayBehaviour/testAKnobDragChangesTheLevelAndLeavesTheTrayWhereItIs()"
-  "ScorangerUITests/TrayBehaviour/testEachStripsControlsBelongToThePartItNames()"
-  "ScorangerUITests/TrayBehaviour/testTheKnobSlotFollowsTheParts()"
-  "ScorangerUITests/TrayBehaviour/testTheTraySeatsItsControls()"
-  "ScorangerUITests/TrayVisibility/testTheKnobFollowsTheFingerWhileItIsStillDown()"
-  "ScorangerUITests/TrayVisibility/testTheSoundPickerIsWhollyOnScreen()"
-  "ScorangerUITests/TrayVisibility/testTheTrayCannotBeDraggedAway()"
-  "ScorangerUITests/TrayVisibility/testTheTrayIsWhollyOnScreen()"
-  "ScorangerUITests/ScorangerUITests/testTheBarCounterFollowsTheViewportNotThePage()"
-  "ScorangerUITests/ScorangerUITests/testTheHandleDoesNotStealTheLassosTouches()"
-  "ScorangerUITests/ScorangerUITests/testTheHandleScrubsWithoutScrollingTheCanvas()"
-  "ScorangerUITests/ScorangerUITests/testThePencilStillMarksWhileTheTransportRuns()"
-  "ScorangerUITests/ScorangerUITests/testThePlayheadDrawsAndTheLassoStillSelectsUnderIt()"
-  "ScorangerUITests/ScorangerUITests/testThePlayheadKeepsItsWeightAtAnyZoom()"
-  "ScorangerUITests/ScorangerUITests/testTheTransportIsReachableAndEveryVoiceCanBeSwitchedOff()"
-  "ScorangerUITests/ScorangerUITests/testTheTrayHasAKnobPerStaff()"
+  # 2026-09-12: twenty-three playback tests were listed here for one gate,
+  # on the belief that they starved under four workers. They did not: they
+  # failed in THIS phase too, one at a time, and passed alone minutes later.
+  # The cause was the simulator's audio after the real-time measurements
+  # (see SKIP, and the worker command). The list went back to what it was.
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
@@ -511,10 +486,17 @@ for n in $(seq 1 "$WORKERS"); do
   if grep -q "^ScorangerTests$" "$OUT/shard-$n.txt" && [[ -s "$OUT/unit-skip.txt" ]]; then
     while read -r t; do [[ -n "$t" ]] && args+=("-skip-testing:$t"); done < "$OUT/unit-skip.txt"
   fi
+  # SKIP goes to the workers too. It used to reach only the enumeration, and
+  # the unit target runs as one lump, so a skipped UNIT test still ran here:
+  # the two real-time audio measurements ran on worker 1, started the
+  # simulator's audio output, and every playback test after them on that
+  # simulator -- and in the serial phase, which uses it -- found no transport
+  # (2026-09-12: 23 of 29 serial tests, all of them on the one simulator the
+  # measurements had run on; the other three simulators had none).
   ( xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
       -destination "platform=iOS Simulator,id=$udid" \
       -resultBundlePath "$OUT/worker-$n.xcresult" \
-      "${args[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/worker-$n.log" 2>&1 ) &
+      "${args[@]}" "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/worker-$n.log" 2>&1 ) &
   pids+=($!)
 done
 
@@ -559,13 +541,6 @@ if (( ${#SERIAL_TESTS[@]} > 0 )); then
   for ((i = 1; i < ${#udids[@]}; i++)); do
     xcrun simctl shutdown "${udids[i]}" >/dev/null 2>&1 || true
   done
-  # The seventh candidate from the note above, "immediately after four
-  # workers stop", tested here: a serial test that waits on the engine
-  # failed in this phase twice on 2026-09-12 and passed alone minutes later.
-  # A minute's pause before the phase, so the machine is the quiet one the
-  # phase is meant to provide.
-  echo "    pausing 60s before the serial phase"
-  /bin/sleep 60
 
   serial_args=()
   for t in "${SERIAL_TESTS[@]}"; do serial_args+=("-only-testing:$t"); done
