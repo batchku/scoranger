@@ -259,3 +259,29 @@ enum CanvasRasters {
     }
 }
 #endif
+
+/// Where off-main rasters run: a queue with a small, fixed width.
+///
+/// The first off-main rasters (0.8.0 build 195) were detached tasks, one per
+/// tile or page as it appeared -- two dozen CoreGraphics renders at once on
+/// opening a strip. On a device that is heat; under the gate's four
+/// simulators it starved the engine's own thread, and the playback timeline
+/// that the tray waits for stopped arriving inside three minutes. Two at a
+/// time keeps the main thread free, which was the point, without taking the
+/// machine.
+enum RasterWork {
+    private static let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.irllabs.scoranger.raster"
+        queue.maxConcurrentOperationCount = 2
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+
+    /// Run `make` on the raster queue and hand back its result.
+    static func run<T: Sendable>(_ make: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            queue.addOperation { continuation.resume(returning: make()) }
+        }
+    }
+}

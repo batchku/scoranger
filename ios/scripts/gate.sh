@@ -96,6 +96,10 @@ SKIP=(
   -skip-testing:ScorangerUITests/MixerShot
   # NotebookShot photographs the 0.8 pages and panel the same way.
   -skip-testing:ScorangerUITests/NotebookShot
+  # DragPerformance is the frame-rate goal driven by a FINGER, for a real
+  # device with a person at it; a simulator's frame timing says nothing
+  # about an iPad, and it ran five minutes here to say so.
+  -skip-testing:ScorangerUITests/DragPerformance
   # THE EIGHT ROTATING TESTS, skipped with the evidence, and a tracking item in
   # BACKLOG.md. They fail inside this gate -- in the pool AND in the serial
   # phase -- and pass in every configuration tried by hand on the same build:
@@ -162,6 +166,12 @@ SKIP=(
 # one engine call be in flight at a time would let the rest stay parallel.
 # Adding a fourth entry without reading that note is the mistake to avoid.
 ENGINE_SERIAL=(
+  # Two REAL-TIME AUDIO measurements: they start AVAudioEngine's output and
+  # read the sequencer against the device clock and the display link. Under
+  # four simulators the output node refused to initialise (-10851) and the
+  # display link cannot be held at its rate; alone, both pass in seconds.
+  "ScorangerTests/PlayheadDriftTests/testTheClockKeepsPaceWithTheDeviceInRealTime()"
+  "ScorangerTests/PlayheadTickerTests/testTheTickerHandsOverTheBeatEveryFrame()"
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
