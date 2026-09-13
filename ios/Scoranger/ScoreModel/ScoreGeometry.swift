@@ -36,7 +36,19 @@ struct ScorePage {
     /// Grid cell -> indices into `elements`.
     private let buckets: [[Int]]
 
+    /// The engraved bars of this page, one frame per staff per measure,
+    /// clipped to their neighbours -- computed ONCE here. `BarPosition.bars`
+    /// used to rebuild it from `elements` on every call, and it is called
+    /// per frame by the play head and per viewport publish by the Sync chip:
+    /// on a 136-bar strip that was a scan of every element 120 times a second
+    /// (0.8.0 build 195's frame probe found it).
+    let barFrames: [BarPosition.Bar]
+
     init(index: Int, size: CGSize, elements: [ScoreElement]) {
+        self.barFrames = BarPosition.clippedToNeighbours(elements.compactMap { element in
+            guard element.kind == .measure, let address = element.address else { return nil }
+            return BarPosition.Bar(number: address.measure, frame: element.frame)
+        })
         self.index = index
         self.size = size
         self.elements = elements

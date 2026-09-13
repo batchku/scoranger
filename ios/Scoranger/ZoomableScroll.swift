@@ -2,6 +2,11 @@ import OSLog
 import SwiftUI
 import UIKit
 
+/// `-perfSkipVisibleRect`: an experiment for the frame probe -- no visible-rect
+/// reports after the first, to price what they drive (a generic class cannot
+/// hold a static, hence file scope).
+private let zoomableScrollSkipVisibleReports =
+    ProcessInfo.processInfo.arguments.contains("-perfSkipVisibleRect")
 /// Rate limit for the park log line (a generic class cannot hold a static).
 private nonisolated(unsafe) var zoomableScrollLastParkLog = Date.distantPast
 
@@ -93,7 +98,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var bottomChrome: CGFloat = 0
     /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
     /// What it is for: deciding which pages are worth rastering at depth.
-    var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+    var onVisibleRectChange: ((CGRect, CGSize, Bool) -> Void)?
     /// Moves the canvas without going through SwiftUI, for the play head --
     /// which reports twenty times a second and must not invalidate the canvas
     /// that often. See `CanvasScroller`.
@@ -271,7 +276,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         var autoDrag: AutoDrag?
         weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
-        var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+        /// (visible rect, content size, live) -- `live` while a finger or its
+        /// momentum is moving the content, so the caller can hold anything
+        /// that would re-lay out the score until the move is over.
+        var onVisibleRectChange: ((CGRect, CGSize, Bool) -> Void)?
         var bottomChrome: CGFloat = 0
         private var lastReportedVisible: CGRect = .zero
         private var laidOutSize: CGSize = .zero
@@ -569,10 +577,23 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             reportVisible(scrollView)
         }
 
+        /// The move is over: report once more, past the threshold, so what
+        /// was held during it (the bar readout) catches up at rest.
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate: Bool) {
+            if !willDecelerate { reportVisible(scrollView, settled: true) }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            reportVisible(scrollView, settled: true)
+        }
+
         /// The viewport in content coordinates: what is on screen divided by
         /// the zoom, because the hosted view is scaled by a transform and its
         /// own geometry never changes.
-        private func reportVisible(_ scrollView: UIScrollView) {
+        private func reportVisible(_ scrollView: UIScrollView, settled: Bool = false) {
+            if zoomableScrollSkipVisibleReports, lastReportedVisible != .zero { return }
+            let live = !settled && (scrollView.isTracking || scrollView.isDragging
+                                    || scrollView.isDecelerating || (probe?.forced ?? false))
             let scale = max(scrollView.zoomScale, 0.0001)
             let rect = CGRect(x: scrollView.contentOffset.x / scale,
                               y: scrollView.contentOffset.y / scale,
@@ -584,7 +605,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             // x as well as y: the bar readout follows a SIDEWAYS pan across a
             // zoomed page, and a guard that watched only the vertical never
             // reported one.
-            guard abs(rect.minY - lastReportedVisible.minY) > 24
+            guard settled
+                    || abs(rect.minY - lastReportedVisible.minY) > 24
                     || abs(rect.minX - lastReportedVisible.minX) > 24
                     || abs(rect.height - lastReportedVisible.height) > 24
                     || abs(rect.width - lastReportedVisible.width) > 24
@@ -595,7 +617,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             // SwiftUI layout's, and mapping between them by assumption put the
             // bar readout eight pages wide
             onVisibleRectChange?(rect, CGSize(width: scrollView.contentSize.width / scale,
-                                              height: scrollView.contentSize.height / scale))
+                                              height: scrollView.contentSize.height / scale), live)
         }
 
         private func publishZoom(_ scrollView: UIScrollView) {

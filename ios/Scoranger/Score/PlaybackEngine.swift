@@ -341,8 +341,16 @@ final class PlaybackEngine: ObservableObject {
                 guard let self, let sequencer = self.sequencer else { return }
                 let now = sequencer.currentPositionInBeats
                 // The ONE published fact. `soundingBar` is derived from it, so
-                // nothing has to be kept in step with anything.
-                self.beat = now
+                // nothing has to be kept in step with anything. Published when
+                // the BAR changes or a whole beat has passed, not on every
+                // poll: every view of the score screen observes this engine,
+                // and twenty publishes a second re-rooted the page stack
+                // twenty times a second under a playing score (0.8.0 build
+                // 195). The line and the strip read `clock`, every frame.
+                if self.timeline.bar(atBeat: now) != self.timeline.bar(atBeat: self.beat)
+                    || abs(now - self.beat) >= 1 {
+                    self.beat = now
+                }
                 if PlaybackSound.hasFinished(beat: now, end: self.timeline.beats) {
                     switch PlaybackSound.atEnd(loop: self.loop) {
                     case .rewind:

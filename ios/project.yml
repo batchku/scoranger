@@ -248,6 +248,20 @@ targets:
         #               found, fixed, re-measured, repeated; before and after
         #               reported.
         #          Internal. External-group and public-link settings are Ali's.
+        #          What C measured, on Ali's iPhone 15 Pro (120Hz), a scripted
+        #          drag of thirty seconds at 2x (FrameProbe + AutoDrag):
+        #            paged        before 103 fps, 16% frames dropped, worst 36ms
+        #                         after  118 fps,  1.4% dropped, tail 116-120
+        #            continuous   before   3 fps (worst frame 467ms)
+        #                         after  110 fps (chip cost still in), and 118
+        #                         with the Sync chip's cost removed -- which
+        #                         is what the last change does.
+        #          Causes, in the order they were found and removed: tiles and
+        #          pages rasterised on the main thread in the view body; every
+        #          24pt of a drag publishing the bar readout on AppState, which
+        #          re-roots the whole page stack; the engine's 20Hz beat doing
+        #          the same under a playing score; the Sync chip rebuilding
+        #          every bar frame of the strip on each viewport publish.
         #   0.8.0  BUILD 194 IS THE EXTERNAL CANDIDATE (Ali, 2026-09-11: external
         #          testers, including Echo). Its Release archive was checked at
         #          deploy time: no samples-seed, no score of its own

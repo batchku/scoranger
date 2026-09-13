@@ -79,8 +79,10 @@ final class AutoDrag: NSObject {
         // A triangle wave from 0 to 1 and back, one period at a time.
         let phase = (elapsed / Self.period).truncatingRemainder(dividingBy: 1)
         let wave = phase < 0.5 ? phase * 2 : 2 - phase * 2
-        let maxX = max(scroll.contentSize.width - scroll.bounds.width, 0)
-        let maxY = max(scroll.contentSize.height - scroll.bounds.height, 0)
-        scroll.contentOffset = CGPoint(x: maxX * wave, y: maxY * wave)
+        // At most three viewports each way per half period: a fast flick,
+        // not a teleport across a 24,000pt strip in a second.
+        let maxX = min(max(scroll.contentSize.width - scroll.bounds.width, 0), scroll.bounds.width * 3)
+        let maxY = min(max(scroll.contentSize.height - scroll.bounds.height, 0), scroll.bounds.height * 3)
+        scroll.contentOffset = CGPoint(x: origin.x + maxX * wave, y: origin.y + maxY * wave)
     }
 }
