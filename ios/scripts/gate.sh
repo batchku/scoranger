@@ -480,11 +480,15 @@ pids=(); udids=()
 for n in $(seq 1 "$WORKERS"); do
   udid=$(sim_for "$n"); udids+=("$udid")
   args=()
-  while read -r t; do [[ -n "$t" ]] && args+=("-only-testing:$t"); done < "$OUT/shard-$n.txt"
-  if (( ${#args[@]} == 0 )); then pids+=(0); continue; fi
+  unit_args=()
+  while read -r t; do
+    [[ -n "$t" ]] || continue
+    if [[ "$t" == "ScorangerTests" ]]; then unit_args+=("-only-testing:$t"); else args+=("-only-testing:$t"); fi
+  done < "$OUT/shard-$n.txt"
+  if (( ${#args[@]} == 0 && ${#unit_args[@]} == 0 )); then pids+=(0); continue; fi
   # The serial list's UNIT tests, kept out of the unit lump (see unit-skip.txt).
-  if grep -q "^ScorangerTests$" "$OUT/shard-$n.txt" && [[ -s "$OUT/unit-skip.txt" ]]; then
-    while read -r t; do [[ -n "$t" ]] && args+=("-skip-testing:$t"); done < "$OUT/unit-skip.txt"
+  if (( ${#unit_args[@]} > 0 )) && [[ -s "$OUT/unit-skip.txt" ]]; then
+    while read -r t; do [[ -n "$t" ]] && unit_args+=("-skip-testing:$t"); done < "$OUT/unit-skip.txt"
   fi
   # SKIP goes to the workers too. It used to reach only the enumeration, and
   # the unit target runs as one lump, so a skipped UNIT test still ran here:
@@ -493,10 +497,32 @@ for n in $(seq 1 "$WORKERS"); do
   # simulator -- and in the serial phase, which uses it -- found no transport
   # (2026-09-12: 23 of 29 serial tests, all of them on the one simulator the
   # measurements had run on; the other three simulators had none).
-  ( xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
-      -destination "platform=iOS Simulator,id=$udid" \
-      -resultBundlePath "$OUT/worker-$n.xcresult" \
-      "${args[@]}" "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/worker-$n.log" 2>&1 ) &
+  # THE UNIT LUMP RUNS ON ITS OWN, AND THE SIMULATOR IS REBOOTED AFTER IT.
+  # 2026-09-12, five gates: every playback UI test on the simulator that had
+  # just run the 1,350 unit tests found no transport -- ten to twelve of them
+  # a gate, always on that one simulator, none on the other three -- and the
+  # same tests passed on it in 27 seconds once it had been rebooted. What
+  # the unit run leaves behind in the simulator's audio was not named; a
+  # boot between the two is what removes it. Its own result bundle
+  # (unit.xcresult), counted beside the workers'.
+  ( ok=0
+    if (( ${#unit_args[@]} > 0 )); then
+      xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
+        -destination "platform=iOS Simulator,id=$udid" \
+        -resultBundlePath "$OUT/unit.xcresult" \
+        "${unit_args[@]}" "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/unit.log" 2>&1 || ok=1
+      xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+      /bin/sleep 5
+      xcrun simctl boot "$udid" >/dev/null 2>&1 || true
+      /bin/sleep 20
+    fi
+    if (( ${#args[@]} > 0 )); then
+      xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
+        -destination "platform=iOS Simulator,id=$udid" \
+        -resultBundlePath "$OUT/worker-$n.xcresult" \
+        "${args[@]}" "${SKIP[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/worker-$n.log" 2>&1 || ok=1
+    fi
+    exit $ok ) &
   pids+=($!)
 done
 
@@ -565,6 +591,9 @@ total = passed = failed = skipped = 0
 durations = {}
 bundles = [(f"worker {n}", os.path.join(out, f"worker-{n}.xcresult"))
            for n in range(1, workers + 1)]
+unit_bundle = os.path.join(out, "unit.xcresult")
+if os.path.exists(unit_bundle):
+    bundles.insert(0, ("unit", unit_bundle))
 serial_bundle = os.path.join(out, "serial.xcresult")
 if os.path.exists(serial_bundle):
     bundles.append(("serial", serial_bundle))
