@@ -100,6 +100,16 @@ SKIP=(
   # device with a person at it; a simulator's frame timing says nothing
   # about an iPad, and it ran five minutes here to say so.
   -skip-testing:ScorangerUITests/DragPerformance
+  # Two REAL-TIME AUDIO MEASUREMENTS (the sequencer against the device clock,
+  # and against the display link): they start AVAudioEngine's output, which
+  # refused to initialise (-10851) in the pool AND in the serial phase right
+  # after it, and passed alone on the same simulators seconds later
+  # (59.2/s on gate-1, 59.5/s on gate-2, 2026-09-12). They MEASURE, like
+  # PerfSweep, and are run by hand:
+  #   xcodebuild test ... -only-testing:ScorangerTests/PlayheadTickerTests \
+  #     -only-testing:ScorangerTests/PlayheadDriftTests/testTheClockKeepsPaceWithTheDeviceInRealTime
+  -skip-testing:ScorangerTests/PlayheadTickerTests
+  -skip-testing:ScorangerTests/PlayheadDriftTests/testTheClockKeepsPaceWithTheDeviceInRealTime
   # THE EIGHT ROTATING TESTS, skipped with the evidence, and a tracking item in
   # BACKLOG.md. They fail inside this gate -- in the pool AND in the serial
   # phase -- and pass in every configuration tried by hand on the same build:
@@ -166,12 +176,36 @@ SKIP=(
 # one engine call be in flight at a time would let the rest stay parallel.
 # Adding a fourth entry without reading that note is the mistake to avoid.
 ENGINE_SERIAL=(
-  # Two REAL-TIME AUDIO measurements: they start AVAudioEngine's output and
-  # read the sequencer against the device clock and the display link. Under
-  # four simulators the output node refused to initialise (-10851) and the
-  # display link cannot be held at its rate; alone, both pass in seconds.
-  "ScorangerTests/PlayheadDriftTests/testTheClockKeepsPaceWithTheDeviceInRealTime()"
-  "ScorangerTests/PlayheadTickerTests/testTheTickerHandsOverTheBeatEveryFrame()"
+  # THE PLAYBACK-TIMELINE CLASS, 2026-09-12. Every one of these waits for the
+  # tray's transport, which is the engine's `playback` call. Three gates on
+  # the 0.8.0 build 195 work failed between eleven and fifteen of them with
+  # "no transport" / "the timeline did not arrive", on different workers,
+  # and every one passed alone on the same simulators in 16-41 seconds --
+  # the pattern this list was written for, the same engine call named in
+  # the note above. Serialised, not skipped: they still count.
+  "ScorangerUITests/ClosingStopsPlayback/testClosingTheScoreStopsTheMusic()"
+  "ScorangerUITests/ContinuousFollows/testTheScoreStreamsPastTheLineInScrollMode()"
+  "ScorangerUITests/MixerKeepsPlaying/testWorkingTheTrayDoesNotStopPlayback()"
+  "ScorangerUITests/MixerOnAlisCase/testTheKnobTurnsAndTheTrayDoesNot()"
+  "ScorangerUITests/ReorgShot/testTheMixerSoundPicker()"
+  "ScorangerUITests/ReorgShot/testTheTrayAndItsTempoKnob()"
+  "ScorangerUITests/TransportVisibility/testTheTransportIsThereWithoutBeingTurnedOn()"
+  "ScorangerUITests/TrayBehaviour/testAKnobDragChangesTheLevelAndLeavesTheTrayWhereItIs()"
+  "ScorangerUITests/TrayBehaviour/testEachStripsControlsBelongToThePartItNames()"
+  "ScorangerUITests/TrayBehaviour/testTheKnobSlotFollowsTheParts()"
+  "ScorangerUITests/TrayBehaviour/testTheTraySeatsItsControls()"
+  "ScorangerUITests/TrayVisibility/testTheKnobFollowsTheFingerWhileItIsStillDown()"
+  "ScorangerUITests/TrayVisibility/testTheSoundPickerIsWhollyOnScreen()"
+  "ScorangerUITests/TrayVisibility/testTheTrayCannotBeDraggedAway()"
+  "ScorangerUITests/TrayVisibility/testTheTrayIsWhollyOnScreen()"
+  "ScorangerUITests/ScorangerUITests/testTheBarCounterFollowsTheViewportNotThePage()"
+  "ScorangerUITests/ScorangerUITests/testTheHandleDoesNotStealTheLassosTouches()"
+  "ScorangerUITests/ScorangerUITests/testTheHandleScrubsWithoutScrollingTheCanvas()"
+  "ScorangerUITests/ScorangerUITests/testThePencilStillMarksWhileTheTransportRuns()"
+  "ScorangerUITests/ScorangerUITests/testThePlayheadDrawsAndTheLassoStillSelectsUnderIt()"
+  "ScorangerUITests/ScorangerUITests/testThePlayheadKeepsItsWeightAtAnyZoom()"
+  "ScorangerUITests/ScorangerUITests/testTheTransportIsReachableAndEveryVoiceCanBeSwitchedOff()"
+  "ScorangerUITests/ScorangerUITests/testTheTrayHasAKnobPerStaff()"
   "ScorangerUITests/ScorangerUITests/testAnArrangementWithNoVersionsSaysSoAndCanBeDeleted()"
   "ScorangerUITests/ScorangerUITests/testArrangementSheetIsAPanelWithRenameAndDeleteLast()"
   "ScorangerUITests/ScorangerUITests/testNothingOffersARenameButton()"
@@ -525,6 +559,13 @@ if (( ${#SERIAL_TESTS[@]} > 0 )); then
   for ((i = 1; i < ${#udids[@]}; i++)); do
     xcrun simctl shutdown "${udids[i]}" >/dev/null 2>&1 || true
   done
+  # The seventh candidate from the note above, "immediately after four
+  # workers stop", tested here: a serial test that waits on the engine
+  # failed in this phase twice on 2026-09-12 and passed alone minutes later.
+  # A minute's pause before the phase, so the machine is the quiet one the
+  # phase is meant to provide.
+  echo "    pausing 60s before the serial phase"
+  /bin/sleep 60
 
   serial_args=()
   for t in "${SERIAL_TESTS[@]}"; do serial_args+=("-only-testing:$t"); done
