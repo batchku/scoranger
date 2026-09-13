@@ -1344,3 +1344,381 @@ One caution from the mixer and the score bar both: `ScoreBarLayout`'s constants
 are 1.0× numbers, which §6.3 rule 3 already flags as mis-fitting above Large.
 Do not copy that mistake here — `LibraryBarLayout` should take the scaled label
 widths, not literals measured at default text size.
+
+---
+
+# 15. Photos as a source — Import band amendment
+
+## 15.1 The premise is half right, and the half that is wrong decides it
+
+> *a "Score" import today already accepts PDF/MusicXML/image from Files*
+
+It accepts PDF and MusicXML. **It does not accept images**
+(`ImportIntent.swift:10`):
+
+```swift
+static let scoreTypes: [UTType] = ([
+    "musicxml", "mxl", "xml", "mid", "midi"
+].compactMap { UTType(filenameExtension: $0) }) + [.pdf]
+```
+
+No image type is in that list, which is exactly *why* pictures are greyed out in
+the Files picker. So bug (1) is not a menu problem at all — it is that array,
+and the fix is adding the image types to it.
+
+That settles the structure: **an image from Files is a score file like a PDF is,
+and needs no entry of its own. Photos is a different picker, not a different
+kind of thing, and it is the only addition the band needs.**
+
+## 15.2 The band
+
+```
+Import
+  Score      MusicXML, MIDI, PDF, or a picture — from Files
+  Photos     a picture of the music, from your photo library
+  ───────
+  Folder     a whole exported library
+  Book       a collection to take arrangements out of
+```
+
+Four rows, each with the one-line description `ScreenRow(title:value:)` already
+carries elsewhere. The subtitle is what makes the labels work: neither `Score`
+nor `Photos` has to disambiguate on its own, so a reader whose picture is in
+Files still finds it under `Score`.
+
+**Rejected, and why:**
+
+- *`Score from Files` / `Score from Photos`* — consistent, but it makes the
+  common case read as a technicality. Nobody importing a MusicXML file is
+  choosing a filesystem.
+- *`Image` opening a second band of Files vs Photos* — two taps for Import, which
+  §14.3 already refused, and it would be the only nested band in the app.
+- *`Image` as a fourth object* — it would sit beside `Score` meaning the same
+  thing through a different door, which is the confusion §15.1 removes.
+
+`Photos` names the app the picture comes out of, which is the only thing the
+reader is actually choosing between. It sits **second**, next to `Score`: the
+first two rows each make one arrangement from one thing, the last two bring in a
+collection — hence the divider, which the band already supports.
+
+Applies at **every width**, like the rest of §14. Identifier
+`library-import-photos`, beside the three that exist.
+
+## 15.3 Two rulings the build needs before it starts
+
+**Both image routes end in the same pipeline.** An image from Files and an image
+from Photos are the same import once it has a file: written to the inbox,
+OMR'd through make-editable exactly as a scanned PDF is. One path, not two —
+the picker is the only thing that differs.
+
+**Several photos are one arrangement's pages, not several arrangements.** Files
+and Photos diverge here deliberately:
+
+| Picker | Multiple selection means |
+|---|---|
+| Files | *n* documents → *n* arrangements (unchanged: `for url in urls`) |
+| Photos | *n* pictures → **one** arrangement of *n* pages, in selection order |
+
+Photographing a three-page piece gives three pictures of one piece, and PHPicker
+preserves selection order, which is page order. Treating them as three
+arrangements would be wrong every time the feature is used as intended.
+
+The escape hatch for the reader who selected pictures of three *different*
+pieces already exists and needs no new UI: the result is one multi-page draft,
+and the **Book screen** is the tool for taking arrangements out of one of those.
+Say so in the import's own notice rather than asking a question up front.
+
+## 15.4 Acceptance
+
+1. **`filesOfferPictures`** — `ImportKind.scoreTypes` contains the image types,
+   so a `.png`, `.jpeg` and `.heic` are selectable. Fails today; it is bug (1)
+   in one assertion.
+2. **`everyImportRouteSurvives`** — §14.5's identifier check, now four:
+   `library-import`, `library-import-photos`, `library-import-folder`,
+   `library-import-book`, all reachable at 320pt.
+3. **`photosBecomeOneArrangement`** — three pictures selected in the Photos
+   picker produce one arrangement with three pages, in the order chosen.
+4. **`anImageImportsLikeAScan`** — an image from either route reaches
+   make-editable, so the two routes cannot drift into two pipelines.
+
+---
+
+# 16. Set lists from the score view — placement ruling
+
+## 16.1 It is not a popover, and that answers the compact question
+
+The pieces-list version is a **pushed screen**, not a checklist popover:
+`Route.setlistsFor(slug)` → `SetlistsForScreen` with `navigationBarHidden`
+(`RootView.swift:256`), reached from a row on the arrangement screen
+(`PieceScreen.swift:289`). `SetlistChooserView` is band-styled content *inside*
+that screen — `BandHeader`, `PanelNote` — not a floating surface.
+
+So there is nothing to adapt. The Options screen behind `⋯` is itself a pushed
+screen that pushes further (`push("Chord symbols")`), a push fills the width on
+a phone and caps at `readingColumn` on an iPad (§6.1), and rows are already
+44pt. **Compact needs no special treatment, no reveal band and no sheet.**
+
+**Do not build a popover for this.** It would be the only one in the app, and
+`NAV_MODAL_FREE_0.4.2` exists to keep it that way.
+
+## 16.2 Where it sits
+
+The Options rows group by subject: view toggles, then things that change the
+notation, then where the arrangement *sits*, then outbound, then the app. Set
+list membership is filing, so it goes with details:
+
+```
+Chord symbols                 14 pt
+Annotations                   on
+Selection & chat              4 selected
+Transpose                     by interval
+Piece & arrangement details   Sous le ciel de Paris
+Set lists                     2 set lists            ← new
+Share & export                MusicXML · MIDI · PDF
+Settings                      on-device
+```
+
+Immediately after `Piece & arrangement details`, before `Share & export`:
+filing, then sharing, then the app. Identifier **`more-setlists`**, matching
+`more-details` and `more-export`.
+
+## 16.3 The label is `Set lists`, not `Add to setlist…`
+
+Three reasons, each of which the codebase already argues somewhere:
+
+1. **The screen toggles membership — it removes as well as adds.** "Add to"
+   mislabels half of what it does, and a reader wanting to take a piece *out*
+   of tonight's set would not look under it.
+2. **That screen already has a name.** `PieceScreen` calls the identical
+   destination `Set lists`. Two labels for one screen is the thing this codebase
+   keeps warning about — *"a switch belongs in exactly one place"*, *"two
+   independent notions of what fits"*. Whichever label is better, there must be
+   one.
+3. **`…` means a dialog, and there are none.** A `ScreenRow` with `leads: true`
+   draws a chevron; that is the affordance, and it is honest about arriving at a
+   screen rather than a pop-up.
+
+**The value carries the answer**, per the rule stated in this very screen — *"A
+screen of bare labels is a menu; the answers are what make it a summary of where
+the score stands (L34)"*. Reuse `PieceScreen`'s `setlistSummary`: `2 set lists`,
+`Tonight` when it is one and the name fits, `none` when it is in none.
+
+Spelling: `Set lists`, two words, matching `New set list` and the back labels.
+
+## 16.4 Reuse the screen, including the way out of empty
+
+Push the same `SetlistsForScreen` the library pushes — not a second chooser.
+`SetlistChooserView` takes `onNewSetlist`, and that closure is not decoration:
+without it, a reader with **no set lists yet** lands on `"No set lists yet."`
+with nothing to press. From the library they can back out and make one; from the
+score view there is no list behind them to back out to.
+
+So the score view's route must wire `onNewSetlist` to the same seeded-create
+flow, which is an inline name field — already the pattern, no new surface.
+
+If the score screen's stack is string-keyed rather than `Route`-keyed, add a
+case that renders `SetlistsForScreen(slug:onBack:)`. One screen, one behaviour,
+two entrances.
+
+## 16.5 Acceptance
+
+1. **`setlistsReachableFromTheScore`** — `score-options` → `more-setlists`
+   reaches the chooser, and toggling a row changes membership as the library's
+   route does. Run at compact and regular.
+2. **`oneChooserNotTwo`** — the score view's destination is
+   `SetlistsForScreen`; a grep for a second chooser type finds nothing.
+3. **`emptyHasAnExit`** — with zero set lists, the score view's chooser offers
+   `chooser-new-setlist`. This is the case that would ship broken.
+4. **`theRowStatesItsAnswer`** — the row's value is `none` for an unfiled
+   arrangement and names the count otherwise; it is never blank.
+
+---
+
+# 17. Landscape — the whole surface at 874×402
+
+Consolidates §3 E-B, §2's merged deck and §12's landscape leg, all of which have
+been dead code while landscape was disabled. Everything here supersedes those.
+
+## 17.1 Spec against the narrower phone
+
+| Device | Window | Safe rect | Chrome | Canvas |
+|---|---|---|---|---|
+| iPhone 15 Pro | 852×393 | **734×372** | 100 (27%) | **734×272** |
+| iPhone 17 Pro | 874×402 | 756×381 | 100 (26%) | 756×281 |
+
+Lateral safe insets are **59pt each side** (the Dynamic Island edge) and the home
+indicator takes **21** off the bottom. **Every number below is computed for
+734×372**, the binding case; the 17 Pro has 22pt more width and 9pt more height
+and needs no separate treatment.
+
+**The top bar stays 52pt.** §3 E-B proposed 40. Withdrawn: a second bar height
+means a second `ScoreBarLayout` fit case, and that layout has already mis-fitted
+twice (#60, and §6.3 rule 3's 1.0× constants). 12pt of canvas is not worth a new
+breakpoint in the one piece of layout arithmetic that keeps breaking.
+
+## 17.2 Score view
+
+**Chrome: top bar 52 + merged deck 48 = 100pt.** The 96pt thumbnail strip and
+the 56pt transport do not both appear; landscape has one deck carrying both
+jobs, at 48pt:
+
+```
+│ ✕  Sous le ciel de Paris          ⌄  ⌖  💬  ⋯              │ 52
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│                     canvas 734 × 272                       │
+│                                                            │
+├────────────────────────────────────────────────────────────┤
+│ ▏▏▎▏▏▏▎▏▏▏  page 3    ▶  ⏮  bar 21  ♩120          🎚      │ 48
+└────────────────────────────────────────────────────────────┘
+```
+
+The deck row has **694pt** after padding and its contents measure **620pt** —
+fits with 74pt spare. Heights are `minHeight`, not `frame(height:)` (§6.3
+rule 1); the transport's 56pt constant does not apply here.
+
+**Paged in landscape stays what §5A settled:** a page fits at 201pt wide against
+portrait's 393, so paged is offered and is not the default. Landscape defaults
+to continuous.
+
+## 17.3 Continuous in landscape — correcting the number and the rule
+
+Asked to confirm "single ribbon, ~4–5 bars, no wrap". **Two corrections.**
+
+The strip is fitted by height with a ceiling of `2 × pageScale`
+(`ContinuousTiles.swift:104`). In landscape `pageScale` is bound by the page's
+**height** — 272/1258 = 0.216 — so the ceiling is 0.432, and **the ceiling binds
+for every score**:
+
+| Strip | Scale | Drawn | Bars in view | Rows that fit |
+|---|---|---|---|---|
+| 4-staff quartet, 540pt | 0.432 | 234pt | **7.0** | 1 |
+| 2-staff piano, 300pt | 0.432 | 130pt | **7.0** | 1 |
+| single voice, 150pt | 0.432 | 65pt | **7.0** | **3** |
+
+1. **It is ~7 bars, not 4–5**, and the number is the same for every score
+   because the ceiling — not the strip's height — sets the scale.
+2. **"No wrap" is right for two staves and denser, and wrong for a single
+   voice.** A 150pt strip draws at 65pt in a 272pt canvas: one ribbon wastes
+   three quarters of the height, which is the exact defect §10.1 wraps to fix in
+   portrait.
+
+So **the wrap rule is row-count-driven, not orientation-driven**:
+
+```
+rows = floor(canvasHeight / (stripHeight × scale + 8))
+```
+
+One row for a dense score, several for a thin one, in either orientation, with
+no orientation branch anywhere. §10.1's wrapping is amended to this; it was
+framed as a portrait fix and it is a *height* fix.
+
+Cuts land on barlines, as §10.1 already requires.
+
+## 17.4 Mixer
+
+§12's landscape leg, now with numbers. Against a **272pt** canvas and the 60%
+gate of §12.3:
+
+| Panel | Height | of canvas | |
+|---|---|---|---|
+| Knob strip, sound row kept (§13) | 172 | 63.2% | **opens collapsed** |
+| Knob strip, sound row dropped | **156** | **57.4%** | **opens expanded** |
+| Collapsed | 48 | 17.6% | — |
+
+**So landscape takes §13.1's lever: the sound-chip row is dropped and the picker
+opens by tapping the part label** — which is already §4.2's rule for short
+screens, so this is that rule doing its job rather than a new one. 156pt clears
+the gate on both devices and the mixer opens usable instead of collapsed.
+
+Width is unchanged: §12's `f(channel count)` — 184pt for two channels, 313 for
+four — out of 718pt of free width, so 26–44%. Drag bounds are §5's free rect,
+which in landscape is inset by the 59pt lateral safe areas; **the panel must
+never be placed under the Dynamic Island edge**, which is what makes the safe
+inset part of the clamp rather than decoration.
+
+## 17.5 Library — a yield ladder, because the stack does not fit
+
+The portrait chrome stack costs **216pt of 372**, leaving 156pt: **2.1 rows.**
+That is not a library.
+
+| | Chrome | List | Rows at 76pt |
+|---|---|---|---|
+| As built | 216 | 156 | 2.1 |
+| Count folded into the header | 196 | 176 | 2.3 |
+| **+ search and toolbar share one row** | **140** | **232** | **3.1** |
+| + segment becomes a header control | 104 | 268 | 3.5 |
+
+**Rule: landscape must show at least three rows.** Apply the levers in order
+until it does — which on the 15 Pro means the first two:
+
+1. **Count into the header line**: `My library · 14 pieces · 3 set lists`.
+2. **Search and toolbar share one row.** Search takes the slack on the left, the
+   §14 toolbar sits right. At 716pt: search 240 + gap 16 + toolbar 396
+   (Import/New labelled, short sort) = 652, fits with 64pt spare — so landscape
+   gets **labels on Import and New**, where portrait does not. `LibraryBarLayout`
+   arrives at that by measurement; there is no landscape special case in it.
+3. Segment as a header control, held in reserve — it is the one that costs a
+   reader the ability to see which half of the library they are in.
+
+**The 35% chrome rule does not govern list screens.** It was written for the
+score canvas, where the music is the content. A list's test is *how many rows
+are visible*, and three is the floor — enough to show that the list continues.
+
+**Rows cap at 560pt and centre.** At 734–756 of width a full-bleed row puts a
+title and its own chevron half a screen apart, which is L34 again at a smaller
+scale.
+
+## 17.6 Bands, pushes and the import menu
+
+- **Reveal bands** (§14 sort/filter, §15 Import/New): four rows at 44 = 176pt,
+  against a **223pt** cap (60% of 372). Fits. Rule: **a band caps at 60% of the
+  container and scrolls within it** — needed at accessibility sizes, not at
+  default.
+- **Import band unchanged in landscape**: Score · Photos · ─ · Folder · Book.
+  Four rows, same labels, same identifiers (§15.2).
+- **Push screens** — Options, Set lists, Move to piece, Versions, Parts,
+  Details, Book, Setlist — are header 52 + 320pt of scroll ≈ **7 rows at 44pt**.
+  These are the screens landscape costs nothing: no change, `readingColumn`
+  already caps them, and they were rated 5·4 in §7.
+
+## 17.7 The one thing that only works in portrait
+
+**Anything with a focused text field.** The landscape keyboard is about 200pt,
+which leaves **172pt** of the 372 — and after a 52pt header, **120pt of
+content.** That is the genuine landscape hazard and it touches: inline rename
+(A7), Details (B7), new set list and new piece names, library search, and chat
+(E17).
+
+Rules, since a screen that cannot show its own field is broken rather than
+cramped:
+
+1. `.ignoresSafeArea(.keyboard)` is right for the score canvas and **wrong for
+   every one of these** (§G2). Each raises its own input.
+2. The focused field scrolls to sit **immediately above** the keyboard, and any
+   anchored Save bar rides above it — never behind it.
+3. **Chat in landscape shows its input and one line of conversation.** That is
+   the honest ceiling at 120pt; it is not a layout to improve, it is what the
+   device leaves. Flagged rather than smoothed over.
+4. Bands and pickers **do not open while a keyboard is up** in landscape — 176pt
+   of band into 120pt of space cannot be shown. Dismiss the field first, which
+   the toolbar's own controls already do elsewhere.
+
+## 17.8 Acceptance
+
+1. **`landscapeChromeFitsTheWindow`** — at 852×393 and 874×402, the score
+   chrome is ≤ 35% of the safe height and the deck's contents are inside the
+   deck's frame.
+2. **`theLibraryShowsThreeRows`** — at 852×393, at least three library rows have
+   frames inside the window.
+3. **`continuousWrapsByRowsNotOrientation`** — a single-voice score wraps to 3
+   rows in landscape and a quartet to 1, from the same function, with no
+   orientation input.
+4. **`theMixerOpensExpandedInLandscape`** — with the sound row dropped the panel
+   is 156pt and its `expanded` state is the one it opens in; and it drags, per
+   `MIXER_WINDOW` §12.5's compact-landscape leg.
+5. **`aFocusedFieldIsAboveTheKeyboard`** — for inline rename, Details, new set
+   list and chat, the focused field's frame is above the keyboard's top at
+   852×393. This is the test that catches 17.7 regressing.
+6. **`nothingUnderTheIsland`** — no draggable panel's clamped frame extends into
+   the 59pt lateral safe insets.

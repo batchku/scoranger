@@ -676,21 +676,36 @@ evidence.** It passed with a pagination nobody expected, on a library nobody
 intended, and a run alone fails. A test that passes under load and fails idle is
 reporting on the harness.
 
+**Ruled out on the 0.6.21 line (2026-09-08), so nobody spends the time twice:**
+
+- *A leftover fixture from an earlier test.* `-resetLibrary` does a real
+  `FileManager.removeItem` on `Documents/workspace` inside
+  `PythonEngine.start()`, BEFORE the engine is configured -- so nothing an
+  earlier test did to the accordion solo survives into this one. This was the
+  leading hypothesis and it is wrong.
+
 Where to look, in order:
 1. Whether `-resetLibrary -seedTestLibrary` actually completed before the probe
    was read, or whether the 240s waits let a partially seeded library through.
    The seeding path already has form here: `seedOutcome` exists because a
    `pull-part` that failed was invisible and three preconditions were written
    before one of them noticed.
-2. Whether a preceding test on the same simulator left the fixture carrying a
-   guitar tab or fingering row. Both add lyric verses, both make systems
-   taller, and taller systems are exactly how 25 systems land on 9 pages
-   instead of 5.
+2. `lyricSize`. `EngravingOptions.json(lyricSize:continuous:)` takes it as a
+   parameter and `render.lyric_size_for(fingerings:)` returns a larger value
+   when fingerings are present. A bigger lyric size makes every system taller,
+   which is exactly how 25 systems land 3-to-a-page over 9 pages instead of
+   5-6 over 5. If the two runs engraved at different lyric sizes, that is the
+   difference, and the question becomes why.
 3. Only then the app's own inference, `BarPosition.systems(of:)`.
    `check_bar_frames.py` records the hazard -- Verovio nests a slur inside the
    measure it starts in and a group's frame is the union of what it contains --
    so one over-wide bar frame straddling two rows would split one system into
-   two, which is an over-count of exactly one.
+   two, which is an over-count of exactly one. The fragility is worse at 5-6
+   systems per page than at 3, which fits both observations.
+
+The 0.6.21 line SKIPPED this test in its gate for the reasons above. The 0.8
+line did not: it runs in the pool and passed in the build 196 gate (79s). A
+green here is still not evidence until the two engravings are explained.
 
 **Not a 0.6.20 regression.** Every file feeding that number is byte-identical to
 `afa0c572`, which is 0.6.19 build 179 and already on the phone:
