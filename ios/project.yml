@@ -230,6 +230,24 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.8.0  BUILD 195+: THREE FROM ALI ON 194 (2026-09-12). Scope before
+        #          the work:
+        #            A. the layout control's ACTIVE cell draws a single clean
+        #               shape -- no tinted corners outside a pill stroke, no
+        #               layers behind the glyph; photographed highlighted;
+        #            B. the playhead and the follow-scroll move CONTINUOUSLY
+        #               against the audio clock -- interpolated between the
+        #               sequencer's readings and within a bar, never stepping
+        #               per note onset; smooth is the goal, the smallest note
+        #               value the floor;
+        #            C. a performance loop with a stated goal: dragging the
+        #               score holds the display's maximum refresh rate
+        #               (UIScreen.maximumFramesPerSecond, 120 on ProMotion)
+        #               with no degradation over time -- frame times measured
+        #               on the device with CADisplayLink, the budget-breaker
+        #               found, fixed, re-measured, repeated; before and after
+        #               reported.
+        #          Internal. External-group and public-link settings are Ali's.
         #   0.8.0  BUILD 194 IS THE EXTERNAL CANDIDATE (Ali, 2026-09-11: external
         #          testers, including Echo). Its Release archive was checked at
         #          deploy time: no samples-seed, no score of its own
@@ -473,6 +491,9 @@ targets:
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         OMRDefaultURL: "https://scoranger-omr-37kxlg2dpa-uc.a.run.app"
         ITSAppUsesNonExemptEncryption: false
+        # A ProMotion iPhone holds an app at 60 unless it asks; iPad does not
+        # need this, and it costs nothing there (build 195's frame loop).
+        CADisableMinimumFrameDurationOnPhone: true
         # Bundled by decision: the design system uses no system faces.
         # Space Grotesk and Inter are variable; weights come from the wght axis.
         UIAppFonts:

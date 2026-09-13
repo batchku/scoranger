@@ -209,6 +209,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addSubview(host.view)
         context.coordinator.host = host
         context.coordinator.scroll = scroll
+        if FrameProbe.enabled { context.coordinator.probe = FrameProbe(scroll: scroll) }
+        if AutoDrag.enabled {
+            context.coordinator.autoDrag = AutoDrag(scroll: scroll, probe: context.coordinator.probe)
+        }
         context.coordinator.installScroller(scroller)
         context.coordinator.applyLayout(width: contentWidth)
         return scroll
@@ -261,6 +265,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
         var host: UIHostingController<AnyView>?
         weak var scroll: UIScrollView?
+        /// Frame timing during drags, under `-frameProbe` only.
+        var probe: FrameProbe?
+        /// A scripted drag for the probe, under `-autoDrag` only.
+        var autoDrag: AutoDrag?
         weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
         var onVisibleRectChange: ((CGRect, CGSize) -> Void)?

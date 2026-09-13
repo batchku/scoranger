@@ -1350,6 +1350,16 @@ final class AppState: ObservableObject {
                 await seedBigBook()
             }
             await refresh()
+            // `-autoDrag`: the frame probe's scripted drag needs a score open
+            // with nobody at the device; the first seeded arrangement opens
+            // the way an import does, in the layout the arguments name.
+            if ProcessInfo.processInfo.arguments.contains("-autoDrag"),
+               let first = manifest?.scores.first?.slug {
+                if ProcessInfo.processInfo.arguments.contains("-autoDragContinuous") {
+                    layout = .continuous
+                }
+                openAfterImport = first
+            }
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
