@@ -257,18 +257,18 @@ struct ScoreTopBar: View {
             state.pageIndex = 0
             Task { await state.renderIfNeeded() }
         } label: {
+            // ONE shape for the active cell: the segment itself, tinted, with
+            // the glyph in clayStrong. A pill stroke used to be drawn inside
+            // the tinted rectangle, so the rectangle's corners showed past
+            // the pill and the outer capsule's clip left a second sliver of
+            // tint beside it -- three layers where Ali saw "things that
+            // should not be visible" (0.8.0 build 195, item A).
             Image(systemName: option.glyph)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(!available ? Theme.Ink.ink3
                                  : (active ? Theme.Accent.clayStrong : Theme.Ink.ink2))
                 .frame(width: 40, height: 34)
                 .background(active ? Theme.Accent.clayTint : Theme.Surface.panel)
-                .overlay {
-                    if active {
-                        RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                            .stroke(Theme.Accent.clay, lineWidth: 1)
-                    }
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

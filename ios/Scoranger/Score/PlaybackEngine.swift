@@ -83,6 +83,10 @@ final class PlaybackEngine: ObservableObject {
     /// would be paid on every frame of a scroll the reader is also driving.
     private var follower: Task<Void, Never>?
     private static let pollInterval = Duration.milliseconds(50)
+    /// The beat at display rate, for the line and the strip only. See
+    /// `PlaybackClock` for why it is not `beat`.
+    let clock = PlaybackClock()
+    private let ticker = PlayheadTicker()
 
     /// What is loaded ("<slug>/<version>"), so re-selecting the same version
     /// does not rebuild the graph underneath a score that is playing.
@@ -176,6 +180,7 @@ final class PlaybackEngine: ObservableObject {
     func stop() {
         follower?.cancel()
         follower = nil
+        ticker.stop()
         sequencer?.stop()
         isPlaying = false
         // The beat is LEFT where it stopped, so the readout keeps saying which
@@ -195,6 +200,7 @@ final class PlaybackEngine: ObservableObject {
         guard let sequencer else { return }
         sequencer.currentPositionInBeats = target
         beat = target
+        clock.set(target)
     }
 
     func rewind() { seek(toBeat: 0) }
@@ -323,6 +329,11 @@ final class PlaybackEngine: ObservableObject {
     // MARK: - The play head
 
     private func startFollowing() {
+        // The fast lane: the line and the strip, every frame.
+        ticker.start { [weak self] in
+            guard let self, let sequencer = self.sequencer else { return }
+            self.clock.set(sequencer.currentPositionInBeats)
+        }
         follower?.cancel()
         follower = Task { [weak self] in
             while !Task.isCancelled {

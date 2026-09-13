@@ -753,7 +753,7 @@ struct ScorePagesView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
-            ContinuousPlayheadLayer(playback: playback,
+            ContinuousPlayheadLayer(playback: playback, clock: playback.clock,
                                     page: state.geometry?.page(0),
                                     scale: engraved,
                                     surfaceWidth: surface.width,
@@ -804,7 +804,7 @@ struct ScorePagesView: View {
                 // The cursor goes ABOVE the selection and the lasso, so it is
                 // never hidden behind a highlight -- and takes no input, so it
                 // costs them nothing.
-                PlayheadLayer(playback: playback,
+                PlayheadLayer(playback: playback, clock: playback.clock,
                               bars: state.geometry?.page(index)
                                   .map(BarPosition.bars(onPage:)) ?? [],
                               pageSize: state.geometry?.page(index)?.size ?? .zero,
@@ -962,6 +962,9 @@ struct ScorePagesView: View {
 /// Driven by (MEASURE, FRACTION), never by elapsed time: see `Playhead`.
 private struct PlayheadLayer: View {
     @ObservedObject var playback: PlaybackEngine
+    /// The beat at display rate (`PlaybackClock`): this layer and the strip's
+    /// are its only observers, so a frame's tick redraws a line, not a page.
+    @ObservedObject var clock: PlaybackClock
     let bars: [BarPosition.Bar]
     let pageSize: CGSize
     /// The scroll view's zoom, so the constants below stay sizes on SCREEN.
@@ -1011,7 +1014,7 @@ private struct PlayheadLayer: View {
                 // stroke would make selection fail wherever the music happened
                 // to be playing.
                 .allowsHitTesting(false)
-                .onChange(of: playback.beat, initial: true) { _, beat in
+                .onChange(of: clock.beat, initial: true) { _, beat in
                     if let now = self.position {
                         lastDrawn = now
                     } else if playback.isPlaying {
@@ -1083,7 +1086,7 @@ private struct PlayheadLayer: View {
 
     private var position: Playhead.Position? {
         guard playback.isPlaying || playback.soundingBar != nil,
-              let progress = playback.timeline.progress(atBeat: playback.beat)
+              let progress = playback.timeline.progress(atBeat: clock.beat)
         else { return nil }
         return Playhead.position(measure: progress.measure,
                                  fraction: CGFloat(progress.fraction), bars: bars)
@@ -1221,6 +1224,9 @@ private struct ContinuousPlayheadLayer: View {
     /// Rate limit for the "not following" log line.
     nonisolated(unsafe) static var lastFollowLog = Date.distantPast
     @ObservedObject var playback: PlaybackEngine
+    /// The beat at display rate -- see `PlayheadLayer.clock`. Following is
+    /// driven from it too, so the strip glides with the line.
+    @ObservedObject var clock: PlaybackClock
     /// The strip's engraving: one page, the whole score.
     let page: ScorePage?
     /// Surface points per unit of the engraving's own coordinates.
@@ -1296,7 +1302,7 @@ private struct ContinuousPlayheadLayer: View {
         }
         // Following happens on the same tick that draws the line, off the same
         // position, so the two can never disagree about where the music is.
-        .onChange(of: playback.beat, initial: true) { _, _ in follow() }
+        .onChange(of: clock.beat, initial: true) { _, _ in follow() }
     }
 
     /// The strip's own scrub. Same rule as the paged one, and one conversion
@@ -1318,7 +1324,7 @@ private struct ContinuousPlayheadLayer: View {
 
     private var progress: (measure: Int, fraction: Double)? {
         guard playback.isPlaying || playback.soundingBar != nil else { return nil }
-        return playback.timeline.progress(atBeat: playback.beat)
+        return playback.timeline.progress(atBeat: clock.beat)
     }
 
     private var position: Playhead.Position? {
@@ -1356,7 +1362,7 @@ private struct ContinuousPlayheadLayer: View {
             if now.timeIntervalSince(Self.lastFollowLog) > 1 {
                 Self.lastFollowLog = now
                 Logger(subsystem: "com.irllabs.scoranger", category: "follow").notice(
-                    "not following: scrubbed=\(scrubbed.map(String.init) ?? "nil", privacy: .public) isFollowing=\(isFollowing, privacy: .public) playing=\(playback.isPlaying, privacy: .public) position=\(position == nil ? "nil" : "ok", privacy: .public) page=\(page == nil ? "nil" : "ok", privacy: .public) beat=\(playback.beat, privacy: .public)")
+                    "not following: scrubbed=\(scrubbed.map(String.init) ?? "nil", privacy: .public) isFollowing=\(isFollowing, privacy: .public) playing=\(playback.isPlaying, privacy: .public) position=\(position == nil ? "nil" : "ok", privacy: .public) page=\(page == nil ? "nil" : "ok", privacy: .public) beat=\(clock.beat, privacy: .public)")
             }
             return
         }
