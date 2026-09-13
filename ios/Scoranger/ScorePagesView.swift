@@ -45,6 +45,9 @@ struct ScorePagesView: View {
     /// The visible rect, observed by the few views that need it rather than
     /// held here (see `ViewportModel`).
     @StateObject private var viewport = ViewportModel()
+    /// The unit last shown, so a turn knows which way it is going before the
+    /// new unit's slide is chosen (`PageTurn.slide`).
+    @State private var shownIndex = 0
     /// Continuous mode's tap zones ask the scroll view to move directly, since
     /// there is no page index for them to change. The token makes the same
     /// destination asked for twice still move.
@@ -180,29 +183,19 @@ struct ScorePagesView: View {
                            // press at all, so this is the sample arriving,
                            // not a second policy.
                            onLoupe: { sample in loupe = sample },
-                           // SWIPE-TO-TURN IS DELIBERATELY NOT WIRED (0.6.14).
-                           //
-                           // It has never run. `TurnTapRecognizer` reset
-                           // itself to `.failed` at the end of every touch, so
-                           // neither the tap nor the swipe ever reached this
-                           // view -- for 332 commits. Repairing the recogniser
-                           // for §12's tap-select brought the swipe back with
-                           // it, and what came back was not finished: the edge
-                           // test was read when the gesture ENDED, so a single
-                           // long pan across a zoomed page turned it (fixed,
-                           // `PagedCanvas.swipeMayTurn`), and behind that the
-                           // page readout does not follow a swipe-turn --
-                           // photographed on an iPad, page 2's music under
-                           // "p. 1 / 9" with the rail still marking page 1.
-                           //
-                           // Turning by TAP is what §12 asked for and it is
-                           // proven on both size classes. Turning by swipe is
-                           // a second way to do the same thing that no build
-                           // has ever offered, so leaving it unwired costs no
-                           // reader anything and ships nothing half-finished.
-                           // The recogniser still reports it and
-                           // `swipeMayTurn` still states the rule, so wiring
-                           // it back is one line plus the readout fix.
+                           // SWIPE-TO-TURN, wired in 0.8.0 build 196 (Ali, in
+                           // performance mode: "I can't swipe to the next page").
+                           // It was left unwired in 0.6.14 as half-finished;
+                           // the two halves it lacked are here now. The edge
+                           // rule is read when the gesture BEGINS
+                           // (`PagedCanvas.swipeMayTurn`, `limitAtStart`), so
+                           // a pan across a zoomed page is a pan; and the page
+                           // readout follows the INDEX (`step(by:)`), so a
+                           // swipe from a zoomed page cannot leave "p. 1" over
+                           // page 2. The tap on the right edge stays; this is a
+                           // second way to the same turn, through the same
+                           // step, which stops at either end.
+                           onSwipeTurn: { direction in step(by: direction) },
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
                            // offering it
@@ -273,9 +266,14 @@ struct ScorePagesView: View {
                 engravedScale = new
             }
             .id(continuous ? -1 : state.pageIndex)
-            .transition(.asymmetric(insertion: .move(edge: .trailing),
-                                    removal: .move(edge: .leading)))
+            // The slide follows the direction of the turn: forward, the new
+            // page comes in from the right; BACK, from the left. Both turns
+            // slid the same way until 0.8.0 build 196 (Ali, item E). The
+            // direction is read against the unit last shown, so a turn from
+            // the rail or the scrubber slides the right way too.
+            .transition(PageTurn.slide(forward: state.pageIndex >= shownIndex))
             .animation(Theme.Motion.overlay(reduced: reduceMotion), value: state.pageIndex)
+            .onChange(of: state.pageIndex) { _, index in shownIndex = index }
             .onAppear {
                 viewport.seed(CGRect(origin: .zero, size: geo.size))
             }

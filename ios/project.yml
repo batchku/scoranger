@@ -230,7 +230,15 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
-        #   0.8.0  BUILD 195+: THREE FROM ALI ON 194 (2026-09-12). Scope before
+        #   0.8.0  BUILD 196+: TWO MORE FROM ALI, IN PERFORMANCE MODE (2026-09-12):
+        #            D. a SWIPE turns the page, beside the tap on the right
+        #               edge that stays; it stops at the ends and the page
+        #               readout follows a swipe-turn (0.6.14 left the swipe
+        #               unwired as half-finished; this wires it);
+        #            E. turning BACK animates left-to-right -- the reverse of
+        #               the forward turn, which animates right-to-left. Both
+        #               turns animated the same way.
+        #   0.8.0  BUILD 195: THREE FROM ALI ON 194 (2026-09-12). Scope before
         #          the work:
         #            A. the layout control's ACTIVE cell draws a single clean
         #               shape -- no tinted corners outside a pill stroke, no
