@@ -26,6 +26,82 @@ not transpiled Java.
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
 
+## The release plan after 0.8.1 (set 2026-09-14)
+
+Everything open in this file is assigned to one of two builds. The split is
+the renderer: 0.8.3 owns direct vector rendering and what only makes sense on
+top of it, because it is the one change that puts the surface Ali reads music
+from at risk and must not ship beside feature work. 0.8.2 owns everything
+else.
+
+Assumed, absent an answer, and cheap to change before the interaction is
+built: a move destination is a tapped bar plus a stepper for the offset inside
+it (drag is gone from this app); size is RELATIVE to the engraved default;
+the terms gate sits on sharing rather than on first launch; the renderer ships
+behind a flag that is OFF by default.
+
+### 0.8.2 -- what 0.8 promised, plus the test debt
+
+In build order. Each step is testable when it lands and later steps stand on
+earlier ones.
+
+1. **Engine ops, with the CLI exercised as a process.** Book rename;
+   `adjust_element` generalised past `harm` to other added text and marks;
+   move and duplicate for the two tractable element classes (offset-anchored,
+   note-attached). Spanners stay out -- re-pointing a slur has no answer when
+   the rhythms differ. Every new op gets a test that runs the `scor` BINARY,
+   which closes the CLI coverage gap with the same work that adds the ops.
+2. **`bridge.py` coverage** for what step 1 added and for what it already
+   routed.
+3. **The four gaps 0.8.0 named for 0.8.1 and 0.8.1 did not carry**: the set
+   list's foot strip and the score bar's second row on the phone; the OMR
+   offer as a panel state rather than a row in More plus a chip; Rename on a
+   book row (now that the engine has it); Settings as a split inside the
+   score's 380pt panel.
+4. **Added elements in the UI**: size and position for text and marks through
+   the adjust row that chord symbols already use, then move and duplicate
+   against the destination above.
+5. **Chat dispatch against a stubbed model** -- tool-call dispatch and
+   argument shaping asserted with no network and no key. The model's own
+   judgement stays manual.
+6. **Export from the app UI**, end to end through the share sheet.
+7. **The gate debt**, late, when the machine is otherwise quiet: the
+   `lyricSize` experiment on PaginationAfterAnOp; reproducing the eight
+   rotating landscape failures by hand with the pool-then-serial timing; the
+   engine-aware lock so `ENGINE_SERIAL` stops growing; the chord adjust row
+   UI test on a stripped staff with its rests hidden.
+8. **Copyright and terms posture** -- a written position and the gate it
+   implies on the sharing path. Mostly Ali's decisions and a document. It
+   belongs here because it gets harder the more external testers hold the app.
+
+### 0.8.3 -- the renderer and what stands on it
+
+1. **Direct vector rendering behind a flag**, off by default, compared side by
+   side against the bitmap path on Ali's real scores before the flag is
+   considered for flipping. Retires the crisp-deep-zoom item outright.
+2. **Selection re-based on the vector output.**
+3. **Visual/engraving regression tests** -- worth building only once the
+   output is vector, which is what can be asserted on.
+4. **A real-device lane**: one iPad with a Pencil, run by hand per release
+   against a checklist, because the simulator has no Pencil and nothing runs
+   on hardware today.
+5. **The OMR pipeline through Audiveris**, in its own lane because it needs
+   the installed app on the host.
+6. **Multi-tenancy: rules, per-user OMR quotas, cost metering.** Firebase
+   touches live infrastructure; every deploy waits for Ali's explicit go.
+
+### Tracked as spikes, in neither build
+
+Neither has an acceptance criterion yet, and inventing one to fit a release is
+how a research question becomes a missed date. Each needs its go/no-go
+question answered first.
+
+- **Generative arrangement (v2)** -- NotaGen or the NeurIPS-2025 unified
+  arrangement model behind the same tool interface. Question: what does a
+  piano reduction have to get right before Ali would play from it?
+- **Portable score-ops kernel (Rust -> iOS/Android/WASM)** -- question: which
+  second platform is real enough to pay for the port?
+
 ## Deferred to post-prototype
 
 - **Firebase backend** — Auth, Firestore (metadata/jobs/chat), Cloud Storage, Hosting
