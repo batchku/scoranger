@@ -132,3 +132,55 @@ final class OMRConvertingProgressTests: XCTestCase {
         }
     }
 }
+
+// MARK: - The offer as a panel state (0.8.2, SC13)
+
+/// When the scan's own question opens, and what More's row says instead.
+final class ConvertOfferTests: XCTestCase {
+
+    func testAScanOpensTheOffer() {
+        XCTAssertTrue(ConvertOffer.opens(artifact: .scan, slug: "waltz",
+                                         answered: [], busy: false))
+        XCTAssertTrue(ConvertOffer.opens(artifact: .image, slug: "waltz",
+                                         answered: [], busy: false))
+    }
+
+    /// Notation has nothing to convert, so the question would be nonsense.
+    func testNotationNeverOpensIt() {
+        XCTAssertFalse(ConvertOffer.opens(artifact: .notation, slug: "quartet",
+                                          answered: [], busy: false))
+    }
+
+    /// EITHER answer counts. A reader who said "read as is" is not asked again
+    /// every time they open the same scan; More's row is how they change
+    /// their mind.
+    func testAnAnsweredOfferDoesNotReopen() {
+        XCTAssertFalse(ConvertOffer.opens(artifact: .scan, slug: "waltz",
+                                          answered: ["waltz"], busy: false))
+        XCTAssertTrue(ConvertOffer.opens(artifact: .scan, slug: "other",
+                                         answered: ["waltz"], busy: false),
+                      "answering one scan must not answer another")
+    }
+
+    /// A transcription already running is not a question.
+    func testItDoesNotOpenOverAJobThatIsAlreadyRunning() {
+        XCTAssertFalse(ConvertOffer.opens(artifact: .scan, slug: "waltz",
+                                          answered: [], busy: true))
+    }
+
+    /// No arrangement, no question -- and no empty slug written into the
+    /// answered set, which would answer every future one.
+    func testNoSlugNoOffer() {
+        XCTAssertFalse(ConvertOffer.opens(artifact: .scan, slug: "",
+                                          answered: [], busy: false))
+    }
+
+    /// More's row states its answer, so the screen reads as a summary (L34).
+    func testTheRowStatesItsAnswer() {
+        XCTAssertEqual(ConvertOffer.rowValue(busy: false, stage: nil), "not yet")
+        XCTAssertEqual(ConvertOffer.rowValue(busy: true, stage: "page 4 of 9"),
+                       "page 4 of 9")
+        XCTAssertEqual(ConvertOffer.rowValue(busy: true, stage: "  "), "reading…",
+                       "a blank stage must not leave the row blank")
+    }
+}

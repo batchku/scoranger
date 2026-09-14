@@ -84,3 +84,55 @@ enum MakeEditable {
                           showsSpinner: fraction == nil, acceptsTap: false)
     }
 }
+
+/// The OFFER, as a panel state (design/redesign-0.8/notebook-spec.html SC13).
+///
+/// Until 0.8.2 the only way to ask for OMR was a switch among the rows of
+/// More, and the only sign it was running was a chip on the top bar. Both
+/// were reachable only by a reader who already knew to look: a scan opened
+/// as a PDF and said nothing about what it could become. SC13 makes the
+/// question a panel state that opens WITH the scan, answered by Convert or
+/// by Read as is -- and More keeps a row that opens the same state again, so
+/// answering "read as is" costs nothing permanent.
+///
+/// The words are here rather than in the view because the offer, the More
+/// row's value and the running report have to agree, and three copies of a
+/// sentence is how they stop agreeing.
+enum ConvertOffer {
+    static let question = "Convert to notation?"
+    /// What converting buys, and what it costs -- which is nothing, because
+    /// the scan stays as its own version.
+    static let reason = "So it can be arranged, transposed and played. "
+        + "The scan stays as its own version either way, so you can compare them."
+    /// Said BEFORE the reader answers, not after: an OMR draft with wrong ties
+    /// is a surprise only to someone who was not told.
+    static let caution = "Converted scores are drafts: expect wrong ties, "
+        + "dynamics and articulations, and check the part names. "
+        + "Ask in chat to fix them."
+    static let convert = "Convert"
+    static let readAsIs = "Read as is"
+    /// The line under the progress: the wait does not hold the reader.
+    static let keepReading = "Keep reading; the notation version opens when it is done."
+
+    /// Whether opening this arrangement should put the offer on screen.
+    ///
+    /// `answered` is the set of slugs whose offer has already had an answer.
+    /// Either answer counts: a reader who said "read as is" is not asked
+    /// again by opening the same scan, and More's row is how they change
+    /// their mind.
+    static func opens(artifact: ScoreArtifact.Kind, slug: String,
+                      answered: Set<String>, busy: Bool) -> Bool {
+        guard ScoreArtifact.canBeMadeEditable(artifact) else { return false }
+        guard !busy else { return false }
+        guard !slug.isEmpty else { return false }
+        return !answered.contains(slug)
+    }
+
+    /// What More's row says on its trailing edge, so the row is a summary and
+    /// not a bare label (L34).
+    static func rowValue(busy: Bool, stage: String?) -> String {
+        guard busy else { return "not yet" }
+        return (stage?.trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "reading…"
+    }
+}

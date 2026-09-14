@@ -23,6 +23,12 @@ enum ScoreScreen: Hashable {
     case setlists
     case settings
     case chatModel
+    /// The OMR offer, and while it runs the report (SC13, `ConvertOffer`).
+    ///
+    /// `fromMore` is whether More opened it: the scan itself opens it with
+    /// nothing behind it, so a ‹ there would go nowhere, and More's row opens
+    /// the same state with ‹ back to More.
+    case convert(fromMore: Bool)
 }
 
 struct ScoreOptionsScreen: View {
@@ -49,6 +55,8 @@ struct ScoreOptionsScreen: View {
     /// which is what makes this a second entrance rather than a second screen
     /// (§16). Takes the route `onDetails` and `onSettings` take.
     var onSetlists: () -> Void = {}
+    /// Open the convert offer's panel state (SC13), with ‹ back to here.
+    var onConvert: () -> Void = {}
 
     /// The format currently being written, so its row can say so: engraving a
     /// PDF of a long score takes a moment and a dead row reads as a dead app.
@@ -114,8 +122,15 @@ struct ScoreOptionsScreen: View {
             // A PDF or a picture (0.8.0 build 194, Ali's item 6: the gate
             // said PDF only since 0.5.0, and 0.6.13's image path never
             // reached it).
+            // 0.8.2: a ROW that opens the offer's own panel state, not the
+            // switch that used to perform here (SC13). The question, its cost
+            // and the draft caution belong on one surface the scan opens by
+            // itself; what More owes is a way back to it.
             if ScoreArtifact.canBeMadeEditable(state.displayedArtifact) {
-                makeEditableRow
+                ScreenRow(title: ConvertOffer.convert,
+                          value: ConvertOffer.rowValue(busy: state.omrBusy,
+                                                       stage: state.omrStage),
+                          identifier: "more-make-editable") { onConvert() }
                 note(ScoreArtifact.makeEditableNote(state.displayedArtifact))
             }
             // "Score display" is gone (0.6.3 #6). It held page/spread/
@@ -197,53 +212,6 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-settings") { onSettings() }
         }
         .padding(.bottom, Theme.Metric.s32)
-    }
-
-    /// OMR, offered the way Performance mode is offered: a switch, because a
-    /// row that performs among rows that lead does not read as pressable
-    /// (MakeEditable). It reports its own progress in place and does not pop
-    /// the screen -- popping is what made pressing it look like nothing had
-    /// happened.
-    ///
-    /// One-way: OMR cannot be un-run. When it succeeds the arrangement is no
-    /// longer a scan and this row goes; when it fails the switch comes back
-    /// off and the notice says why.
-    private var makeEditableRow: some View {
-        let omr = MakeEditable.control(busy: state.omrBusy,
-                                       stage: state.omrStage,
-                                       fraction: state.omrFraction)
-        return VStack(alignment: .leading, spacing: 7) {
-            PanelToggle(title: "Make editable",
-                        isOn: Binding(get: { omr.isOn },
-                                      set: { on in
-                                          guard on, omr.acceptsTap else { return }
-                                          state.makeEditable()
-                                      }))
-            HStack(spacing: Theme.Metric.s8) {
-                if omr.showsSpinner {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Theme.Accent.clay)
-                }
-                Text(omr.detail)
-                    .typeRole(.meta)
-                    .foregroundStyle(Theme.Ink.ink3)
-                Spacer(minLength: 0)
-            }
-            if let fraction = omr.fraction {
-                ProgressView(value: fraction)
-                    .tint(Theme.Accent.clay)
-                    .frame(maxWidth: 220)
-            }
-        }
-        .padding(.horizontal, Theme.Metric.s20)
-        .padding(.vertical, 11)
-        .overlay(alignment: .bottom) {
-            Theme.Rule()
-        }
-        .accessibilityIdentifier("more-make-editable")
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Make editable, \(omr.detail)")
     }
 
     /// The part-wide half of size and position: the default every chord symbol

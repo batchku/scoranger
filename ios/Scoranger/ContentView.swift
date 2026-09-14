@@ -71,6 +71,9 @@ struct ContentView: View {
     private var moreOpen: Bool {
         switch scoreScreen {
         case nil, .chat, .titleVersions, .titleArrangements, .titleSetlists: return false
+        // The scan's own offer is not something More opened, so More is not
+        // lit while it is showing; the same state opened FROM More is.
+        case .convert(let fromMore): return fromMore
         default: return true
         }
     }
@@ -103,6 +106,9 @@ struct ContentView: View {
             return optionsSection == nil ? nil : { optionsSection = nil }
         case .setlists, .details, .settings:
             return { setPanel(.options) }
+        case .convert(let fromMore):
+            // Nothing behind the offer when the scan itself opened it.
+            return fromMore ? { setPanel(.options) } : nil
         case .chatModel:
             return { setPanel(.chat) }
         case .chat, .titleVersions, .titleArrangements, .titleSetlists:
@@ -248,7 +254,8 @@ struct ContentView: View {
                                push: { optionsSection = $0 },
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
-                               onSetlists: { scoreScreen = .setlists })
+                               onSetlists: { scoreScreen = .setlists },
+                               onConvert: { setPanel(.convert(fromMore: true)) })
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score-options")
         case .setlists:
@@ -293,6 +300,11 @@ struct ContentView: View {
                    onBack: { setPanel(.options) }, scrolls: false) {
                 SettingsSplit()
             }
+        case .convert:
+            ConvertPanel(onAnswered: {
+                state.recordConvertAnswer(for: state.selectedScore?.slug ?? "")
+                closePanel()
+            })
         case .chatModel:
             ChatModelScreen(onBack: { setPanel(.chat) })
         case .chat:
@@ -398,7 +410,7 @@ struct ContentView: View {
                                             busy: state.omrBusy,
                                             stage: state.omrStage,
                                             fraction: state.omrFraction),
-                                        action: { scoreScreen = .options })
+                                        action: { setPanel(.convert(fromMore: false)) })
                     }
                 }
                 .padding(.top, Theme.Metric.s8)
@@ -469,6 +481,10 @@ struct ContentView: View {
         // flag says it is open and which mode, and the panel follows.
         .onChange(of: state.titleMenuOpen) { _, open in titleMenuChanged(open: open) }
         .onChange(of: titleMenuMode) { _, _ in titleMenuChanged(open: state.titleMenuOpen) }
+        // SC13: the scan opens its own offer. Keyed on the displayed VERSION
+        // rather than on the arrangement, because converting produces a new
+        // version of the same slug and the offer must go when it does.
+        .task(id: state.displayedVersionID) { offerConversionIfScan() }
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -740,6 +756,21 @@ struct ContentView: View {
                       actionTitle: "Open library") {
             }
         }
+    }
+
+    /// Put the convert offer on screen when a scan opens (SC13).
+    ///
+    /// Only over an empty panel: a reader who opened Chat or More before the
+    /// page finished engraving asked for that, and having the offer displace
+    /// it would be the app taking the screen back. They still reach it from
+    /// More's row, which is the whole reason that row stayed.
+    private func offerConversionIfScan() {
+        guard scoreScreen == nil, state.scoreMode != .performance else { return }
+        guard ConvertOffer.opens(artifact: state.displayedArtifact,
+                                 slug: state.selectedScore?.slug ?? "",
+                                 answered: state.convertOfferAnswered,
+                                 busy: state.omrBusy) else { return }
+        setPanel(.convert(fromMore: false))
     }
 
     private func titleMenuChanged(open: Bool) {

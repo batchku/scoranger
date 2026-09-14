@@ -1770,6 +1770,27 @@ final class AppState: ObservableObject {
     /// version of the SAME arrangement.
     ///
     /// Only meaningful for a scan: notation is already editable.
+    /// The slugs whose convert offer (SC13) has had an answer, either way.
+    ///
+    /// Persisted: a question answered on Tuesday must not be asked again on
+    /// Wednesday just because the app was relaunched. In UserDefaults rather
+    /// than in the workspace because it is a reader's preference about one
+    /// device, not a fact about the arrangement -- and `TestReset` clears the
+    /// whole domain, so a seeded test library starts unanswered.
+    private static let convertAnsweredKey = "convertOfferAnswered"
+
+    var convertOfferAnswered: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.convertAnsweredKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: Self.convertAnsweredKey) }
+    }
+
+    func recordConvertAnswer(for slug: String) {
+        guard !slug.isEmpty else { return }
+        var answered = convertOfferAnswered
+        guard answered.insert(slug).inserted else { return }
+        convertOfferAnswered = answered
+    }
+
     func makeEditable() {
         guard let slug = selectedSlug,
               let version = displayedVersion,
