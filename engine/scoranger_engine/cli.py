@@ -382,6 +382,17 @@ def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
 
 
+def cmd_add_element(a):
+    score = _load(a.score, None)
+    details = ops.add_element(score, a.part, a.kind, a.measure,
+                              value=a.value, offset=a.offset,
+                              placement=a.placement)
+    _mutate(a.score, score, "add-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "value": a.value, "offset": a.offset, "placement": a.placement},
+            details)
+
+
 def cmd_move_element(a):
     score = _load(a.score, None)
     details = ops.move_element(score, a.part, a.kind, a.measure,
@@ -908,6 +919,27 @@ def main() -> None:
     s.add_argument("--all", action="store_true", help="every element of that kind")
     s.add_argument("--reset", action="store_true")
     s.set_defaults(fn=cmd_adjust_element)
+
+    s = sub.add_parser("add-element",
+                       help="Add a dynamic, a text mark, a fermata or an "
+                            "articulation to a bar")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--kind", required=True,
+                   help="|".join(sorted(ops.ADDABLE_KINDS)))
+    s.add_argument("--measure", type=int, required=True,
+                   help="the bar it goes in")
+    s.add_argument("--value",
+                   help="the dynamic (mf), the words (\"dolce\"), the "
+                        "articulation (accent) or the fermata's shape "
+                        "(normal|angled|square)")
+    s.add_argument("--offset", type=float, default=0.0,
+                   help="quarter notes from the barline: 0 is the downbeat. "
+                        "A fermata or an articulation needs a note STARTING "
+                        "there, because that is what it hangs off.")
+    s.add_argument("--placement", choices=["above", "below"],
+                   help="which side of the staff it sits on")
+    s.set_defaults(fn=cmd_add_element)
 
     for verb, fn in (("move", cmd_move_element),
                      ("duplicate", cmd_duplicate_element)):

@@ -340,6 +340,17 @@ def _dispatch(op, a):
                                       {"part": a["part"], "kind": a.get("kind") or "harm",
                                        "measure": a.get("measure")})
         return {"version": entry["id"], "details": details}
+    if op == "add-element":
+        score = _load(a["score"], None)
+        details = ops.add_element(score, a["part"], a["kind"], int(a["measure"]),
+                                  value=a.get("value"),
+                                  offset=float(a.get("offset") or 0.0),
+                                  placement=a.get("placement"))
+        entry = workspace.add_version(a["score"], score, "add-element",
+                                      {"part": a["part"], "kind": a["kind"],
+                                       "measure": int(a["measure"]),
+                                       "value": a.get("value")})
+        return {"version": entry["id"], "details": details}
     if op == "move-element":
         return _place_element(a, op, duplicate=False)
     if op == "duplicate-element":

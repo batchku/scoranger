@@ -121,6 +121,15 @@ do("chart-style", score=jig, part="#0")
 # while the symbols are still there: the part ops below rebuild measures, and
 # a diagram is drawn over a chord symbol or not at all
 do("chord-diagrams", score=jig, part="#0")
+# the op that makes the four below reachable from the app at all: nothing
+# could ADD a dynamic or a fermata before this build. Bar 5 is the tied one --
+# notes start at 0 and at 1.5, which is what a note-attached mark needs.
+do("add-element", score=jig, part="#0", kind="dynamic", measure=5, value="p")
+do("add-element", score=jig, part="#0", kind="text", measure=5,
+   value="poco rit.", offset=1.5)
+do("add-element", score=jig, part="#0", kind="fermata", measure=5, offset=0)
+do("add-element", score=jig, part="#0", kind="articulation", measure=5,
+   value="tenuto", offset=0)
 do("adjust-element", score=jig, part="#0", kind="harm", measure=1, scale=1.5)
 do("adjust-element", score=jig, part="#0", kind="dynamic", measure=1, scale=1.5)
 do("adjust-element", score=jig, part="#0", kind="text", measure=1, offset_y=-6)
@@ -321,6 +330,14 @@ def main() -> int:
           f"rename-book returned the new name: {renamed.get('name')}")
     check("slug" in renamed and renamed.get("slug") == "teh-rael-bok",
           f"and the slug it was created under: {renamed.get('slug')}")
+
+    added = [(r or {}).get("details", {}) for r in by_op.get("add-element") or []]
+    for kind in ("dynamic", "text", "fermata", "articulation"):
+        check(any(d.get("kind") == kind and d.get("ordinal") is not None
+                  for d in added),
+              f"add-element routed --kind {kind} and said where it landed")
+    check(all((r or {}).get("version") for r in by_op.get("add-element") or []),
+          "'add-element' made a version, like every other mutation")
 
     kinds = [(r or {}).get("details", {}).get("kind")
              for r in by_op.get("adjust-element") or []]

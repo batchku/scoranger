@@ -142,6 +142,24 @@ scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natu
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
+scor add-element <score> --part X --kind dynamic|text|fermata|articulation
+                  --measure N [--value V] [--offset QUARTERS] [--placement above|below]
+  # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
+  # the articulation (accent, staccato, tenuto, marcato...) or the fermata's
+  # shape (normal|angled|square). The destination is the same one move-element
+  # takes -- a BAR plus an offset in quarter notes from its barline -- and the
+  # two element classes land by the same two mechanics: offset-anchored marks
+  # are inserted at the offset, note-attached ones are attached to the note
+  # that STARTS there, and the op refuses and lists the bar's onsets rather
+  # than guessing. The report carries the ORDINAL it landed at, which is what
+  # adjust-element and move-element address it by.
+  # It refuses what the rest of the family refuses: spanners by name, and the
+  # three kinds that already have a creating op -- `harm` is `set-chords`,
+  # `diagram` is `chord-diagrams`, `tab` is `guitar-tab`. A second way to make
+  # a chord symbol is how two things that look alike start behaving
+  # differently. An invented dynamic or articulation is refused with the list,
+  # because music21 will build a Dynamic out of any string and give it a
+  # loudness that then gets PLAYED.
 scor adjust-element <score> --part X
                     [--kind harm|diagram|dynamic|text|fermata|articulation|tab]
                     [--measure N] [--ordinal N] [--all] [--scale RATIO]

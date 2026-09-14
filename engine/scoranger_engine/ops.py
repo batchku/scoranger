@@ -2700,6 +2700,40 @@ ELEMENT_KINDS: dict[str, ElementKind] = {
 ADJUSTABLE_KINDS = set(ELEMENT_KINDS)
 MOVABLE_KINDS = {name for name, spec in ELEMENT_KINDS.items() if spec.movable}
 
+# Three kinds are already CREATED by an op of their own, and `add-element` must
+# not become a second door to any of them. A chord symbol placed by a second
+# mechanism would fall out of step with `chart_style`'s placement the moment
+# either moved; a diagram is derived from the symbol it sits over; a tab column
+# is six verses on a note that `guitar-tab` chooses as a line, not one at a
+# time. Naming the op that owns each is more use than a bare refusal.
+CREATED_BY = {"harm": "set-chords", "diagram": "chord-diagrams",
+              "tab": "guitar-tab"}
+ADDABLE_KINDS = set(ELEMENT_KINDS) - set(CREATED_BY)
+
+# What `add-element --kind dynamic --value` will take. music21 will build a
+# Dynamic out of any string at all and silently give an unknown one a default
+# loudness, which would then be PLAYED -- so the list is checked here.
+DYNAMIC_MARKS = ("pppppp", "ppppp", "pppp", "ppp", "pp", "p", "mp", "mf",
+                 "f", "ff", "fff", "ffff", "fffff", "ffffff",
+                 "fp", "sf", "sfz", "sffz", "fz", "rf", "rfz", "sfp")
+
+# The articulations a person asks for by name, in MusicXML's own spelling.
+# Curated rather than derived from music21's module: `dir(articulations)`
+# holds forty-odd classes, most of them instrument techniques nobody is
+# reaching for from a chat line, and several that are not articulations at all.
+ARTICULATION_MARKS = {
+    "accent": "Accent", "strong-accent": "StrongAccent", "marcato": "StrongAccent",
+    "staccato": "Staccato", "staccatissimo": "Staccatissimo", "tenuto": "Tenuto",
+    "detached-legato": "DetachedLegato", "spiccato": "Spiccato",
+    "up-bow": "UpBow", "down-bow": "DownBow", "harmonic": "Harmonic",
+    "stopped": "Stopped", "open-string": "OpenString", "doit": "Doit",
+    "falloff": "Falloff", "plop": "Plop", "scoop": "Scoop",
+    "breath-mark": "BreathMark", "caesura": "Caesura",
+}
+
+# A fermata's shape, as MusicXML spells it and music21 stores it.
+FERMATA_SHAPES = ("normal", "angled", "square")
+
 # SPANNERS ARE OUT OF SCOPE, and this is where someone would add them.
 #
 # A slur, a hairpin, an 8va bracket and a pedal line each name TWO anchors. A
@@ -2898,6 +2932,129 @@ def adjust_element(score, name: str, kind: str = "harm",
             "scale": None if (reset or size is None)
             else size / DEFAULT_ELEMENT_POINTS,
             "offset": None if reset else [offset_x, offset_y]}
+
+
+def _make_element(kind: str, value: str | None, placement: str | None):
+    """The music21 object for one added element, or a refusal naming the choices."""
+    from music21 import articulations as m21articulations
+    from music21 import dynamics as m21dynamics
+    from music21 import expressions as m21expressions
+
+    if kind == "dynamic":
+        mark = (value or "").strip()
+        if mark not in DYNAMIC_MARKS:
+            raise ValueError(
+                f"'{mark}' is not a dynamic. Choices: {list(DYNAMIC_MARKS)}")
+        element = m21dynamics.Dynamic(mark)
+    elif kind == "text":
+        words = (value or "").strip()
+        if not words:
+            raise ValueError("A text mark needs words: pass --value \"dolce\"")
+        if parse_shape(words) is not None:
+            raise ValueError(
+                f"'{words}' reads as a chord-diagram shape, which is how "
+                "`chord-diagrams` marks its own text. Pick other words, or "
+                "use `chord-diagrams` if a diagram is what you meant.")
+        element = m21expressions.TextExpression(words)
+    elif kind == "fermata":
+        shape = (value or "normal").strip()
+        if shape not in FERMATA_SHAPES:
+            raise ValueError(
+                f"'{shape}' is not a fermata shape. Choices: {list(FERMATA_SHAPES)}")
+        element = m21expressions.Fermata()
+        element.shape = shape
+        # music21 defaults a Fermata to `inverted`, which MusicXML draws
+        # UNDER the note. A fermata asked for with no side goes above.
+        element.type = "upright" if placement != "below" else "inverted"
+    elif kind == "articulation":
+        mark = (value or "").strip().lower()
+        if mark not in ARTICULATION_MARKS:
+            raise ValueError(
+                f"'{mark}' is not an articulation. Choices: "
+                f"{sorted(ARTICULATION_MARKS)}")
+        element = getattr(m21articulations, ARTICULATION_MARKS[mark])()
+    else:
+        raise ValueError(f"no constructor for element kind {kind!r}")
+
+    if placement is not None:
+        if placement not in ("above", "below"):
+            raise ValueError(
+                f"placement is 'above' or 'below' (got '{placement}')")
+        element.placement = placement
+    return element
+
+
+def add_element(score, name: str, kind: str, measure: int,
+                value: str | None = None, offset: float = 0.0,
+                placement: str | None = None) -> dict:
+    """Put a dynamic, a text mark, a fermata or an articulation on the page.
+
+    The op the toolset was missing. `adjust_element` could size and place an
+    added mark, and `move_element` could move one, but nothing in the app or
+    the engine could ADD one -- so every one of them had to already be in the
+    file the score was imported from.
+
+    THE DESTINATION IS THE SAME ONE A MOVE TAKES: a bar plus an offset inside
+    it, in quarter notes from the barline, because this app has no drag. And
+    the two element classes land by the same two mechanics `move_element`
+    uses, for the same reason -- an offset-anchored mark is inserted at the
+    offset, a note-attached one is attached to the note that STARTS there, and
+    if nothing does the op refuses and lists the onsets rather than guessing.
+
+    SPANNERS are refused by name, as they are everywhere else in this family.
+    So are the three kinds that already have a creating op of their own
+    (CREATED_BY): a second way to make a chord symbol is how two things that
+    look alike start behaving differently.
+
+    The report carries the ORDINAL the new element landed at, so the caller
+    can address it with `adjust-element` or `move-element` without guessing
+    where in the bar's document order it went.
+    """
+    if kind in CREATED_BY:
+        spec = ELEMENT_KINDS[kind]
+        raise ValueError(
+            f"A {spec.noun} is added by `{CREATED_BY[kind]}`, not by this op. "
+            f"Can add: {sorted(ADDABLE_KINDS)}")
+    spec = _element_kind(kind, "add", ADDABLE_KINDS)
+
+    part = find_parts(score, [name])[0]
+    measures = {m.number: m for m in part.getElementsByClass(stream.Measure)}
+    destination = measures.get(measure)
+    if destination is None:
+        raise ValueError(
+            f"'{part_label(part)}' has no measure {measure} "
+            f"(it has {min(measures) if measures else 0}-"
+            f"{max(measures) if measures else 0})")
+
+    bar = float(destination.barDuration.quarterLength)
+    where = float(offset)
+    if not 0.0 <= where < bar:
+        raise ValueError(
+            f"offset {where} is not inside measure {measure}, which is "
+            f"{bar} quarter notes long")
+
+    element = _make_element(kind, value, placement)
+
+    if spec.anchor == "offset":
+        destination.insert(where, element)
+    else:
+        target = _note_starting_at(destination, where)
+        if target is None:
+            raise ValueError(
+                f"No note starts at offset {where} of measure {measure} in "
+                f"'{part_label(part)}'. {spec.noun.capitalize()}s hang off a "
+                f"note, so that is what the destination has to be; that bar "
+                f"starts notes at {_onsets(destination)}")
+        _attached_list(target, kind).append(element)
+
+    landed = [e for _holder, e in _elements_in_measure(destination, kind)]
+    ordinal = next((i for i, e in enumerate(landed) if e is element), None)
+    return {"part": part_label(part), "kind": kind, "op": "add",
+            "anchor": spec.anchor,
+            "value": value, "placement": placement,
+            "at": {"measure": measure, "offset": where},
+            "ordinal": ordinal,
+            "in_measure": len(landed)}
 
 
 def move_element(score, name: str, kind: str, measure: int, ordinal: int = 0,

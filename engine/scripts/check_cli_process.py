@@ -81,9 +81,10 @@ def refusal(env: dict, *args: str) -> str:
 def marked_score(path: Path) -> Path:
     """A jig carrying one of every addressable added element.
 
-    Built here rather than mutated in by the CLI because there is no op that
-    ADDS a dynamic or a fermata -- this build adjusts and moves what a score
-    already has, and the UI that puts them there is step 4.
+    Built here rather than added by the CLI so that the `add-element` section
+    below is testing the op rather than testing itself: the elements the
+    adjust/move sections work on arrive in the file, the way an imported score
+    brings its own.
     """
     from music21 import articulations, dynamics, expressions, harmony
 
@@ -103,6 +104,12 @@ def marked_score(path: Path) -> Path:
     first_note.expressions.append(expressions.Fermata())
     first_note.articulations.append(articulations.Accent())
     score.write("musicxml", fp=str(path))
+    return path
+
+
+def plain_score(path: Path) -> Path:
+    """The same jig with NOTHING added to it -- what add-element starts from."""
+    fixtures.jig(bars=8).write("musicxml", fp=str(path))
     return path
 
 
@@ -199,6 +206,85 @@ def main() -> int:
                      "fermata", "--measure", str(bar), "--offset-y", "-2")["details"]
         check(still["adjusted"] == 1, f"bar {bar} carries a fermata")
 
+    print("\nadd-element puts marks on a page that had none")
+    # The op the toolset was missing: adjust and move could size and shift an
+    # added mark, and nothing could ADD one -- so every dynamic, expression,
+    # fermata and articulation had to already be in the imported file.
+    blank = scor(env, "import", str(plain_score(root / "blank.musicxml")),
+                 "--name", "Nothing Added Yet")["score"]
+    for kind, flags, expect in (
+            ("dynamic", ["--value", "mf"], "offset"),
+            ("text", ["--value", "dolce", "--offset", "1.5"], "offset"),
+            ("fermata", [], "note"),
+            ("articulation", ["--value", "accent", "--offset", "1.0"], "note")):
+        out = scor(env, "add-element", blank, "--part", "#0",
+                   "--kind", kind, "--measure", "2", *flags)["details"]
+        check(out["anchor"] == expect and out["ordinal"] == 0,
+              f"--kind {kind} landed as the {expect}-anchored element #"
+              f"{out['ordinal']}")
+
+    print("\n...and they are there when the file is read back")
+    for kind in ("dynamic", "text", "fermata", "articulation"):
+        found = scor(env, "adjust-element", blank, "--part", "#0",
+                     "--kind", kind, "--measure", "2", "--scale", "1.25")["details"]
+        check(found["adjusted"] == 1,
+              f"the added {kind} survived the round trip through MusicXML")
+    xml = exported(env, blank, root / "added.musicxml")
+    for tag in ("<dynamics", "<words", "<fermata", "<accent"):
+        check(tag in xml, f"the exported notation carries {tag}")
+
+    print("\nthe ordinal it reports is the one the other ops address")
+    second = scor(env, "add-element", blank, "--part", "#0", "--kind", "text",
+                  "--value", "rit.", "--offset", "2.0",
+                  "--measure", "2")["details"]
+    check(second["ordinal"] == 1 and second["in_measure"] == 2,
+          f"the second text mark is #{second['ordinal']} of "
+          f"{second['in_measure']}")
+    moved = scor(env, "move-element", blank, "--part", "#0", "--kind", "text",
+                 "--measure", "2", "--ordinal", str(second["ordinal"]),
+                 "--to-measure", "4", "--to-offset", "0")["details"]
+    check(moved["to"] == {"measure": 4, "offset": 0.0},
+          "and move-element addressed by it reached bar 4")
+
+    print("\nadd-element refuses what the rest of the family refuses")
+    check("spanner" in refusal(env, "add-element", blank, "--part", "#0",
+                               "--kind", "hairpin", "--measure", "1"),
+          "a hairpin is refused by name: spanners are out of scope")
+    check("set-chords" in refusal(env, "add-element", blank, "--part", "#0",
+                                  "--kind", "harm", "--measure", "1",
+                                  "--value", "Em"),
+          "a chord symbol names the op that owns it rather than making a "
+          "second door to it")
+    check("guitar-tab" in refusal(env, "add-element", blank, "--part", "#0",
+                                  "--kind", "tab", "--measure", "1"),
+          "and so does a tab column")
+    check("hang off a note" in refusal(env, "add-element", blank, "--part", "#0",
+                                       "--kind", "fermata", "--measure", "2",
+                                       "--offset", "0.3"),
+          "a fermata cannot be added where no note starts")
+    check("not inside measure" in refusal(env, "add-element", blank, "--part",
+                                          "#0", "--kind", "dynamic",
+                                          "--measure", "2", "--value", "p",
+                                          "--offset", "11"),
+          "nor can anything land past the end of the bar")
+    check("not a dynamic" in refusal(env, "add-element", blank, "--part", "#0",
+                                     "--kind", "dynamic", "--measure", "1",
+                                     "--value", "loud"),
+          "an invented dynamic is refused rather than given a loudness it "
+          "would then be PLAYED at")
+    check("not an articulation" in refusal(env, "add-element", blank, "--part",
+                                           "#0", "--kind", "articulation",
+                                           "--measure", "1", "--value",
+                                           "wiggle"),
+          "and an invented articulation names the ones there are")
+    check("needs words" in refusal(env, "add-element", blank, "--part", "#0",
+                                   "--kind", "text", "--measure", "1"),
+          "a text mark with no words is refused")
+    check("no measure" in refusal(env, "add-element", blank, "--part", "#0",
+                                  "--kind", "dynamic", "--measure", "99",
+                                  "--value", "p"),
+          "so is a bar the part does not have")
+
     print("\nrefusals arrive as JSON on stderr with a non-zero exit")
     check("spanner" in refusal(env, "move-element", slug, "--part", "#0",
                                "--kind", "slur", "--measure", "1",
@@ -237,9 +323,11 @@ def main() -> int:
           "and moving one is refused: moving it would mean moving the music")
 
     print("\nevery mutation left a version behind it")
-    versions = scor(env, "versions", slug)["versions"]
+    versions = (scor(env, "versions", slug)["versions"]
+                + scor(env, "versions", blank)["versions"])
     made = [v["op"] for v in versions]
-    for op in ("import", "adjust-element", "move-element", "duplicate-element"):
+    for op in ("import", "add-element", "adjust-element", "move-element",
+               "duplicate-element"):
         check(op in made, f"'{op}' is in the history")
 
     print("\nrename-book, through the binary the app's Rename will mirror")
