@@ -32,7 +32,7 @@ from music21 import (articulations, duration, dynamics,  # noqa: E402
                      expressions, metadata, tempo)
 
 import fixtures  # noqa: E402
-from scoranger_engine import render  # noqa: E402
+from scoranger_engine import ops, render  # noqa: E402
 
 OUT = ROOT / "ios/ScorangerTests/Fixtures"
 
@@ -68,18 +68,48 @@ def build():
     return score
 
 
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    tmp = OUT / "_marks.musicxml"
-    build().write("musicxml", fp=str(tmp))
+def adjusted():
+    """The same marks, each one nudged right and UP and made half again.
+
+    The numbers are the fixture: +8 tenths right, +12 tenths up, 18pt against
+    the 12pt default. What the app's side has to do with them is turn them into
+    MEI @ho/@vo of the RIGHT SIGN and a scale on the drawn glyph.
+    """
+    score = build()
+    # the two note-attached kinds, which the page above does not carry in bar 1
+    first = next(n for n in score.parts[0].measure(1).notes)
+    first.expressions.append(expressions.Fermata())
+    first.articulations.append(articulations.Accent())
+    for kind in ("dynamic", "text", "fermata", "articulation"):
+        ops.adjust_element(score, "#0", kind=kind, measure=1,
+                           offset_x=8, offset_y=12, size=18)
+    return score
+
+
+def engrave(score, stem: str) -> None:
+    tmp = OUT / f"_{stem}.musicxml"
+    score.write("musicxml", fp=str(tmp))
     toolkit = verovio.toolkit()
     toolkit.setOptions(APP_OPTIONS)
     if not toolkit.loadFile(str(tmp)):
         raise SystemExit("verovio failed to load the generated score")
-    (OUT / "marks.svg").write_text(toolkit.renderToSVG(1))
+    (OUT / f"{stem}.svg").write_text(toolkit.renderToSVG(1))
+    if stem != "marks":
+        (OUT / f"{stem}.mei").write_text(toolkit.getMEI())
+        (OUT / f"{stem}.musicxml").write_text(tmp.read_text(encoding="utf-8"))
     tmp.unlink()
-    written = OUT / "marks.svg"
-    print(f"  {written.name:18} {written.stat().st_size:>7} bytes")
+
+
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    engrave(build(), "marks")
+    # ...and the same page with every mark adjusted, plus the MusicXML and the
+    # MEI it came from, so the app's half of the translation can be pinned to
+    # real artifacts in a bundle that has no Verovio in it.
+    engrave(adjusted(), "marks-adjusted")
+    for name in sorted(f.name for f in OUT.iterdir() if f.name.startswith("marks")):
+        f = OUT / name
+        print(f"  {name:24} {f.stat().st_size:>7} bytes")
 
 
 if __name__ == "__main__":

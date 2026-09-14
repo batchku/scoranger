@@ -159,10 +159,113 @@ ops.adjust_element(after, "#0", kind="harm", measure=3, size=22, offset_y=-3)
 if ops.rhythm_faults(after) != rhythm_before:
     FAILURES.append("adjusting a chord symbol changed the rhythm")
 
+# -- and it reaches the page for every kind, THE RIGHT WAY UP -----------------
+#
+# Step 1 generalised `adjust_element` past chord symbols, and the values went
+# into the MusicXML correctly and reached neither engraver: Verovio drops
+# relative-x/relative-y from a <dynamics>, a <words>, a <fermata> and an
+# articulation exactly as it drops them from a <harmony>, and the renderers
+# only carried the <harmony>.
+#
+# The direction is asserted, not assumed. The old <harm> pass NEGATED its
+# offset -- so the app's "up" arrow moved a chord symbol DOWN -- and the check
+# that existed only asked whether the symbol had MOVED. `up_is_up` is what
+# that check was missing.
+def marked():
+    """A jig with one of every adjustable mark on it."""
+    from music21 import articulations, dynamics, expressions, harmony
+
+    score = fixtures.jig(bars=8)
+    ops.set_chord_symbols(score, "#0", [{"measure": 3, "symbol": "Em"}])
+    bar = score.parts[0].measure(3)
+    bar.insert(0.0, dynamics.Dynamic("mf"))
+    bar.insert(1.5, expressions.TextExpression("dolce"))
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.expressions.append(expressions.Fermata())
+    note.articulations.append(articulations.Accent())
+    return score
+
+
+def engrave_marks(path):
+    toolkit = verovio.toolkit()
+    toolkit.setOptions({"scale": 45, "footer": "none", "adjustPageHeight": True,
+                        "lyricSize": render.DEFAULT_LYRIC_SIZE})
+    toolkit.loadFile(path)
+    mei = render.mei_with_element_adjustments(toolkit.getMEI(), path)
+    if mei is not None:
+        toolkit.loadData(mei)
+    return render.apply_element_sizes(toolkit.renderToSVG(1), path)
+
+
+def anchors(svg, css, leaf=False):
+    """Where each element of one class was drawn, and how big.
+
+    A glyph reports the translate of its <use> and the scale in the same
+    transform; a text element reports its <text> x/y and its tspan size.
+    """
+    out = []
+    pattern = (rf'<g[^>]*class="{css}"[^>]*>(?:(?!<g\b).)*?</g>' if leaf
+               else rf'<g[^>]*class="{css}".*?</g>\s*</g>')
+    for block in re.findall(pattern, svg, re.S):
+        # TEXT FIRST. A block's span can reach past its own drawing, so a
+        # <use> found inside a chord symbol's block belongs to the note under
+        # it; a <text> in there never does.
+        pos = re.search(r'<text[^>]*x="([-\d.]+)"[^>]*y="([-\d.]+)"', block)
+        size = re.search(r'<tspan font-size="([\d.]+)px"', block)
+        if pos:
+            out.append((float(pos.group(1)), float(pos.group(2)),
+                        float(size.group(1)) if size else None))
+            continue
+        glyph = re.search(r'translate\(([-\d.]+), ?([-\d.]+)\) '
+                          r'scale\(([\d.]+),', block)
+        if glyph:
+            out.append((float(glyph.group(1)), float(glyph.group(2)),
+                        float(glyph.group(3))))
+    return out
+
+
+UP_TENTHS = 12.0
+RIGHT_TENTHS = 8.0
+for kind, css, leaf in (("harm", "harm", False), ("dynamic", "dynam", True),
+                        ("text", "dir", False), ("fermata", "fermata", True),
+                        ("articulation", "artic", True)):
+    plain_marks = anchors(engrave_marks(written(marked())), css, leaf)
+    nudged_score = marked()
+    ops.adjust_element(nudged_score, "#0", kind=kind, measure=3,
+                       offset_x=RIGHT_TENTHS, offset_y=UP_TENTHS)
+    nudged = anchors(engrave_marks(written(nudged_score)), css, leaf)
+    if not plain_marks or len(plain_marks) != len(nudged):
+        FAILURES.append(f"{kind}: engraved {len(plain_marks)} then {len(nudged)} "
+                        "-- nothing to measure")
+        continue
+    before_x, before_y, before_size = plain_marks[0]
+    after_x, after_y, after_size = nudged[0]
+    if after_x <= before_x:
+        FAILURES.append(
+            f"{kind}: a positive relative-x did not move it RIGHT "
+            f"({before_x} -> {after_x}) -- the renderer is not carrying @ho")
+    if after_y >= before_y:
+        # SVG y grows downwards, so up is a SMALLER y
+        FAILURES.append(
+            f"{kind}: a positive relative-y did not move it UP "
+            f"({before_y} -> {after_y}) -- MusicXML and MEI both measure up, "
+            "so a negated @vo sends the reader's 'up' arrow down")
+
+    bigger_score = marked()
+    ops.adjust_element(bigger_score, "#0", kind=kind, measure=3, scale=2.0)
+    bigger = anchors(engrave_marks(written(bigger_score)), css, leaf)
+    if not bigger or bigger[0][2] is None or before_size is None:
+        FAILURES.append(f"{kind}: could not read the engraved size")
+    elif bigger[0][2] <= before_size:
+        FAILURES.append(
+            f"{kind}: --scale 2 did not make it bigger "
+            f"({before_size} -> {bigger[0][2]})")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} adjustment check(s) failed")
     for line in FAILURES:
         print("   ", line)
     sys.exit(1)
 print("OK: size and position are written to the notation, survive the file, "
-      "and reach the page without disturbing anything else")
+      "and reach the page -- right is right and up is up, for a chord symbol, "
+      "a dynamic, a text mark, a fermata and an articulation alike")

@@ -134,10 +134,14 @@ actor VerovioRenderer {
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
                                       continuous: continuous))
 
-        // The user's chord-symbol adjustments live in the MusicXML, and
-        // Verovio's importer drops them, so they are carried across here.
+        // The user's adjustments live in the MusicXML, and Verovio's importer
+        // drops them, so they are carried across here -- for every kind
+        // `adjust-element` can reach, not for chord symbols alone. The
+        // chord-symbol list is kept separately because the adjust row addresses
+        // one by ScoreAddress.
         let source = (try? String(contentsOfFile: musicXMLPath, encoding: .utf8)) ?? ""
-        let adjustments = ChordAdjustments.adjustments(inMusicXML: source)
+        let byKind = ChordAdjustments.allAdjustments(inMusicXML: source)
+        let adjustments = byKind[.harm] ?? []
 
         var reload = false
         if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
@@ -154,7 +158,7 @@ actor VerovioRenderer {
             mei = styled
             reload = true
         }
-        if let placed = ChordAdjustments.meiWithAdjustments(mei, adjustments: adjustments) {
+        if let placed = ChordAdjustments.meiWithAdjustments(mei, byKind: byKind) {
             mei = placed
             reload = true
         }
@@ -190,7 +194,7 @@ actor VerovioRenderer {
             // per-element text size to ask for
             let svg = PerfMetrics.shared.measure(PerfMetrics.Name.engraveSVG) {
                 ChordAdjustments.applySizes(t.renderToSVG(page, true),
-                                            adjustments: adjustments)
+                                            byKind: byKind)
             }
             rawPages.append(svg)
         }

@@ -276,14 +276,31 @@ def mei_with_fingerings_above(mei: str) -> str | None:
     return out if changed else None
 
 
-# Chord-symbol adjustments. Verovio's MusicXML importer drops `font-size`,
-# `relative-x` and `relative-y` from <harmony>, so the values a user set have to
-# be carried across by hand: position into MEI @ho/@vo, which Verovio honours
-# per element, and size into the SVG afterwards, because Verovio has no
-# per-element text size at all -- @fontsize is ignored as a percentage and as a
-# keyword. Mirrored in ios/Scoranger/ChordAdjustments.swift; keep the two in step.
+# ADDED-ELEMENT ADJUSTMENTS. Verovio's MusicXML importer drops `font-size`,
+# `relative-x` and `relative-y` from EVERY element that carries them -- a
+# <harmony>, a <dynamics>, a <words>, a <fermata>, an articulation -- so the
+# values a user set have to be carried across by hand: position into MEI
+# @ho/@vo, which Verovio honours per element, and size into the SVG afterwards,
+# because Verovio has no per-element text size at all (@fontsize is ignored as
+# a percentage and as a keyword).
+#
+# This used to carry chord symbols alone, which is what `adjust-element` used
+# to reach. It reaches five kinds now and so does this.
+#
+# WHICH WAY IS UP. MusicXML's relative-y measures UP and so does MEI's @vo, on
+# every one of these elements -- measured, element by element, by engraving the
+# same bar with and without an offset and reading the rendered y back
+# (check_adjust.py does it as an assertion, not as a comment). The <harm> pass
+# used to negate its own, on the belief that harm was the exception; it is not,
+# and the consequence was that the app's "up" arrow moved a chord symbol DOWN.
+#
+# Mirrored in ios/Scoranger/ChordAdjustments.swift; keep the two in step.
 _HARMONY_TAG_RE = re.compile(r"<harmony\b[^>]*>")
 _HARM_MEI_RE = re.compile(r"<harm\b")
+_DYNAMICS_TAG_RE = re.compile(r"<dynamics\b[^>]*>")
+_FERMATA_TAG_RE = re.compile(r"<fermata\b[^>]*>")
+_ARTICULATIONS_RE = re.compile(r"<articulations\b[^>]*>(.*?)</articulations>", re.S)
+_ARTIC_CHILD_RE = re.compile(r"<([a-z-]+)\b([^>]*)/?>")
 # A chord symbol's glyph carries x and y after its size, so the fingering-era
 # pattern (which expects the tag to close right after font-size) never matches
 # it. Same trap, different tag.
@@ -292,25 +309,65 @@ _CHORD_SIZE_RE = re.compile(r'(<tspan[^>]*font-size=")([\d.]+)(px")')
 _TENTHS_TO_HALF_SPACES = 0.2
 
 
-def chord_adjustments(musicxml_path) -> list[dict]:
-    """Each chord symbol's size and offset, in document order.
+def _three_numbers(tag: str) -> dict:
+    """The size and the two offsets off one MusicXML open tag."""
+    def number(attr):
+        found = re.search(rf'{attr}="([-\d.]+)"', tag)
+        return float(found.group(1)) if found else None
+    return {"size": number("font-size"),
+            "dx": number("relative-x"), "dy": number("relative-y")}
+
+
+def _adjustment_tags(text: str, kind: str) -> list[str]:
+    """The open tags of one kind of adjustable element, in document order.
+
+    The order is the whole join: Verovio keeps its elements in the order it
+    read them, so the nth <dynamics> in the file is the nth <dynam> in the MEI.
+    """
+    if kind == "harm":
+        return _HARMONY_TAG_RE.findall(text)
+    if kind == "dynamic":
+        return _DYNAMICS_TAG_RE.findall(text)
+    if kind == "text":
+        # a chord DIAGRAM rides in a <words> too, and it is `diagram_adjustments`
+        # that carries its three numbers -- a diagram is drawn by us, not by
+        # Verovio, so it is adjusted in a different place entirely
+        return [f"<words{attrs}>" for attrs, body in _WORDS_RE.findall(text)
+                if CHORD_DIAGRAM_RE.search(body) is None]
+    if kind == "fermata":
+        return _FERMATA_TAG_RE.findall(text)
+    if kind == "articulation":
+        return [f"<{name}{attrs}>"
+                for block in _ARTICULATIONS_RE.findall(text)
+                for name, attrs in _ARTIC_CHILD_RE.findall(block)]
+    raise ValueError(f"no adjustment finder for element kind {kind!r}")
+
+
+# kind -> the MEI element Verovio writes it as. `diagram` is absent on purpose:
+# we draw those ourselves and `mei_with_chord_diagrams` places them.
+ELEMENT_MEI_TAGS = {"harm": "harm", "dynamic": "dynam", "text": "dir",
+                    "fermata": "fermata", "articulation": "artic"}
+
+
+def element_adjustments(musicxml_path, kind: str = "harm") -> list[dict]:
+    """Each element of one kind, with its size and offset, in document order.
 
     Read straight from the file rather than from a parsed score: the renderer
-    only needs three numbers per symbol, and the MEI it is matching against is
+    only needs three numbers per element, and the MEI it is matching against is
     in the same order.
     """
     try:
         text = Path(musicxml_path).read_text(encoding="utf-8")
     except OSError:
         return []
-    out = []
-    for tag in _HARMONY_TAG_RE.findall(text):
-        def number(attr):
-            found = re.search(rf'{attr}="([-\d.]+)"', tag)
-            return float(found.group(1)) if found else None
-        out.append({"size": number("font-size"),
-                    "dx": number("relative-x"), "dy": number("relative-y")})
-    return out
+    return [_three_numbers(tag) for tag in _adjustment_tags(text, kind)]
+
+
+def chord_adjustments(musicxml_path) -> list[dict]:
+    """Each chord symbol's size and offset -- `element_adjustments`' first
+    caller, kept under its own name because the app's side is spelled the
+    same."""
+    return element_adjustments(musicxml_path, "harm")
 
 
 def chart_placements(musicxml_path) -> list[bool]:
@@ -412,61 +469,143 @@ def mei_with_deduped_rehearsals(mei: str) -> str:
     return "".join(out)
 
 
+def mei_with_element_adjustments(mei: str, musicxml_path) -> str | None:
+    """Carry every added element's offset into the MEI, or None if none has one.
+
+    Verovio honours @ho/@vo per element and drops MusicXML's relative-x/y, so
+    this is the only route an adjustment has to the page. Both measure the same
+    way round -- positive is right and UP -- on all five kinds; see the note
+    above _HARMONY_TAG_RE for how that was established and what believing
+    otherwise cost.
+    """
+    touched = False
+    out = mei
+    for kind, tag in ELEMENT_MEI_TAGS.items():
+        adjustments = element_adjustments(musicxml_path, kind)
+        if not any(a["dx"] is not None or a["dy"] is not None
+                   for a in adjustments):
+            continue
+        index = 0
+
+        def place(match, adjustments=adjustments):
+            nonlocal index
+            whole = match.group(0)
+            if tag == "dir" and CHORD_DIAGRAM_RE.search(match.group(1) or ""):
+                return whole          # a diagram marker: not ours to move
+            adjustment = adjustments[index] if index < len(adjustments) else {}
+            index += 1
+            attrs = ""
+            if adjustment.get("dx") is not None:
+                attrs += f' ho="{adjustment["dx"] * _TENTHS_TO_HALF_SPACES:g}"'
+            if adjustment.get("dy") is not None:
+                attrs += f' vo="{adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
+            if not attrs:
+                return whole
+            if tag == "dir":
+                head, rest = whole.split(">", 1)
+                return f"{head}{attrs}>{rest}"
+            return whole + attrs
+
+        pattern = (re.compile(r"<dir\b[^>]*>([^<]*)") if tag == "dir"
+                   else re.compile(rf"<{tag}\b"))
+        out = pattern.sub(place, out)
+        touched = True
+    return out if touched else None
+
+
 def mei_with_chord_adjustments(mei: str, musicxml_path) -> str | None:
-    """Carry each chord symbol's offset into the MEI, or None if none have one."""
-    adjustments = chord_adjustments(musicxml_path)
-    if not any(a["dx"] is not None or a["dy"] is not None for a in adjustments):
-        return None
+    """The chord-symbol half of `mei_with_element_adjustments`, under the name
+    the checks and the app's side have always used."""
+    return mei_with_element_adjustments(mei, musicxml_path)
 
-    index = 0
 
-    def place(match):
-        nonlocal index
-        adjustment = adjustments[index] if index < len(adjustments) else {}
-        index += 1
-        attrs = ""
-        if adjustment.get("dx") is not None:
-            attrs += f' ho="{adjustment["dx"] * _TENTHS_TO_HALF_SPACES:g}"'
-        if adjustment.get("dy") is not None:
-            # MusicXML measures up, MEI @vo measures down
-            attrs += f' vo="{-adjustment["dy"] * _TENTHS_TO_HALF_SPACES:g}"'
-        return match.group(0) + attrs
+# How Verovio draws each kind, which decides how a size is applied to it.
+# TEXT is a <tspan font-size>; a GLYPH is a <use> with a scale in its
+# transform, and there is no other handle on its size at all.
+ELEMENT_SVG_CLASSES = {"harm": ("harm", "text"), "text": ("dir", "text"),
+                       "dynamic": ("dynam", "glyph"),
+                       "fermata": ("fermata", "glyph"),
+                       "articulation": ("artic", "glyph")}
 
-    return _HARM_MEI_RE.sub(place, mei)
+_USE_SCALE_RE = re.compile(r'(transform="translate\([^)]*\)\s*scale\()'
+                           r'([\d.]+),\s*([\d.]+)(\))')
+
+
+def _resize_text(block: str, ratio: float) -> str:
+    """Grow or shrink the first sized tspan of a text block."""
+    base = _CHORD_SIZE_RE.search(block)
+    if not base or float(base.group(2)) <= 0:
+        return block
+    return _CHORD_SIZE_RE.sub(
+        lambda m: f"{m.group(1)}{float(m.group(2)) * ratio:g}{m.group(3)}",
+        block, count=1)
+
+
+def _resize_glyph(block: str, ratio: float) -> str:
+    """Grow or shrink a drawn glyph, about its own origin.
+
+    A <use> carries `translate(x, y) scale(k, k)`, and the translate is the
+    glyph's ANCHOR -- the note it hangs off, the baseline it sits on. Scaling
+    the k's and leaving the translate alone therefore grows the mark without
+    moving the point it is attached to, which is the only behaviour that keeps
+    a resized fermata over its note.
+    """
+    return _USE_SCALE_RE.sub(
+        lambda m: (f"{m.group(1)}{float(m.group(2)) * ratio:g}, "
+                   f"{float(m.group(3)) * ratio:g}{m.group(4)}"),
+        block)
+
+
+def apply_element_sizes(svg: str, musicxml_path) -> str:
+    """Rescale every adjusted element in the rendered SVG.
+
+    Verovio has no per-element text size and no per-element glyph size, so
+    this is the last place a size can be applied -- after the page is drawn.
+    The stored value is a point size; what is applied is its RATIO to the
+    engraved default, so the mark keeps its proportion at any page scale.
+
+    A chord symbol's size lives on the INNER tspan; the enclosing <text> is
+    font-size="0px", and reading that is what once gave every fingering circle
+    a radius of zero.
+    """
+    out = svg
+    for kind, (css, how) in ELEMENT_SVG_CLASSES.items():
+        adjustments = element_adjustments(musicxml_path, kind)
+        if not any(a["size"] is not None for a in adjustments):
+            continue
+        # A TEXT block is two groups deep (<g class><text><tspan>); a GLYPH
+        # block is a LEAF -- one <g> holding one <use>. Reading a leaf with
+        # the text pattern runs past its own </g> and into the next element's
+        # drawing, which is how a resized dynamic would have scaled the
+        # notehead beside it.
+        pattern = (rf'<g[^>]*class="{css}".*?</g>\s*</g>' if how == "text"
+                   else rf'<g[^>]*class="{css}"[^>]*>(?:(?!<g\b).)*?</g>')
+        blocks = [b for b in re.finditer(pattern, out, re.S)
+                  # a chord DIAGRAM is a <dir> too, and it is sized by the
+                  # label `mei_with_chord_diagrams` writes, not here
+                  if not (css == "dir" and CHORD_DIAGRAM_RE.search(b.group(0)))]
+        if not blocks:
+            continue
+        pieces, cursor = [], 0
+        for index, block in enumerate(blocks):
+            pieces.append(out[cursor:block.start()])
+            body = block.group(0)
+            wanted = adjustments[index]["size"] if index < len(adjustments) else None
+            if wanted is not None:
+                ratio = float(wanted) / DEFAULT_CHORD_POINTS
+                body = (_resize_text(body, ratio) if how == "text"
+                        else _resize_glyph(body, ratio))
+            pieces.append(body)
+            cursor = block.end()
+        pieces.append(out[cursor:])
+        out = "".join(pieces)
+    return out
 
 
 def apply_chord_sizes(svg: str, musicxml_path) -> str:
-    """Rescale each adjusted chord symbol's glyph in the rendered SVG.
-
-    The size lives on the INNER tspan; the enclosing <text> is font-size="0px",
-    and reading that is what once gave every fingering circle a radius of zero.
-    """
-    adjustments = chord_adjustments(musicxml_path)
-    if not any(a["size"] is not None for a in adjustments):
-        return svg
-
-    blocks = list(re.finditer(r'<g[^>]*class="harm".*?</g>\s*</g>', svg, re.S))
-    if not blocks:
-        return svg
-
-    out, cursor = [], 0
-    for index, block in enumerate(blocks):
-        out.append(svg[cursor:block.start()])
-        text = block.group(0)
-        wanted = adjustments[index]["size"] if index < len(adjustments) else None
-        if wanted is not None:
-            base = _CHORD_SIZE_RE.search(text)
-            if base and float(base.group(2)) > 0:
-                # the stored size is in points; scale the engraved glyph by the
-                # ratio to the default, so it stays right at any page scale
-                scale = float(wanted) / DEFAULT_CHORD_POINTS
-                text = _CHORD_SIZE_RE.sub(
-                    lambda m: f"{m.group(1)}{float(m.group(2)) * scale:g}{m.group(3)}",
-                    text, count=1)
-        out.append(text)
-        cursor = block.end()
-    out.append(svg[cursor:])
-    return "".join(out)
+    """The chord-symbol half of `apply_element_sizes`, under the name the
+    checks and the app's side have always used."""
+    return apply_element_sizes(svg, musicxml_path)
 
 
 def _fingering_diagrams(svg: str) -> str:
@@ -1315,7 +1454,7 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         # The reader's own nudges. These functions existed and were checked in
         # isolation, but nothing in the PDF path ever called them -- so an
         # adjustment showed on screen and vanished from the export.
-        adjusted = mei_with_chord_adjustments(mei, src)
+        adjusted = mei_with_element_adjustments(mei, src)
         if adjusted is not None:
             mei = adjusted
             if not tk.loadData(mei):
@@ -1340,7 +1479,7 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
                 raise RuntimeError("Verovio could not reload MEI with deduped rehearsals")
         n_pages = tk.getPageCount()
         svgs = [_tab_staff(_chord_diagrams(_fingering_diagrams(
-                    apply_chord_sizes(
+                    apply_element_sizes(
                         _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves),
                         src))))
                 for p in range(1, n_pages + 1)]
