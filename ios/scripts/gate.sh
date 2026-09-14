@@ -257,7 +257,48 @@ do
   fi
 done
 
+# THE PHONE LANE.
+#
+# EVERY WORKER IN THIS GATE RUNS ON AN iPAD, and until 0.8.2 that was the whole
+# of the gate's device coverage -- four simulators of one screen size, named
+# "scoranger-gate-iphone-*" for historical reasons that fooled everybody who
+# read the list. A gate that only ever ran one screen size could not see a
+# panel covering the page: on a phone the panel is a pushed page, the set list
+# screen's panel AT REST was pushed over the set list, and opening a set list
+# on an iPhone showed "This set list" and no set list -- no title, no running
+# order, no Play. It shipped in 0.8.0 and stayed through 0.8.1. Two more phone
+# defects were found the same afternoon, by photographing at iPhone size for
+# the first time.
+#
+# So a handful of tests run on a PHONE, in a lane of their own after the pool.
+# Not the whole gate: an iPad is what Ali plays from, and moving the suite to a
+# phone would trade one blind spot for the other. These are the tests whose
+# assertions are ABOUT compact width -- they pass vacuously on an iPad, where
+# the foot strip is not drawn and the second row is not asked for, and
+# `PhoneTapSelection` says so in its own first line ("on the phone, where all
+# three are new") while having run on an iPad since the day it was written.
+#
+# Held out of the iPad shards like ENGINE_SERIAL, still enumerated, still
+# counted in `expected`, still able to fail the gate. Spelled with the
+# trailing "()" for the same reason.
+#
+# Measured cost, iPhone 17 Pro, one simulator, this machine: see the note in
+# the report for 0.8.2 -- the lane is five tests and runs after the pool, so
+# it is added wall clock rather than hidden inside it.
+PHONE_LANE=(
+  "ScorangerUITests/PhoneSurfaces/testASetListOnAPhoneShowsTheSetList()"
+  "ScorangerUITests/PhoneSurfaces/testTheFootStripCarriesTheSetListsTools()"
+  "ScorangerUITests/PhoneSurfaces/testTheScoreBarsSecondRowCarriesLayoutPerformAndAdd()"
+  # Written for the phone and run on an iPad ever since: a finger on the
+  # canvas, the loupe, and a page turned from a corner are all §9/§12 phone
+  # rules (design/IPHONE_0.6.14.md).
+  "ScorangerUITests/PhoneTapSelection/testAFingerSelectsInTheMiddleAndTurnsFromACorner()"
+  "ScorangerUITests/PhoneTapSelection/testAPressSelectsAfterSecondsOfHolding()"
+)
+
 DEVTYPE="${GATE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB}"
+# The lane's device. One phone, made and kept like the pool's iPads.
+PHONE_DEVTYPE="${GATE_PHONE_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro}"
 RUNTIME=$(xcrun simctl list runtimes -j \
   | python3 -c 'import json,sys; rs=[r for r in json.load(sys.stdin)["runtimes"] if r["isAvailable"] and "iOS" in r["name"]]; print(sorted(rs, key=lambda r: [int(x) for x in r["version"].split(".")])[-1]["identifier"])')
 
@@ -336,7 +377,9 @@ for _, ds in json.load(sys.stdin)['devices'].items():
 tidy_foreign_simulators
 
 sim_for() {
-  local name="scoranger-gate-$GATE_SIM_POOL-$1" udid
+  # $2 is the device type, defaulting to the pool's iPad. The phone lane
+  # passes its own, and gets a device with its own name for it.
+  local name="scoranger-gate-$GATE_SIM_POOL-$1" devtype="${2:-$DEVTYPE}" udid
   udid=$(xcrun simctl list devices -j | python3 -c "
 import json,sys
 for _, ds in json.load(sys.stdin)['devices'].items():
@@ -344,7 +387,7 @@ for _, ds in json.load(sys.stdin)['devices'].items():
         if d['name'] == '$name' and d.get('isAvailable'):
             print(d['udid']); raise SystemExit
 ")
-  [[ -n "$udid" ]] || udid=$(xcrun simctl create "$name" "$DEVTYPE" "$RUNTIME")
+  [[ -n "$udid" ]] || udid=$(xcrun simctl create "$name" "$devtype" "$RUNTIME")
   # BOOT IT, and wait until it has finished booting.
   #
   # xcodebuild boots a device it is handed, but a device it has never booted
@@ -402,10 +445,11 @@ xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
 # using the durations the last run recorded -- an unknown test is assumed
 # median, so a new test is never the thing that unbalances the run.
 printf '%s\n' "${ENGINE_SERIAL[@]}" > "$OUT/serial.txt"
-python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv "$OUT/serial.txt" <<'PY'
+printf '%s\n' "${PHONE_LANE[@]}" > "$OUT/phone.txt"
+python3 - "$OUT/tests.json" "$WORKERS" "$OUT" scripts/gate-durations.tsv "$OUT/serial.txt" "$OUT/phone.txt" <<'PY'
 import json, sys, os, collections
 tests_json, workers, out, durfile = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-serial_file = sys.argv[5]
+serial_file, phone_file = sys.argv[5], sys.argv[6]
 
 # enabledTests only: -skip-testing is honoured by the enumeration, and the
 # sweeps it skips turn up under disabledTests in the same file.
@@ -431,11 +475,27 @@ if missing:
 serial &= ids
 if not serial:
     sys.exit("the serial list is empty after matching the enumeration")
-ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/") and i not in serial)
+
+# The phone lane, held out of the iPad shards the same way and for the same
+# kind of reason: these run on a device the pool has not got.
+phone = set()
+if os.path.exists(phone_file):
+    phone = {line.strip() for line in open(phone_file) if line.strip()}
+missing = phone - ids
+if missing:
+    sys.exit("the phone lane names tests that were not enumerated -- check the "
+             "identifiers, including the trailing '()':\n  "
+             + "\n  ".join(sorted(missing)))
+phone &= ids
+if not phone:
+    sys.exit("the phone lane is empty after matching the enumeration")
+
+held = serial | phone
+ui   = sorted(i for i in ids if i.startswith("ScorangerUITests/") and i not in held)
 # Unit tests named in the serial list are held out of the worker's lump the
 # same way, by a -skip-testing per test (unit-skip.txt), since the lump is
 # the whole target and cannot be enumerated back in without them.
-unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/") and i not in serial)
+unit = sorted(i for i in ids if not i.startswith("ScorangerUITests/") and i not in held)
 with open(os.path.join(out, "unit-skip.txt"), "w") as f:
     held = sorted(i for i in serial if not i.startswith("ScorangerUITests/"))
     f.write("\n".join(held) + ("\n" if held else ""))
@@ -466,11 +526,14 @@ for n, (s, l) in enumerate(zip(shards, load), 1):
         f.write("\n".join(s) + "\n")
     print(f"    worker {n}: {len(s)} entries, ~{l:.0f}s predicted")
 print(f"    {len(ui)} UI tests + {len(unit)} unit tests enumerated"
-      + (f" + {len(serial)} serial" if serial else ""))
+      + (f" + {len(serial)} serial" if serial else "")
+      + (f" + {len(phone)} on a phone" if phone else ""))
 with open(os.path.join(out, "serial.txt"), "w") as f:
     f.write("\n".join(sorted(serial)) + ("\n" if serial else ""))
+with open(os.path.join(out, "phone.txt"), "w") as f:
+    f.write("\n".join(sorted(phone)) + ("\n" if phone else ""))
 with open(os.path.join(out, "expected.txt"), "w") as f:
-    f.write(f"{len(ui) + len(unit) + len(serial)}\n")
+    f.write(f"{len(ui) + len(unit) + len(serial) + len(phone)}\n")
 PY
 
 EXPECTED=$(cat "$OUT/expected.txt")
@@ -578,6 +641,29 @@ if (( ${#SERIAL_TESTS[@]} > 0 )); then
   fi
 fi
 
+# THE PHONE LANE. One iPhone, after everything else, so the pool's devices are
+# down and nothing is competing with it -- and so the added wall clock is a
+# number somebody can read off the run rather than a cost hidden inside it.
+PHONE_TESTS=()
+while read -r t; do [[ -n "$t" ]] && PHONE_TESTS+=("$t"); done < "$OUT/phone.txt"
+if (( ${#PHONE_TESTS[@]} > 0 )); then
+  echo "==> ${#PHONE_TESTS[@]} tests on a phone (compact width; see PHONE_LANE)"
+  for ((i = 0; i < ${#udids[@]}; i++)); do
+    xcrun simctl shutdown "${udids[i]}" >/dev/null 2>&1 || true
+  done
+  PHONE_START=$(date +%s)
+  PHONE_SIM=$(sim_for phone "$PHONE_DEVTYPE")
+  phone_args=()
+  for t in "${PHONE_TESTS[@]}"; do phone_args+=("-only-testing:$t"); done
+  if ! xcodebuild test-without-building -xctestrun "$XCTESTRUN" \
+        -destination "platform=iOS Simulator,id=$PHONE_SIM" \
+        -resultBundlePath "$OUT/phone.xcresult" \
+        "${phone_args[@]}" ${EXTRA+"${EXTRA[@]}"} > "$OUT/phone.log" 2>&1; then
+    echo "    phone lane FAILED"; fail=1
+  fi
+  echo "    phone lane took $(( $(date +%s) - PHONE_START ))s"
+fi
+
 ELAPSED=$(( $(date +%s) - START ))
 
 # Did they actually RUN? Two xcodebuild runs on one simulator report success
@@ -597,6 +683,9 @@ if os.path.exists(unit_bundle):
 serial_bundle = os.path.join(out, "serial.xcresult")
 if os.path.exists(serial_bundle):
     bundles.append(("serial", serial_bundle))
+phone_bundle = os.path.join(out, "phone.xcresult")
+if os.path.exists(phone_bundle):
+    bundles.append(("phone", phone_bundle))
 for label, path in bundles:
     n = label
     if not os.path.exists(path):

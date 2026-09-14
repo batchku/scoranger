@@ -97,12 +97,26 @@ rather than as a welcome.
 ### 2.4 Photographs of the app as it stands
 
 `ScorangerUITests/DesignerSweep` photographs every screen at several widths and
-Dynamic Type sizes. Run it once and hand the folder to the design session:
+Dynamic Type sizes; `PhoneShot` does the phone's pages at iPhone size. Run one
+and hand the folder to the design session:
 
-    cd ios && TEST_RUNNER_SCORANGER_SHOT_DIR=/path/to/shots \
-      xcodebuild test -project Scoranger.xcodeproj -scheme Scoranger \
-      -destination "platform=iOS Simulator,name=iPad Pro 11-inch (M4)" \
+    cd ios && xcodebuild test -project Scoranger.xcodeproj -scheme Scoranger \
+      -destination "platform=iOS Simulator,name=iPad Pro 11-inch (M5)" \
       -only-testing:ScorangerUITests/DesignerSweep
+
+**Take the pictures out of the result bundle, not out of `SCORANGER_SHOT_DIR`.**
+Every shot test writes a PNG per frame when that variable is set, passed in as
+`TEST_RUNNER_SCORANGER_SHOT_DIR`; on an **iOS 26.5 simulator those writes do not
+reach the host** — the directory stays empty and nothing says why. The
+screenshots are attached to the run either way, and this is the route that
+works:
+
+    R=$(ls -td ios/DerivedData*/Logs/Test/*.xcresult | head -1)
+    xcrun xcresulttool export attachments --path "$R" --output-path shots
+
+The exported files are named by UUID; `shots/manifest.json` maps each one to
+the `snap(...)` name it was taken under. Committed photographs live in
+`design/shots-0.8.x/` under those names.
 
 Draw the five options against these, not against memory.
 
