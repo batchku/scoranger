@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import verovio  # noqa: E402
 
+from music21 import duration as m21duration  # noqa: E402
+from music21 import expressions, tempo  # noqa: E402
+from pypdf import PdfReader  # noqa: E402
+
 import fixtures  # noqa: E402
 from scoranger_engine import ops, render  # noqa: E402
 
@@ -297,6 +301,47 @@ if drawn_cols:
         FAILURES.append(
             f"only {check_count} columns to compare -- the baseline check is "
             "not measuring anything")
+
+# -- the marks the APP's path got wrong, pinned on the EXPORT's path ---------
+#
+# Two faults were found in the iPad's renderer in 0.8.2: a tempo mark's digits
+# drawn at the size of the music glyph beside them, and Verovio's own italics
+# and bolds ignored outright. Neither was ever wrong here -- cairosvg reads the
+# per-tspan sizes and the stylesheet that the app's SwiftDraw path cannot --
+# and this is what says so, so that a future rewrite of `_sanitize_svg` cannot
+# quietly bring them across.
+marks = fixtures.jig(bars=8)
+marks_bar = marks.parts[0].measure(1)
+marks_bar.insert(0.0, tempo.MetronomeMark(number=138,
+                                          referent=m21duration.Duration(1.5)))
+marks_bar.insert(1.5, expressions.TextExpression("dolce"))
+marks_src = tempfile.mktemp(suffix=".musicxml")
+marks.write("musicxml", fp=marks_src)
+marks_pdf = tempfile.mktemp(suffix=".pdf")
+render.render_pdf(marks_src, marks_pdf)
+faces = {str(font.get("/BaseFont")).split("+")[-1]
+         for font in (PdfReader(marks_pdf).pages[0]["/Resources"].get("/Font") or {}).values()}
+for face in ("Times-Italic", "Times-Bold"):
+    if face not in faces:
+        FAILURES.append(f"the exported PDF has no {face}: Verovio's stylesheet "
+                        f"stopped reaching the page (it has {sorted(faces)})")
+
+marks_toolkit = verovio.toolkit()
+marks_toolkit.setOptions({**APP_OPTIONS, "lyricSize": render.DEFAULT_LYRIC_SIZE})
+marks_toolkit.loadFile(marks_src)
+tempo_block = re.search(r'<g[^>]*class="tempo".*?</g>',
+                        render._sanitize_svg(marks_toolkit.renderToSVG(1)), re.S)
+if tempo_block is None:
+    FAILURES.append("no tempo mark was engraved at all")
+else:
+    tempo_sizes = {float(v) for v in
+                   re.findall(r'font-size="([\d.]+)px"', tempo_block.group(0))
+                   if float(v) > 0}
+    if len(tempo_sizes) < 2:
+        FAILURES.append(
+            f"the tempo mark came out at one size ({sorted(tempo_sizes)}): the "
+            "glyph and the digits are engraved at different sizes and the "
+            "export must keep them apart")
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} rendering size check(s) failed")
