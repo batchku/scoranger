@@ -382,6 +382,30 @@ def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
 
 
+def cmd_move_element(a):
+    score = _load(a.score, None)
+    details = ops.move_element(score, a.part, a.kind, a.measure,
+                               ordinal=a.ordinal, to_measure=a.to_measure,
+                               to_offset=a.to_offset)
+    _mutate(a.score, score, "move-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "to_measure": a.to_measure, "to_offset": a.to_offset}, details)
+
+
+def cmd_duplicate_element(a):
+    score = _load(a.score, None)
+    details = ops.duplicate_element(score, a.part, a.kind, a.measure,
+                                    ordinal=a.ordinal, to_measure=a.to_measure,
+                                    to_offset=a.to_offset)
+    _mutate(a.score, score, "duplicate-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "to_measure": a.to_measure, "to_offset": a.to_offset}, details)
+
+
+def cmd_rename_book(a):
+    _emit(workspace.rename_book(a.book, a.name))
+
+
 def cmd_set_structure(a):
     score = _load(a.score, None)
     details = ops.set_structure(score, a.kind, measure=a.measure,
@@ -394,7 +418,7 @@ def cmd_set_structure(a):
 def cmd_adjust_element(a):
     score = _load(a.score, None)
     details = ops.adjust_element(score, a.part, kind=a.kind, measure=a.measure,
-                                 ordinal=a.ordinal, size=a.size,
+                                 ordinal=a.ordinal, size=a.size, scale=a.scale,
                                  offset_x=a.offset_x, offset_y=a.offset_y,
                                  reset=a.reset, all_elements=a.all)
     _mutate(a.score, score, "adjust-element",
@@ -794,6 +818,12 @@ def main() -> None:
     s = sub.add_parser("books", help="List the books in the workspace")
     s.set_defaults(fn=cmd_books)
 
+    s = sub.add_parser("rename-book",
+                       help="Rename a book (slug and stored PDF unchanged)")
+    s.add_argument("book", help="Book slug")
+    s.add_argument("--name", required=True)
+    s.set_defaults(fn=cmd_rename_book)
+
     s = sub.add_parser("piece-create", help="Create a piece (a work that groups arrangements)")
     s.add_argument("name")
     s.set_defaults(fn=cmd_piece_create)
@@ -859,19 +889,45 @@ def main() -> None:
 
     s = sub.add_parser("adjust-element",
                        help="size and position of an added element "
-                            "(chord symbols, chord diagrams)")
+                            "(chord symbols, diagrams, dynamics, text, "
+                            "fermatas, articulations)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", default="harm",
-                   help="harm (a chord symbol) or diagram (a chord diagram)")
+                   help="|".join(sorted(ops.ADJUSTABLE_KINDS)))
     s.add_argument("--measure", type=int)
     s.add_argument("--ordinal", type=int, default=0)
-    s.add_argument("--size", type=float, help="absolute point size")
+    s.add_argument("--scale", type=float,
+                   help="size RELATIVE to the engraved default: 1.0 leaves it, "
+                        "1.5 is half again")
+    s.add_argument("--size", type=float,
+                   help="absolute point size, for a caller that already holds "
+                        "one; use --scale instead")
     s.add_argument("--offset-x", dest="offset_x", type=float)
     s.add_argument("--offset-y", dest="offset_y", type=float)
     s.add_argument("--all", action="store_true", help="every element of that kind")
     s.add_argument("--reset", action="store_true")
     s.set_defaults(fn=cmd_adjust_element)
+
+    for verb, fn in (("move", cmd_move_element),
+                     ("duplicate", cmd_duplicate_element)):
+        s = sub.add_parser(
+            f"{verb}-element",
+            help=f"{verb.capitalize()} an added element to another bar "
+                 "(spanners are out of scope)")
+        s.add_argument("score")
+        s.add_argument("--part", required=True)
+        s.add_argument("--kind", required=True,
+                       help="|".join(sorted(ops.MOVABLE_KINDS)))
+        s.add_argument("--measure", type=int, required=True,
+                       help="the bar it is in now")
+        s.add_argument("--ordinal", type=int, default=0,
+                       help="which one in that bar, in document order")
+        s.add_argument("--to-measure", dest="to_measure", type=int,
+                       help="the bar it goes to (default: the one it is in)")
+        s.add_argument("--to-offset", dest="to_offset", type=float, default=0.0,
+                       help="quarter notes from that barline: 0 is the downbeat")
+        s.set_defaults(fn=fn)
 
     s = sub.add_parser("rename-slug",
                        help="Change the slug a score is filed under (moves artifacts)")

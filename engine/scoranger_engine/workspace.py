@@ -443,6 +443,18 @@ def list_books() -> list:
     return _repo().list_books()
 
 
+def resolve_book(slug: str) -> dict:
+    """The book document for a slug, or a FileNotFoundError that names the
+    books there are. Books are addressed by slug alone -- unlike pieces and
+    setlists, whose names are also accepted -- because a fake book's name is
+    long and a library holds few of them."""
+    doc = _repo().get_book(slug)
+    if doc is None:
+        have = [b["slug"] for b in _repo().list_books()]
+        raise FileNotFoundError(f"No book '{slug}'. Have: {have}")
+    return doc
+
+
 def create_book(name: str, pdf_path) -> tuple[str, dict]:
     """Store a PDF as a BOOK: a collection arrangements are taken out of.
 
@@ -477,6 +489,25 @@ def create_book(name: str, pdf_path) -> tuple[str, dict]:
     return slug, doc
 
 
+def rename_book(slug: str, new_name: str) -> dict:
+    """Rename a book. The slug is immutable, as for pieces, setlists and scores.
+
+    The slug names the stored file (books/<slug>.pdf) and every extraction ever
+    made from this book recorded it in its version args, so changing it to
+    follow a label would move bytes and orphan that history. A book has no
+    engraved title to keep in step either -- it is a PDF nobody re-encodes --
+    so unlike `rename_score` this touches the library name and nothing else.
+    """
+    doc = resolve_book(slug)
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("A name is required")
+    doc["name"] = new_name
+    _repo().set_book(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
 def delete_book(slug: str) -> None:
     _repo().delete_book(slug)
     book_path(slug).unlink(missing_ok=True)
@@ -496,10 +527,7 @@ def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
     """
     from pypdf import PdfReader, PdfWriter
 
-    doc = _repo().get_book(slug)
-    if doc is None:
-        have = [b["slug"] for b in _repo().list_books()]
-        raise FileNotFoundError(f"No book '{slug}'. Have: {have}")
+    doc = resolve_book(slug)
     total = int(doc.get("pages") or 0)
     if from_page < 1 or to_page > total or from_page > to_page:
         raise ValueError(

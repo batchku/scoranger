@@ -48,6 +48,27 @@ def _part(score, name):
     return ops.find_parts(score, [name])[0]
 
 
+def _place_element(a, op, duplicate):
+    """move-element and duplicate-element: one body, because they place things
+    by identical rules and two bodies would drift apart.
+
+    The destination is a tapped BAR plus an offset stepper inside it -- this
+    app has no drag. Spanners are refused inside ops.move_element, which is
+    where the reason is written.
+    """
+    score = _load(a["score"], None)
+    args = {"part": a["part"], "kind": a["kind"], "measure": int(a["measure"]),
+            "ordinal": int(a.get("ordinal") or 0),
+            "to_measure": None if a.get("to_measure") is None else int(a["to_measure"]),
+            "to_offset": float(a.get("to_offset") or 0.0)}
+    details = ops.move_element(score, args["part"], args["kind"], args["measure"],
+                               ordinal=args["ordinal"],
+                               to_measure=args["to_measure"],
+                               to_offset=args["to_offset"], duplicate=duplicate)
+    entry = workspace.add_version(a["score"], score, op, args)
+    return {"version": entry["id"], "details": details}
+
+
 def _dispatch(op, a):
     if op == "manifest":
         return workspace.rebuild_manifest()
@@ -123,14 +144,16 @@ def _dispatch(op, a):
         # Where the book's own PDF is, so the reader can LOOK through it before
         # naming a page range. Asking someone for pages 137-139 of a fake book
         # they cannot see is asking them to guess.
-        doc = workspace._repo().get_book(a["book"])
-        if doc is None:
-            have = [b["slug"] for b in workspace.list_books()]
-            raise FileNotFoundError(f"No book '{a['book']}'. Have: {have}")
+        doc = workspace.resolve_book(a["book"])
         path = workspace.book_path(a["book"])
         if not path.exists():
             raise FileNotFoundError(f"'{doc['name']}' has no file at {path}")
         return {"path": str(path), "pages": doc.get("pages")}
+    if op == "rename-book":
+        # The book row's Rename. A book has no engraved title -- it is a PDF
+        # nobody re-encodes -- so unlike an arrangement this is the library
+        # name and nothing else.
+        return workspace.rename_book(a["book"], a["name"])
     if op == "delete-book":
         workspace.delete_book(a["book"])
         return {"deleted": a["book"]}
@@ -305,15 +328,22 @@ def _dispatch(op, a):
         return {"version": entry["id"], "details": details}
     if op == "adjust-element":
         score = _load(a["score"], None)
+        # `scale` is the relative interface and `size` the absolute one the
+        # adjust row already holds; ops.adjust_element refuses both at once.
         details = ops.adjust_element(
             score, a["part"], kind=a.get("kind") or "harm",
             measure=a.get("measure"), ordinal=int(a.get("ordinal") or 0),
-            size=a.get("size"), offset_x=a.get("offset_x"), offset_y=a.get("offset_y"),
+            size=a.get("size"), scale=a.get("scale"),
+            offset_x=a.get("offset_x"), offset_y=a.get("offset_y"),
             reset=bool(a.get("reset")), all_elements=bool(a.get("all")))
         entry = workspace.add_version(a["score"], score, "adjust-element",
                                       {"part": a["part"], "kind": a.get("kind") or "harm",
                                        "measure": a.get("measure")})
         return {"version": entry["id"], "details": details}
+    if op == "move-element":
+        return _place_element(a, op, duplicate=False)
+    if op == "duplicate-element":
+        return _place_element(a, op, duplicate=True)
     if op == "guitar-tab":
         score = _load(a["score"], None)
         part = _part(score, a["part"])
