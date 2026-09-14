@@ -569,7 +569,20 @@ struct LibraryView: View {
         if sort.showsAlphabetRail {
             ForEach(LibraryModel.grouped(rows), id: \.letter) { group in
                 Section {
-                    ForEach(group.rows) { row in rowView(row) }
+                    // Identified by the slug AND the title.
+                    //
+                    // By the slug alone, a rename that moved a row from one
+                    // letter to another redrew the HEADER and not the row:
+                    // `rowView` was re-evaluated with the new title -- logged,
+                    // once -- and the pinned-header LazyVStack kept the
+                    // rendering it had. Photographed on an iPhone: "Big Fake
+                    // Book" under a header reading "R". It is not new to
+                    // books; a set list renamed across letters did the same,
+                    // and renaming within one letter always worked, which is
+                    // why nobody saw it.
+                    ForEach(group.rows) { row in
+                        rowView(row).id("\(row.id)|\(row.title)")
+                    }
                 } header: {
                     // BandHeader rather than a hand-rolled Text: it was a tiny
                     // lowercase "s" on an unruled 18pt strip, which is not what
@@ -580,7 +593,10 @@ struct LibraryView: View {
                 }
             }
         } else {
-            ForEach(rows) { row in rowView(row) }
+            // The same identity as above: under these sorts nothing moves
+            // between sections, but a row that is redrawn for one reason and
+            // not another is the defect, not the section.
+            ForEach(rows) { row in rowView(row).id("\(row.id)|\(row.title)") }
         }
     }
 
