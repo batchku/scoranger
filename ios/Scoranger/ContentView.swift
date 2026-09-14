@@ -280,9 +280,18 @@ struct ContentView: View {
                 }
             }
         case .settings:
+            // The SPLIT, not the flat list (0.8.2, the fourth of what 0.8.0
+            // said it did not have). At 380 the split takes its compact leg --
+            // the index alone, each section pushed over it with a ‹ of its own
+            // (Ph6) -- so the score's panel and the Settings page are one
+            // surface at two widths rather than two surfaces.
+            //
+            // `scrolls: false`: the split scrolls its index and its section
+            // itself, and a ScrollView around a GeometryReader gives it zero
+            // height to lay out in.
             Screen(title: "Settings", backLabel: "More",
-                   onBack: { setPanel(.options) }) {
-                SettingsView()
+                   onBack: { setPanel(.options) }, scrolls: false) {
+                SettingsSplit()
             }
         case .chatModel:
             ChatModelScreen(onBack: { setPanel(.chat) })

@@ -49,8 +49,10 @@ struct SettingsView: View {
         }
     }
 
-    /// One section, or nil for the whole list in order (the score's own
-    /// narrow panel shows the list; the Settings page shows the split).
+    /// One section, or nil for the whole list in order. Since 0.8.2 every
+    /// surface asks for a section -- the Settings page and the score's 380pt
+    /// panel both show `SettingsSplit` -- and nil is what a reader gets only
+    /// where no split has chosen yet.
     var section: SettingsSection? = nil
 
     var body: some View {
