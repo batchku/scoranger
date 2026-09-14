@@ -108,10 +108,12 @@ final class SetlistFromTheScore: XCTestCase {
                       "the checklist should stay open for a second tick")
 
         // and back returns to ⋯, not to the library
-        app.descendants(matching: .any)["screen-back"].firstMatch.tap()
+        // 0.8: the set lists are a panel state opened from More; ‹ in the
+        // panel's header goes back to More.
+        app.descendants(matching: .any)["panel-back"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["more-details"]
                         .waitForExistence(timeout: 20),
-                      "back from the set lists should land on the options screen")
+                      "back from the set lists should land on More")
     }
 
     // 3 — the ruling's catch
@@ -172,13 +174,15 @@ final class SetlistFromTheScore: XCTestCase {
                 .matching(NSPredicate(format: "label == %@", "Back to \(where_)"))
                 .firstMatch
         }
-        back(to: "Back").tap()
+        // 0.8: ‹ in the panel goes back to More; Done closes the panel.
+        _ = back
+        app.descendants(matching: .any)["panel-back"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["more-details"]
                         .waitForExistence(timeout: 20),
-                      "back from set lists should land on options")
-        back(to: "Score").tap()
+                      "back from set lists should land on More")
+        app.descendants(matching: .any)["panel-done"].firstMatch.tap()
         XCTAssertTrue(app.buttons["score-close"].waitForExistence(timeout: 20),
-                      "back from options should land on the score")
+                      "Done should leave the score showing")
         app.buttons["score-close"].tap()
 
         // Closing the score lands back on the PIECE screen -- that is how we
@@ -188,7 +192,16 @@ final class SetlistFromTheScore: XCTestCase {
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "row-menu-")).firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 60),
                       "no arrangement to manage on the piece screen")
-        menu.tap()
+        // The page is laying itself out beside its panel at rest (P1); tap
+        // where the ☰ is once it has settled, by coordinate if need be.
+        settle(menu, still: 0.6)
+        if menu.isHittable { menu.tap() }
+        else { menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        // The row's Arrangement action opens the arrangement beside the row.
+        let manage = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "arrangement-manage-")).firstMatch
+        XCTAssertTrue(manage.waitForExistence(timeout: 20), "the row's ☰ offers no Arrangement")
+        manage.tap()
         let arrangementSetlists = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@",
                                   "arrangement-setlists-")).firstMatch

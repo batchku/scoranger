@@ -1,5 +1,14 @@
+import OSLog
 import SwiftUI
 import UIKit
+
+/// `-perfSkipVisibleRect`: an experiment for the frame probe -- no visible-rect
+/// reports after the first, to price what they drive (a generic class cannot
+/// hold a static, hence file scope).
+private let zoomableScrollSkipVisibleReports =
+    ProcessInfo.processInfo.arguments.contains("-perfSkipVisibleRect")
+/// Rate limit for the park log line (a generic class cannot hold a static).
+private nonisolated(unsafe) var zoomableScrollLastParkLog = Date.distantPast
 
 /// A scroll view that reports its own resizes.
 ///
@@ -89,7 +98,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
     var bottomChrome: CGFloat = 0
     /// The viewport in CONTENT (unzoomed) coordinates, whenever it moves.
     /// What it is for: deciding which pages are worth rastering at depth.
-    var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+    var onVisibleRectChange: ((CGRect, CGSize, Bool) -> Void)?
     /// Moves the canvas without going through SwiftUI, for the play head --
     /// which reports twenty times a second and must not invalidate the canvas
     /// that often. See `CanvasScroller`.
@@ -111,7 +120,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.minimumZoomScale = zoomRange.lowerBound
         scroll.maximumZoomScale = zoomRange.upperBound
         scroll.bouncesZoom = true
-        scroll.backgroundColor = UIColor(Theme.Surface.ground)
+        scroll.backgroundColor = UIColor(Theme.Surface.band)
         // .always, not .never: without it the scroll view contributes no
         // safe-area inset and the score runs under the status bar as soon as
         // you scroll. Our own centring inset is added on top of it.
@@ -205,6 +214,10 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         scroll.addSubview(host.view)
         context.coordinator.host = host
         context.coordinator.scroll = scroll
+        if FrameProbe.enabled { context.coordinator.probe = FrameProbe(scroll: scroll) }
+        if AutoDrag.enabled {
+            context.coordinator.autoDrag = AutoDrag(scroll: scroll, probe: context.coordinator.probe)
+        }
         context.coordinator.installScroller(scroller)
         context.coordinator.applyLayout(width: contentWidth)
         return scroll
@@ -257,9 +270,16 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
 
         var host: UIHostingController<AnyView>?
         weak var scroll: UIScrollView?
+        /// Frame timing during drags, under `-frameProbe` only.
+        var probe: FrameProbe?
+        /// A scripted drag for the probe, under `-autoDrag` only.
+        var autoDrag: AutoDrag?
         weak var lasso: LassoGestureRecognizer?
         var onZoomSettled: (CGFloat) -> Void
-        var onVisibleRectChange: ((CGRect, CGSize) -> Void)?
+        /// (visible rect, content size, live) -- `live` while a finger or its
+        /// momentum is moving the content, so the caller can hold anything
+        /// that would re-lay out the score until the move is over.
+        var onVisibleRectChange: ((CGRect, CGSize, Bool) -> Void)?
         var bottomChrome: CGFloat = 0
         private var lastReportedVisible: CGRect = .zero
         private var laidOutSize: CGSize = .zero
@@ -511,13 +531,23 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
         /// that has gone cannot be moved by a sound that is still playing.
         func installScroller(_ scroller: CanvasScroller?) {
             guard scroller !== self.scroller else { return }
-            self.scroller?.move = nil
+            if let previous = self.scroller, previous !== scroller { previous.uninstall(owner: self) }
             self.scroller = scroller
-            scroller?.move = { [weak self] x in
-                guard let scroll = self?.scroll else { return }
-                let zoomed = x * scroll.zoomScale
-                let furthest = max(scroll.contentSize.width - scroll.bounds.width, 0)
-                let clamped = min(max(zoomed, -scroll.contentInset.left), furthest)
+            scroller?.install(owner: self) { [weak self] playheadX in
+                guard let scroll = self?.scroll, scroll.bounds.width > 0 else { return }
+                // The LIVE viewport and content size, read here at the moment
+                // of the move -- never a cached width. See CanvasScroller for
+                // the stuck state a cached zero produced.
+                let offset = Playhead.stripOffset(playheadX: playheadX * scroll.zoomScale,
+                                                  viewportWidth: scroll.bounds.width,
+                                                  surfaceWidth: scroll.contentSize.width)
+                let clamped = max(offset, -scroll.contentInset.left)
+                let now = Date()
+                if now.timeIntervalSince(zoomableScrollLastParkLog) > 1 {
+                    zoomableScrollLastParkLog = now
+                    Logger(subsystem: "com.irllabs.scoranger", category: "follow").notice(
+                        "park: playheadX=\(playheadX, privacy: .public) zoom=\(scroll.zoomScale, privacy: .public) bounds=\(scroll.bounds.width, privacy: .public) content=\(scroll.contentSize.width, privacy: .public) offset=\(clamped, privacy: .public) current=\(scroll.contentOffset.x, privacy: .public)")
+                }
                 guard abs(clamped - scroll.contentOffset.x) > 0.5 else { return }
                 // NOT animated, and NOT setContentOffset(animated:): at twenty
                 // a second each animation is overtaken by the next and the
@@ -526,7 +556,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             }
         }
 
-        deinit { scroller?.move = nil }
+        deinit { scroller?.uninstall(owner: self) }
 
         /// A hand on the score. UIScrollView calls this only for a real drag,
         /// which is exactly the distinction the follow gate needs -- every move
@@ -547,10 +577,23 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             reportVisible(scrollView)
         }
 
+        /// The move is over: report once more, past the threshold, so what
+        /// was held during it (the bar readout) catches up at rest.
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate: Bool) {
+            if !willDecelerate { reportVisible(scrollView, settled: true) }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            reportVisible(scrollView, settled: true)
+        }
+
         /// The viewport in content coordinates: what is on screen divided by
         /// the zoom, because the hosted view is scaled by a transform and its
         /// own geometry never changes.
-        private func reportVisible(_ scrollView: UIScrollView) {
+        private func reportVisible(_ scrollView: UIScrollView, settled: Bool = false) {
+            if zoomableScrollSkipVisibleReports, lastReportedVisible != .zero { return }
+            let live = !settled && (scrollView.isTracking || scrollView.isDragging
+                                    || scrollView.isDecelerating || (probe?.forced ?? false))
             let scale = max(scrollView.zoomScale, 0.0001)
             let rect = CGRect(x: scrollView.contentOffset.x / scale,
                               y: scrollView.contentOffset.y / scale,
@@ -562,7 +605,8 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             // x as well as y: the bar readout follows a SIDEWAYS pan across a
             // zoomed page, and a guard that watched only the vertical never
             // reported one.
-            guard abs(rect.minY - lastReportedVisible.minY) > 24
+            guard settled
+                    || abs(rect.minY - lastReportedVisible.minY) > 24
                     || abs(rect.minX - lastReportedVisible.minX) > 24
                     || abs(rect.height - lastReportedVisible.height) > 24
                     || abs(rect.width - lastReportedVisible.width) > 24
@@ -573,7 +617,7 @@ struct ZoomableScroll<Content: View>: UIViewRepresentable {
             // SwiftUI layout's, and mapping between them by assumption put the
             // bar readout eight pages wide
             onVisibleRectChange?(rect, CGSize(width: scrollView.contentSize.width / scale,
-                                              height: scrollView.contentSize.height / scale))
+                                              height: scrollView.contentSize.height / scale), live)
         }
 
         private func publishZoom(_ scrollView: UIScrollView) {

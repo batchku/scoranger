@@ -1,0 +1,6 @@
+# Verifying a Firebase ID token needs RSA, and stdlib has none. PUBLIC-KEY
+# verification only: this service holds no credentials, no service-account key,
+# no ADC -- see identity.py. `firebase-admin` is deliberately not here; its
+# purpose is privileged access this service must never have, and it is two
+# orders of magnitude larger than what verification actually needs.
+PyJWT[crypto]==2.10.1

@@ -644,71 +644,130 @@ nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
 UI test -- scroll the strip mid-performance, assert the Sync chip appears and
 the strip stays where it was put.
 
-## The app counts one more system than the engine does, on one page
+## PaginationAfterAnOp's system count passes and fails for reasons nobody chose
 
-`PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` fails: the app
-reports `pages=5 systems=5,6,6,6,3` (26) for the accordion solo as imported and
-the test asserts the engine's 25.
+`PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` compares the app's
+per-page system count against a hard-coded 25 that the engine reports for the
+accordion solo. Measured, three ways, and the results do not agree with each
+other:
 
-**Not a 0.6.20 regression, and this is measured rather than argued.** Every
-input to that number is byte-identical to `afa0c572`, which is 0.6.19 build 179
-and already on the phone: `ScoreGeometry.swift` (which computes
-`systemsPerPage`), `ContentView.swift` (which surfaces the probe),
-`ScoreBarLayout.swift`, `EngravingOptions.swift`, and the test itself. 0.6.20
-changed `SpreadLayout`, `ScorePagesView`, `LibraryView` and two playback files,
-and none of them can reach it -- the engraved page width is the fixed constant
-`EngravingOptions.pageWidthTenthsMM = 2159`, so the landscape margin work
-changes how a page is FITTED and not how it is BROKEN INTO LINES, and the probe
-reads the engine's bar frames rather than anything on screen.
+- **Run alone, it fails 3 times out of 3**, deterministically, in ~22s:
+  `pages=5 systems=5,6,6,6,3` -- 26.
+- **In the sharded gate it PASSED**, in ~70s: `pages=9 systems=3,3,3,2,3,3,3,3,2`
+  -- 25. Same binary, same xctestrun, same simulator UDID.
+- **The engine, re-measured**, reports 25 both on the raw `.mxl` (5 pages,
+  `5,6,6,6,2`) and on the imported v001 (5 pages, `5,6,6,5,3`).
 
-The engine's own count, re-measured on this branch, is 25 both on the raw
-`.mxl` (`5,6,6,6,2`) and on the imported v001 (`5,6,6,5,3`) -- so the
-hard-coded 25 is current, not stale, and the app is over-counting by one.
+So the hard-coded 25 is current, and the app produces EITHER 25 or 26 depending
+on something the test does not control.
 
-**It does not give the same answer twice, and that reorders the whole entry.**
-Measured three ways:
+**It is not the viewport, and this is worth writing down because it is the
+obvious wrong answer.** `EngravingOptions` fixes every page-setup value --
+width 2159, height 2794, scale 45, all four margins -- and `adjustPageHeight`
+is true only for the continuous strip. Paged engraving cannot vary with the
+window, so 9 pages and 5 pages are not two fits of one engraving. They are two
+different engravings, which means **the music differed**: the library state the
+test found was not the same in the two runs, despite
+`-resetLibrary -seedTestLibrary`.
 
-- run ALONE, 3 times of 3: `pages=5 systems=5,6,6,6,3` -> 26, fails, in ~22s;
-- inside the sharded gate: `pages=9 systems=3,3,3,2,3,3,3,3,2` -> 25, PASSES,
-  in ~70s. Same binary, same xctestrun, same simulator UDID;
-- the engine, re-measured: 25 both on the raw `.mxl` and on the imported v001.
+That makes this a TEST ISOLATION problem before it is a pagination problem, and
+the consequence is the part that matters: **the gate's green on this test is not
+evidence.** It passed with a pagination nobody expected, on a library nobody
+intended, and a run alone fails. A test that passes under load and fails idle is
+reporting on the harness.
 
-So the hard-coded 25 is current, and the score was engraved two different ways.
+**Ruled out on the 0.6.21 line (2026-09-08), so nobody spends the time twice:**
 
-**Ruled out, so nobody spends the time twice:**
-
-- *The viewport.* `EngravingOptions` pins width (2159), height (2794), scale
-  (45) and all four margins, and `adjustPageHeight` is true only for the
-  continuous strip. Paged pagination cannot vary with the window.
 - *A leftover fixture from an earlier test.* `-resetLibrary` does a real
   `FileManager.removeItem` on `Documents/workspace` inside
   `PythonEngine.start()`, BEFORE the engine is configured -- so nothing an
   earlier test did to the accordion solo survives into this one. This was the
   leading hypothesis and it is wrong.
 
-**Where to look now, in order:**
-
-1. `lyricSize`. `EngravingOptions.json(lyricSize:continuous:)` takes it as a
+Where to look, in order:
+1. Whether `-resetLibrary -seedTestLibrary` actually completed before the probe
+   was read, or whether the 240s waits let a partially seeded library through.
+   The seeding path already has form here: `seedOutcome` exists because a
+   `pull-part` that failed was invisible and three preconditions were written
+   before one of them noticed.
+2. `lyricSize`. `EngravingOptions.json(lyricSize:continuous:)` takes it as a
    parameter and `render.lyric_size_for(fingerings:)` returns a larger value
    when fingerings are present. A bigger lyric size makes every system taller,
    which is exactly how 25 systems land 3-to-a-page over 9 pages instead of
    5-6 over 5. If the two runs engraved at different lyric sizes, that is the
    difference, and the question becomes why.
-2. `BarPosition.systems(of:)`, which groups bar frames by rounded `top`.
-   `check_bar_frames.py` records the hazard: Verovio nests a slur inside the
-   measure it starts in and a group's frame is the union of what it contains,
-   so one over-wide bar frame straddling two rows splits one system into two --
-   an over-count of exactly one, which is the 26. The fragility is worse at 5-6
+3. Only then the app's own inference, `BarPosition.systems(of:)`.
+   `check_bar_frames.py` records the hazard -- Verovio nests a slur inside the
+   measure it starts in and a group's frame is the union of what it contains --
+   so one over-wide bar frame straddling two rows would split one system into
+   two, which is an over-count of exactly one. The fragility is worse at 5-6
    systems per page than at 3, which fits both observations.
 
-**SKIPPED in the gate as of 0.6.21**, with the reasoning in `gate.sh`'s SKIP
-list. Run serially it runs alone, which is the failing case, so quarantining it
-into the serial phase would turn every gate red without learning anything; and
-it cannot be loosened, because the number is the whole point. It is the
-observable built for issue #4, not a regression guard on shipped behaviour.
-**Restore it the moment its premise is sound** -- it is the measurement #4
-needs.
+The 0.6.21 line SKIPPED this test in its gate for the reasons above. The 0.8
+line did not: it runs in the pool and passed in the build 196 gate (79s). A
+green here is still not evidence until the two engravings are explained.
 
-Worth doing because the test is the observable for issue #4 (pagination
-collapse), and while it is off by one every number under it is a number about
-the inference rather than about the score.
+**Not a 0.6.20 regression.** Every file feeding that number is byte-identical to
+`afa0c572`, which is 0.6.19 build 179 and already on the phone:
+`ScoreGeometry.swift` (which computes `systemsPerPage`), `ContentView.swift`
+(which surfaces the probe), `ScoreBarLayout.swift`, `EngravingOptions.swift`,
+and the test itself.
+
+Worth doing because this test is the observable for issue #4 (pagination
+collapse). While it can pass for the wrong reason, nothing it says about #4 can
+be believed either way.
+
+## The gate's four workers are over-subscribed for engine-backed UI tests
+
+`ENGINE_SERIAL` in `ios/scripts/gate.sh` grew three times on 2026-09-08, and
+every addition had the same shape: a UI test that WAITS ON A CALL INTO THE
+EMBEDDED PYTHON ENGINE, timing out under four workers and passing solo in
+roughly half the time it was allowed.
+
+- the deletion class -- a delete through the engine; 25-32s solo, past 210s
+  under load (the original entries)
+- `testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder` -- waits for the
+  piece screen to list its arrangements, a manifest read; 36s solo, 117s and a
+  timeout under load
+- `testEachStripsControlsBelongToThePartItNames` -- waits for mixer strips,
+  which come from a playback timeline; 27s solo, found ZERO strips under load
+
+**It is one contention class, not three flakes**, and serialising each is a
+targeted remedy that works but lengthens the serial tail every time. Two
+structural fixes, neither attempted:
+
+1. **An engine-aware scheduler.** Let at most one engine call be in flight
+   across the whole gate -- a lock the test host takes around the ops that
+   contend -- so everything else stays parallel. This is the right shape,
+   because the contended resource is the engine and not the host.
+2. **Fewer workers**, which costs every run to fix a subset of tests, and
+   would have to be measured against the ~29 minute wall clock before being
+   worth it.
+
+Worth doing when the serial phase starts dominating the gate, or the next time
+a test is added to `ENGINE_SERIAL`. Not urgent while the tail is six tests.
+
+## The eight rotating UI tests fail only inside the gate (2026-09-10)
+
+`LandscapeFits` (4), `MixerOnAlisCase` (2 landscape), `MixerTwoChannel` (2
+landscape) fail in `gate.sh` -- in the four-worker pool and in the serial phase
+-- and pass in every configuration tried by hand on the same build: alone on an
+idle device (15-25s), under four workers running only those eight (22-205s),
+and the serial phase's own 15-test command on the same device with the same
+result bundle (13-27s, 15/15, at load 7.2, while the gate's run of it failed at
+load 5.4). The failure is always the same: the window never leaves portrait,
+for the whole budget, and the tests immediately after rotate fine.
+
+Six causes asserted and disproved by measurement: a dirty pool, the budget
+(20 -> 120 -> 240s, re-asking every 8s), foreign booted simulators, load, the
+unit-test target running first, `-resultBundlePath`. The seventh candidate --
+the phase begins the instant four workers stop -- is untested. Five gates went
+into this on 2026-09-09, on tests of the mixer's landscape layout, while the
+sharing feature waited.
+
+**Skipped in `gate.sh` with this record beside them.** Not serialised (they
+fail serialised too) and not deleted (they pass by hand and assert real
+things). To close this: reproduce the failure by hand -- run the pool, then the
+serial command within a minute -- and if that reproduces, capture
+`simctl io <udid> screenshot` and the SpringBoard orientation at the moment the
+budget expires. Until it reproduces by hand, nothing else is worth trying.

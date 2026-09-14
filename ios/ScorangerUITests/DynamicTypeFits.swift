@@ -101,7 +101,7 @@ final class DynamicTypeFits: XCTestCase {
             if annotations.waitForExistence(timeout: 30) {
                 settle(annotations, still: 0.5)
                 assertFitsOnScreen(["more-annotations", "more-chords",
-                                    "more-performance", "more-transport"],
+                                    "more-performance"],
                                    in: app, context: "options/\(name)")
                 snap("options-\(name)")
             } else {

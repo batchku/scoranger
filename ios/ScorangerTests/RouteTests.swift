@@ -28,9 +28,9 @@ final class RouteTests: XCTestCase {
     // MARK: - Back labels name the place
 
     func testTopLevelScreensSayWhereBackGoes() {
-        XCTAssertEqual(Route.piece("cavatina").backLabel, "My library")
-        XCTAssertEqual(Route.setlist("friday").backLabel, "My library")
-        XCTAssertEqual(Route.settings.backLabel, "My library")
+        XCTAssertEqual(Route.piece("cavatina").backLabel, "Library")
+        XCTAssertEqual(Route.setlist("friday").backLabel, "Library")
+        XCTAssertEqual(Route.settings.backLabel, "Library")
     }
 
     func testDeeperScreensJustSayBack() {

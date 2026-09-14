@@ -1,0 +1,423 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Scoranger 0.8 Ribbon</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+/* ===== Option 5 · Ribbon — tokens ===== */
+.ipad, .demo {
+  --r-ctl: 8px; --r-panel: 12px; --edge: var(--line); --edge-soft: var(--line);
+  --ctl-h: 40px; --row-h: 56px;
+}
+.btn { background: var(--panel); border-color: var(--line); font-weight: 600; }
+.btn.on { background: var(--clayTint); border-color: var(--clayBorder); color: var(--clayStrong); box-shadow: none; }
+.btn.primary { background: var(--clayPress); border-color: var(--clayPress); }
+.seg { background: var(--panel); border-color: var(--line); }
+.seg span.on { background: var(--clayTint); color: var(--clayStrong); box-shadow: none; }
+.field { border-color: var(--line); }
+.toggle { border-color: var(--line); }
+.toggle.on { border-color: var(--clayPress); }
+
+/* the ribbon */
+.ribbon { height: 56px; background: var(--band); display: flex; align-items: center; gap: 6px; padding: 0 16px; }
+.ribbon .crumb { display: flex; align-items: center; gap: 6px; }
+.ribbon .crumb .seg-t { position: relative; font: 600 16px/1 var(--sg); letter-spacing: -0.01em; color: var(--ink2); padding: 12px 6px; }
+.ribbon .crumb .seg-t.cur { color: var(--ink); }
+.ribbon .crumb .seg-t.cur::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; border-radius: 2px; background: var(--clay); }
+.ribbon .crumb .sep { color: var(--ink3); font: 500 14px var(--sg); }
+.ribbon .crumb .ell { color: var(--ink3); font: 600 16px var(--sg); padding: 0 2px; }
+.ribbon .sq { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 7px; background: var(--clay); color: #fff; font: 700 15px/1 var(--sg); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ribbon .sq.wide { width: auto; padding: 0 8px; }
+.ribbon .acts { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.ribbon .btn { height: 36px; min-width: 36px; }
+.ribbon .btn.icon { padding: 0; }
+.ribbon .meta { margin-left: 8px; }
+/* the chip strip: the choices for what is selected */
+.strip-c { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--ground); }
+.strip-c .lbl { font: 600 12px var(--in); color: var(--ink3); margin-right: 4px; }
+.strip-c .btn { height: 34px; padding: 0 12px; font-size: 12.5px; }
+.strip-c .btn.danger { background: transparent; border-color: transparent; color: var(--danger); }
+.strip-c .gap { width: 16px; }
+.strip-c .sp { flex: 1; }
+.strip-c .field { height: 34px; font-size: 13px; }
+/* content */
+.content { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.col { width: 760px; margin: 0 auto; }
+.alpha { padding: 12px 20px 2px; font: 700 12px var(--sg); color: var(--clayStrong); }
+.row { border-bottom-color: var(--line); }
+.row .trail .btn { border-color: transparent; background: transparent; }
+.row .trail .btn.on { background: var(--clayTint); }
+.row.sel { background: var(--clayTint); box-shadow: inset 3px 0 0 var(--clay); }
+.ordered .row { grid-template-columns: 28px auto 1fr auto; }
+.ordered .row .ord { font: 700 15px var(--sg); color: var(--ink3); text-align: right; font-variant-numeric: tabular-nums; }
+.head { display: flex; align-items: center; gap: 16px; padding: 14px 20px 10px; }
+.head .h1 { font: 600 22px/1.1 var(--sg); letter-spacing: -0.015em; }
+.head .h2 { font: 400 12.5px var(--in); color: var(--ink2); margin-top: 5px; display: flex; gap: 8px; align-items: center; }
+.kv { border-bottom-color: var(--line); padding: 6px 20px; min-height: 52px; }
+.kv .k { font-weight: 500; font-size: 15px; }
+.kv.on { background: var(--clayTint); box-shadow: inset 3px 0 0 var(--clay); }
+.kv.on .k, .kv.on .v { color: var(--clayStrong); }
+.gap-row { height: 16px; }
+.vrow { display: grid; grid-template-columns: 60px 1fr auto auto; align-items: center; gap: 14px; min-height: 60px; padding: 8px 20px; border-bottom: 1px solid var(--line); }
+.vrow.on { background: var(--clayTint); box-shadow: inset 3px 0 0 var(--clay); }
+.vrow .id { font: 500 13px var(--mo); color: var(--ink2); }
+.vrow.on .id { color: var(--clayStrong); }
+.vrow .p { font: 500 14px var(--in); }
+.vrow .m { font: 400 11.5px var(--in); color: var(--ink3); margin-top: 2px; }
+.note-inline { font: 400 12.5px/1.45 var(--in); color: var(--ink2); padding: 10px 20px 0; max-width: 60ch; }
+
+/* the dock */
+.dock { background: var(--band); border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+.dock .trow { height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+.dock .trow .transport .btn { background: transparent; border-color: transparent; height: 40px; min-width: 40px; }
+.dock .trow .transport .play { background: var(--clayPress); color: #fff; }
+.dock .trow .transport .on { background: var(--clayTint); }
+.dock .setchip { font: 500 12px var(--mo); color: var(--ink2); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.dock .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.dock .mrow { height: 120px; display: flex; align-items: center; gap: 14px; padding: 0 16px 8px; }
+.dock .mrow .strip { padding: 6px 4px; gap: 4px; }
+.dock .mrow .strip .knob { width: 34px; height: 34px; }
+.dock .mrow .strip .knob::after { top: 3px; left: 16px; transform-origin: 1px 14px; }
+.dock .master { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.dock .master .line { display: flex; align-items: center; gap: 10px; font: 500 11px var(--mo); color: var(--ink2); }
+.dock .master .line b { color: var(--ink); font-weight: 500; min-width: 44px; }
+.dock .prow { height: 80px; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+.foldline { position: absolute; left: 0; right: 0; height: 4px; background: var(--clay); opacity: .55; }
+.foldline.top { top: 24px; }
+.foldline.bottom { bottom: 0; }
+
+/* score */
+.scorecanvas { flex: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center; position: relative; padding-top: 6px; }
+.page { border-radius: 2px; }
+</style>
+
+<div class="deck">
+  <p class="kicker">Scoranger 0.8 · redesign option 5 of 5</p>
+  <h1>Ribbon</h1>
+  <p class="lede">One thing changes at a time, and a ribbon across the top always says where you are and how to get back.</p>
+  <ul class="toc">
+    <li><a href="#stance">Stance</a></li><li><a href="#s1">1 Pieces</a></li><li><a href="#s2">2 Set lists</a></li><li><a href="#s3">3 A set list</a></li><li><a href="#s4">4 Reading</a></li><li><a href="#s5">5 Playing</a></li><li><a href="#s6">6 Performance</a></li><li><a href="#s7">7 Settings</a></li><li><a href="#s8">8 Arrangement</a></li><li><a href="#s9">9 Share a set list</a></li><li><a href="#s10">10 Import a PDF</a></li><li><a href="#sheet">Components</a></li><li><a href="#labels">Labels</a></li><li><a href="#cost">Cost</a></li>
+  </ul>
+
+  <h2 id="stance">Stance</h2>
+  <div class="stance">
+    <p><b>The signposted option.</b> Every screen has the same three fixed bands: a ribbon at the top that names where you are as a trail (<i>Library › Tuesday at the Ship › People</i>), a chip strip under it that holds every choice that applies to what is on screen or selected, and a dock at the bottom for the transport. Between them, the content area is the only thing that changes, and it changes in place with a short cross-fade, never a slide-down and never a shove. There are no dropdowns: Sort's four choices are four chips that are simply there; a selected row's actions appear in the strip, where the last selection's were. The trail is the way back, one tap per level. Forms are friendly but plain: 8pt corners, hairlines kept but softened to the lightest line, big Space Grotesk in the ribbon, and the numeral as a small clay square in the trail, the way a hall numbers its doors.</p>
+    <p><b>Disclosure pattern, in one sentence:</b> a destination replaces the content area in place under a ribbon that names where you are; choices live in a fixed chip strip under the ribbon, so nothing ever drops down or pushes.</p>
+    <p><b>Transport and mixer</b> share the dock: the transport is its 60pt face, always present in the score view; the mixer is a fixed 120pt row that opens above it, once, and the score shortens once.</p>
+    <p><b>Performance mode</b> folds the ribbon and the dock to two 4pt clay lines at the top and bottom edges. Tap either to unfold.</p>
+  </div>
+
+  <!-- ============ 1 ============ -->
+  <h3 id="s1">1 · Library, Pieces, the sorts in the strip</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><span class="meta">6 pieces · 8 arrangements</span><div class="acts"><span class="btn"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn"><svg class="ic"><use href="#i-plus"/></svg>New</span><span class="btn"><svg class="ic"><use href="#i-menu"/></svg>New set list</span><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div></div>
+      <div class="strip-c"><div class="field" style="width:280px"><svg class="ic s"><use href="#i-search"/></svg>Search pieces</div><span class="gap"></span><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Composer</span><span class="btn">Recent</span><span class="btn">Arrangements</span><span class="gap"></span><span class="lbl">Show</span><span class="btn">Unfiled</span><span class="btn">Scans</span><span class="btn">In a set list</span><span class="sp"></span><span class="btn"><svg class="ic s"><use href="#i-edit"/></svg>Edit</span></div>
+      <div class="content">
+        <div class="list">
+          <div class="alpha">B</div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Blue Bossa</div><div class="sub"><span class="meta">Kenny Dorham · 1 arrangement</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v004 · Tue</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="alpha">C</div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Cavatina</div><div class="sub"><span class="meta">Stanley Myers · 2 arrangements</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v011 · Mon</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="alpha">L</div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Libertango</div><div class="sub"><span class="meta">Astor Piazzolla · 1 arrangement</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v002 · 3 Sep</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="alpha">S</div>
+          <div class="row"><span class="thumb pdf"></span><span class="nonum"></span><div><div class="name">Scanned score</div><div class="sub"><span class="meta">1 arrangement</span><span class="chip">PDF</span></div></div><span class="meta mo">v001 · 2 Sep</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Sous le ciel de Paris</div><div class="sub"><span class="meta">Hubert Giraud · 2 arrangements</span><span class="chip">MUSICXML</span><span class="chip warn">OMR DRAFT</span></div></div><span class="meta mo">v003 · today</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="alpha">U</div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Under Paris Skies accordion solo</div><div class="sub"><span class="meta">unfiled · 0 versions</span></div></div><span class="meta mo"></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>No Sort button, no Filter button, no dropdown.</b> The four sorts and the three filters are chips in the strip, always visible, one tap each; the strip is 48pt whatever is in it. The library's creation actions sit in the ribbon at the right, so the tool row that took two lines takes none. The count is in the ribbon; the build stamp is in About.</p>
+
+  <!-- ============ 2 ============ -->
+  <h3 id="s2">2 · Library, Set lists, one of them shared</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="meta">3 set lists</span><div class="acts"><span class="btn"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn"><svg class="ic"><use href="#i-plus"/></svg>New</span><span class="btn"><svg class="ic"><use href="#i-menu"/></svg>New set list</span><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div></div>
+      <div class="strip-c"><div class="field" style="width:280px"><svg class="ic s"><use href="#i-search"/></svg>Search set lists</div><span class="gap"></span><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Recent</span><span class="btn">Length</span><span class="gap"></span><span class="lbl">Show</span><span class="btn">Shared</span><span class="sp"></span><span class="btn"><svg class="ic s"><use href="#i-edit"/></svg>Edit</span></div>
+      <div class="content">
+        <div class="list">
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements · Cavatina #1 · Blue Bossa #1 · Libertango #1</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements · </span><span class="meta" style="display:inline-flex;gap:4px;align-items:center;color:var(--clayStrong)"><svg class="ic s"><use href="#i-people"/></svg>4 people</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Wedding, 14 September</div><div class="sub"><span class="meta">8 arrangements</span></div></div><span class="meta mo">Fri</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>The strip changes with the segment:</b> set lists sort by name, recency or length and filter to shared. The share glyph leads the ☰ on every row; the shared list carries the two-people glyph and its count in the meta line. There is no dock in the library: the dock belongs to the score.</p>
+
+  <!-- ============ 3 ============ -->
+  <h3 id="s3">3 · A set list's own screen, a member selected, its actions in the strip</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t">Library</span><span class="sep">›</span><span class="seg-t cur">Tuesday at the Ship</span></div><span class="meta" style="display:inline-flex;gap:4px;align-items:center">6 arrangements · <svg class="ic s"><use href="#i-people"/></svg> 4 people</span><div class="acts"><span class="btn"><svg class="ic"><use href="#i-plus"/></svg>Add</span><span class="btn"><svg class="ic"><use href="#i-people"/></svg>People <span class="val">4</span></span><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn primary"><svg class="ic"><use href="#i-play"/></svg>Play</span></div></div>
+      <div class="strip-c"><span class="lbl">2 · Sous le ciel quartet</span><span class="btn">Open</span><span class="btn">Arrangement <svg class="ic s"><use href="#i-chev"/></svg></span><span class="btn"><svg class="ic s"><use href="#i-up"/></svg>Up</span><span class="btn"><svg class="ic s"><use href="#i-down"/></svg>Down</span><span class="btn danger">Remove</span><span class="sp"></span><span class="btn danger">Delete for everybody</span></div>
+      <div class="content">
+        <div class="col">
+          <div class="head"><div><div class="h1 editable">Tuesday at the Ship</div><div class="h2">shared by you · Sam, Priya and Jonas can reorder and mark up</div></div></div>
+          <div class="list ordered">
+            <div class="row"><span class="ord">1</span><span class="num">#1</span><div><div class="name">Libertango</div><div class="sub"><span class="meta">Astor Piazzolla · v002</span></div></div><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+            <div class="row sel"><span class="ord">2</span><span class="num">#1</span><div><div class="name">Sous le ciel quartet</div><div class="sub"><span class="meta">Sous le ciel de Paris · v003</span></div></div><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+            <div class="row"><span class="ord">3</span><span class="num">#2</span><div><div class="name">Guitar duo</div><div class="sub"><span class="meta">Cavatina · v011</span></div></div><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+            <div class="row"><span class="ord">4</span><span class="num">#1</span><div><div class="name">Blue Bossa</div><div class="sub"><span class="meta">Kenny Dorham · v004</span></div></div><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+            <div class="row"><span class="ord">5</span><span class="num">#2</span><div><div class="name">Accordion solo</div><div class="sub"><span class="meta">Sous le ciel de Paris · v001</span></div></div><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+            <div class="row"><span class="ord">6</span><span class="num">#1</span><div><div class="name">Guitar solo</div><div class="sub"><span class="meta">Cavatina · v006</span></div></div><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>The strip is the selected row's action bar.</b> Tapping a member's ☰ selects it (clay edge on the row, ☰ lit) and its actions appear in the strip: Open, Arrangement, Up, Down, Remove. With no selection the strip holds the set list's own choices. The ribbon carries Add, People, Share and Play; the trail says where you are and Library takes you back. Nothing on this screen opens downward.</p>
+
+  <!-- ============ 4 ============ -->
+  <h3 id="s4">4 · Score, reading, paged, the pages row in the dock</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="crumb" style="margin-left:6px"><span class="seg-t">Sous le ciel de Paris</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t cur">Sous le ciel quartet</span><span class="meta mo">v003 · 3 versions</span><svg class="ic s" style="color:var(--ink3)"><use href="#i-down"/></svg></div><div class="acts"><div class="seg" style="height:36px"><span class="on"><svg class="ic"><use href="#i-page"/></svg></span><span><svg class="ic"><use href="#i-spread"/></svg></span><span><svg class="ic"><use href="#i-cont"/></svg></span></div><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-chat"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="scorecanvas">
+        <div class="page" style="width:420px;height:560px"><canvas class="engraving" data-title="Sous le ciel quartet" data-staves="4" data-seed="11" data-pageno="1" style="width:420px;height:560px"></canvas></div>
+        <div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span><span>bar 1</span></div>
+      </div>
+      <div class="dock">
+        <div class="prow"><div class="thumbs"><span class="t on"><i>1</i></span><span class="t"><i>2</i></span><span class="t"><i>3</i></span><span class="t"><i>4</i></span><span class="t"><i>5</i></span><span class="t"><i>6</i></span><span class="t"><i>7</i></span><span class="t"><i>8</i></span><span class="t"><i>9</i></span></div><span class="meta" style="margin-left:auto">9 pages</span></div>
+        <div class="trow">
+          <span class="setchip">Tuesday at the Ship · 2 of 6</span>
+          <div class="transport"><span class="btn icon"><svg class="ic"><use href="#i-prev"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-next"/></svg></span><span class="btn icon play"><svg class="ic"><use href="#i-play"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-start"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-metro"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-loop"/></svg></span></div>
+          <div class="right"><span class="pos mo" style="font:500 12px var(--mo);color:var(--ink2)"><b style="color:var(--ink);font-weight:500">bar 1</b> · 120</span><span class="btn icon"><svg class="ic"><use href="#i-mixer"/></svg></span><span class="btn icon on"><svg class="ic"><use href="#i-page"/></svg></span></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>The score is the content area</b> between the ribbon and the dock, and the ribbon's trail says which piece, which arrangement and which version. Tapping the arrangement segment swaps the content for the switcher (arrangements of this piece, versions of this one) under a trail one level deeper; the score returns on the trail. The dock's face is the transport; its two right-hand buttons open the pages row or the mixer row above it.</p>
+
+  <!-- ============ 5 ============ -->
+  <h3 id="s5">5 · Score, playing, scroll mode, the mixer row in the dock</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="crumb" style="margin-left:6px"><span class="seg-t">Sous le ciel de Paris</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t cur">Sous le ciel quartet</span><span class="meta mo">v003</span></div><div class="acts"><div class="seg" style="height:36px"><span><svg class="ic"><use href="#i-page"/></svg></span><span><svg class="ic"><use href="#i-spread"/></svg></span><span class="on"><svg class="ic"><use href="#i-cont"/></svg></span></div><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-chat"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="scorecanvas" style="padding:0">
+        <div class="pano" style="height:574px"><canvas class="engraving" data-continuous data-staves="4" data-seed="5" data-bar-start="20" style="width:1194px;height:574px"></canvas><div class="playhead" style="left:25%"></div></div>
+        <div class="poschip" style="top:8px;right:16px"><span>bar 27</span></div>
+      </div>
+      <div class="dock">
+        <div class="mrow">
+          <div class="mixer">
+            <div class="strip"><span class="m">M</span><span class="knob" style="--v:.7">7</span><span class="led"></span><span class="lbl">Violin I</span><span class="snd">Strings</span></div>
+            <div class="strip"><span class="m">M</span><span class="knob" style="--v:.6">6</span><span class="led"></span><span class="lbl">Violin II</span><span class="snd">Strings</span></div>
+            <div class="strip muted"><span class="m">M</span><span class="knob" style="--v:.7">7</span><span class="led"></span><span class="lbl">Viola</span><span class="snd">Strings</span></div>
+            <div class="strip"><span class="m">M</span><span class="knob" style="--v:.8">8</span><span class="led"></span><span class="lbl">Cello</span><span class="snd">Strings</span></div>
+          </div>
+          <div class="master">
+            <div class="line"><b>tempo</b><div class="scrub" style="--p:52%"></div><span>120</span></div>
+            <div class="line"><b>0:48</b><div class="scrub" style="--p:24%"></div><span>3:24</span></div>
+            <div class="line"><b>click</b><span class="toggle on"></span><span style="margin-left:14px">follow</span><span class="toggle on"></span></div>
+          </div>
+        </div>
+        <div class="trow">
+          <span class="setchip">Tuesday at the Ship · 2 of 6</span>
+          <div class="transport"><span class="btn icon"><svg class="ic"><use href="#i-prev"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-next"/></svg></span><span class="btn icon play"><svg class="ic"><use href="#i-pause"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-start"/></svg></span><span class="btn icon on"><svg class="ic"><use href="#i-metro"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-loop"/></svg></span></div>
+          <div class="right"><span class="pos mo" style="font:500 12px var(--mo);color:var(--ink2)"><b style="color:var(--ink);font-weight:500">bar 27</b> · 120</span><span class="btn icon on"><svg class="ic"><use href="#i-mixer"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-page"/></svg></span></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>Both in the dock, both fixed.</b> The mixer row is 120pt and the transport 60pt; opening the mixer shortens the score once. The strips are the 0.7 knobs; tempo, seek, click and follow fill the rest. The line is parked a quarter in.</p>
+
+  <!-- ============ 6 ============ -->
+  <h3 id="s6">6 · Performance mode</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="scorecanvas" style="padding-top:22px">
+        <div class="page" style="width:560px;height:760px"><canvas class="engraving" data-title="Sous le ciel quartet" data-staves="4" data-seed="11" data-pageno="1" style="width:560px;height:760px"></canvas></div>
+      </div>
+    </div>
+    <div class="foldline top"></div>
+    <div class="foldline bottom"></div>
+  </div></div>
+  <p class="cap"><b>Two fold lines.</b> The ribbon and the dock fold to a 4pt clay line each at 55%, top and bottom; the lines are where the bands were, so the way back is where the reader last saw them. Each line has a 44pt hit area behind it; tap the top to unfold the ribbon, the bottom to unfold the dock, or either to unfold both when the music is playing.</p>
+
+  <!-- ============ 7 ============ -->
+  <h3 id="s7">7 · Settings, Account, the sections in the strip</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t">Library</span><span class="sep">›</span><span class="seg-t">Settings</span><span class="sep">›</span><span class="seg-t cur">Account</span></div><span class="meta">signed out</span></div>
+      <div class="strip-c"><span class="btn on">Account</span><span class="btn">Reading</span><span class="btn">Titles</span><span class="btn">Engine</span><span class="btn">Server</span><span class="btn">Scanning</span><span class="btn">Model</span><span class="btn">Diagnostics</span><span class="btn">About</span></div>
+      <div class="content">
+        <div class="col">
+          <div class="kv" style="margin-top:8px"><span class="k">Sign in</span><span class="v"><span class="btn" style="background:var(--ink);color:#fff;border-color:var(--ink)">Apple</span><span class="btn">Google</span></span></div>
+          <div class="kv"><span class="k">Email</span><span class="v"><span class="field small" style="width:300px">you@example.com</span><span class="btn">Send link</span></span></div>
+          <p class="note-inline">Only sharing a set list needs an account. Reading, arranging, playing and importing never ask you to sign in.</p>
+          <div class="gap-row"></div>
+          <div class="kv"><span class="k">Invitation</span><span class="v"><span class="field small" style="width:300px"><svg class="ic s"><use href="#i-link"/></svg>Paste a link</span><span class="btn dis">Join</span></span></div>
+          <p class="note-inline">A link somebody sent you. Opening it where it arrived does the same thing.</p>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>Nine chips, one section.</b> The strip is the section list; the content is the chosen section and nothing else, so the screen holds three rows and two notes, not fourteen bands. The trail says <i>Settings › Account</i>, and the ribbon's value states the section's answer.</p>
+
+  <!-- ============ 8 ============ -->
+  <h3 id="s8">8 · The arrangement screen, at Versions, four levels deep</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t">Library</span><span class="sep">›</span><span class="ell">…</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t">Sous le ciel quartet</span><span class="sep">›</span><span class="seg-t cur">Versions</span></div><span class="meta">3 · tap one to display it</span><div class="acts"><span class="btn primary">Open</span></div></div>
+      <div class="strip-c"><span class="btn">Piece <span class="val">Sous le ciel de Paris</span></span><span class="btn">Set lists <span class="val">1 of 3</span></span><span class="btn">Duplicate</span><span class="gap"></span><span class="btn on">Versions <span class="val">3</span></span><span class="btn">Parts <span class="val">4</span></span><span class="btn">Details</span><span class="sp"></span><span class="btn danger">Delete arrangement</span></div>
+      <div class="content">
+        <div class="col">
+          <div class="head"><span class="num" style="font-size:34px;min-width:0">#1</span><div><div class="h1 editable">Sous le ciel quartet</div><div class="h2">Hubert Giraud · 3 versions · 4 parts · changed today</div></div></div>
+          <div class="vrow on"><span class="id">v003</span><div><div class="p">Rename the four parts Violin I, Violin II, Viola, Cello</div><div class="m">4 ops · today</div></div><span class="chip clay">displayed</span><svg class="ic s" style="color:var(--clay)"><use href="#i-check"/></svg></div>
+          <div class="vrow"><span class="id">v002</span><div><div class="p">Transpose the whole thing down a tone</div><div class="m">2 ops · Tue</div></div><span></span><span></span></div>
+          <div class="vrow"><span class="id">v001</span><div><div class="p">Imported Sous-le-ciel.mxl</div><div class="m">import · 2 Sep</div></div><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>Deep disclosure, stated.</b> The ☰ screen's rows become chips in the strip (Piece, Set lists, Duplicate, then Versions, Parts, Details, then Delete at the far right), and the content shows whichever is chosen: here Versions, as full rows with the prompt on one line. The trail is four deep, so the middle collapses to an ellipsis that expands on tap; the numeral square stays because it is the identity. No intent headers, no half-screen.</p>
+
+  <!-- ============ 9 ============ -->
+  <h3 id="s9">9 · Sequence: share a set list</h3>
+  <div class="seq">
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><div class="acts"><span class="btn">Import</span><span class="btn">New</span><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div></div>
+      <div class="strip-c"><div class="field" style="width:240px"><svg class="ic s"><use href="#i-search"/></svg>Search</div><span class="gap"></span><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Recent</span></div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon on" style="box-shadow:0 0 0 4px var(--clayTint)"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>1 · Tap share</b>Signed out, the content swaps to Sign in under <i>Library › Sign in</i> with one line saying why, and returns here after.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><div class="acts"><span class="btn">Import</span><span class="btn">New</span><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div></div>
+      <div class="strip-c"><span class="ring"></span><span class="lbl" style="color:var(--clayStrong)">Preparing to share Tuesday at the Ship · pinning 6 versions · uploading 2 of 6</span><span class="sp"></span><span class="btn">Stop</span></div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        <div class="row sel"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>2 · Progress, in the strip</b>The strip is where a state about the selected row belongs. It says what is happening, how far, and offers Stop.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div></div>
+      <div class="strip-c"><span class="lbl">Tuesday at the Ship</span><span class="btn on"><svg class="ic s"><use href="#i-link"/></svg>Link ready · 12 places · 7 days</span></div>
+      <div class="content"><div class="list"><div class="row sel"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div></div>
+      <div class="sys-sheet"><div class="grab"></div><div style="font-weight:600">Tuesday at the Ship</div><div style="font-size:13px;color:#666">a set list in Scoranger · scoranger.app/i/7f3a…</div><div class="apps"><span>Messages</span><span>Mail</span><span>WhatsApp</span><span>AirDrop</span></div><div class="acts"><div>Copy</div><div>Add to Notes</div></div></div>
+    </div></div>
+    <p class="stepcap"><b>3 · The system share sheet</b>Apple's own. The strip states what the link is before it leaves.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t">Library</span><span class="sep">›</span><span class="seg-t cur">Invitation</span></div><span class="meta">from Ali Momeni</span></div>
+      <div class="strip-c"><span class="btn primary" style="height:36px">Add to my set lists</span><span class="btn" style="height:36px">Not now</span></div>
+      <div class="content"><div class="col">
+        <div class="head"><svg class="ic l" style="color:var(--clay)"><use href="#i-people"/></svg><div><div class="h1">Tuesday at the Ship</div><div class="h2">shared by Ali Momeni · 6 arrangements · 3 people so far</div></div></div>
+        <p class="note-inline">Adding it downloads their six arrangements to this iPad and puts the set list beside yours. Everybody in it can reorder and mark up.</p>
+        <div class="list ordered" style="margin-top:12px"><div class="row"><span class="ord">1</span><span class="num">#1</span><div><div class="name">Libertango</div></div><span></span></div><div class="row"><span class="ord">2</span><span class="num">#1</span><div><div class="name">Sous le ciel quartet</div></div><span></span></div><div class="row"><span class="ord">3</span><span class="num">#2</span><div><div class="name">Guitar duo</div></div><span></span></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>4 · The recipient opens the link</b>The content is the invitation under <i>Library › Invitation</i>; the two verbs are in the strip. One confirmation, its reason stated, and the running order shown.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="meta">2 set lists</span></div>
+      <div class="strip-c"><div class="field" style="width:240px"><svg class="ic s"><use href="#i-search"/></svg>Search</div><span class="gap"></span><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Recent</span></div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Choir Thursdays</div><div class="sub"><span class="meta">4 arrangements</span></div></div><span class="meta mo">Mon</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        <div class="row sel"><span class="thumb"></span><span class="nonum"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta" style="display:inline-flex;gap:4px;align-items:center;color:var(--clayStrong)"><svg class="ic s"><use href="#i-people"/></svg>4 people</span><span class="meta">· downloading 4 of 6</span></div></div><span class="meta mo">now</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>5 · The row appears</b>Back under <i>Library</i>, the ordinary row, selected for a beat, finishing its download.</p></div>
+  </div>
+
+  <!-- ============ 10 ============ -->
+  <h3 id="s10">10 · Sequence: import a PDF and open it</h3>
+  <div class="seq">
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><div class="acts"><span class="btn on"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn">New</span><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div></div>
+      <div class="strip-c"><div class="field" style="width:240px"><svg class="ic s"><use href="#i-search"/></svg>Search</div><span class="gap"></span><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Composer</span></div>
+      <div class="sys-picker"><div class="hdr"><span>Recents</span><span>Cancel</span></div><div class="files"><div class="sel">Waltz-No2.pdf</div><div class="xml">Cavatina.mxl</div><div>Tango-parts.pdf</div><div>Hymn-scan.pdf</div><div class="xml">Bossa.musicxml</div><div>Choir-set.pdf</div></div></div>
+    </div></div>
+    <p class="stepcap"><b>1 · Import</b>Apple's picker; Import stays lit in the ribbon under it.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><div class="crumb"><span class="seg-t cur">Library</span></div><div class="seg" style="margin-left:24px;height:36px"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><span class="meta">7 pieces</span></div>
+      <div class="strip-c"><span class="ring"></span><span class="lbl" style="color:var(--clayStrong)">Importing Waltz No. 2 · reading 9 pages · 62%</span><div class="track" style="--p:62%;width:200px"></div><span class="sp"></span><span class="btn">Stop</span></div>
+      <div class="content"><div class="list"><div class="alpha">W</div><div class="row sel"><span class="thumb pdf"></span><span class="nonum"></span><div><div class="name">Waltz No. 2</div><div class="sub"><span class="chip">PDF</span></div></div><span class="meta mo">now</span><div class="trail"><span class="btn icon dis"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div></div>
+    </div></div>
+    <p class="stepcap"><b>2 · Progress, in the strip</b>The new row is selected and the strip carries its progress and a Stop.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="crumb" style="margin-left:6px"><span class="seg-t">Waltz No. 2</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t cur">Waltz No. 2</span><span class="meta mo">v001 · PDF</span></div><div class="acts"><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="strip-c"><span class="lbl">A scan, not yet notation</span><span class="btn primary" style="height:36px">Convert to notation · 2 min</span><span class="btn" style="height:36px">Read it as is</span><span class="sp"></span><span class="meta">the scan stays as v001 either way</span></div>
+      <div class="scorecanvas"><div class="page" style="width:380px;height:520px"><canvas class="engraving" data-title="Waltz No. 2" data-staves="2" data-seed="3" data-gap="5" style="width:380px;height:520px"></canvas></div><div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span></div></div>
+      <div class="dock"><div class="trow"><span class="setchip">not in a set list</span><div class="transport"><span class="btn icon dis"><svg class="ic"><use href="#i-play"/></svg></span></div><div class="right"><span class="meta">a scan cannot play until it is notation</span></div></div></div>
+    </div></div>
+    <p class="stepcap"><b>3 · The scan opens, OMR offered in the strip</b>The strip holds the offer: two verbs and the consequence. The page is readable beneath it.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app">
+      <div class="ribbon"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="crumb" style="margin-left:6px"><span class="seg-t">Waltz No. 2</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t cur">Waltz No. 2</span><span class="meta mo">v001 · PDF</span></div><div class="acts"><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="strip-c"><span class="ring"></span><span class="lbl" style="color:var(--clayStrong)">Converting · page 4 of 9 · keep reading</span><div class="track" style="--p:40%;width:220px"></div><span class="sp"></span><span class="btn">Stop</span></div>
+      <div class="scorecanvas"><div class="page" style="width:380px;height:520px"><canvas class="engraving" data-title="Waltz No. 2" data-staves="2" data-seed="3" data-gap="5" style="width:380px;height:520px"></canvas></div><div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span></div></div>
+      <div class="dock"><div class="trow"><span class="setchip">not in a set list</span><div class="transport"><span class="btn icon dis"><svg class="ic"><use href="#i-play"/></svg></span></div></div></div>
+    </div></div>
+    <p class="stepcap"><b>4 · Converting, still reading</b>The strip carries the progress. When it finishes it reads <i>v002 is notation</i> with an Open chip, and the ribbon's version becomes tappable.</p></div>
+  </div>
+
+  <!-- ============ components ============ -->
+  <h2 id="sheet">Components sheet</h2>
+  <p class="lede">How the rules produce the screens above. Palette and type roles are the current tokens; the ribbon, the strip and the dock are new, and hairlines survive.</p>
+  <div class="sheet">
+    <div class="cell"><h4>Surfaces</h4><div class="demo"><div class="swatches"><span style="background:#F4F0E8">ground</span><span style="background:#F1ECE2">band · ribbon, dock</span><span style="background:#FAF7F1">panel · controls</span><span style="background:#FFFFFF">paper</span><span style="background:#CC5C2E;color:#fff">clay</span><span style="background:#A8481F;color:#fff">strong</span><span style="background:#F7E7DD">tint</span></div></div><p class="note"><code>band</code> keeps a job: it is the ribbon and the dock, the two fixed bands. Content sits on <code>ground</code>; controls are <code>panel</code> with a <code>line</code> hairline; the darker <code>line2</code> is retired.</p></div>
+    <div class="cell"><h4>Shape tokens</h4><dl class="rule"><dt>rCtl</dt><dd>8pt</dd><dt>rChip</dt><dd>8pt, 34pt tall in the strip</dd><dt>rSquare</dt><dd>7pt, the numeral square</dd><dt>edges</dt><dd>1pt <code>line</code> on controls and between rows; the ribbon has none, the dock a top hairline</dd><dt>shadow</dt><dd>none</dd><dt>bands</dt><dd>ribbon 56, strip 48, dock face 60, mixer row 120, pages row 80; none of them ever changes height on its own</dd><dt>row</dt><dd>56pt min</dd></dl></div>
+    <div class="cell"><h4>Grid and centring</h4><dl class="rule"><dt>grid</dt><dd>16pt gutters; content column 760 centred for lists and detail; the score takes the full width; 8pt between chips, 16 between chip groups</dd><dt>centring</dt><dd>A label is centred vertically by its cap height, with padding one point heavier above than below because Inter's descenders pull the box down; centred horizontally with equal padding. A chip with a leading glyph shifts its label 2pt so the pair reads centred. The trail's baseline, the segmented control's labels and the ribbon buttons' labels share one baseline.</dd></dl></div>
+    <div class="cell"><h4>The ribbon</h4><div class="demo" style="padding:0;overflow:hidden;border-radius:10px"><div class="ribbon" style="width:100%;padding:0 12px"><div class="crumb"><span class="seg-t">Library</span><span class="sep">›</span><span class="sq">#1</span><span class="seg-t cur">Sous le ciel quartet</span></div><div class="acts"><span class="btn primary" style="height:34px">Open</span></div></div></div><p class="note">56pt on <code>band</code>. The trail in Space Grotesk 600 16, the current segment in <code>ink</code> with a 3pt clay underline, earlier segments in <code>ink2</code> and tappable. Four or more levels collapse the middle to an ellipsis. Screen-level actions sit at the right.</p></div>
+    <div class="cell"><h4>The strip</h4><div class="demo" style="padding:0;overflow:hidden;border-radius:10px"><div class="strip-c" style="width:100%;padding:0 12px;border-bottom:0"><span class="lbl">Sort</span><span class="btn on">Name</span><span class="btn">Composer</span><span class="gap"></span><span class="lbl">Show</span><span class="btn">Unfiled</span><span class="sp"></span><span class="btn danger">Remove</span></div></div><p class="note">48pt, always present under the ribbon when there is a choice to make. Groups have a small <code>ink3</code> label; the current chip is <code>clayTint</code>; destructive chips are bare red at the far right. A selected row's actions replace the screen's choices here, and Escape or a tap on empty ground restores them.</p></div>
+    <div class="cell"><h4>The dock</h4><div class="demo" style="padding:0;overflow:hidden;border-radius:10px"><div class="dock" style="width:100%;border-top:0"><div class="trow" style="padding:0 12px"><span class="setchip">2 of 6</span><div class="transport"><span class="btn icon"><svg class="ic"><use href="#i-prev"/></svg></span><span class="btn icon play"><svg class="ic"><use href="#i-play"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-metro"/></svg></span></div><div class="right"><span class="btn icon"><svg class="ic"><use href="#i-mixer"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-page"/></svg></span></div></div></div></div><p class="note">60pt face on <code>band</code> with the transport, always in the score view. Two buttons at its right open a fixed 120pt mixer row or an 80pt pages row above the face; one at a time.</p></div>
+    <div class="cell"><h4>Buttons and chips</h4><div class="demo"><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn on">Name</span><span class="btn">Parts <span class="val">4</span></span><span class="btn primary">Open</span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span><span class="btn" style="color:var(--danger);border-color:transparent;background:transparent">Delete</span></div></div><p class="note"><code>panel</code> with a <code>line</code> hairline at rest; <code>clayTint</code> with a <code>clayBorder</code> hairline when current; <code>clayPress</code> for the one primary. A chip may carry its value in mono, so the strip reads as a summary.</p></div>
+    <div class="cell"><h4>Numeral square, toggle, field</h4><div class="demo"><div style="display:flex;gap:12px;align-items:center"><span class="sq" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:7px;background:var(--clay);color:#fff;font:700 15px/1 var(--sg)">#1</span><span class="sq" style="display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 8px;border-radius:7px;background:var(--clay);color:#fff;font:700 15px/1 var(--sg)">#12</span><span class="num" style="font-size:34px">#2</span><span class="toggle on"></span><span class="toggle"></span></div><div class="field" style="width:100%"><svg class="ic"><use href="#i-search"/></svg>Search pieces</div></div><p class="note">In the trail the numeral is a 32pt clay square; on a head it is the bare 34pt Space Grotesk numeral; in rows the 21pt one. Capsule toggle; <code>paper</code> field with an 8pt corner and a <code>line</code> hairline.</p></div>
+    <div class="cell"><h4>Row and version row</h4><div class="demo row-demo"><div class="row sel" style="border-bottom:0"><span class="thumb"></span><span class="num">#1</span><div><div class="name">Sous le ciel quartet</div><div class="sub"><span class="meta">Sous le ciel de Paris · v003</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-menu"/></svg></span></div></div><div class="vrow on" style="border-bottom:0"><span class="id">v003</span><div><div class="p">Rename the four parts</div><div class="m">4 ops · today</div></div><span class="chip clay">displayed</span><span></span></div></div><p class="note">Selected: <code>clayTint</code> with a 3pt clay edge at the left, the same mark the ribbon uses for the current segment. A version row gives the prompt a full line and a mono id column.</p></div>
+    <div class="cell"><h4>Type roles</h4><div class="demo"><span style="font:700 34px/1 var(--sg);letter-spacing:-.02em;color:var(--clay)">#2</span><span style="font:600 16px var(--sg)">Trail segment · Space Grotesk 600 16</span><span style="font:500 15px var(--in)">Settings row · Inter 500 15</span><span style="font:600 12.5px var(--in)">Chip · Inter 600 12.5</span><span style="font:400 13px/1.45 var(--in);color:var(--ink2)">Body prose · Inter 400</span><span style="font:500 11px var(--mo)">v003 · 62% · IBM Plex Mono</span></div><p class="note">The trail gets its own size, 16, between <code>title</code> and <code>titleS</code>; chips sit at 12.5. The caps <code>label</code> role is retired with the bands.</p></div>
+  </div>
+
+  <h2 id="labels">Labels</h2>
+  <p class="lede">Every label the brief lists, as it stands and as this option writes it. Trail segments are nouns; chips are one or two words and may carry a value.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Today</th><th>0.8 Ribbon</th><th>Where</th></tr>
+    <tr><td class="old">Account</td><td>Account</td><td>chip and trail segment</td></tr>
+    <tr><td class="old">Send my address</td><td>Email · <i>Send link</i></td><td>field and button</td></tr>
+    <tr><td class="old">Sign out</td><td>Sign out</td><td>button</td></tr>
+    <tr><td class="old">Signing out keeps your library on this iPad. Nothing is deleted.</td><td>Your library stays on this iPad.</td><td>note under Sign out</td></tr>
+    <tr><td class="old">Paste an invitation</td><td>Invitation</td><td>row label; placeholder <i>Paste a link</i></td></tr>
+    <tr><td class="old">Reading · Titles · About · Diagnostics</td><td>Reading · Titles · About · Diagnostics</td><td>chips</td></tr>
+    <tr><td class="old">On-device engine</td><td>Engine</td><td>chip</td></tr>
+    <tr><td class="old">Remote engine</td><td>Server</td><td>chip</td></tr>
+    <tr><td class="old">PDF conversion (OMR)</td><td>Scanning</td><td>chip</td></tr>
+    <tr><td class="old">Chat model</td><td>Model</td><td>chip</td></tr>
+    <tr><td class="old">Save · Clear</td><td>Save · Clear</td><td>unchanged</td></tr>
+    <tr><td class="old">Pieces</td><td>Pieces</td><td>segment in the ribbon</td></tr>
+    <tr><td class="old">Or</td><td><i>removed</i></td><td>the Move to piece content lists pieces; <i>New piece</i> and <i>Unfile</i> are chips in the strip</td></tr>
+    <tr><td class="old">New piece</td><td>New piece</td><td>chip</td></tr>
+    <tr><td class="old">Remove from piece</td><td>Unfile</td><td>chip</td></tr>
+    <tr><td class="old">In these set lists</td><td>Set lists</td><td>chip with a count</td></tr>
+    <tr><td class="old">New set list</td><td>New set list</td><td>ribbon button</td></tr>
+    <tr><td class="old">Play from the top</td><td>Play</td><td>primary ribbon button</td></tr>
+    <tr><td class="old">Running order</td><td><i>removed</i></td><td>the digits are the order</td></tr>
+    <tr><td class="old">This set list</td><td><i>removed</i></td><td>Add, People and Share are ribbon buttons</td></tr>
+    <tr><td class="old">Add arrangements</td><td>Add</td><td>ribbon button</td></tr>
+    <tr><td class="old">People in this set list</td><td>People</td><td>ribbon button with a count</td></tr>
+    <tr><td class="old">In this set list</td><td><i>removed</i></td><td>the trail names the set list</td></tr>
+    <tr><td class="old">History</td><td>Versions</td><td>chip and trail segment</td></tr>
+    <tr><td class="old">Parts</td><td>Parts</td><td>chip and trail segment</td></tr>
+    <tr><td class="old">No parts recorded for this version.</td><td>No parts</td><td>content, one line</td></tr>
+    <tr><td class="old">Do · Look at · Careful · Danger</td><td><i>removed</i></td><td>chip groups separated by a gap; Delete at the far right</td></tr>
+    <tr><td class="old">Arrangements — tap to open</td><td>Arrangements</td><td>section header</td></tr>
+    <tr><td class="old">Who's in it · Take an arrangement out · Whose marks to show</td><td>People · Remove · Markup</td><td>trail segment, chip, chip</td></tr>
+  </table></div>
+
+  <h2 id="cost">What it costs to build</h2>
+  <ul class="cost">
+    <li><b>Changes shape:</b> a <code class="mono">Ribbon</code> and a <code class="mono">Strip</code> replace every screen's nav bar, control bar, band header and inline reveal; the ☰ screens become strip chips over swappable content; sort and filter become chips and lose their reveals entirely; the selection model gains a selected-row state that feeds the strip. The dock absorbs the transport bar, the mixer window (drag, park and clamp go) and the thumbnail strip. The route model is unchanged, the ribbon reads it.</li>
+    <li><b>Tokens only:</b> <code class="mono">rCtl</code> 2 to 8, <code class="mono">rPanel</code> 3 to 12, <code class="mono">line2</code> to <code class="mono">line</code>, <code class="mono">PanelToggle</code> to a capsule, the numeral to the square in the trail, the trail's 16pt role.</li>
+    <li><b>Unchanged:</b> the score canvas and gestures, the knob, the system pickers, push navigation as the model underneath, the identifiers.</li>
+    <li><b>Risks:</b> the strip's width is finite: nine settings chips fit an iPad and scroll on a phone, and at AX text sizes the strip becomes a vertical list by IPHONE_0.6.14 §6.3 rule 4, which reintroduces height. The ribbon costs 56pt of every screen including the score; performance mode gives it back.</li>
+  </ul>
+</div>
+<script src="common.js"></script>

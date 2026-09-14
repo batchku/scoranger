@@ -66,11 +66,19 @@ final class LandscapeFits: XCTestCase {
     private func rotateToLandscape(_ app: XCUIApplication) -> CGRect {
         let portrait = windowFrame(app)
         XCUIDevice.shared.orientation = .landscapeLeft
-        let deadline = Date().addingTimeInterval(25)
+        // Budget and re-ask, for the reason in Rotation.swift: four workers
+        // drop or delay the request past anything measured on one.
+        let deadline = Date().addingTimeInterval(XCTestCase.rotationBudget)
+        var askedAgain = Date()
         var landscape = windowFrame(app)
         var stable = 0
         while Date() < deadline {
             usleep(200_000)
+            if Date().timeIntervalSince(askedAgain) > XCTestCase.rotationRetry,
+               landscape.width <= landscape.height {
+                XCUIDevice.shared.orientation = .landscapeLeft
+                askedAgain = Date()
+            }
             let next = windowFrame(app)
             // still, landscape, and sitting at the origin on whole points --
             // an animating frame satisfies none of those for long
@@ -111,10 +119,14 @@ final class LandscapeFits: XCTestCase {
             .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND NOT "
                                   + "(identifier BEGINSWITH %@)", "row-", "row-menu-"))
             .firstMatch
+        // 0.8: the page has the table's width (L1) and rows have the page's;
+        // what must hold is that the row sits inside the page, 16 from the
+        // table's edge, and not off it.
         if row.waitForExistence(timeout: 60) {
-            XCTAssertLessThan(row.frame.width, window.width - 40,
-                              "a library row spans the whole landscape width; "
-                              + "A-B caps the column and centres it")
+            XCTAssertGreaterThanOrEqual(row.frame.minX, 15,
+                                        "a library row runs into the table's margin")
+            XCTAssertLessThanOrEqual(row.frame.maxX, window.width - 15,
+                                     "a library row runs off the page")
         }
     }
 
@@ -199,6 +211,9 @@ final class LandscapeFits: XCTestCase {
         }
     }
 
+    /// The tray in landscape: a line at the foot of a 402pt screen, with its
+    /// knobs, tempo and readout inside the window, and no more than a quarter
+    /// of the height -- the music is what landscape is for.
     func testTheMixerFitsInLandscape() {
         let app = launched()
         let row = app.descendants(matching: .any)["row-sous-le-ciel-de-paris"]
@@ -211,23 +226,19 @@ final class LandscapeFits: XCTestCase {
         XCTAssertTrue(app.buttons["score-title"].waitForExistence(timeout: 300),
                       "the score never opened")
         let window = rotateToLandscape(app)
-        let open = app.buttons["transport-mixer"]
-        guard open.waitForExistence(timeout: 120) else {
-            return XCTFail("no mixer button in landscape")
+        let tray = app.otherElements["transport"].firstMatch
+        guard tray.waitForExistence(timeout: 120) else {
+            return XCTFail("no tray in landscape")
         }
-        open.tap()
-        let panel = app.descendants(matching: .any)["mixer"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 60),
-                      "the mixer never opened in landscape")
-        settle(panel, still: 0.5)
-        snap("mixer-landscape")
-        assertFitsOnScreen(["mixer", "mixer-header", "mixer-grab",
-                            "mixer-close", "mixer-collapse"],
-                           in: app, context: "mixer landscape \(window.size)")
-        // §12's height rule: above 60% of the canvas it opens collapsed. At
-        // 402pt tall that is what landscape is for.
-        XCTAssertLessThan(panel.frame.height, window.height * 0.75,
-                          "the mixer is \(panel.frame.height)pt of "
-                          + "\(window.height): it should open collapsed here")
+        XCTAssertTrue(app.descendants(matching: .any)["strip-mute-0"].waitForExistence(timeout: 180),
+                      "the tray never grew a knob in landscape")
+        settle(tray, still: 0.5)
+        snap("tray-landscape")
+        assertFitsOnScreen(["transport", "tray-knobs", "transport-tempo",
+                            "transport-play", "transport-bar"],
+                           in: app, context: "tray landscape \(window.size)")
+        XCTAssertLessThan(tray.frame.height, window.height * 0.25,
+                          "the tray is \(tray.frame.height)pt of "
+                          + "\(window.height): it is taking the music's room")
     }
 }

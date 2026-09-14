@@ -11,7 +11,7 @@ import Foundation
 /// which is the same answer the score view already gives itself
 /// (`AppState.displayedArtifact`). One notion of what an artifact is, three
 /// places that show it.
-struct ArtifactHolding: OptionSet, Equatable {
+struct ArtifactHolding: OptionSet, Hashable {
     let rawValue: Int
     init(rawValue: Int) { self.rawValue = rawValue }
 

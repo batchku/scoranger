@@ -237,6 +237,33 @@ with Journey("library: pieces, numbering and set lists") as j:
     if not j.workspace.resolve_path(slugs[1]).exists():
         j.fail("removing an arrangement from a set list deleted its music")
 
+    # Sharing is a FIELD on the set list, not a second kind of object
+    # (design/FIREBASE.md 6A.1) -- and the app learns it from the MANIFEST, so
+    # that is where this is asserted. Both halves were wrong when this check
+    # was written: the vendored on-device engine had no bind_setlist_share at
+    # all, and the manifest projection dropped shareId, so a set list that had
+    # been promoted looked local on every device forever.
+    listed = next(s for s in j.workspace.rebuild_manifest()["setlists"]
+                  if s["slug"] == setlist)
+    if listed.get("shareId") is not None or listed.get("ownerUid") is not None:
+        j.fail(f"a set list nobody shared claims a share: {listed.get('shareId')}")
+
+    # promotion's last step (6A.1 step 4)
+    j.workspace.bind_setlist_share(setlist, "share-abc", "owner-xyz")
+    bound = next(s for s in j.workspace.rebuild_manifest()["setlists"]
+                 if s["slug"] == setlist)
+    if bound.get("shareId") != "share-abc" or bound.get("ownerUid") != "owner-xyz":
+        j.fail(f"binding a share did not reach the manifest: {bound}")
+    if bound["arrangements"] != [slugs[0]]:
+        j.fail(f"binding a share disturbed the running order: {bound['arrangements']}")
+
+    # by name, and twice, because the share button gets pressed again
+    j.workspace.bind_setlist_share("Gig night", "share-abc", "owner-xyz")
+    again = next(s for s in j.workspace.rebuild_manifest()["setlists"]
+                 if s["slug"] == setlist)
+    if again.get("shareId") != "share-abc":
+        j.fail("binding the same share twice lost it")
+
 
 # =============================================================================
 # 5. Titles, credits and renaming: one value, projected everywhere

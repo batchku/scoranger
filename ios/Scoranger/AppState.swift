@@ -621,6 +621,12 @@ final class AppState: ObservableObject {
     }
     @Published var pendingImports: [PendingImport] = []
 
+    /// What an import just brought in, for the root to OPEN (0.8.0 build
+    /// 194, Ali's item 1): a reader who imported a score, from Files or from
+    /// another app's share sheet, wants to see it, not the Pieces list. Set
+    /// by every import path that yields an arrangement; the root clears it.
+    @Published var openAfterImport: String?
+
     private func updatePending(_ id: UUID, stage: String, fraction: Double?) {
         print("SCORANGER-OMR \(stage)")
         if let i = pendingImports.firstIndex(where: { $0.id == id }) {
@@ -651,8 +657,36 @@ final class AppState: ObservableObject {
     /// true = embedded Python engine + Verovio (no laptop needed);
     /// false = remote `scor serve` over the network.
     @AppStorage("useLocalEngine") var useLocalEngine = true
+
+    /// Arrangement tags [C14]: saved at once, no version. The counter is what
+    /// views watch; the store is a file beside the library.
+    @Published var arrangementTagsVersion = 0
+    func arrangementTags(_ slug: String) -> [String] {
+        ArrangementTags.shared.tags(for: tagKey(slug))
+    }
+    func setArrangementTags(_ slug: String, _ tags: [String]) {
+        ArrangementTags.shared.set(tags, for: tagKey(slug))
+        arrangementTagsVersion += 1
+    }
+    /// Every arrangement's tags by slug, for the library's rows and filters.
+    var allArrangementTags: [String: [String]] {
+        var out: [String: [String]] = [:]
+        for score in manifest?.scores ?? [] {
+            let tags = arrangementTags(score.slug)
+            if !tags.isEmpty { out[score.slug] = tags }
+        }
+        return out
+    }
+    private func tagKey(_ slug: String) -> String {
+        manifest?.scores.first { $0.slug == slug }?.uid ?? slug
+    }
     /// Guards the one-time rename of the old seeded "Samples" setlist.
     @AppStorage("didMigrateSetlistNames") var didMigrateSetlistNames = false
+    /// Session-scoped, deliberately not `@AppStorage`: re-running the
+    /// annotation re-file costs one directory listing and is idempotent, and a
+    /// persisted flag would skip it for ever on a device whose first run
+    /// happened before the library finished importing.
+    private var didMigrateAnnotationKeys = false
     /// How the score is laid out: one page, a spread, or continuous.
     ///
     /// One page by default: on one page the music is twice the size, which is
@@ -756,6 +790,41 @@ final class AppState: ObservableObject {
 
     var client: EngineClient { EngineClient(baseURLString: engineURLString) }
     let local = LocalEngine()
+
+    /// A fresh Firebase ID token, or nil when nobody is signed in.
+    ///
+    /// A CLOSURE and not a call, because `AppState` may not touch Firebase:
+    /// `Auth.auth()` traps when nothing has configured it, and
+    /// `check_signed_out.py` keeps every such call inside `Account/`
+    /// (`OMRIdentity`, which installs this). Nil is the ordinary answer -- a
+    /// signed-out reader's OMR job goes up on the shared key and the service
+    /// labels it `unattributed`, because there is no user to bill it to
+    /// (design/FIREBASE.md §0.12).
+    var omrToken: (() async -> String?)?
+
+    /// Which shared set list entry is open, if the score on screen is one.
+    ///
+    /// Set while reading an entry and cleared on the way out, and it decides
+    /// two things: where markup is filed, and whose markup is drawn under it
+    /// (`SharedEntryCopies.inkNamespace`, design/FIREBASE.md §6.3).
+    @Published var openSharedEntry: (setlist: String, entry: String)?
+
+    /// Whose marks to draw. Everyone's, by default: the point of sharing a set
+    /// list is seeing what the band wrote on it (§6.3).
+    @Published var inkVisibility: InkLayers.Visibility = .everyone
+
+    /// Where this device put its copy of each shared entry.
+    let sharedCopies = SharedEntryCopies()
+
+    /// An invitation link that has been opened and not yet acted on.
+    ///
+    /// Held here rather than claimed at the door, because claiming it is a
+    /// decision -- joining downloads somebody else's copies -- and because it
+    /// may arrive before there is an account to claim it with. `RootView`
+    /// watches this and pushes the one confirmation screen (§6A.5); it is a
+    /// hand-off, not a holding area, and it is cleared as soon as the screen
+    /// has it.
+    @Published var pendingInvite: String?
     /// Pencil markup state. Lives here because the pill drives it and the score
     /// pane only reacts, the same reason highlightMode moved up in build 116.
     let annotation = AnnotationController()
@@ -853,6 +922,10 @@ final class AppState: ObservableObject {
     var displayedVersion: VersionDoc? {
         selectedScore?.versions.first { $0.id == displayedVersionID }
     }
+
+    /// `v012`, for anywhere a person reads it. `displayedVersionID` is opaque
+    /// and belongs in keys and comparisons only.
+    var displayedVersionLabel: String? { displayedVersion?.name }
 
     /// The folder import a reader is looking at before deciding to run it.
     @Published var folderImportPlan: FolderImportPlan?
@@ -995,6 +1068,7 @@ final class AppState: ObservableObject {
         guard useLocalEngine else { return }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let inbox = docs.appending(path: "inbox")
+        seedInboxOnce(into: inbox)
         let staging = docs.appending(path: ".ingesting")
         try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         // Notation, PDFs, and pictures of a page. The image list comes from
@@ -1010,6 +1084,50 @@ final class AppState: ObservableObject {
             // atomic move claims the file; skip if Files is still copying it
             guard (try? FileManager.default.moveItem(at: f, to: staged)) != nil else { continue }
             receiveFile(at: staged)
+        }
+    }
+
+    /// `-seedInboxFixture`: a UI test drops the bundled sample into the inbox
+    /// the way the share extension does, once per launch, so the path from
+    /// "something arrived" to "it is open" can be driven without a share sheet.
+    ///
+    /// `-seedInboxImage`: the same, with a PHOTOGRAPH -- page 1 of the bundled
+    /// scan rasterised to a real .jpeg -- because an image is its own kind of
+    /// artifact in the engine and the app, and 0.8's build 193 shipped with
+    /// both halves broken for it (no Make editable, Details save failing on
+    /// a music21 parse of the JPEG) while every PDF test stayed green.
+    private var inboxSeeded = false
+    private func seedInboxOnce(into inbox: URL) {
+        let arguments = ProcessInfo.processInfo.arguments
+        let wantsScore = arguments.contains("-seedInboxFixture")
+        let wantsImage = arguments.contains("-seedInboxImage")
+        guard !inboxSeeded, wantsScore || wantsImage else { return }
+        inboxSeeded = true
+        guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed") else { return }
+        let samples = ((try? FileManager.default.contentsOfDirectory(
+            at: seed, includingPropertiesForKeys: nil)) ?? [])
+            .sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        if wantsScore, let sample = samples.first(where: { $0.pathExtension.lowercased() == "mxl" }) {
+            let dropped = inbox.appending(path: "Inbox test " + sample.lastPathComponent)
+            try? FileManager.default.removeItem(at: dropped)
+            try? FileManager.default.copyItem(at: sample, to: dropped)
+            print("SCORANGER-SEED dropped \(dropped.lastPathComponent) in the inbox")
+        }
+        if wantsImage, let scan = samples.first(where: { $0.pathExtension.lowercased() == "pdf" }),
+           let page = PDFDocument(url: scan)?.page(at: 0) {
+            // A phone photographs a page at a few thousand pixels a side;
+            // 1654 x 2339 is A4 at 200 dpi, enough for OMR to read.
+            let bounds = page.bounds(for: .mediaBox)
+            let scale = 1654 / max(bounds.width, 1)
+            let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+            let image = page.thumbnail(of: size, for: .mediaBox)
+            if let jpeg = image.jpegData(compressionQuality: 0.9) {
+                let dropped = inbox.appending(path: "Photo test.jpeg")
+                try? FileManager.default.removeItem(at: dropped)
+                try? jpeg.write(to: dropped)
+                print("SCORANGER-SEED dropped \(dropped.lastPathComponent) (\(jpeg.count) bytes) in the inbox")
+            }
         }
     }
 
@@ -1204,10 +1322,44 @@ final class AppState: ObservableObject {
             // flick that stopped the main thread once per page, and a picture
             // store bounded by a count -- do not show on a ten-page fixture,
             // so the test that guards them gets the size that broke.
+            // A set list that has been JOINED, without any Firebase at all: the
+            // engine binds it to a share somebody else owns, which is exactly
+            // the state a recipient's library is in after §6A.5. What a UI test
+            // can then assert without signing in: the row reads as shared, and
+            // its share control opens the shared screen rather than re-sharing.
+            if ProcessInfo.processInfo.arguments.contains("-seedSharedSetlist") {
+                do {
+                    let r = try await local.call(op: "create-setlist",
+                                                 args: ["name": "Tuesday at the Ship"])
+                    if let slug = r["slug"] as? String {
+                        _ = try await local.call(op: "bind-setlist-share",
+                                                 args: ["setlist": slug,
+                                                        "shareId": "seed-share-tuesday",
+                                                        "ownerUid": "seed-owner-somebody-else"])
+                        for score in (try await local.manifest()).scores.prefix(2) {
+                            _ = try await local.call(op: "assign-setlist",
+                                                     args: ["setlist": slug, "score": score.slug])
+                        }
+                        print("SCORANGER-SEED shared set list \(slug)")
+                    }
+                } catch {
+                    print("SCORANGER-SEED shared set list failed: \(error.localizedDescription)")
+                }
+            }
             if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
                 await seedBigBook()
             }
             await refresh()
+            // `-autoDrag`: the frame probe's scripted drag needs a score open
+            // with nobody at the device; the first seeded arrangement opens
+            // the way an import does, in the layout the arguments name.
+            if ProcessInfo.processInfo.arguments.contains("-autoDrag"),
+               let first = manifest?.scores.first?.slug {
+                if ProcessInfo.processInfo.arguments.contains("-autoDragContinuous") {
+                    layout = .continuous
+                }
+                openAfterImport = first
+            }
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
@@ -1308,6 +1460,15 @@ final class AppState: ObservableObject {
             if manifest != m { manifest = m }
             engineOK = true
             reportedEngineFailure = nil   // a later outage speaks again
+            // Once per launch, and only after a manifest has arrived: the
+            // manifest is what carries every old name beside its new one -- a
+            // version's `vNNN` beside its opaque id, a score's slug beside its
+            // uid -- so it is the only thing that can re-file a reader's pencil
+            // marks onto the new key. Cheap when there is nothing to do.
+            if !didMigrateAnnotationKeys {
+                DrawingStore.shared.migrateKeys(manifest: m)
+                didMigrateAnnotationKeys = true
+            }
             // a selection pointing at a deleted score would otherwise leave the
             // canvas showing nothing with no row highlighted
             if let slug = selectedSlug, !m.scores.contains(where: { $0.slug == slug }) {
@@ -1499,52 +1660,6 @@ final class AppState: ObservableObject {
     /// test then measures an untouched score and calls it a pass.
     @Published var seedOutcome: String?
 
-    @Published var mixerOpen = false
-    @Published var mixerCorner = MixerLayout.Corner.bottomTrailing
-
-    /// WHERE the mixer window is, and whether it is collapsed
-    /// (design/MIXER_WINDOW.md §5, §1.3).
-    ///
-    /// A placement, not a translation. A stored translation does not survive a
-    /// rotation -- the parked origin it was measured from moves, and the panel
-    /// teleports by the difference -- so a freely dragged window is kept as a
-    /// unit point of the free rect, which maps into any new one.
-    ///
-    /// Persisted per device, so the window opens where it was left and in the
-    /// state it was left in. `mixerCorner` stays beside it as the corner the
-    /// park button will cycle to next, which is what its glyph previews.
-    @Published var mixerPlacement: MixerLayout.Placement = .corner(.bottomTrailing) {
-        didSet { storePlacement() }
-    }
-    @Published var mixerCollapsed = false {
-        didSet { storedMixerCollapsed = mixerCollapsed }
-    }
-
-    @AppStorage("mixerCollapsed") private var storedMixerCollapsed = false
-    @AppStorage("mixerPlacement") private var storedMixerPlacement = ""
-
-    private func storePlacement() {
-        guard let data = try? JSONEncoder().encode(mixerPlacement),
-              let text = String(data: data, encoding: .utf8) else { return }
-        storedMixerPlacement = text
-    }
-
-    /// Read the window's position back on launch.
-    ///
-    /// A bad or absent value falls back to the bottom-trailing corner rather
-    /// than to nothing: a mixer with no placement would be drawn at the origin
-    /// of the free rect, over the top of the score.
-    func restoreMixerWindow() {
-        mixerCollapsed = storedMixerCollapsed
-        guard !storedMixerPlacement.isEmpty,
-              let data = storedMixerPlacement.data(using: .utf8),
-              let placement = try? JSONDecoder()
-                  .decode(MixerLayout.Placement.self, from: data) else { return }
-        mixerPlacement = placement
-        if case .corner(let corner) = placement { mixerCorner = corner }
-    }
-
-    /// Who is deciding which page is shown while the music plays.
     @Published var pageFollow = PageFollow()
 
     /// True while the engine is writing the MIDI. A long score takes a moment
@@ -1600,6 +1715,12 @@ final class AppState: ObservableObject {
             try playback.load(midi: performance.midi, timeline: performance.timeline,
                               key: key, slug: score.slug)
             playback.report(unavailable: nil)
+            // A new performance is a new start: following is on. Nothing else
+            // ever turned it back on -- `loadedSomethingElse()` existed and was
+            // never called -- so one pan during playback switched the continuous
+            // strip's following off for the rest of the session, across every
+            // score, until the Sync chip was tapped. "The score doesn't scroll."
+            pageFollow.loadedSomethingElse()
         } catch {
             // Said in the TRANSPORT, which is where someone who just pressed
             // play is looking, and not also in a notice: one failure, one
@@ -1613,6 +1734,10 @@ final class AppState: ObservableObject {
     /// first press is the only thing they have to do.
     func togglePlayback() {
         if playback.isPlaying { playback.stop(); return }
+        // Pressing Play asks to be shown where the music is: the DAW rule, and
+        // the way back from a pan that switched following off. The Sync chip
+        // stays for asking without stopping.
+        pageFollow.syncTapped()
         if playback.canPlay, playback.loadedKey == playbackKey {
             playback.play()
             return
@@ -1648,7 +1773,8 @@ final class AppState: ObservableObject {
     func makeEditable() {
         guard let slug = selectedSlug,
               let version = displayedVersion,
-              ScoreArtifact.kind(ofFile: version.file) == .scan else { return }
+              ScoreArtifact.canBeMadeEditable(ScoreArtifact.kind(ofFile: version.file))
+        else { return }
         // Claimed HERE, not inside convertPDF: fetching the artifact's path is
         // a round trip to the engine, and until this was set both ways in --
         // the More screen's switch and the transport's button -- read as idle
@@ -1797,7 +1923,128 @@ final class AppState: ObservableObject {
                + "it under Books to split them."
     }
 
+    /// Read a bundle and offer it. Nothing is imported here.
+    ///
+    /// A security-scoped URL from Files or AirDrop has to be opened before the
+    /// engine can read the bytes, and closed afterwards -- and it is copied
+    /// somewhere the engine owns first, because the scope can end while the
+    /// reader is still deciding whether to accept.
+    func offerBundle(at url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let inbox = FileManager.default.temporaryDirectory
+            .appending(path: "bundles", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        let local = inbox.appending(path: url.lastPathComponent)
+        try? FileManager.default.removeItem(at: local)
+        do {
+            try FileManager.default.copyItem(at: url, to: local)
+        } catch {
+            notice = "Couldn't read that bundle: \(error.localizedDescription)"
+            return
+        }
+
+        let seen: [String: Any]
+        do {
+            seen = try await self.local.call(op: "bundle-inspect",
+                                             args: ["path": local.path])
+        } catch {
+            notice = "Couldn't read that bundle: \(error.localizedDescription)"
+            return
+        }
+        guard let arrangements = seen["arrangements"] as? [[String: Any]],
+              !arrangements.isEmpty else {
+            notice = "That file is not a Scoranger bundle."
+            return
+        }
+
+        let titles = arrangements.compactMap { $0["name"] as? String }
+        let ink = arrangements.reduce(0) { $0 + (($1["ink_pages"] as? Int) ?? 0) }
+        let summary: String
+        if let setlist = seen["setlist"] as? String {
+            summary = "\(setlist) — a setlist of \(titles.count) "
+                + (titles.count == 1 ? "arrangement" : "arrangements")
+        } else {
+            summary = titles.first ?? "An arrangement"
+        }
+        var parts = [titles.joined(separator: ", ")]
+        if ink > 0 { parts.append("\(ink) page\(ink == 1 ? "" : "s") of markup") }
+        // Whose work it is, said plainly and not acted on. §12.12: the
+        // classification rides along so a person can decide; it blocks nothing.
+        if arrangements.allSatisfy({ ($0["provenance"] as? String) == "imported" }) {
+            parts.append("scanned or imported material")
+        }
+        bundleOffer = BundleOffer(url: local, summary: summary,
+                                  detail: parts.joined(separator: " · "))
+    }
+
+    /// Take the offered bundle in. New arrangements, never a merge (§13.3).
+    func acceptBundle() async {
+        guard let offer = bundleOffer else { return }
+        bundleOffer = nil
+        let got: [String: Any]
+        do {
+            got = try await local.call(
+                op: "bundle-import",
+                args: ["path": offer.url.path, "ink": DrawingStore.shared.dir.path])
+        } catch {
+            notice = "Couldn't add that bundle: \(error.localizedDescription)"
+            return
+        }
+        guard let imported = got["imported"] as? [[String: Any]] else {
+            notice = "Couldn't add that bundle."
+            return
+        }
+        try? FileManager.default.removeItem(at: offer.url)
+        await refresh()
+        let names = imported.compactMap { $0["title"] as? String }
+        let duplicates = (got["duplicates"] as? [String]) ?? []
+        var said = "Added \(names.count) arrangement\(names.count == 1 ? "" : "s")."
+        if !duplicates.isEmpty {
+            // Flagged, never merged: two divergent chains are §7 rule 2's fork
+            // problem and not worth solving for a file that arrived by AirDrop.
+            said += " You already had \(duplicates.joined(separator: ", "))"
+                + " — this is a second copy, not a replacement."
+        }
+        notice = said
+        if let first = imported.first?["slug"] as? String { selectedSlug = first }
+    }
+
+    /// Write an arrangement or a setlist out as one shareable file.
+    ///
+    /// Returns where it landed, for the share sheet to hand to AirDrop. Markup
+    /// travels with it: principle 5 does not stop applying because the sharing
+    /// went over AirDrop rather than a cloud (§13.2).
+    func exportBundle(target: String, fullHistory: Bool = false) async -> URL? {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "export", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let out = dir.appending(path: "\(target).scorbundle")
+        var args: [String: Any] = ["target": target, "out": out.path,
+                                   "ink": DrawingStore.shared.dir.path]
+        if fullHistory { args["full_history"] = true }
+        do {
+            let made = try await local.call(op: "bundle-export", args: args)
+            guard let path = made["path"] as? String else {
+                notice = "Couldn't make that bundle."
+                return nil
+            }
+            return URL(fileURLWithPath: path)
+        } catch {
+            notice = "Couldn't make that bundle: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     func receiveFile(at url: URL, intoPiece piece: String? = nil) {
+        // A bundle is somebody else's library arriving, not a file to import as
+        // an arrangement. It is READ first and imported only if the reader says
+        // so: a file that lands in Files and imports itself is not something
+        // anyone asked for (design/FIREBASE.md §13.3).
+        if url.pathExtension.lowercased() == "scorbundle" {
+            Task { await offerBundle(at: url) }
+            return
+        }
         // ONE PIPELINE for both image routes (§15 ruling 1). A picture from
         // Files and a picture from the camera roll are the same thing once
         // there is a file, so the normalisation that makes the picker's
@@ -1844,6 +2091,7 @@ final class AppState: ObservableObject {
                 previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
+                openAfterImport = slug
             } catch {
                 report("open that PDF", error)
             }
@@ -1914,6 +2162,15 @@ final class AppState: ObservableObject {
                 request.timeoutInterval = 120
                 request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
                 request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
+                // BOTH headers while old builds are still in the field: every
+                // install shipped so far sends only the key, so the service
+                // accepts either and prefers the token. The key drops out of
+                // here once those builds are gone, and not before -- a hard
+                // cutover would 401 every existing iPad.
+                if let bearer = await omrToken?() {
+                    request.setValue("Bearer \(bearer)",
+                                     forHTTPHeaderField: "Authorization")
+                }
 
                 let progressDelegate = UploadProgressDelegate { [weak self] sent in
                     Task { @MainActor in
@@ -2103,6 +2360,7 @@ final class AppState: ObservableObject {
                 previewedSlug = slug
                 pinnedVersion = nil
                 await refresh()
+                openAfterImport = slug
             } catch {
                 report("import that file", error)
             }
@@ -2391,10 +2649,14 @@ final class AppState: ObservableObject {
             notice = "Couldn't export: there is no arrangement '\(slug)'."
             return nil
         }
+        // The version LABEL, not the id: this becomes the filename the reader
+        // sees in Files and mails to someone, and
+        // "Quartet 01M1AK5E1YN2NQS5W2VEC214T8.pdf" is not a name anybody can use.
         let name = ScoreExport.filename(
             title: ScoreTitle.arrangementName(title: score.title, name: score.name,
                                               slug: score.slug),
-                                        version: version, format: format)
+            version: version.flatMap { v in score.versions.first { $0.id == v }?.name } ?? version,
+            format: format)
         let dest = FileManager.default.temporaryDirectory
             .appendingPathComponent("export", isDirectory: true)
             .appendingPathComponent(name)
@@ -2546,6 +2808,169 @@ final class AppState: ObservableObject {
     @discardableResult
     func deleteSetlist(_ setlist: String) async -> Bool {
         await runSetlistOp(op: "delete-setlist", args: ["setlist": setlist])
+    }
+
+    /// Leave a shared set list: membership first, then the local row.
+    ///
+    /// Both halves, in that order, because they used to be one half each in
+    /// two different places. "Leave this set list" on the shared screen
+    /// removed the membership and left the row in the library; Edit-mode
+    /// delete removed the row and left the membership. Either way a person
+    /// ended up with something they could not get rid of -- Ali's wife with a
+    /// joined set list of 0 arrangements that nothing would delete.
+    ///
+    /// The membership goes FIRST so a failure there leaves the row, which is
+    /// the state that can be retried; the reverse leaves a phantom membership
+    /// with no row to act on it from.
+    func leaveSharedSetlist(_ setlist: SetlistDoc, shared: SharedSetlists,
+                            uid: String) async -> Bool {
+        guard let shareId = setlist.shareId else { return await deleteSetlist(setlist.slug) }
+        do {
+            try await shared.removeMember(uid, from: shareId)
+        } catch {
+            report("leave that set list", error)
+            return false
+        }
+        return await deleteSetlist(setlist.slug)
+    }
+
+    /// Delete a shared set list for everybody: the document, then the local
+    /// row. The owner's alone (`SetlistPermission`), and the shared screen says
+    /// so in those words before it lets them.
+    func deleteSharedSetlistEverywhere(_ setlist: SetlistDoc, shared: SharedSetlists,
+                                       remote: SharedSetlists.Setlist) async -> Bool {
+        do {
+            try await shared.delete(remote)
+        } catch {
+            report("delete that set list", error)
+            return false
+        }
+        return await deleteSetlist(setlist.slug)
+    }
+
+    /// This device's copy of a shared set list entry, importing it if this is
+    /// the first time the entry has been opened here.
+    ///
+    /// Once imported it is an ORDINARY ARRANGEMENT: the same reader, the same
+    /// pencil, the same playback, readable offline forever. That is principle
+    /// 1 of design/FIREBASE.md §0 taken literally rather than a shortcut -- a
+    /// separate read-only viewer for cloud scores would be a second reader to
+    /// keep in step with the first, and the first is the whole app.
+    ///
+    /// Idempotent, and cheap on every call after the first: the entry's local
+    /// slug is remembered per device (`SharedEntryCopies`), and re-checked
+    /// against the manifest because the reader may since have deleted it.
+    ///
+    /// `download` is passed in rather than reached for, so this function has
+    /// no opinion about Firebase and can be exercised without it.
+    func adoptSharedEntry(_ entryId: String, title: String,
+                          download: () async throws -> URL) async -> String? {
+        if let slug = sharedCopies.localSlug(forEntry: entryId),
+           (manifest?.scores ?? []).contains(where: { $0.slug == slug }) {
+            return slug
+        }
+        do {
+            let file = try await download()
+            // Through the ordinary import, which is what gives it a uid of its
+            // own. Two devices importing the same shared copy must NOT claim
+            // the same identity: it arrived from outside, and that is what
+            // `bundle.ARRIVED_FROM_OUTSIDE` records about it.
+            //
+            // WHICH import, and WHERE the slug is, are SharedEntryImport's --
+            // pinned there against the shapes the bridge returns, because
+            // both were wrong here: a PDF went to the notation parser, and
+            // the slug was read as a dictionary when it is a string, so six
+            // successful imports were reported as failures and none was filed.
+            let result = try await local.call(op: SharedEntryImport.op(for: file),
+                                              args: ["path": file.path,
+                                                     "name": title])
+            guard let slug = SharedEntryImport.slug(in: result) else {
+                report("open that arrangement",
+                       SharedSetlists.Trouble.unusablePayload)
+                return nil
+            }
+            sharedCopies.remember(entryId: entryId, localSlug: slug)
+            await refresh()
+            return slug
+        } catch {
+            report("open that arrangement", error)
+            return nil
+        }
+    }
+
+    /// Join a shared set list: claim the invitation, then MAKE IT A SET LIST
+    /// HERE (design/FIREBASE.md §6A.5).
+    ///
+    /// This is the half that was missing. `claim` alone makes the person a
+    /// member in Firestore and nothing else, and the library lists set lists
+    /// from the local manifest -- so the recipient tapped "Add to my set lists"
+    /// and their set lists gained nothing; the shared screen they landed on
+    /// was unreachable once they left it. Ali's wife and son would have seen
+    /// nothing.
+    ///
+    /// Order of the writes, and why:
+    ///   1. claim, server-side -- membership is the server's to grant;
+    ///   2. read the document's name and owner, once;
+    ///   3. create the local set list and BIND it straight away -- the
+    ///      membership already exists, so the row is genuinely shared from
+    ///      its first moment, and if adopting the music fails part way the
+    ///      row still opens the shared screen where the rest can be fetched;
+    ///   4. adopt each entry through the ordinary import (`adoptSharedEntry`)
+    ///      and file it into the local running order.
+    ///
+    /// Idempotent: a set list already bound to this share is returned as it
+    /// is, which is the spec's "already a member (which opens it instead)".
+    /// Returns the LOCAL slug, so the caller can land on an ordinary row.
+    func joinSharedSetlist(inviteId: String, shared: SharedSetlists,
+                           progress: @MainActor (Int, Int) -> Void = { _, _ in })
+                           async throws -> String {
+        let setlistId = try await shared.claim(inviteId: inviteId)
+        let remote = try await shared.fetch(setlistId)
+        let entries = try await shared.fetchEntries(setlistId)
+
+        // Already joined: keep the row, but STILL walk the entries below. Both
+        // halves of adoption are idempotent -- a copy this device already has
+        // is found by its entry id, and filing an arrangement twice is a no-op
+        // -- so tapping the link again repairs a set list that arrived with
+        // its music missing, which is exactly what build 188 produced.
+        let slug: String
+        if let mine = manifest?.setlists?.first(where: { $0.shareId == setlistId }) {
+            slug = mine.slug
+        } else {
+            let created = try await local.call(op: "create-setlist", args: ["name": remote.name])
+            guard let made = created["slug"] as? String else {
+                throw SharedSetlists.Trouble.unusablePayload
+            }
+            _ = try await local.call(op: "bind-setlist-share",
+                                     args: ["setlist": made, "shareId": setlistId,
+                                            "ownerUid": remote.ownerId])
+            await refresh()
+            slug = made
+        }
+
+        progress(0, entries.count)
+        for (index, entry) in entries.enumerated() {
+            if let local = await adoptSharedEntry(entry.id, title: entry.title,
+                                                  download: { try await shared.download(entry) }) {
+                _ = try await self.local.call(op: "assign-setlist",
+                                              args: ["setlist": slug, "score": local])
+            }
+            progress(index + 1, entries.count)
+        }
+        await refresh()
+        shared.watchMemberships()
+        return slug
+    }
+
+    /// What a shared set list entry carries for one of my arrangements.
+    ///
+    /// Asked of the ENGINE rather than assembled here: which version is pinned,
+    /// where its file is and where its ink sits are the engine's facts, and a
+    /// second answer computed in Swift would drift from the first
+    /// (`bundle.share_payload`, design/FIREBASE.md §4.3). It also refuses a
+    /// book or a source, which have no share path at all.
+    func sharePayload(for slug: String) async throws -> [String: Any] {
+        try await local.call(op: "share-payload", args: ["score": slug])
     }
 
     private func runSetlistOp(op: String, args: [String: Any]) async -> Bool {
@@ -2735,6 +3160,14 @@ final class AppState: ObservableObject {
         let isSetlist: Bool
     }
     @Published var undoableDelete: UndoableDelete?
+
+    /// A bundle somebody sent, read but not yet imported. §13.3.
+    struct BundleOffer: Equatable {
+        let url: URL
+        let summary: String
+        let detail: String
+    }
+    @Published var bundleOffer: BundleOffer?
 
     func restoreDeleted() {
         guard let undo = undoableDelete else { return }

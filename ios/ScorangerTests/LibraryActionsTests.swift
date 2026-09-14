@@ -10,7 +10,7 @@ final class LibraryActionsTests: XCTestCase {
     // MARK: - A piece is a folder
 
     func testAPieceCanBeFilledOrThrownAway() {
-        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .delete])
+        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .newSetlist, .delete])
     }
 
     /// There is no Rename anywhere in the bars. A name is edited by TAPPING IT
@@ -119,5 +119,20 @@ final class LibraryActionsTests: XCTestCase {
                        "two actions share an accessibility id")
         XCTAssertTrue(ids.contains("bar-move"))
         XCTAssertTrue(ids.contains("bar-duplicate"))
+    }
+
+    /// REDESIGN_BRIEF_0.8 §7.3: checked PIECES can become a set list, from
+    /// the Edit-mode bar. Arrangements already have Add to set list, a
+    /// different verb with a different target.
+    func testASelectionOfPiecesCanBecomeASetList() {
+        XCTAssertTrue(LibraryActions.bar(for: .pieces).contains(.newSetlist))
+        XCTAssertFalse(LibraryActions.bar(for: .arrangements).contains(.newSetlist))
+        XCTAssertFalse(LibraryActions.bar(for: .setlists).contains(.newSetlist),
+                       "a set list of set lists is not a thing")
+        XCTAssertFalse(LibraryAction.newSetlist.needsExactlyOne)
+        XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 1))
+        XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 5))
+        XCTAssertEqual(LibraryAction.newSetlist.identifier, "bar-new-setlist")
+        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .newSetlist, .delete])
     }
 }

@@ -58,7 +58,7 @@ struct PageScrubber: View {
         .frame(minHeight: PageScrubberLayout.height)
         .fixedSize(horizontal: false, vertical: true)
         .background(Theme.Surface.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .top) { Theme.Rule() }
         .accessibilityIdentifier("page-scrubber")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Page scrubber")

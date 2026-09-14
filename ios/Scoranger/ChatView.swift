@@ -115,7 +115,7 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: Theme.Metric.s4) {
                         ForEach(steps) { step in stepRow(step) }
                     }
-                    Rectangle().fill(Theme.Line.line).frame(height: 1)
+                    Theme.Rule()
                 }
                 Text(msg.text)
                     .typeRole(.body)
@@ -180,10 +180,6 @@ struct ChatView: View {
             .padding(.vertical, 9)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
         .padding(.horizontal, Theme.Metric.panelPadding)
     }
@@ -285,8 +281,7 @@ struct ChatView: View {
                 .background(Theme.Surface.paper)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(inputFocused ? Theme.Accent.clay : Theme.Line.line2,
-                                lineWidth: 1)
+                        .stroke(inputFocused ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
                 .onChange(of: state.pendingChatInsert) { _, _ in consumePendingInsert() }
                 // and on appear: a lasso sets the text and opens the panel in
@@ -332,7 +327,7 @@ struct ChatView: View {
         .padding(Theme.Metric.s12)
         .background(Theme.Surface.panel)
         .overlay(alignment: .top) {
-            Rectangle().fill(Theme.Line.line2).frame(height: 1)
+            Theme.Rule()
         }
     }
 

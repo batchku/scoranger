@@ -1,5 +1,6 @@
 import PDFKit
 import PencilKit
+import OSLog
 import SwiftUI
 
 /// The score as a vertical stack of pages with a PencilKit canvas over each:
@@ -11,7 +12,23 @@ import SwiftUI
 /// estimated bar range handed to the chat as targeting context.
 struct ScorePagesView: View {
     let document: PDFDocument
-    let annotationKey: String  // "<slug>/<version>"
+    let annotationKey: String  // "<score uid>/<version id>", see DrawingStore
+    /// The band's marks, by page index, when this score is open as an entry in
+    /// a shared set list. Empty for an arrangement of your own and for every
+    /// signed-out reader (design/FIREBASE.md §6.3).
+    var sharedInk: [Int: [SharedInk.Layer]] = [:]
+    /// The same page, named the way a person names it: "<slug>/<version id>".
+    ///
+    /// It exists because `annotationKey` stopped being readable. Markup is
+    /// filed under the score's uid so it survives a rename and means the same
+    /// thing on the device a bundle is opened on (DrawingStore), and the
+    /// canvas's accessibility identifier was built out of that same key --
+    /// so it turned into `canvas-01M1QV99.../01M1.../p0`, which no test can
+    /// predict and no human can read.
+    ///
+    /// Identity for the store, a readable name for the identifier: the same
+    /// split the version rows make between an opaque id and `v012`.
+    let canvasIdentity: String
 
     @EnvironmentObject var state: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -25,7 +42,12 @@ struct ScorePagesView: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverRunning
     /// The viewport in content coordinates, and the rows worth drawing at
     /// depth. Everything else renders at a cheap scale.
-    @State private var visibleRect: CGRect = .zero
+    /// The visible rect, observed by the few views that need it rather than
+    /// held here (see `ViewportModel`).
+    @StateObject private var viewport = ViewportModel()
+    /// The unit last shown, so a turn knows which way it is going before the
+    /// new unit's slide is chosen (`PageTurn.slide`).
+    @State private var shownIndex = 0
     /// Continuous mode's tap zones ask the scroll view to move directly, since
     /// there is no page index for them to change. The token makes the same
     /// destination asked for twice still move.
@@ -161,29 +183,19 @@ struct ScorePagesView: View {
                            // press at all, so this is the sample arriving,
                            // not a second policy.
                            onLoupe: { sample in loupe = sample },
-                           // SWIPE-TO-TURN IS DELIBERATELY NOT WIRED (0.6.14).
-                           //
-                           // It has never run. `TurnTapRecognizer` reset
-                           // itself to `.failed` at the end of every touch, so
-                           // neither the tap nor the swipe ever reached this
-                           // view -- for 332 commits. Repairing the recogniser
-                           // for §12's tap-select brought the swipe back with
-                           // it, and what came back was not finished: the edge
-                           // test was read when the gesture ENDED, so a single
-                           // long pan across a zoomed page turned it (fixed,
-                           // `PagedCanvas.swipeMayTurn`), and behind that the
-                           // page readout does not follow a swipe-turn --
-                           // photographed on an iPad, page 2's music under
-                           // "p. 1 / 9" with the rail still marking page 1.
-                           //
-                           // Turning by TAP is what §12 asked for and it is
-                           // proven on both size classes. Turning by swipe is
-                           // a second way to do the same thing that no build
-                           // has ever offered, so leaving it unwired costs no
-                           // reader anything and ships nothing half-finished.
-                           // The recogniser still reports it and
-                           // `swipeMayTurn` still states the rule, so wiring
-                           // it back is one line plus the readout fix.
+                           // SWIPE-TO-TURN, wired in 0.8.0 build 196 (Ali, in
+                           // performance mode: "I can't swipe to the next page").
+                           // It was left unwired in 0.6.14 as half-finished;
+                           // the two halves it lacked are here now. The edge
+                           // rule is read when the gesture BEGINS
+                           // (`PagedCanvas.swipeMayTurn`, `limitAtStart`), so
+                           // a pan across a zoomed page is a pan; and the page
+                           // readout follows the INDEX (`step(by:)`), so a
+                           // swipe from a zoomed page cannot leave "p. 1" over
+                           // page 2. The tap on the right edge stays; this is a
+                           // second way to the same turn, through the same
+                           // step, which stops at either end.
+                           onSwipeTurn: { direction in step(by: direction) },
                            // a scan has no geometry to hit-test, so a lasso
                            // would draw and catch nothing -- worse than not
                            // offering it
@@ -198,8 +210,19 @@ struct ScorePagesView: View {
                            annotationActive: annotation.isOn,
                            scrollTarget: (scrollToken, scrollTargetX),
                            bottomChrome: Self.bottomChrome(for: geo.size),
-                           onVisibleRectChange: { rect, content in
-                               visibleRect = rect
+                           onVisibleRectChange: { rect, content, live in
+                               viewport.update(rect: rect, live: live,
+                                               tiles: continuous ? ContinuousTiles.tiles(surface: surface) : [])
+                               // The bar readout's rects go on AppState, which
+                               // every view of the score screen observes, and
+                               // ZoomableScroll re-roots the whole page stack
+                               // when this view re-evaluates: 30 to 60ms on an
+                               // iPhone 15 Pro, measured. While a finger or its
+                               // momentum moves the score, NOTHING is published
+                               // to AppState; the scroll view reports once more
+                               // when it settles, and the readout catches up
+                               // then. A readout, not a cursor.
+                               guard !live else { return }
                                if continuous {
                                    publishVisibleStrip(contentRect: rect,
                                                        scale: engraved,
@@ -243,13 +266,16 @@ struct ScorePagesView: View {
                 engravedScale = new
             }
             .id(continuous ? -1 : state.pageIndex)
-            .transition(.asymmetric(insertion: .move(edge: .trailing),
-                                    removal: .move(edge: .leading)))
+            // The slide follows the direction of the turn: forward, the new
+            // page comes in from the right; BACK, from the left. Both turns
+            // slid the same way until 0.8.0 build 196 (Ali, item E). The
+            // direction is read against the unit last shown, so a turn from
+            // the rail or the scrubber slides the right way too.
+            .transition(PageTurn.slide(forward: state.pageIndex >= shownIndex))
             .animation(Theme.Motion.overlay(reduced: reduceMotion), value: state.pageIndex)
+            .onChange(of: state.pageIndex) { _, index in shownIndex = index }
             .onAppear {
-                if visibleRect == .zero {
-                    visibleRect = CGRect(origin: .zero, size: geo.size)
-                }
+                viewport.seed(CGRect(origin: .zero, size: geo.size))
             }
             // The finger is covering what it is selecting, at every scale
             // (§9.2). Drawn over the canvas rather than in it, so nothing it
@@ -294,7 +320,14 @@ struct ScorePagesView: View {
         // what they just selected. Below the page there is room and nothing
         // to cover.
         .overlay(alignment: hSize == .compact ? .bottom : .top) { selectionChip }
-        .overlay(alignment: .bottom) { continuousSyncChip }
+        .overlay(alignment: .bottom) {
+            // `-perfNoChip`: an experiment -- the chip and its reader left out.
+            if !ProcessInfo.processInfo.arguments.contains("-perfNoChip") {
+                ViewportReader(viewport: viewport) { visibleRect in
+                    continuousSyncChip(visibleRect: visibleRect)
+                }
+            }
+        }
         .overlay(alignment: .topLeading) {
             TouchDiagnosticsOverlay(diagnostics: TouchDiagnostics.shared)
         }
@@ -500,8 +533,8 @@ struct ScorePagesView: View {
         // what is on screen (designer's spec). Performance mode keeps the same
         // horizontal advance, which is what it already meant.
         guard !state.layout.isContinuous else {
-            scrollTargetX = ContinuousTiles.advanced(from: visibleRect.minX,
-                                                     by: visibleRect.width,
+            scrollTargetX = ContinuousTiles.advanced(from: viewport.rect.minX,
+                                                     by: viewport.rect.width,
                                                      direction: direction,
                                                      surfaceWidth: surfaceWidth)
             scrollToken += 1
@@ -550,7 +583,7 @@ struct ScorePagesView: View {
     /// cannot both be on screen. It belongs in `SyncChipLayer` beside its twin
     /// as soon as that file can be edited.
     @ViewBuilder
-    private var continuousSyncChip: some View {
+    private func continuousSyncChip(visibleRect: CGRect) -> some View {
         let shows = state.layout.isContinuous
             && PageFollow.showsSync(isPlaying: playback.isPlaying,
                                         isFollowing: state.pageFollow.isFollowing,
@@ -701,12 +734,11 @@ struct ScorePagesView: View {
     private func continuousStrip(_ page: PDFPage, surface: CGSize,
                                  scale: CGFloat, engraved: CGFloat) -> some View {
         let tiles = ContinuousTiles.tiles(surface: surface)
-        let deep = ContinuousTiles.atDepth(tiles: tiles, visible: visibleRect)
         HStack(spacing: 0) {
             ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
                 ContinuousTileView(page: page, document: state.engravingKey,
                                    index: index, tile: tile, scale: scale,
-                                   atDepth: deep.contains(index))
+                                   depth: viewport.depth)
             }
         }
         // The strip's lasso anchor. Its absence WAS bug 7: the recognizer picks
@@ -736,11 +768,10 @@ struct ScorePagesView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
-            ContinuousPlayheadLayer(playback: playback,
+            ContinuousPlayheadLayer(playback: playback, clock: playback.clock,
                                     page: state.geometry?.page(0),
                                     scale: engraved,
                                     surfaceWidth: surface.width,
-                                    viewportWidth: visibleRect.width,
                                     isFollowing: state.pageFollow.isFollowing,
                                     scroller: scroller,
                                     showsHandle: mode != .performance,
@@ -766,6 +797,8 @@ struct ScorePagesView: View {
                  rasterZoom: atDepth ? rasterZoom : 1,
                  drawingStore: DrawingStore.shared,
                  drawingKey: "\(annotationKey)/p\(index)",
+                 identityKey: "\(canvasIdentity)/p\(index)",
+                 sharedInk: sharedInk[index] ?? [],
                  annotation: annotation)
             .overlay {
                 // What was caught, drawn over the page. Until this, a working
@@ -786,7 +819,7 @@ struct ScorePagesView: View {
                 // The cursor goes ABOVE the selection and the lasso, so it is
                 // never hidden behind a highlight -- and takes no input, so it
                 // costs them nothing.
-                PlayheadLayer(playback: playback,
+                PlayheadLayer(playback: playback, clock: playback.clock,
                               bars: state.geometry?.page(index)
                                   .map(BarPosition.bars(onPage:)) ?? [],
                               pageSize: state.geometry?.page(index)?.size ?? .zero,
@@ -895,10 +928,6 @@ struct ScorePagesView: View {
             .padding(.vertical, Theme.Metric.s8)
             .background(Theme.Surface.panel)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rPanel)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .modifier(ChipShadow())
             // A ceiling on a wide canvas, and a margin on a narrow one. Both
             // are needed: the ceiling stops it spanning an iPad, the margin
@@ -948,6 +977,9 @@ struct ScorePagesView: View {
 /// Driven by (MEASURE, FRACTION), never by elapsed time: see `Playhead`.
 private struct PlayheadLayer: View {
     @ObservedObject var playback: PlaybackEngine
+    /// The beat at display rate (`PlaybackClock`): this layer and the strip's
+    /// are its only observers, so a frame's tick redraws a line, not a page.
+    @ObservedObject var clock: PlaybackClock
     let bars: [BarPosition.Bar]
     let pageSize: CGSize
     /// The scroll view's zoom, so the constants below stay sizes on SCREEN.
@@ -958,10 +990,15 @@ private struct PlayheadLayer: View {
     /// does not re-seek to its downbeat twenty times. Nil when nothing is
     /// being dragged.
     @State private var scrubbed: Int?
+    /// The last position drawn, so a tick with none cannot blank the line
+    /// mid-performance (`Playhead.hold`).
+    @State private var lastDrawn: Playhead.Position?
 
     var body: some View {
         GeometryReader { geo in
-            if let position = position, pageSize.width > 0, pageSize.height > 0 {
+            if let position = Playhead.hold(current: position, last: lastDrawn,
+                                            isPlaying: playback.isPlaying),
+               pageSize.width > 0, pageSize.height > 0 {
                 let sx = geo.size.width / pageSize.width
                 let sy = geo.size.height / pageSize.height
                 let over = Playhead.onScreen(Playhead.overshoot, zoom: zoom)
@@ -992,6 +1029,14 @@ private struct PlayheadLayer: View {
                 // stroke would make selection fail wherever the music happened
                 // to be playing.
                 .allowsHitTesting(false)
+                .onChange(of: clock.beat, initial: true) { _, beat in
+                    if let now = self.position {
+                        lastDrawn = now
+                    } else if playback.isPlaying {
+                        Logger(subsystem: "com.irllabs.scoranger", category: "playhead")
+                            .notice("no position at beat \(beat, privacy: .public); holding the last one")
+                    }
+                }
                 .accessibilityHidden(true)
                 // The handle is the one exception, and it is a view of its
                 // own so that "the only hit-testable thing in this layer" is
@@ -1056,7 +1101,7 @@ private struct PlayheadLayer: View {
 
     private var position: Playhead.Position? {
         guard playback.isPlaying || playback.soundingBar != nil,
-              let progress = playback.timeline.progress(atBeat: playback.beat)
+              let progress = playback.timeline.progress(atBeat: clock.beat)
         else { return nil }
         return Playhead.position(measure: progress.measure,
                                  fraction: CGFloat(progress.fraction), bars: bars)
@@ -1191,13 +1236,17 @@ final class PlayheadHandleView: UIView, UIGestureRecognizerDelegate {
 /// Drawing a line fixed to the viewport instead would need the two to agree
 /// about the scroll offset every frame, and they would not.
 private struct ContinuousPlayheadLayer: View {
+    /// Rate limit for the "not following" log line.
+    nonisolated(unsafe) static var lastFollowLog = Date.distantPast
     @ObservedObject var playback: PlaybackEngine
+    /// The beat at display rate -- see `PlayheadLayer.clock`. Following is
+    /// driven from it too, so the strip glides with the line.
+    @ObservedObject var clock: PlaybackClock
     /// The strip's engraving: one page, the whole score.
     let page: ScorePage?
     /// Surface points per unit of the engraving's own coordinates.
     let scale: CGFloat
     let surfaceWidth: CGFloat
-    let viewportWidth: CGFloat
     /// False once the reader has scrolled: the line keeps moving, the score
     /// stops being taken away from them.
     let isFollowing: Bool
@@ -1268,7 +1317,7 @@ private struct ContinuousPlayheadLayer: View {
         }
         // Following happens on the same tick that draws the line, off the same
         // position, so the two can never disagree about where the music is.
-        .onChange(of: playback.beat, initial: true) { _, _ in follow() }
+        .onChange(of: clock.beat, initial: true) { _, _ in follow() }
     }
 
     /// The strip's own scrub. Same rule as the paged one, and one conversion
@@ -1290,7 +1339,7 @@ private struct ContinuousPlayheadLayer: View {
 
     private var progress: (measure: Int, fraction: Double)? {
         guard playback.isPlaying || playback.soundingBar != nil else { return nil }
-        return playback.timeline.progress(atBeat: playback.beat)
+        return playback.timeline.progress(atBeat: clock.beat)
     }
 
     private var position: Playhead.Position? {
@@ -1321,10 +1370,21 @@ private struct ContinuousPlayheadLayer: View {
     /// shown where they landed.
     private func follow() {
         guard scrubbed == nil, isFollowing, playback.isPlaying, let position
-        else { return }
-        scroller.follow(to: Playhead.stripOffset(playheadX: position.x * scale,
-                                                 viewportWidth: viewportWidth,
-                                                 surfaceWidth: surfaceWidth))
+        else {
+            // Which gate closed, about once a second, so a strip that does not
+            // scroll can say why from the device log.
+            let now = Date()
+            if now.timeIntervalSince(Self.lastFollowLog) > 1 {
+                Self.lastFollowLog = now
+                Logger(subsystem: "com.irllabs.scoranger", category: "follow").notice(
+                    "not following: scrubbed=\(scrubbed.map(String.init) ?? "nil", privacy: .public) isFollowing=\(isFollowing, privacy: .public) playing=\(playback.isPlaying, privacy: .public) position=\(position == nil ? "nil" : "ok", privacy: .public) page=\(page == nil ? "nil" : "ok", privacy: .public) beat=\(clock.beat, privacy: .public)")
+            }
+            return
+        }
+        // Only WHERE the line is. The scroll view turns that into an offset
+        // from its live bounds; the cached viewport this used to pass could
+        // be zero and stayed zero (CanvasScroller).
+        scroller.follow(playheadX: position.x * scale)
     }
 }
 
@@ -1399,6 +1459,13 @@ private struct PageView: View {
     let rasterZoom: CGFloat
     let drawingStore: DrawingStore
     let drawingKey: String
+    /// What the canvas calls itself out loud. See `ScorePagesView.canvasIdentity`.
+    let identityKey: String
+    /// The other participants' marks on this page, when the score is being
+    /// read as part of a shared set list. Empty otherwise, which is every
+    /// signed-out reader and every arrangement of your own
+    /// (design/FIREBASE.md §6.3).
+    var sharedInk: [SharedInk.Layer] = []
     @ObservedObject var annotation: AnnotationController
 
     var body: some View {
@@ -1412,7 +1479,14 @@ private struct PageView: View {
             // so PencilKit magnifies the ink itself instead of the outer
             // transform stretching a picture of it. See InkSharpness.
             let ink = InkSharpness.canvasZoom(zoom: rasterZoom)
-            PencilCanvas(store: drawingStore, key: drawingKey,
+            // BENEATH the canvas, so my own pencil is always on top of it: ink
+            // appearing under somebody else's scribble as you write reads as
+            // the pencil failing (§6.3, and `InkLayers.drawOrder`).
+            if !sharedInk.isEmpty {
+                SharedInkOverlay(layers: sharedInk,
+                                 pageSize: CGSize(width: width, height: height))
+            }
+            PencilCanvas(store: drawingStore, key: drawingKey, identity: identityKey,
                          controller: annotation, canvasZoom: ink)
                 .frame(width: width * ink, height: height * ink)
                 .scaleEffect(1 / ink, anchor: .topLeading)
@@ -1422,9 +1496,6 @@ private struct PageView: View {
         .background(Theme.Surface.paper)
         // the warm ground sits close to paper white in luminance, so without an
         // edge the gap between pages reads as a hole rather than a page break
-        .overlay {
-            Rectangle().stroke(Theme.Line.line2, lineWidth: 1)
-        }
     }
 }
 
@@ -1438,11 +1509,50 @@ private struct PDFPageImage: View {
     /// so zooming in sharpens without moving anything.
     let rasterZoom: CGFloat
 
+    /// The last picture drawn, kept across a change of zoom so the page never
+    /// blanks while the sharper one is being made.
+    @State private var image: UIImage?
+
     var body: some View {
-        Image(uiImage: render())
-            .resizable()
-            .interpolation(.high)
-            .frame(width: size.width, height: size.height)
+        // NEVER rasterised in the body. The raster used to be made right here
+        // on the main thread, so a settled pinch stalled the frame for as
+        // long as CoreGraphics took -- tens of milliseconds on a phone -- and
+        // the same was true of every tile of the strip as the reader
+        // scrolled it into view (0.8.0 build 195, measured at 3 fps). What
+        // is held is drawn now; what is not is drawn off the main thread and
+        // arrives when it is ready, the previous picture standing in.
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().interpolation(.high)
+            } else {
+                Theme.Surface.paper
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .task(id: key) {
+            let wanted = key
+            if let held = CanvasRasters.shared.held(wanted) { image = held; return }
+            let page = self.page, size = self.size, scale = self.scale
+            let make: @Sendable () -> UIImage = {
+                PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
+                    page.thumbnail(
+                        of: CGSize(width: size.width * scale, height: size.height * scale),
+                        for: .mediaBox)
+                }
+            }
+            // The FIRST picture is drawn here and now, as it always was: with
+            // nothing to stand in, a blank page is worse than a late frame,
+            // and the machine is not asked to raster in parallel with the
+            // engine that is preparing the same score's playback. Only a
+            // SHARPER picture -- after a pinch -- is made off the main thread,
+            // behind the one already showing.
+            if image == nil {
+                image = CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes, make: make)
+                return
+            }
+            let made = await RasterWork.image(for: wanted, make: make)
+            if !Task.isCancelled { image = made }
+        }
     }
 
     /// The widest a page may be rastered, in pixels.
@@ -1456,22 +1566,15 @@ private struct PDFPageImage: View {
     /// while the pages nobody is looking at cost about 2MB each.
     private static let maxRasterWidth: CGFloat = 5200
 
-    /// Drawn once per (engraving, page, size, zoom) and remembered -- see
-    /// `ContinuousTileView.render` for why the canvas is asked for the same
-    /// picture over and over.
-    private func render() -> UIImage {
-        // 2x for crispness, scaled up with the settled zoom, still bounded.
-        let scale = min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
-        let key = RasterKey(document: document, page: index,
-                            tile: CGRect(origin: .zero, size: size),
-                            scale: 1, detail: scale)
-        return CanvasRasters.shared.value(for: key, cost: CanvasRasters.bytes) {
-            PerfMetrics.shared.measure(PerfMetrics.Name.canvasPage) {
-                page.thumbnail(
-                    of: CGSize(width: size.width * scale, height: size.height * scale),
-                    for: .mediaBox)
-            }
-        }
+    /// 2x for crispness, scaled up with the settled zoom, still bounded.
+    private var scale: CGFloat {
+        min(2.0 * rasterZoom, Self.maxRasterWidth / max(size.width, 1))
+    }
+
+    /// Drawn once per (engraving, page, size, zoom) and remembered.
+    private var key: RasterKey {
+        RasterKey(document: document, page: index,
+                  tile: CGRect(origin: .zero, size: size), scale: 1, detail: scale)
     }
 }
 
@@ -1492,31 +1595,63 @@ private struct ContinuousTileView: View {
     let tile: CGRect
     /// Surface points per PDF point.
     let scale: CGFloat
-    let atDepth: Bool
+    /// Which tiles draw at depth, published only when the set changes, so a
+    /// drag re-evaluates the tiles a few times a second at most and never
+    /// the strip.
+    @ObservedObject var depth: TileDepthModel
+
+    private var atDepth: Bool { depth.deep.contains(index) }
+
+    /// The last picture drawn: the shallow raster stands in while the deep
+    /// one is made, and the deep one stays when the tile leaves the depth.
+    @State private var image: UIImage?
 
     var body: some View {
-        Image(uiImage: render())
-            .resizable()
-            .interpolation(.high)
-            .frame(width: tile.width, height: tile.height)
+        // Off the main thread, as `PDFPageImage`: a tile coming into view
+        // asked for its deep raster in the body, and thirty of them across a
+        // drag put the strip at 3 fps on an iPhone 15 Pro (0.8.0 build 195).
+        // What is held is drawn now; what is not arrives when it is ready.
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().interpolation(.high)
+            } else {
+                Theme.Surface.paper
+            }
+        }
+        .frame(width: tile.width, height: tile.height)
+        .task(id: key) {
+            let wanted = key
+            if let held = CanvasRasters.shared.held(wanted) { image = held; return }
+            // Whatever is held at the other depth is better than paper.
+            if image == nil, let other = CanvasRasters.shared.held(key(atDepth: !atDepth)) { image = other }
+            let page = self.page, tile = self.tile, scale = self.scale, atDepth = self.atDepth
+            let make: @Sendable () -> UIImage = {
+                ContinuousTiles.raster(page: page, tile: tile, scale: scale, atDepth: atDepth)
+            }
+            // The first picture of a tile is drawn now, on the main thread, as
+            // before (see PDFPageImage); the shallow one is cheap. Only the
+            // deep raster a drag brings a tile into is made off-main, behind
+            // the shallow one already showing -- which is the case the frame
+            // probe measured at 3 fps.
+            if image == nil {
+                image = CanvasRasters.shared.value(for: wanted, cost: CanvasRasters.bytes, make: make)
+                return
+            }
+            let made = await RasterWork.image(for: wanted, make: make)
+            if !Task.isCancelled { image = made }
+        }
     }
 
-    /// Drawn once per (engraving, tile, scale, depth) and remembered.
-    ///
-    /// This body runs on every rebuild of the canvas -- and the canvas is
-    /// rebuilt by every publish on AppState, because `ZoomableScroll` swaps
-    /// its hosting controller's root view whenever `ScorePagesView`'s body is
-    /// re-evaluated. Without the cache each of those redrew the whole strip
-    /// from the PDF, one `drawPDFPage` per tile: that is what opening the
-    /// version band cost in continuous layout.
-    private func render() -> UIImage {
-        let key = RasterKey(document: document, page: index, tile: tile,
-                            scale: scale,
-                            detail: ContinuousTiles.detail(atDepth: atDepth))
-        return CanvasRasters.shared.value(for: key, cost: CanvasRasters.bytes) {
-            ContinuousTiles.raster(page: page, tile: tile, scale: scale,
-                                   atDepth: atDepth)
-        }
+    /// Drawn once per (engraving, tile, scale, depth) and remembered: this
+    /// body runs on every rebuild of the canvas, and the canvas is rebuilt
+    /// by every publish on AppState, because `ZoomableScroll` swaps its
+    /// hosting controller's root view whenever `ScorePagesView`'s body is
+    /// re-evaluated.
+    private var key: RasterKey { key(atDepth: atDepth) }
+
+    private func key(atDepth deep: Bool) -> RasterKey {
+        RasterKey(document: document, page: index, tile: tile, scale: scale,
+                  detail: ContinuousTiles.detail(atDepth: deep))
     }
 }
 
@@ -1527,6 +1662,8 @@ private struct ContinuousTileView: View {
 private struct PencilCanvas: UIViewRepresentable {
     let store: DrawingStore
     let key: String
+    /// Only ever the accessibility identifier. Never a storage key.
+    let identity: String
     @ObservedObject var controller: AnnotationController
     /// What PencilKit is asked to magnify the ink by. The view is laid out
     /// this much larger and scaled back down, so the strokes are RE-DRAWN at
@@ -1576,6 +1713,7 @@ private struct PencilCanvas: UIViewRepresentable {
         canvas.addGestureRecognizer(undoTap)
 
         context.coordinator.key = key
+        context.coordinator.identity = identity
         context.coordinator.store = store
         context.coordinator.controller = controller
         context.coordinator.publishStrokeCount(canvas)
@@ -1608,6 +1746,8 @@ private struct PencilCanvas: UIViewRepresentable {
     func updateUIView(_ canvas: UndoableCanvas, context: Context) {
         if context.coordinator.key != key {
             context.coordinator.key = key
+            context.coordinator.identity = identity
+        context.coordinator.identity = identity
             canvas.drawingKey = key
             canvas.drawing = store.drawing(for: key)
             canvas.ownUndoManager.removeAllActions()
@@ -1640,6 +1780,7 @@ private struct PencilCanvas: UIViewRepresentable {
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
         var key: String = ""
+        var identity: String = ""
         var store: DrawingStore?
         var controller: AnnotationController?
 
@@ -1647,7 +1788,7 @@ private struct PencilCanvas: UIViewRepresentable {
         /// observe what the canvas actually holds.
         func publishStrokeCount(_ canvas: PKCanvasView) {
             canvas.isAccessibilityElement = true
-            canvas.accessibilityIdentifier = "canvas-\(key)"
+            canvas.accessibilityIdentifier = "canvas-\(identity)"
             canvas.accessibilityValue = "\(canvas.drawing.strokes.count) strokes"
         }
 
@@ -1676,57 +1817,65 @@ private struct PencilCanvas: UIViewRepresentable {
     }
 }
 
-/// Local persistence for pencil annotations (server sync is a later feature).
-final class DrawingStore {
-    static let shared = DrawingStore()
-    private let dir: URL
-
-    init() {
-        dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appending(path: "annotations")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    }
-
-    private func url(for key: String) -> URL {
-        let safe = key.replacingOccurrences(of: "/", with: "_")
-        return dir.appending(path: "\(safe).pkdrawing")
-    }
-
-    func drawing(for key: String) -> PKDrawing {
-        guard let data = try? Data(contentsOf: url(for: key)),
-              let drawing = try? PKDrawing(data: data) else { return PKDrawing() }
-        return drawing
-    }
-
-    func save(_ drawing: PKDrawing, for key: String) {
-        try? drawing.dataRepresentation().write(to: url(for: key))
-    }
-
-    /// Re-file every drawing of one arrangement under a new slug. The engine
-    /// moves the score's artifacts when a slug is renamed; the user's pencil
-    /// marks live here, keyed by "<slug>/<version>/pN", so they have to move
-    /// too or they are silently orphaned.
-    func rename(fromPrefix old: String, toPrefix new: String) {
-        let from = old.replacingOccurrences(of: "/", with: "_")
-        let to = new.replacingOccurrences(of: "/", with: "_")
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.lastPathComponent.hasPrefix(from + "_") {
-            let moved = to + String(f.lastPathComponent.dropFirst(from.count))
-            try? FileManager.default.moveItem(at: f, to: dir.appending(path: moved))
-        }
-    }
-
-    func clear(prefix: String) {
-        let safePrefix = prefix.replacingOccurrences(of: "/", with: "_")
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        for f in files where f.lastPathComponent.hasPrefix(safePrefix) {
-            try? FileManager.default.removeItem(at: f)
-        }
-    }
-}
-
-
 struct ChipShadow: ViewModifier {
     func body(content: Content) -> some View { Theme.Elevation.pill(content) }
+}
+
+/// The scroll view's visible rect, kept OFF `ScorePagesView`'s own state.
+///
+/// As `@State` on the pages view, every 24pt of a drag re-evaluated the whole
+/// score body, and `ZoomableScroll` swaps its hosting root view whenever that
+/// body changes -- the page stack, the ink canvases and the strip laid out
+/// again mid-gesture. Measured on an iPhone 15 Pro (0.8.0 build 195): 97 fps
+/// with the reports on, 118 with them off, out of 120. Here the rect is an
+/// observable of its own, and only the views that need it -- the strip's
+/// tiles deciding their depth, the Sync chip -- observe it.
+@MainActor
+final class ViewportModel: ObservableObject {
+    @Published private(set) var rect: CGRect = .zero
+    /// Which tiles of the strip draw at depth (`ContinuousTiles.atDepth`),
+    /// published on its own object so the tiles observe THIS and not every
+    /// 24pt of the viewport.
+    let depth = TileDepthModel()
+    private var lastLivePublish: CFTimeInterval = 0
+    private var lastLiveDepth: CFTimeInterval = 0
+
+    /// A report from the scroll view. While the score is moving under a
+    /// finger or its momentum, the rect is published at most ten times a
+    /// second and the depth set at most twice, so a drag costs a handful of
+    /// small re-evaluations instead of one per frame; at rest, both at once.
+    func update(rect: CGRect, live: Bool, tiles: [CGRect]) {
+        let now = CACurrentMediaTime()
+        if !live || now - lastLivePublish >= 0.1 {
+            lastLivePublish = now
+            if self.rect != rect { self.rect = rect }
+        }
+        guard !tiles.isEmpty else { return }
+        // `-perfFreezeDepth`: an experiment -- no depth changes while live.
+        if live, Self.freezeDepthWhileLive { return }
+        if !live || now - lastLiveDepth >= 0.5 {
+            lastLiveDepth = now
+            let deep = ContinuousTiles.atDepth(tiles: tiles, visible: rect)
+            if deep != depth.deep { depth.deep = deep }
+        }
+    }
+
+    /// The first frame, before the scroll view has reported.
+    func seed(_ rect: CGRect) { if self.rect == .zero { self.rect = rect } }
+
+    private static let freezeDepthWhileLive =
+        ProcessInfo.processInfo.arguments.contains("-perfFreezeDepth")
+}
+
+@MainActor
+final class TileDepthModel: ObservableObject {
+    @Published var deep: Set<Int> = []
+}
+
+/// Draws `content` for the viewport's rect, re-evaluating itself alone when
+/// the rect moves.
+private struct ViewportReader<Content: View>: View {
+    @ObservedObject var viewport: ViewportModel
+    @ViewBuilder let content: (CGRect) -> Content
+    var body: some View { content(viewport.rect) }
 }

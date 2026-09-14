@@ -59,4 +59,18 @@ final class ScoreArtifactTests: XCTestCase {
         XCTAssertTrue(text.contains("PDF") && text.contains("OMR"),
                       "a refusal that does not say the way forward is just a wall: \(text)")
     }
+
+    /// 0.8.0 build 194 (Ali's items 6 and 7): a picture of a page is made
+    /// editable the way a PDF is -- through OMR -- and neither is notation
+    /// that music21 could read, so Details on either never parses the file.
+    func testAScanAndAnImageAreBothMadeEditableByOMR() {
+        XCTAssertTrue(ScoreArtifact.canBeMadeEditable(.scan))
+        XCTAssertTrue(ScoreArtifact.canBeMadeEditable(.image))
+        XCTAssertFalse(ScoreArtifact.canBeMadeEditable(.notation),
+                       "notation already is editable")
+        XCTAssertEqual(ScoreArtifact.makeEditableNote(.scan),
+                       "This arrangement is a PDF. Reading it produces a notation version you can transpose, select and ask about — the PDF stays as it is, so you can compare them.")
+        XCTAssertEqual(ScoreArtifact.makeEditableNote(.image),
+                       "This arrangement is a picture. Reading it produces a notation version you can transpose, select and ask about — the picture stays as it is, so you can compare them.")
+    }
 }

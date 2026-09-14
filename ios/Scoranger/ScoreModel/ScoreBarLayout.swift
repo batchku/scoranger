@@ -81,6 +81,9 @@ enum ScoreBarLayout {
         /// the transport's, because a reader of `ScoreOptionsScreen` asking
         /// "is Performance mode on the bar?" should not have to know that.
         var showsPerformanceToggle: Bool = true
+        /// ‹ carries the origin's name [C6] when there is room; a bare ‹ when
+        /// there is not. The name is a courtesy, the way out is a necessity.
+        var showsOriginName: Bool = true
         /// The transcription chip at the trailing end of the bar, drawn only
         /// while OMR is actually running (`AppState.omrBusy`).
         var showsOMRProgress: Bool = false
@@ -139,7 +142,13 @@ enum ScoreBarLayout {
 
     /// Measured widths of the bar's parts, so the arithmetic below is legible
     /// rather than a table of magic numbers.
+    /// The way out: ‹ alone, a 34pt capsule. FIXED, as ever.
     static let closeWidth: CGFloat = 34
+    /// What the origin's NAME adds to it [C6]: a 6pt gap, a word capped at
+    /// 140 in the view, and the capsule's 24 of padding less the 34 the bare
+    /// glyph already had. An optional seat, and the FIRST to yield: a
+    /// courtesy about where the reader was, ahead of every shortcut.
+    static let originNameWidth: CGFloat = 6 + 140 + 24 - 34 + 15
     static let actionWidth: CGFloat = 34          // Edit, Select, Ask, …
     static let gap: CGFloat = 8
     static let padding: CGFloat = 24              // s12 either side
@@ -149,9 +158,12 @@ enum ScoreBarLayout {
     /// The + and the gap before it. The same button as Edit and Ask.
     static let addToSetlistWidth: CGFloat = actionWidth + gap
     /// The transport toggle and the gap before it.
-    static let transportWidth: CGFloat = 34 + 8
-    /// The performance toggle and the gap before it. The same button.
-    static let performanceWidth: CGFloat = 34 + 8
+    /// Retired in 0.8: the tray is always there. Kept at zero so the Fit's
+    /// field and the switch arithmetic need not move.
+    static let transportWidth: CGFloat = 0
+    /// "Perform", glyph AND word [C5], and the gap before it: 15 + 6 + ~52 of
+    /// Inter 600 13.5 + 24 of padding, rounded up.
+    static let performanceWidth: CGFloat = 100 + 8
     /// Both switches, which yield as one step.
     static var switchesWidth: CGFloat { transportWidth + performanceWidth }
     /// The transcription chip and the gap before it: a determinate ring and one
@@ -226,14 +238,22 @@ enum ScoreBarLayout {
         // every threshold by its own width.
         let base = essentials + editWidth + titleMinimum + numeralWidth
         let forAll = base + threeCells + versionsWidth + switchesWidth
-            + addToSetlistWidth
+            + addToSetlistWidth + originNameWidth
         if barWidth >= forAll { return everything }
 
-        // The + goes first: the library's set list picker still offers the
-        // same operation, so this costs a shortcut rather than a feature.
-        let withoutAdd = forAll - addToSetlistWidth
+        // The origin's NAME beside the ‹ goes first [C6]: a bare ‹ still
+        // leaves, and the name is a courtesy about where the reader was. On
+        // an iPad in portrait (834) it is what yields; in landscape it fits.
+        let withoutOriginName = forAll - originNameWidth
+        if barWidth >= withoutOriginName {
+            return Fit(showsVersions: true, showsAddToSetlist: true, layoutCells: 3,
+                       showsOriginName: false)
+        }
+        // Then the +: the library's set list picker still offers the same
+        // operation, so this costs a shortcut rather than a feature.
+        let withoutAdd = withoutOriginName - addToSetlistWidth
         if barWidth >= withoutAdd {
-            return Fit(showsVersions: true, layoutCells: 3)
+            return Fit(showsVersions: true, layoutCells: 3, showsOriginName: false)
         }
         // Then the version count. The title block opens VERSIONS when this
         // has gone, so versions stay REACHABLE -- this drops a shortcut, never
@@ -243,7 +263,7 @@ enum ScoreBarLayout {
         // must keep this true (ScoreTopBar.titleBlock).
         let withoutVersions = withoutAdd - versionsWidth
         if barWidth >= withoutVersions {
-            return Fit(showsVersions: false, layoutCells: 3)
+            return Fit(showsVersions: false, layoutCells: 3, showsOriginName: false)
         }
         // Then BOTH switches, together. Options carries both at exactly the
         // widths the bar does not (ScoreOptionsScreen reads this same Fit), and
@@ -252,11 +272,13 @@ enum ScoreBarLayout {
         let withoutSwitches = withoutVersions - switchesWidth
         if barWidth >= withoutSwitches {
             return Fit(showsVersions: false, layoutCells: 3,
-                       showsTransportToggle: false, showsPerformanceToggle: false)
+                       showsTransportToggle: false, showsPerformanceToggle: false,
+                       showsOriginName: false)
         }
         // Then the spread cell, which is the one a narrow screen cannot use.
         let twoCellFit = Fit(showsVersions: false, layoutCells: 2,
-                             showsTransportToggle: false, showsPerformanceToggle: false)
+                             showsTransportToggle: false, showsPerformanceToggle: false,
+                             showsOriginName: false)
         if fits(twoCellFit, in: barWidth) { return twoCellFit }
 
         // Then the PENCIL, and this is the step 0.6.14 added. A phone reaches
@@ -268,7 +290,7 @@ enum ScoreBarLayout {
         let withoutEdit = Fit(showsVersions: false, layoutCells: 2,
                               showsTransportToggle: false,
                               showsPerformanceToggle: false,
-                              showsEdit: false)
+                              showsOriginName: false, showsEdit: false)
         if fits(withoutEdit, in: barWidth) { return withoutEdit }
 
         // Then the title's COMPANIONS, so the title itself can stay readable.
@@ -283,12 +305,13 @@ enum ScoreBarLayout {
         let withoutSubtitle = Fit(showsVersions: false, layoutCells: 2,
                                   showsTransportToggle: false,
                                   showsPerformanceToggle: false,
-                                  showsEdit: false,
+                                  showsOriginName: false, showsEdit: false,
                                   showsSubtitle: false)
         if fits(withoutSubtitle, in: barWidth) { return withoutSubtitle }
         return Fit(showsVersions: false, layoutCells: 2,
                    showsTransportToggle: false, showsPerformanceToggle: false,
-                   showsEdit: false, showsNumeral: false, showsSubtitle: false)
+                   showsOriginName: false, showsEdit: false, showsNumeral: false,
+                   showsSubtitle: false)
     }
 
     /// Whether a bar this wide can seat everything it is being asked to.
@@ -301,6 +324,7 @@ enum ScoreBarLayout {
         if fit.showsAddToSetlist { needed += addToSetlistWidth }
         if fit.showsTransportToggle { needed += transportWidth }
         if fit.showsPerformanceToggle { needed += performanceWidth }
+        if fit.showsOriginName { needed += originNameWidth }
         if fit.showsOMRProgress { needed += omrWidth }
         if fit.showsNumeral { needed += numeralWidth }
         return needed <= width

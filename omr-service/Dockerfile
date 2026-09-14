@@ -28,6 +28,12 @@ COPY --from=build /opt/audiveris /opt/audiveris
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
     AUDIVERIS_BIN=/opt/audiveris/bin/Audiveris \
     PORT=8080
+COPY requirements.txt /app/requirements.txt
+# --break-system-packages: the runtime image's python is the system one and
+# there is no venv here by design. One dependency, pinned.
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+    -r /app/requirements.txt
+COPY identity.py /app/identity.py
 COPY server.py /app/server.py
 # -u unbuffered, faulthandler: if python ever dies silently, get a stack
 CMD ["python3", "-u", "-X", "faulthandler", "/app/server.py"]

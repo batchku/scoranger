@@ -242,7 +242,7 @@ final class LibraryModelTests: XCTestCase {
     func testTheLibraryIsTheOnlyPlaceSwitcher() {
         XCTAssertEqual(LibrarySegment.allCases, [.pieces, .setlists, .books])
         XCTAssertEqual(LibrarySegment.pieces.title, "Pieces")
-        XCTAssertEqual(LibrarySegment.setlists.title, "Setlists")
+        XCTAssertEqual(LibrarySegment.setlists.title, "Set lists")
         XCTAssertEqual(LibrarySegment.books.title, "Books")
     }
 }

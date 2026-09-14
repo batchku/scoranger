@@ -100,4 +100,15 @@ final class PageTurnTests: XCTestCase {
     // The boundary-arithmetic tests went with `destination`: a turn changes an
     // index now, and PagedCanvasTests covers the stepping. What stays here is
     // the arbitration table, which is what protects the lasso.
+
+    /// E (0.8.0 build 196): the back turn is the mirror of the forward one.
+    func testTheSlideReversesForABackTurn() {
+        let forward = PageTurn.slideEdges(forward: true)
+        let back = PageTurn.slideEdges(forward: false)
+        XCTAssertEqual(forward.enters, .trailing, "forward, the new page comes in from the right")
+        XCTAssertEqual(forward.leaves, .leading)
+        XCTAssertEqual(back.enters, .leading, "back, the new page comes in from the left")
+        XCTAssertEqual(back.leaves, .trailing)
+        XCTAssertNotEqual(forward.enters, back.enters, "the two turns must not slide the same way")
+    }
 }

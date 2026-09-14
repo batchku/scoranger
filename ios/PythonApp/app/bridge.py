@@ -37,7 +37,11 @@ def _mutate(slug, op, args, fn):
     score = _load(slug)
     details = fn(score)
     entry = workspace.add_version(slug, score, op, args)
-    return {"new_version": entry["id"], "details": details}
+    # id AND label: the id is what anything addressing this version must use,
+    # the label is the only one of the two a person can read in a chat step
+    return {"new_version": entry["id"],
+            "new_version_label": workspace.version_label(entry),
+            "details": details}
 
 
 def _part(score, name):
@@ -83,6 +87,27 @@ def _dispatch(op, a):
         if entry.get("rhythm_warnings"):
             out["rhythm_warnings"] = entry["rhythm_warnings"]
         return out
+    if op == "bundle-export":
+        # One arrangement or setlist as a file the reader hands to somebody --
+        # AirDrop, Files, a USB stick. No account, no network (FIREBASE.md §13).
+        from scoranger_engine import bundle
+        return bundle.export(a["target"], a["out"],
+                             full_history=bool(a.get("full_history")),
+                             ink_dir=a.get("ink"))
+    if op == "share-payload":
+        # What a shared setlist entry needs, decided by the engine because the
+        # engine is what knows which version is pinned and where it lives.
+        from scoranger_engine import bundle
+        return bundle.share_payload(a["score"], ink_dir=a.get("ink"))
+    if op == "bundle-inspect":
+        # Read-only, and it is what the import screen is built from: nobody
+        # takes a bundle in without being told what is in it first (§13.3).
+        from scoranger_engine import bundle
+        return bundle.inspect(a["path"])
+    if op == "bundle-import":
+        from scoranger_engine import bundle
+        return bundle.import_(a["path"], into_piece=a.get("into_piece"),
+                              ink_dir=a.get("ink"))
     if op == "import-book":
         # A BOOK, not a piece and not an arrangement: a collection that
         # arrangements are taken out of.
@@ -352,6 +377,10 @@ def _dispatch(op, a):
                                               create_if_missing=True)
     if op == "unassign-setlist":
         return workspace.remove_score_from_setlist(a["setlist"], a["score"])
+    if op == "bind-setlist-share":
+        # Promotion's last step: the set list now IS the shared document.
+        return workspace.bind_setlist_share(a["setlist"], a["shareId"],
+                                            a["ownerUid"])
     if op == "rename-setlist":
         return workspace.rename_setlist(a["setlist"], a["name"])
     if op == "delete-setlist":

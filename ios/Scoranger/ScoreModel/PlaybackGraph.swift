@@ -18,17 +18,54 @@ import Foundation
 /// The shape was measured on the iOS 26.5 runtime:
 ///
 ///   - music21 writes one MIDI track per part plus a leading conductor track,
-///     and `AVAudioSequencer.tracks` OMITS the conductor track. So `tracks[i]`
-///     is part `i`, which is what makes a channel index a track index.
+///     and whether `AVAudioSequencer.tracks` includes that conductor track
+///     DEPENDS ON THE FILE. This used to say it was omitted, and index by
+///     part; on the score in Ali's video it was present, and every part was
+///     wired one sampler too low. `trackOffset(trackCount:partCount:)` is
+///     measured at load instead, and `partTrackOffset` is used everywhere a
+///     track is looked up.
 ///   - A track appended AFTER loading lands after the parts, so the click is
 ///     always last and the part indices stay put.
 ///   - `AVAudioUnitSampler.volume` is linear in amplitude and takes effect
 ///     while the graph is running, which is what a fader needs.
+/// A MIDI whose track count the graph cannot explain against its parts.
+enum PlaybackGraphError: LocalizedError {
+    case unexplainedTracks(tracks: Int, parts: Int)
+    var errorDescription: String? {
+        switch self {
+        case .unexplainedTracks(let tracks, let parts):
+            return "This performance has \(tracks) tracks for \(parts) parts, and "
+                 + "the mixer cannot tell which is which."
+        }
+    }
+}
+
 final class PlaybackGraph {
 
     let engine = AVAudioEngine()
     private(set) var sequencer: AVAudioSequencer?
     private(set) var samplers: [AVAudioUnitSampler] = []
+    /// `tracks[part.index + partTrackOffset]` is the part's track. Measured at
+    /// load, never assumed -- see `trackOffset(trackCount:partCount:)`.
+    private(set) var partTrackOffset = 0
+
+    /// How far into `sequencer.tracks` the parts begin.
+    ///
+    /// music21 writes a conductor track ahead of the parts, and whether
+    /// `AVAudioSequencer.tracks` includes it turned out to depend on the file:
+    /// the score in Ali's video came back as four tracks for three parts, the
+    /// first with no notes in it. The graph used to index by part and so wired
+    /// every part to the sampler one too low -- the piano's left hand sounded
+    /// with the voice's instrument, the voice fell to the default piano, and
+    /// muting "Voice" muted the piano (2026-09-10).
+    ///
+    /// Zero or one extra track is explainable and mapped. Anything else is not
+    /// understood, and wiring it anyway is how the wrong instrument lands on
+    /// the wrong staff; nil, so the caller can refuse rather than guess.
+    static func trackOffset(trackCount: Int, partCount: Int) -> Int? {
+        let extra = trackCount - partCount
+        return (0...1).contains(extra) ? extra : nil
+    }
     private(set) var clickSampler: AVAudioUnitSampler?
     private(set) var clickTrack: AVMusicTrack?
     /// Which parts failed to load a sound bank. They still play, on the
@@ -85,8 +122,14 @@ final class PlaybackGraph {
         if !engine.isRunning { try engine.start() }
         let loaded = AVAudioSequencer(audioEngine: engine)
         try loaded.load(from: midi, options: [])
-        for (index, track) in loaded.tracks.enumerated() where index < samplers.count {
-            track.destinationAudioUnit = samplers[index]
+        guard let offset = Self.trackOffset(trackCount: loaded.tracks.count,
+                                            partCount: timeline.parts.count) else {
+            throw PlaybackGraphError.unexplainedTracks(tracks: loaded.tracks.count,
+                                                       parts: timeline.parts.count)
+        }
+        partTrackOffset = offset
+        for part in timeline.parts where part.index < samplers.count {
+            loaded.tracks[part.index + offset].destinationAudioUnit = samplers[part.index]
         }
         // The click is a TRACK in the same sequence, not a timer beside it.
         // That is what makes it follow the tempo map -- a mid-score change
@@ -342,9 +385,8 @@ final class PlaybackGraph {
         // notes at zero, and it is what makes `isMuted` readable in a test.
         if let sequencer {
             let muted = voices.mutedTracks(in: parts)
-            for (index, track) in sequencer.tracks.enumerated()
-            where index < parts.count {
-                track.isMuted = muted.contains(index)
+            for part in parts where part.index + partTrackOffset < sequencer.tracks.count {
+                sequencer.tracks[part.index + partTrackOffset].isMuted = muted.contains(part.index)
             }
         }
         clickTrack?.isMuted = !metronome

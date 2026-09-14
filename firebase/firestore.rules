@@ -1,0 +1,172 @@
+rules_version = '2';
+
+// The enforcement. Everything in ios/Scoranger/ScoreModel/SetlistPermission.swift
+// is the CLIENT's opinion of these rules, and a modified client ignores all of
+// it -- so what is written here has to say the same thing, and this is the copy
+// that binds. design/FIREBASE.md §4.2, §6.2, §8.2, and principle 4 of §0.
+//
+// Two platform facts shape every rule below (§10.1):
+//
+//   RULES ARE NOT FILTERS. A query is all or nothing: Firestore evaluates it
+//   against its potential result set, so a query must carry the same
+//   constraint the rule enforces or the whole request fails. That is why
+//   `memberships/` exists as a flat collection keyed on the user -- "what
+//   setlists am I in" has to be a query the rules can approve on its face.
+//
+//   LOOKUPS ARE CAPPED AND BILLED. Ten get()/exists() calls for a
+//   single-document request, twenty for a batch, and they are billed even when
+//   the rule REJECTS. Every rule here is one lookup or none.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // The one lookup. Kept in a function so no rule accidentally does two.
+    function setlist(setlistId) {
+      return get(/databases/$(database)/documents/setlists/$(setlistId)).data;
+    }
+    // `.get(key, null)`, never `members[uid]`: indexing a map with a missing
+    // key throws, and a rule that denies by throwing is right by accident.
+    function roleIn(setlistId) {
+      return signedIn() ? setlist(setlistId).members.get(request.auth.uid, null) : null;
+    }
+    function isMemberOf(setlistId) {
+      return roleIn(setlistId) != null;
+    }
+    // A reader may look and annotate. Everything structural needs more.
+    function mayEditIn(setlistId) {
+      return roleIn(setlistId) in ['owner', 'member'];
+    }
+
+    // -- a person's own record -------------------------------------------
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // -- one account's private library -----------------------------------
+    //
+    // Nobody else reads it, ever. A shared setlist never points into it: an
+    // entry is a COPY under shared/ precisely so that a member's read
+    // permission is a property of the path rather than of a chain of lookups
+    // into somebody's private library (§4.3).
+    match /libraries/{libraryId} {
+      function ownsLibrary() {
+        return signedIn() && resource.data.owner == request.auth.uid;
+      }
+      allow get, list: if ownsLibrary();
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow update: if ownsLibrary()
+                    && request.resource.data.owner == resource.data.owner;
+      allow delete: if ownsLibrary();
+
+      // Scores, versions, sources, pieces, setlists, books. One rule, because
+      // the answer is the same for all of them and a per-collection rule would
+      // be five chances to get it wrong.
+      match /{rest=**} {
+        allow read, write: if signedIn()
+          && get(/databases/$(database)/documents/libraries/$(libraryId))
+               .data.owner == request.auth.uid;
+      }
+    }
+
+    // -- a shared setlist -------------------------------------------------
+    match /setlists/{setlistId} {
+
+      // Members read it. A non-member cannot even see that it exists.
+      allow get: if signedIn() && resource.data.members.get(request.auth.uid, null) != null;
+      // Listing setlists is not how a member finds theirs -- `memberships/` is
+      // (rules are not filters). Denied rather than left to fail confusingly.
+      allow list: if false;
+
+      // Creating one makes you its owner, and you are its only member. The cap
+      // is checked here too so it cannot be side-stepped at creation.
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.members.get(request.auth.uid, null) == 'owner'
+        && request.resource.data.members.keys().size() == 1
+        && request.resource.data.memberIds == [request.auth.uid];
+
+      // Members may rename it and reorder around it. They may NOT change who
+      // owns it, and they may not write the membership map at all: membership
+      // is decided by the server (§4.4, §12.11), so a client that could edit
+      // `members` could make itself the owner.
+      allow update: if mayEditIn(setlistId)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.members == resource.data.members
+        && request.resource.data.memberIds == resource.data.memberIds;
+
+      // PRINCIPLE 4, the one asymmetry: only the owner deletes. Deleting is
+      // the single act that destroys other people's work -- everyone's ink, on
+      // every entry, at once.
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      // -- the running order ---------------------------------------------
+      match /entries/{entryId} {
+        allow read: if isMemberOf(setlistId);
+        // Every member adds, reorders and repins. A reader does none of it.
+        allow create, update: if mayEditIn(setlistId);
+        // Removal is SOFT -- an entry keeps its ink and can be restored -- so
+        // it is an update, not a delete. Hard deletes are the owner's, for
+        // clearing up.
+        allow delete: if signedIn()
+          && setlist(setlistId).ownerId == request.auth.uid;
+
+        // -- one person's markup ------------------------------------------
+        //
+        // Principle 5: everyone annotates. Nobody ever writes anybody else's
+        // layer, which is what makes the ink conflict-free with no merge
+        // function anywhere (§6.3).
+        match /ink/{userId} {
+          allow read: if isMemberOf(setlistId);
+          allow write: if signedIn()
+            && request.auth.uid == userId
+            && isMemberOf(setlistId);
+        }
+      }
+    }
+
+    // -- "what setlists am I in" -----------------------------------------
+    //
+    // A flat index, denormalised on purpose, so the question is one indexed
+    // query on a field the rules can approve without a lookup. Written only by
+    // the Cloud Function that changes membership -- never by a client.
+    match /memberships/{membershipId} {
+      allow get, list: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // -- invitations ------------------------------------------------------
+    //
+    // Addressed to an email rather than a uid, because under member invitation
+    // "wait until your bandmate has signed up" is not a workable flow (§4.2).
+    match /invites/{inviteId} {
+      // The invitee reads their own invitation, by VERIFIED address. Without
+      // the verification an invite is claimable by anyone who can type an
+      // address, and the address stops being an identity.
+      allow get: if signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() == resource.data.emailLower;
+      allow list: if false;
+
+      // Any member may invite. The invite carries the setlist's NAME and
+      // nothing else about it: an unaccepted invitation must not be a read
+      // grant, so no entry, artifact or ink field may appear on it.
+      allow create: if mayEditIn(request.resource.data.setlistId)
+        && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+             'setlistId', 'setlistName', 'emailLower',
+             'invitedBy', 'invitedAt'
+           ]);
+
+      // Accepting is the Function's job -- it checks the cap, writes the
+      // membership map and the flat index, and stamps who claimed it. A client
+      // that could accept its own invite could write itself into a group.
+      allow update: if false;
+      // Withdrawing is the owner's.
+      allow delete: if signedIn()
+        && setlist(resource.data.setlistId).ownerId == request.auth.uid;
+    }
+  }
+}

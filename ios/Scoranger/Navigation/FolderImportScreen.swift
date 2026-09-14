@@ -12,7 +12,7 @@ struct FolderImportScreen: View {
 
     var body: some View {
         Screen(title: "Import folder",
-               backLabel: "My library",
+               backLabel: "Library",
                subtitle: state.folderImportPlan?.folder.lastPathComponent,
                onBack: onBack) {
             if let plan = state.folderImportPlan {

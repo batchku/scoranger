@@ -12,9 +12,34 @@ struct ContentView: View {
     var onClose: () -> Void = {}
 
     @EnvironmentObject var state: AppState
+    /// Only for the band's markup, and only while a shared set list entry is
+    /// what is open. Signed out it publishes nothing and this reads as empty
+    /// (design/FIREBASE.md §6.3).
+    @EnvironmentObject var shared: SharedSetlists
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The band's marks for every page of the entry that is open, or nothing.
+    ///
+    /// Nothing is the answer for a reader with no account, for an arrangement
+    /// of their own, and for a shared entry nobody else has marked -- which is
+    /// most of the time, and costs one dictionary lookup to establish.
+    private var bandInk: [Int: [SharedInk.Layer]] {
+        guard let open = state.openSharedEntry,
+              let setlist = shared.setlists.first(where: { $0.id == open.setlist }),
+              !shared.ink.isEmpty else { return [:] }
+        let participants = Array(setlist.members.keys)
+        let pages = Set(shared.ink.values.flatMap(\.keys))
+        // The width the canvas is laid out at is the page's own width, which
+        // the geometry knows; without it a bandmate's ink cannot be placed
+        // (`SharedInk.scale`).
+        let width = state.geometry?.page(0)?.size.width ?? 0
+        return Dictionary(uniqueKeysWithValues: pages.map { page in
+            (page, shared.layers(page: page, participants: participants,
+                                 visibility: state.inkVisibility, readAt: width))
+        })
+    }
 
     /// The two overlays, which replace the split view's columns.
 
@@ -23,11 +48,9 @@ struct ContentView: View {
     /// work whether or not this is on.
     /// Defaults to TRUE since 0.6.1. It was false, and playback -- the whole
     /// of 0.6 -- was invisible behind a toggle in a submenu.
-    @AppStorage("showTransport") private var showTransport = true
     /// Whether the transport has ever been put on screen unasked. Carries a
     /// reader holding a stored `false` from the builds where that was the
-    /// default (see TransportReveal).
-    @AppStorage("didRevealTransport") private var didRevealTransport = false
+    /// default.
 
     /// Lane 1 is the ink bar's, and it is only occupied when the bar is out.
     private var inkLaneHeight: CGFloat { state.annotation.isOn ? 56 : 0 }
@@ -35,14 +58,57 @@ struct ContentView: View {
     /// The mixer sits above whichever lanes are occupied. Recomputed when a
     /// lane appears or disappears -- never per frame, or the panel drifts
     /// under the reader's hand.
-    private var mixerLaneInset: CGFloat { syncLaneInset + 48 }
     /// Which list the title band is showing. The versions dropdown and the
     /// title block open the same band on two different columns (0.6.3 #8).
     @State private var titleMenuMode: TitleBandLayout.Mode = .versions
     @State private var exportRequested = 0
     @State private var scoreScreen: ScoreScreen?
     @State private var optionsSection: String?
-    @State private var chatOpen = false
+    /// The score's panel (§7.2) is `scoreScreen`; Chat is one of its states.
+    private var chatOpen: Bool { scoreScreen == .chat }
+    private var panelOpen: Bool { scoreScreen != nil }
+    /// The states More opened, for which the More button stays lit.
+    private var moreOpen: Bool {
+        switch scoreScreen {
+        case nil, .chat, .titleVersions, .titleArrangements, .titleSetlists: return false
+        default: return true
+        }
+    }
+    private var railShown: Bool {
+        state.scoreMode != .performance && !state.layout.isContinuous && !isCompact
+            && state.pdfDocument != nil
+    }
+    /// Done: the panel closes whatever it showed.
+    private func closePanel() {
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            scoreScreen = nil
+            optionsSection = nil
+            state.titleMenuOpen = false
+        }
+    }
+    private func setPanel(_ screen: ScoreScreen?) {
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            if screen != .options { optionsSection = nil }
+            scoreScreen = screen
+            switch screen {
+            case .titleVersions, .titleArrangements, .titleSetlists: break
+            default: state.titleMenuOpen = false
+            }
+        }
+    }
+    /// ‹ inside the panel, when a state opened from another.
+    private func panelBack(for screen: ScoreScreen) -> (() -> Void)? {
+        switch screen {
+        case .options, .optionsSection:
+            return optionsSection == nil ? nil : { optionsSection = nil }
+        case .setlists, .details, .settings:
+            return { setPanel(.options) }
+        case .chatModel:
+            return { setPanel(.chat) }
+        case .chat, .titleVersions, .titleArrangements, .titleSetlists:
+            return nil
+        }
+    }
     @State private var didSetInitialOverlays = false
     /// The height the score view has, so the title band can be capped against
     /// it rather than taking whatever it is offered (L16).
@@ -160,7 +226,6 @@ struct ContentView: View {
         GeometryReader { geo in
             ZStack {
                 scoreBody
-                if let screen = scoreScreen { scoreScreenView(screen) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear { barWidth = geo.size.width }
@@ -168,21 +233,12 @@ struct ContentView: View {
         }
     }
 
-    /// Reveal the transport the first time an arrangement can play.
-    private func revealTransportIfNeeded() {
-        let d = TransportReveal.decide(canPlay: state.playbackAvailability.canPlay,
-                                       showTransport: showTransport,
-                                       alreadyRevealed: didRevealTransport)
-        if d.showTransport != showTransport { showTransport = d.showTransport }
-        if d.revealed != didRevealTransport { didRevealTransport = d.revealed }
-    }
 
     @ViewBuilder
     private func scoreScreenView(_ screen: ScoreScreen) -> some View {
         switch screen {
         case .options, .optionsSection:
             ScoreOptionsScreen(mode: $state.scoreMode,
-                               showTransport: $showTransport,
                                barFit: barFit,
                                section: optionsSection,
                                onBack: {
@@ -193,7 +249,7 @@ struct ContentView: View {
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
                                onSetlists: { scoreScreen = .setlists })
-                .background(Theme.Surface.ground)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score-options")
         case .setlists:
             // The pieces list's own screen (Route.setlistsFor -> this same
@@ -211,29 +267,48 @@ struct ContentView: View {
                 // would have made the two entrances differ in the tree, which
                 // is the one thing §16 is trying to avoid.
                 SetlistsForScreen(slug: score.slug,
-                                  onBack: { scoreScreen = .options })
-                    .background(Theme.Surface.ground)
+                                  onBack: { setPanel(.options) })
             }
         case .details:
             if let score = state.selectedScore {
-                Screen(title: "Details", backLabel: "Options",
+                Screen(title: "Details", backLabel: "More",
                        subtitle: ScoreTitle.arrangementName(title: score.title,
                                                             name: score.name,
                                                             slug: score.slug),
-                       onBack: { scoreScreen = .options }) {
+                       onBack: { setPanel(.options) }) {
                     ScoreInfoView(score: score)
                 }
-                .background(Theme.Surface.ground)
             }
         case .settings:
-            Screen(title: "Settings", backLabel: "Options",
-                   onBack: { scoreScreen = .options }) {
+            Screen(title: "Settings", backLabel: "More",
+                   onBack: { setPanel(.options) }) {
                 SettingsView()
             }
-            .background(Theme.Surface.ground)
         case .chatModel:
-            ChatModelScreen(onBack: { scoreScreen = nil })
-                .background(Theme.Surface.ground)
+            ChatModelScreen(onBack: { setPanel(.chat) })
+        case .chat:
+            chatPanel
+        case .titleVersions, .titleArrangements, .titleSetlists:
+            if let score = state.selectedScore {
+                TitleSwitcherBand(score: score,
+                                  mode: titleMenuMode,
+                                  onPickArrangement: { slug in
+                                      closePanel()
+                                      state.select(slug: slug)
+                                  },
+                                  onPickVersion: { version in
+                                      closePanel()
+                                      state.pinnedVersion = version
+                                      Task { await state.renderIfNeeded() }
+                                  },
+                                  onAllVersions: {
+                                      state.titleMenuOpen = false
+                                      optionsSection = "Versions"
+                                      scoreScreen = .options
+                                  },
+                                  inPanel: true,
+                                  onDone: { closePanel() })
+            }
         }
     }
 
@@ -244,44 +319,33 @@ struct ContentView: View {
                             .flatMap { state.placement(of: $0.slug)?.number },
                         title: scoreTitle,
                         subtitle: scoreSubtitle,
+                        origin: scoreOrigin,
                         mode: $state.scoreMode,
                         titleMenuOpen: $state.titleMenuOpen,
                         titleMenuMode: $titleMenuMode,
-                        showTransport: $showTransport,
                         barWidth: $barWidth,
-                        moreOpen: Binding(get: { scoreScreen != nil },
+                        // The bar clears More when it opens something else;
+                        // that must not close what it just opened.
+                        moreOpen: Binding(get: { moreOpen },
                                           set: { on in
-                                              scoreScreen = on ? .options : nil
-                                              if !on { optionsSection = nil }
+                                              if on {
+                                                  setPanel(.options)
+                                              } else if moreOpen {
+                                                  // Only More goes: the bar
+                                                  // clears it AFTER opening
+                                                  // the title menu, which
+                                                  // must stay open.
+                                                  withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+                                                      scoreScreen = nil
+                                                      optionsSection = nil
+                                                  }
+                                              }
                                           }),
                         chatOpen: chatOpen,
                         onClose: onClose,
-                        onAsk: {
-                            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
-                                chatOpen.toggle()
-                            }
-                        })
-            if state.titleMenuOpen, let score = state.selectedScore {
-                TitleSwitcherBand(score: score,
-                                  mode: titleMenuMode,
-                                  onPickArrangement: { slug in
-                                      state.titleMenuOpen = false
-                                      state.select(slug: slug)
-                                  },
-                                  onPickVersion: { version in
-                                      state.titleMenuOpen = false
-                                      state.pinnedVersion = version
-                                      Task { await state.renderIfNeeded() }
-                                  },
-                                  onAllVersions: {
-                                      state.titleMenuOpen = false
-                                      optionsSection = "Versions"
-                                      scoreScreen = .options
-                                  },
-                                  available: scoreHeight)
-            }
+                        onAsk: { setPanel(chatOpen ? nil : .chat) })
             ZStack(alignment: .top) {
-                Theme.Surface.ground
+                Theme.Surface.band
                 canvasLayer
                 overlayLayer
                 // The two menus the top bar opens. Plain children of the
@@ -333,8 +397,8 @@ struct ContentView: View {
                 // were being drawn over the chat's own header
                 .padding(.trailing,
                          ScorePosition.counterTrailingInset(
-                            chatOpen: chatOpen, isCompact: isCompact,
-                            chatWidth: Theme.Metric.chatWidth,
+                            chatOpen: panelOpen, isCompact: isCompact,
+                            chatWidth: Theme.Metric.panelWidth + Theme.Metric.pagePanelGap,
                             base: Theme.Metric.s12))
             }
             // TWO gates, not one. They were a single condition, and that put
@@ -361,55 +425,41 @@ struct ContentView: View {
                              current: state.visiblePageIndices.first ?? 0,
                              onJump: jumpToPage)
             }
-            if state.scoreMode != .performance, !state.layout.isContinuous,
-               !isCompact, let document = state.pdfDocument {
-                ThumbnailStrip(document: document,
-                               current: state.visiblePageIndices,
-                               spread: state.twoPageSpread,
-                               // straight to the unit holding that page: no
-                               // offset arithmetic left to get wrong
-                               onJump: jumpToPage)
-            }
-            // The TRANSPORT is about the music, not about pages, so it belongs
-            // in every mode that has chrome at all. It is revealed the first
-            // time something can actually play (TransportReveal) -- a reader
-            // should never have to know the toggle exists to find playback.
-            if state.scoreMode != .performance, showTransport {
-                Transport(setlistLabel: setlistLabel,
-                          canStep: setlistPosition != nil,
-                          onPrevious: { stepSetlist(-1) },
-                          onNext: { stepSetlist(1) },
-                          playback: state.playback,
-                          unavailable: state.playbackAvailability,
-                          preparing: state.playbackPreparing,
-                          onPlay: { state.togglePlayback() },
-                          onResolve: {
-                              // The remote-engine case is fixed in Settings,
-                              // which this view owns; the scan case is the
-                              // engine's business.
-                              if state.playbackAvailability == .needsLocalEngine {
-                                  scoreScreen = .settings
-                              } else {
-                                  state.resolvePlaybackAvailability()
-                              }
-                          },
-                          mixerOpen: state.mixerOpen,
-                          onMixer: { state.mixerOpen.toggle() },
-                          // A phone on its side carries the scrubber IN the
-                          // transport: two rows are 76 of a 130pt chrome
-                          // budget, one deck is 48 (§3 E-B).
-                          leading: mergedScrubber,
-                          height: isPhoneLandscape
-                              ? Theme.Metric.scoreDeckCompact
-                              : Theme.Metric.transportHeight)
-                    // Built when the transport appears, never when the score
-                    // opens: writing the MIDI takes music21 a moment and
-                    // opening an arrangement must not wait on it.
+            // THE TRAY (design/DESIGN_SYSTEM.md §7.7): always there while
+            // reading -- there is no "show transport" any more -- and gone
+            // with the bar in performance mode. It is the transport and the
+            // mixer on one line.
+            if state.scoreMode != .performance {
+                Tray(setlistLabel: setlistLabel,
+                     canStep: setlistPosition != nil,
+                     onPrevious: { stepSetlist(-1) },
+                     onNext: { stepSetlist(1) },
+                     playback: state.playback,
+                     unavailable: state.playbackAvailability,
+                     preparing: state.playbackPreparing,
+                     onPlay: { state.togglePlayback() },
+                     onResolve: {
+                         // The remote-engine case is fixed in Settings, which
+                         // this view owns; the scan case is the engine's.
+                         if state.playbackAvailability == .needsLocalEngine {
+                             scoreScreen = .settings
+                         } else {
+                             state.resolvePlaybackAvailability()
+                         }
+                     },
+                     // A phone on its side carries the page scrubber in the
+                     // tray (§3 E-B), until 0.8.4's phone layout.
+                     leading: mergedScrubber,
+                     dimmed: state.annotation.isOn)
                     .task(id: state.displayedVersionID) {
                         await state.preparePlayback()
                     }
             }
         }
+        // The title block's menu is a panel state now (SC4): the bar's own
+        // flag says it is open and which mode, and the panel follows.
+        .onChange(of: state.titleMenuOpen) { _, open in titleMenuChanged(open: open) }
+        .onChange(of: titleMenuMode) { _, _ in titleMenuChanged(open: state.titleMenuOpen) }
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -431,19 +481,7 @@ struct ContentView: View {
                     .padding(.bottom, syncLaneInset)
             }
         }
-        // Lane 3 (§4): the mixer, movable, parked bottom-right above the
-        // highest occupied lane. LAST in the stack, which is the z-order the
-        // spec settles: fixed chrome < ink bar < sync chip < mixer.
-        .overlay {
-            if state.scoreMode != .performance, state.mixerOpen {
-                // The rebuilt window (design/MIXER_WINDOW.md). `MixerLayer` --
-                // the panel positioned by arithmetic that was not what got
-                // drawn -- is what Ali's iPad clipped.
-                MixerWindowLayer(state: state, playback: state.playback,
-                                 lanesInset: mixerLaneInset)
-            }
-        }
-        .background(Theme.Surface.ground)
+        .background(Theme.Surface.band)
         // #59: the music is not resized by a text field taking focus. The
         // avoidance inset is a safe-area inset on the WHOLE screen -- the
         // canvas lost the keyboard's height and the page re-fitted to what was
@@ -459,12 +497,7 @@ struct ContentView: View {
         }
         .task {
             Theme.verifyFontsRegistered()
-            revealTransportIfNeeded()
         }
-        // and again when what is on screen changes: the first arrangement
-        // opened may be a scan, and the transport should arrive on the first
-        // one that can actually play rather than only at launch.
-        .onChange(of: state.playbackAvailability) { _, _ in revealTransportIfNeeded() }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.scoreTypes,
                       allowsMultipleSelection: true) { result in
@@ -516,10 +549,24 @@ struct ContentView: View {
                                   parts: (state.displayedVersion?.parts ?? []).map(\.name))
     }
 
+    /// Where the reader came from, for the bar's way out [C6]: the set list
+    /// being played, else the arrangement's piece, else the library itself.
+    private var scoreOrigin: String {
+        if let slug = state.currentSetlist,
+           let setlist = state.manifest?.setlists?.first(where: { $0.slug == slug }) {
+            return setlist.name
+        }
+        if let score = state.selectedScore,
+           let piece = state.placement(of: score.slug)?.piece {
+            return piece.name
+        }
+        return "Library"
+    }
+
     private var scoreSubtitle: String {
         guard let score = state.selectedScore else { return "" }
         let piece = state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
-        return [piece?.name, state.displayedVersionID]
+        return [piece?.name, state.displayedVersionLabel]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -563,6 +610,13 @@ struct ContentView: View {
     @ViewBuilder
     private var canvasLayer: some View {
         HStack(spacing: 0) {
+            // The thumbnail rail (§7.11), in paged reading on an iPad.
+            if railShown, let document = state.pdfDocument {
+                ThumbnailRail(document: document,
+                              current: state.visiblePageIndices,
+                              spread: state.twoPageSpread,
+                              onJump: jumpToPage)
+            }
             // reserve exactly the panels' widths, so what remains IS the canvas
             Group {
                 if let score = state.selectedScore {
@@ -578,14 +632,15 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            Color.clear.frame(width: isCompact ? 0 : (chatOpen ? Theme.Metric.chatWidth : 0))
+            // The panel's lane (§7.2): the score lays itself out again at
+            // the narrower width while Versions, Chat or More is open.
+            Color.clear.frame(width: isCompact || !panelOpen
+                              ? 0 : Theme.Metric.panelWidth + Theme.Metric.pagePanelGap)
         }
-        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+        .animation(Theme.Motion.overlay(reduced: reduceMotion), value: panelOpen)
         // a finished lasso opens chat: the selection has to be visibly received,
         // not silently held
-        .onChange(of: state.chatOpenRequest) { _, _ in
-            withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = true }
-        }
+        .onChange(of: state.chatOpenRequest) { _, _ in setPanel(.chat) }
     }
 
     @ViewBuilder
@@ -608,7 +663,17 @@ struct ContentView: View {
             // AppState publishes nothing when the play head moves, so a canvas
             // that read it that way would never follow. Same reason the ink
             // bar observes its controller directly.
-            ScorePagesView(document: doc, annotationKey: "\(score.slug)/\(vid)",
+            // Markup on a shared set list entry is filed under the ENTRY, not
+            // under this device's copy of the arrangement: the entry id is
+            // the same string on every device, and keeping the two apart is
+            // what stops my own private notes on my own copy being published
+            // to the band (`SharedEntryCopies.inkNamespace`).
+            let namespace = state.openSharedEntry
+                .map { SharedEntryCopies.inkNamespace(entryId: $0.entry) }
+                ?? score.inkNamespace
+            ScorePagesView(document: doc, annotationKey: "\(namespace)/\(vid)",
+                           sharedInk: bandInk,
+                           canvasIdentity: "\(score.slug)/\(vid)",
                            mode: state.scoreMode, playback: state.playback)
         } else if score.versions.isEmpty {
             // An arrangement with no versions has no version to display, so
@@ -668,6 +733,24 @@ struct ContentView: View {
         }
     }
 
+    private func titleMenuChanged(open: Bool) {
+        let wanted: ScoreScreen
+        switch titleMenuMode {
+        case .versions:     wanted = .titleVersions
+        case .arrangements: wanted = .titleArrangements
+        case .setlists:     wanted = .titleSetlists
+        }
+        withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+            if open {
+                optionsSection = nil
+                scoreScreen = wanted
+            } else if scoreScreen == .titleVersions || scoreScreen == .titleArrangements
+                        || scoreScreen == .titleSetlists {
+                scoreScreen = nil
+            }
+        }
+    }
+
     // MARK: - Overlays
 
     @ViewBuilder
@@ -675,12 +758,20 @@ struct ContentView: View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                if chatOpen {
-                    OverlayPanel(edge: .trailing,
-                                 width: isCompact ? .infinity : Theme.Metric.chatWidth) {
-                        chatPanel
-                    }
-                    .transition(panelTransition(.trailing))
+                if let screen = scoreScreen {
+                    scoreScreenView(screen)
+                        .environment(\.inPanel, true)
+                        .environment(\.panelBack, panelBack(for: screen))
+                        .environment(\.panelDone, { closePanel() })
+                        .frame(maxWidth: isCompact ? .infinity : Theme.Metric.panelWidth)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .pageShape()
+                        .padding(.trailing, isCompact ? 0 : Theme.Metric.s8)
+                        .padding(.top, isCompact ? 0 : Theme.Metric.s8)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("score-panel")
+                        .id(screen)
+                        .transition(panelTransition(.trailing))
                 }
             }
             // the screen ignores the keyboard so the page keeps its size; the
@@ -688,7 +779,7 @@ struct ContentView: View {
             .padding(.bottom,
                      KeyboardInset.panelBottom(keyboard: keyboard.height,
                                                safeAreaBottom: geo.safeAreaInsets.bottom))
-            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: chatOpen)
+            .animation(Theme.Motion.overlay(reduced: reduceMotion), value: scoreScreen)
             .animation(Theme.Motion.overlay(reduced: reduceMotion), value: keyboard.height)
         }
     }
@@ -702,53 +793,27 @@ struct ContentView: View {
     @ViewBuilder
     private var chatPanel: some View {
         VStack(spacing: 0) {
-            OverlayHeader(subject: {
-                HStack(spacing: Theme.Metric.s6) {
-                    if let slug = state.selectedScore?.slug,
-                       let placement = state.placement(of: slug) {
-                        NumeralBadge(number: placement.number, role: .numeralM)
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(state.selectedScore?.name ?? "Chat")
-                            .typeRole(.title)
-                            .foregroundStyle(Theme.Ink.ink)
-                            .lineLimit(1)
-                        if let slug = state.selectedScore?.slug,
-                           let placement = state.placement(of: slug) {
-                            Text(placement.piece.name)
-                                .typeRole(.meta)
-                                .foregroundStyle(Theme.Ink.ink3)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }, trailing: {
+            PanelHeader(title: state.selectedScore?.name ?? "Chat",
+                        subtitle: state.selectedScore.flatMap { state.placement(of: $0.slug)?.piece.name },
+                        doneLabel: "Close chat") {
                 if let catalog = state.modelCatalog {
-                    // The chat header's model Menu becomes a pushed screen
-                    // (NAV_MODAL_FREE_0.4.2 §7.3): the last popover in the app.
-                    Button { scoreScreen = .chatModel } label: {
+                    // The model, named in the header (SC5); changed in Settings
+                    // or here, as a panel state.
+                    Button { setPanel(.chatModel) } label: {
                         Text(state.chatModel.isEmpty ? (catalog.default) : state.chatModel)
                             .typeRole(.data)
                             .foregroundStyle(Theme.Ink.ink2)
-                            // one line at its natural width: with the title
-                            // taking priority the chip started wrapping instead
                             .lineLimit(1)
                             .fixedSize()
                             .padding(.vertical, Theme.Metric.s4)
                             .padding(.horizontal, Theme.Metric.s6)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                    .stroke(Theme.Line.line2, lineWidth: 1)
-                            }
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("chat-model")
                     .accessibilityLabel("Chat model")
                 }
-            }, onDismiss: {
-                withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) { chatOpen = false }
-            }, dismissLabel: "Close chat")
+            }
             ChatView()
         }
     }
@@ -774,10 +839,10 @@ struct ContentView: View {
                     Task { await state.renderIfNeeded() }
                 } label: {
                     if group.face.id == state.displayedVersionID {
-                        Label("\(group.face.id) · \(shortTitle(group.title))",
+                        Label("\(group.face.name) · \(shortTitle(group.title))",
                               systemImage: "checkmark")
                     } else {
-                        Text("\(group.face.id) · \(shortTitle(group.title))")
+                        Text("\(group.face.name) · \(shortTitle(group.title))")
                     }
                 }
             }

@@ -18,7 +18,7 @@ struct SheetRow<Value: View>: View {
         .padding(.vertical, Theme.Metric.sheetRowVertical)
         .frame(minHeight: Theme.Metric.sheetRowMinHeight)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
         }
     }
 }
@@ -70,13 +70,13 @@ struct PanelToggle: View {
                 .fill(isOn ? Theme.Accent.clayTint : Theme.Surface.well)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(isOn ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                        .stroke(isOn ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                 }
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
                 .fill(isOn ? Theme.Accent.clay : Theme.Surface.panel)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(isOn ? Theme.Accent.clayPress : Theme.Line.line2, lineWidth: 1)
+                        .stroke(isOn ? Theme.Accent.clayPress : Color.clear, lineWidth: 1.5)
                 }
                 .frame(width: 20, height: 20)
                 .padding(3)
@@ -118,7 +118,7 @@ struct PanelField: View {
         .background(Theme.Surface.paper)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(focused ? Theme.Accent.clay : Theme.Line.line2, lineWidth: 1)
+                .stroke(focused ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
         }
     }
 }
@@ -135,7 +135,7 @@ struct LabeledField<Trailing: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label.uppercased())
+            Text(label)
                 .typeRole(.label)
                 .foregroundStyle(Theme.Ink.ink2)
             HStack(spacing: Theme.Metric.s8) {
@@ -168,10 +168,6 @@ struct WellBlock: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(Theme.Metric.s8)
             .background(Theme.Surface.well)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
     }
 }
 

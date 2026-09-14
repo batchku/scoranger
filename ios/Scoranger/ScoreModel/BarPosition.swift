@@ -106,10 +106,8 @@ extension BarPosition {
     /// rect wanted here — see `ScoreModelBuilder`'s note that it never uses the
     /// measure element for hit-testing a NOTE for the opposite reason.
     static func bars(onPage page: ScorePage) -> [Bar] {
-        clippedToNeighbours(page.elements.compactMap { element in
-            guard element.kind == .measure, let address = element.address else { return nil }
-            return Bar(number: address.measure, frame: element.frame)
-        })
+        // Computed once, when the page is made (`ScorePage.barFrames`).
+        page.barFrames
     }
 
     /// Cut each bar's right edge back to where the next bar begins.

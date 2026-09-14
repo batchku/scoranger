@@ -12,26 +12,30 @@ struct BandHeader<Trailing: View>: View {
     /// Space Grotesk 700 there, which is `.titleS`.
     var role: Theme.Role = .label
     @ViewBuilder var trailing: () -> Trailing
+    @Environment(\.inPanel) private var inPanel
 
     var body: some View {
         HStack(spacing: Theme.Metric.s8) {
-            Text(title.uppercased())
+            // Sentence case (§2 rule 2): the tracked caps silkscreen is retired.
+            // A section label is ink3; an index LETTER (passed in as .titleS)
+            // keeps clayStrong, which §1 reserves for the alphabet.
+            Text(title)
                 .typeRole(role)
-                .foregroundStyle(Theme.Accent.clayStrong)
+                .foregroundStyle(role == .label ? Theme.Ink.ink3 : Theme.Accent.clayStrong)
             Spacer(minLength: 0)
             trailing()
         }
-        .padding(.horizontal, Theme.Metric.panelPadding)
-        .padding(.top, 5)
-        .padding(.bottom, 4)
+        // Inside the panel a header is a block's label (§7.2): sentence case
+        // on the panel's own ground, the dashed rule above separating blocks
+        // [C13]. On a page it is the band it was.
+        .padding(.horizontal, inPanel ? Theme.Metric.panelSide : Theme.Metric.panelPadding)
+        .padding(.top, inPanel ? Theme.Metric.s12 : 5)
+        .padding(.bottom, inPanel ? Theme.Metric.s6 : 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.Surface.band)
-        .overlay(alignment: .top) { hairline }
-        .overlay(alignment: .bottom) { hairline }
-    }
-
-    private var hairline: some View {
-        Rectangle().fill(Theme.Line.line2).frame(height: 1)
+        .background(inPanel ? Color.clear : Theme.Surface.band)
+        // ONE rule, above [C13]: the block after a row takes the row's rule,
+        // so a header never draws a second line under itself.
+        .overlay(alignment: .top) { Theme.Rule() }
     }
 }
 
@@ -49,12 +53,30 @@ struct NumeralBadge: View {
     let number: Int
     var role: Theme.Role = .numeralL
 
+    /// The stamp (§7.4): the numeral inside a clay ring. 56/3/22 on a head,
+    /// 40/2.5/15 in a row, 30/2/12 in a version list -- ring diameter, ring
+    /// weight, type size, keyed by the role the caller already passes.
+    private var ring: (diameter: CGFloat, weight: CGFloat) {
+        switch role {
+        case .numeralXL: return (56, 3)
+        case .numeralM:  return (30, 2)
+        default:         return (40, Theme.Metric.stampRing)
+        }
+    }
+
     var body: some View {
         Text("#\(number)")
             .typeRole(role)
             .monospacedDigit()
             .foregroundStyle(Theme.Accent.clay)
-            .frame(minWidth: role == .numeralL ? 36 : 28, alignment: .leading)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            // 1pt left of the ring's centre, for the hash (§3 Centring).
+            .offset(x: -1)
+            .frame(width: ring.diameter, height: ring.diameter)
+            .overlay {
+                Circle().strokeBorder(Theme.Accent.clay, lineWidth: ring.weight)
+            }
             .accessibilityLabel("Arrangement number \(number)")
     }
 }
@@ -116,7 +138,7 @@ struct RevealBand<Content: View>: View {
     }
 
     private var hairline: some View {
-        Rectangle().fill(Theme.Line.line2).frame(height: 1)
+        Theme.Rule()
     }
 }
 
@@ -136,10 +158,6 @@ struct MiniChip: View {
             .padding(.horizontal, Theme.Metric.s6)
             .padding(.vertical, 2)
             .background(Theme.Surface.panel)
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
             .lineLimit(1)
             .fixedSize()
@@ -174,7 +192,7 @@ struct PanelButton: View {
                 .background(fill)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(kind == .normal ? Theme.Line.line2 : .clear, lineWidth: 1)
+                        .stroke(Color.clear, lineWidth: 0)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .contentShape(Rectangle())
@@ -217,7 +235,7 @@ struct PanelIconButton: View {
                 .overlay {
                     if bordered {
                         RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
+                            .stroke(Color.clear, lineWidth: 0)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
@@ -273,7 +291,7 @@ struct OverlayPanel<Content: View>: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .background(Theme.Surface.panel)
             .overlay(alignment: edge == .leading ? .trailing : .leading) {
-                Rectangle().fill(Theme.Line.line2).frame(width: 1)
+                Theme.Rule(vertical: true)
             }
             .modifier(PanelShadow())
     }
@@ -310,7 +328,7 @@ struct OverlayHeader<Subject: View, Trailing: View>: View {
         .padding(.vertical, Theme.Metric.s8)
         .background(Theme.Surface.panel)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line2).frame(height: 1)
+            Theme.Rule()
         }
     }
 }

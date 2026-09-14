@@ -17,6 +17,16 @@ struct LibraryRow: Identifiable, Equatable {
     let composer: String
     let changed: String
     let arrangementCount: Int
+    /// When it was added -- the first version's day -- for the second mono
+    /// line on the row and the Date added sort [C10]. Empty when unknown.
+    var added: String = ""
+    /// The same, unformatted, for the sort.
+    var addedRaw: String = ""
+    /// What the filters read [C9]: the latest artifact's kind, the instruments
+    /// in the parts snapshot, and the tags on the piece and its arrangements.
+    var holding: ArtifactHolding? = nil
+    var instruments: Set<String> = []
+    var tags: Set<String> = []
 
     struct Chip: Equatable {
         let text: String
@@ -32,12 +42,99 @@ struct LibraryRow: Identifiable, Equatable {
 /// person sees, and none of them needs a screen to be checked.
 enum LibraryModel {
 
+    /// The rows a set of filters keeps [C9]. Pure, so the Filter panel can
+    /// count what each capsule would keep with the same rule the list uses.
+    /// Filters in one group widen (a row matching any of them passes that
+    /// group); groups narrow (a row has to pass every group that has a
+    /// filter on).
+    static func filtered(_ rows: [LibraryRow], by filters: Set<LibraryFilter>,
+                         manifest: Manifest) -> [LibraryRow] {
+        guard !filters.isEmpty else { return rows }
+        let inSetlist = Set((manifest.setlists ?? []).flatMap(\.arrangements))
+        let piecesWithSetlisted = Set((manifest.pieces ?? [])
+            .filter { !$0.arrangements.filter(inSetlist.contains).isEmpty }
+            .map(\.slug))
+        func passes(_ row: LibraryRow, _ filter: LibraryFilter) -> Bool {
+            switch filter {
+            case .type(let holding):     return row.holding == holding
+            case .composer(let name):    return row.composer.caseInsensitiveCompare(name) == .orderedSame
+            case .instrument(let name):  return row.instruments.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+            case .tag(let tag):          return row.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+            case .status(.unfiled):      return row.chips.contains { $0.text == "UNFILED" }
+            case .status(.omrDrafts):    return row.chips.contains { $0.text == "OMR DRAFT" }
+            case .status(.hasSources):   return row.chips.contains { $0.text.hasSuffix("SOURCE") }
+            case .status(.inASetlist):   return piecesWithSetlisted.contains(row.id) || inSetlist.contains(row.id)
+            }
+        }
+        let groups = Dictionary(grouping: filters, by: \.group)
+        return rows.filter { row in
+            groups.values.allSatisfy { inGroup in inGroup.contains { passes(row, $0) } }
+        }
+    }
+
+    /// One capsule per value the rows actually have, with the count each
+    /// would keep on its own (L4). Groups with nothing to offer are absent.
+    struct FilterGroup: Identifiable {
+        let group: LibraryFilter.Group
+        let options: [(filter: LibraryFilter, count: Int)]
+        var id: String { group.rawValue }
+    }
+
+    static func filterGroups(rows: [LibraryRow], manifest: Manifest) -> [FilterGroup] {
+        var found: [LibraryFilter.Group: Set<LibraryFilter>] = [:]
+        for row in rows {
+            if let holding = row.holding { found[.type, default: []].insert(.type(holding)) }
+            if !row.composer.isEmpty { found[.composer, default: []].insert(.composer(row.composer)) }
+            for instrument in row.instruments { found[.instrument, default: []].insert(.instrument(instrument)) }
+            for tag in row.tags { found[.tag, default: []].insert(.tag(tag)) }
+        }
+        found[.status] = Set(LibraryFilter.Status.allCases.map { LibraryFilter.status($0) })
+        return LibraryFilter.Group.allCases.compactMap { group in
+            guard let filters = found[group], !filters.isEmpty else { return nil }
+            let options = filters
+                .map { (filter: $0, count: filtered(rows, by: [$0], manifest: manifest).count) }
+                .filter { $0.count > 0 || group == .status }
+                .sorted { a, b in
+                    if a.count != b.count { return a.count > b.count }
+                    return a.filter.label.localizedCaseInsensitiveCompare(b.filter.label) == .orderedAscending
+                }
+            return options.isEmpty ? nil : FilterGroup(group: group, options: options)
+        }
+    }
+
+    /// A day for a row's mono line [C10]: "today", "Tue" within the week,
+    /// "3 Sep" this year, "3 Sep 2025" before. Empty for nothing.
+    static func day(_ iso: String?, now: Date = Date()) -> String {
+        guard let iso, let date = parse(iso) else { return "" }
+        let cal = Calendar.current
+        if cal.isDate(date, inSameDayAs: now) { return "today" }
+        if let week = cal.date(byAdding: .day, value: -6, to: now), date > week {
+            let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("EEE"); return f.string(from: date)
+        }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate(cal.isDate(date, equalTo: now, toGranularity: .year) ? "d MMM" : "d MMM y")
+        return f.string(from: date)
+    }
+
+    private static func parse(_ iso: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: iso) { return d }
+        let plain = ISO8601DateFormatter()
+        if let d = plain.date(from: iso) { return d }
+        // The engine writes local timestamps without a zone in older libraries.
+        let local = DateFormatter(); local.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return local.date(from: String(iso.prefix(19)))
+    }
+
     // MARK: - Pieces
 
-    static func pieceRows(manifest: Manifest) -> [LibraryRow] {
+    static func pieceRows(manifest: Manifest,
+                          arrangementTags: [String: [String]] = [:]) -> [LibraryRow] {
         let scores = Dictionary(uniqueKeysWithValues: manifest.scores.map { ($0.slug, $0) })
         return (manifest.pieces ?? []).map { piece in
             let arrangements = piece.arrangements.compactMap { scores[$0] }
+            let firstAdded = arrangements.compactMap { $0.versions.first?.time ?? nil }.min() ?? ""
             // No composer is no composer. It used to read "unknown", which is
             // a word where a fact should be -- and after a PDF import, which
             // carries no metadata, EVERY row said it.
@@ -69,7 +166,7 @@ enum LibraryModel {
                 chips.append(.init(text: "OMR DRAFT", kind: .warning))
             }
             let latest = arrangements.compactMap { $0.versions.last?.time ?? nil }.max() ?? ""
-            let version = arrangements.compactMap { $0.latest }.last ?? ""
+            let version = arrangements.compactMap { $0.latestLabel }.last ?? ""
             return LibraryRow(
                 id: piece.slug,
                 title: piece.name,
@@ -82,15 +179,34 @@ enum LibraryModel {
                 sortName: piece.name,
                 composer: composer,
                 changed: latest,
-                arrangementCount: arrangements.count)
+                arrangementCount: arrangements.count,
+                added: day(firstAdded),
+                addedRaw: firstAdded,
+                holding: ArtifactTag.holding(ofScores: arrangements),
+                instruments: instruments(of: arrangements),
+                tags: Set((piece.tags ?? []) + arrangements.flatMap { arrangementTags[$0.slug] ?? [] }))
         }
+    }
+
+    /// The instruments a set of arrangements is scored for, from the parts
+    /// snapshot of each one's latest version [C9]. A never-converted scan has
+    /// no snapshot and matches no instrument; the counts show it.
+    static func instruments(of scores: [ScoreDoc]) -> Set<String> {
+        Set(scores.flatMap { score in
+            (score.versions.last?.parts ?? []).map { part in
+                (part.instrument?.isEmpty == false ? part.instrument! : part.name)
+                    .trimmingCharacters(in: .whitespaces)
+            }
+        }.filter { !$0.isEmpty })
     }
 
     /// Arrangements filed under no piece. They have no `#N` -- a number is only
     /// meaningful inside a piece (§2) -- so the row shows no numeral and
     /// reserves no space for one.
-    static func unfiledRows(manifest: Manifest) -> [LibraryRow] {
+    static func unfiledRows(manifest: Manifest,
+                            arrangementTags: [String: [String]] = [:]) -> [LibraryRow] {
         manifest.scores.filter { ($0.piece ?? "").isEmpty }.map { score in
+            let firstAdded = (score.versions.first?.time ?? nil) ?? ""
             var chips = ArtifactTag.chips(files: score.versions.map(\.file))
             chips.append(.init(text: "UNFILED", kind: .warning))
             if isOMRDraft(score) { chips.append(.init(text: "OMR DRAFT", kind: .warning)) }
@@ -102,13 +218,18 @@ enum LibraryModel {
                     + (score.versions.count == 1 ? "version" : "versions")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
-                meta: [score.latest ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
+                meta: [score.latestLabel ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 sortName: ScoreTitle.arrangementName(title: score.title, name: score.name,
                                                      slug: score.slug),
                 composer: score.composer ?? "",
                 changed: (score.versions.last?.time ?? nil) ?? "",
-                arrangementCount: 1)
+                arrangementCount: 1,
+                added: day(firstAdded),
+                addedRaw: firstAdded,
+                holding: ArtifactTag.holding(of: score),
+                instruments: instruments(of: [score]),
+                tags: Set(arrangementTags[score.slug] ?? []))
         }
     }
 
@@ -189,6 +310,9 @@ enum LibraryModel {
         case .recent:
             // newest first; a row that has never changed sorts last
             return rows.sorted { $0.changed > $1.changed }
+        case .added:
+            // newest first [C10]; a row with no first version sorts last
+            return rows.sorted { $0.addedRaw > $1.addedRaw }
         case .arrangements:
             return rows.sorted {
                 $0.arrangementCount == $1.arrangementCount

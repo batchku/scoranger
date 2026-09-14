@@ -60,26 +60,28 @@ say "sound bank: $(du -h "$BANK" | cut -f1), digest ${BANK_SHA:0:12}"
 # and shipped in the engine while the app carried an ops.py without it, so the
 # feature simply was not there on device and nothing said so.
 #
-# The list comes from vendor_engine.sh rather than being written out again
-# here. Not every engine module goes to the device -- render, server, chat and
-# cli are host-only, and the bridge stands in for them -- so "compare every
-# .py" would fail on files that are absent on purpose. But a list kept in two
-# places is a list that drifts, and this one only ever guarded the four modules
-# someone happened to write down.
-VENDORED=$(sed -n 's/^for f in \(.*\); do$/\1/p' scripts/vendor_engine.sh | head -1)
-[[ -n "$VENDORED" ]] || die "cannot read the vendored module list from scripts/vendor_engine.sh"
-for f in $VENDORED; do
-  [[ -f "PythonApp/app/scoranger_engine/$f" ]] \
-    || die "vendored $f is MISSING -- run scripts/vendor_engine.sh"
-  cmp -s "../engine/scoranger_engine/$f" "PythonApp/app/scoranger_engine/$f" \
-    || die "vendored $f is stale -- run scripts/vendor_engine.sh"
-done
-# and nothing else is sitting there from an older vendoring
-for got in PythonApp/app/scoranger_engine/*.py; do
-  f="$(basename "$got")"
-  [[ " $VENDORED " == *" $f "* ]] \
-    || die "vendored $f is not in vendor_engine.sh's list -- run scripts/vendor_engine.sh"
-done
+# ONE implementation, and it is not this one. `check_vendored_engine.py`
+# already derives the closure from what is actually vendored, compares every
+# module byte for byte against the engine source, and asserts the closure is
+# closed. Calling it beats a second copy of the same idea here.
+#
+# The second copy is why this is being written: the block that used to live
+# here scraped the module list out of vendor_engine.sh with
+#   sed -n 's/^for f in \(.*\); do$/\1/p'
+# and vendor_engine.sh stopped having a `for f in ...` line the day it started
+# DERIVING the closure instead of listing it. From then on the sed matched
+# nothing, the preflight died with "cannot read the vendored module list", and
+# no deploy could run at all -- found by deliberately staling a module to see
+# whether the check would catch it, and getting the wrong error. Fail-closed,
+# so nothing shipped stale; but a check that cannot read its own input is not
+# a check, and this one was one edit away from being deleted in frustration
+# rather than fixed.
+VENDOR_CHECK="../engine/scripts/check_vendored_engine.py"
+[[ -f "$VENDOR_CHECK" ]] || die "missing $VENDOR_CHECK"
+VENDOR_PY="../engine/.venv/bin/python"
+[[ -x "$VENDOR_PY" ]] || VENDOR_PY="$PY"
+"$VENDOR_PY" "$VENDOR_CHECK" \
+  || die "the vendored engine is stale or incomplete -- run scripts/vendor_engine.sh"
 
 [[ -f "$SIGNING_PROFILE" ]] || die "no provisioning profile at $SIGNING_PROFILE -- run scripts/bootstrap_signing.sh"
 [[ -f "$KEYCHAIN_PATH" ]]   || die "no signing keychain at $KEYCHAIN_PATH -- run scripts/bootstrap_signing.sh"
@@ -136,17 +138,149 @@ xcodebuild archive \
 # THE ARCHIVE, not the build script. Checked here because this is the only
 # moment the thing that will actually be uploaded exists: 0.6.20 build 180 went
 # to TestFlight carrying four copyrighted score files while the build phase's
-# own comment said it did not. A gate on the source would have believed the
-# comment. design/FIREBASE.md §0.11.
-CHECK_PY="../engine/.venv/bin/python"
-[[ -x "$CHECK_PY" ]] || CHECK_PY="$PY"
-"$CHECK_PY" ../engine/scripts/check_no_bundled_scores.py "$ARCHIVE_PATH" \
-  || die "the archive contains score files -- it must not ship"
+# own comment said it did not (design/FIREBASE.md §0.11). A gate on the source
+# would have believed the comment.
+"$VENDOR_PY" ../engine/scripts/check_no_bundled_scores.py "$ARCHIVE_PATH" \
+  || die "the archive contains score files -- see design/FIREBASE.md §0.11"
 ARCHIVED_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
   "$ARCHIVE_PATH/Products/Applications/$SCHEME.app/Info.plist")
 [[ "$ARCHIVED_BUILD" == "$BUILD_NUMBER" ]] \
   || die "archive says build $ARCHIVED_BUILD but project.yml says $BUILD_NUMBER"
 say "archived build $ARCHIVED_BUILD"
+
+# A FIREBASE-LINKED BUILD WITH NO FIREBASE CONFIG MUST NOT SHIP.
+#
+# 0.7.1 build 184 did. It linked the SDK, found no GoogleService-Info.plist in
+# the bundle, correctly disabled sign-in, and went out as a SHARING release
+# whose sharing could not be reached -- Settings read "This build has no
+# Firebase configuration, so signing in is unavailable."
+#
+# The build phase tolerates a missing plist ON PURPOSE and that is right: a
+# checkout without secrets still has to build, and a signed-out app is a
+# complete app. What was missing is that the tolerance is WRONG at the moment
+# of shipping a build whose headline feature needs it. So the question is asked
+# here, of the archive, and only when the SDK is actually linked -- a 0.6.x
+# archive carries no Firebase and has to stay shippable.
+APP_IN_ARCHIVE="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+if [[ -d "$APP_IN_ARCHIVE/Frameworks/FirebaseCore.framework" ]] \
+   || grep -qa FirebaseApp "$APP_IN_ARCHIVE/$SCHEME" 2>/dev/null; then
+  [[ -f "$APP_IN_ARCHIVE/GoogleService-Info.plist" ]] || die \
+"this archive links Firebase but carries no GoogleService-Info.plist -- sign-in
+       would be dead on the device. Put it at ios/GoogleService-Info.plist
+       (scripts/link_worktree_inputs.sh links it into a worktree) and archive again"
+  PROJ=$(/usr/libexec/PlistBuddy -c "Print :PROJECT_ID" \
+         "$APP_IN_ARCHIVE/GoogleService-Info.plist" 2>/dev/null || true)
+  [[ -n "$PROJ" ]] || die "the archived GoogleService-Info.plist has no PROJECT_ID"
+  say "Firebase config in the archive: project $PROJ"
+
+  # The reversed client id is what Google's callback returns through. With no
+  # matching URL scheme the browser opens and never comes back, which reads as
+  # a hang rather than as a misconfiguration.
+  REV=$(/usr/libexec/PlistBuddy -c "Print :REVERSED_CLIENT_ID" \
+        "$APP_IN_ARCHIVE/GoogleService-Info.plist" 2>/dev/null || true)
+  if [[ -n "$REV" ]]; then
+    /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" \
+      "$APP_IN_ARCHIVE/Info.plist" 2>/dev/null | grep -q "$REV" || die \
+"the archive does not register the reversed client id $REV -- Google sign-in
+       would open a browser and never return"
+    say "Google callback URL scheme registered"
+  fi
+
+  # Guideline 4.8: offering Google obliges an equivalent private option. And
+  # concretely, the reader waiting on this has an Apple account and no Google
+  # one, so Apple is not the secondary path here -- it is the only one.
+  ENT=$(codesign -d --entitlements - --xml "$APP_IN_ARCHIVE" 2>/dev/null || true)
+  grep -q "com.apple.developer.applesignin" <<<"$ENT" || die \
+"this archive links Firebase but carries no Sign in with Apple entitlement"
+  say "Sign in with Apple entitlement present"
+
+  # The invitation is an https universal link, and without this entitlement in
+  # the SIGNED app iOS never consults the association: the tap opens Safari and
+  # the invitee never reaches the join screen. The AASA was live and correct
+  # for days while the entitlements file simply did not name the domain, which
+  # is the shape of every dead-on-arrival build so far -- the far half right
+  # and the near half missing.
+  grep -q "com.apple.developer.associated-domains" <<<"$ENT" || die \
+"this archive links Firebase but carries no associated-domains entitlement --
+       tapping an invitation link would open Safari instead of the app"
+  grep -q "applinks:scoranger.web.app" <<<"$ENT" || die \
+"the associated-domains entitlement does not name scoranger.web.app, which is
+       the host the AASA is served from"
+  say "Universal link entitlement present (applinks:scoranger.web.app)"
+
+  # And the association itself, fetched. All four things Apple requires of it,
+  # checked against the live host rather than against a file in the repo --
+  # what matters is what the device will GET.
+  AASA_HDR=$(curl -sS -o /tmp/scoranger-aasa.json \
+    -w "%{http_code} %{content_type} %{num_redirects}" \
+    "https://scoranger.web.app/.well-known/apple-app-site-association" || true)
+  read -r AASA_CODE AASA_TYPE AASA_HOPS <<<"$AASA_HDR"
+  [[ "$AASA_CODE" == "200" ]] || die "the AASA is not being served (HTTP $AASA_CODE)"
+  [[ "$AASA_TYPE" == application/json* ]] || die \
+"the AASA is served as $AASA_TYPE, and Apple requires application/json"
+  [[ "$AASA_HOPS" == "0" ]] || die "the AASA redirects $AASA_HOPS times; Apple follows none"
+  grep -q "V9DBGV72NL.com.irllabs.scoranger" /tmp/scoranger-aasa.json || die \
+"the AASA does not name this app id"
+  grep -q "/invite/" /tmp/scoranger-aasa.json || die \
+"the AASA does not claim the /invite/ path"
+  say "AASA live: 200, application/json, no redirect, /invite/* for this app id"
+
+  # The Storage rule for shared/ reads the set list's members out of Firestore
+  # (`firestore.get`). Live, that read runs as the Storage service agent, and
+  # the agent needs roles/firebaserules.firestoreServiceAgent on the project or
+  # the read fails, an evaluation error is a DENY, and the owner's own upload
+  # comes back "User does not have permission" -- which is what build 187 did
+  # in Ali's hands. The Firebase CLI grants the role when it deploys Storage
+  # rules; ours went up by REST, so nothing did. The emulator does not need the
+  # grant, so 44 green rules tests could not see it. Only the live project can
+  # answer this, so the live project is asked.
+  FB_PROJECT_NUMBER=$(gcloud projects describe "$PROJ" --format='value(projectNumber)' 2>/dev/null || true)
+  if [[ -z "$FB_PROJECT_NUMBER" ]]; then
+    die "cannot read the Firebase project's number with gcloud -- sign in (gcloud auth login) so the Storage rules' cross-service grant can be verified"
+  fi
+  STORAGE_AGENT="serviceAccount:service-${FB_PROJECT_NUMBER}@gcp-sa-firebasestorage.iam.gserviceaccount.com"
+  gcloud projects get-iam-policy "$PROJ" --format=json 2>/dev/null \
+    | python3 -c "
+import json, sys
+policy = json.load(sys.stdin)
+agent, role = sys.argv[1], 'roles/firebaserules.firestoreServiceAgent'
+ok = any(b['role'] == role and agent in b['members'] for b in policy['bindings'])
+sys.exit(0 if ok else 1)
+" "$STORAGE_AGENT" || die \
+"the Storage service agent lacks roles/firebaserules.firestoreServiceAgent, so every
+       upload to shared/ is refused -- grant it:
+         gcloud projects add-iam-policy-binding $PROJ \\
+           --member=$STORAGE_AGENT \\
+           --role=roles/firebaserules.firestoreServiceAgent"
+  say "Storage rules may read Firestore (firestoreServiceAgent granted)"
+
+  # Every callable the app depends on must be at least as new as its source.
+  # Build 187, in Ali's hands: the invite was minted open, and claimInvite
+  # refused it as "sent to a different address" -- because the deployed
+  # claimInvite was from the 8th and the open-link branch was written on the
+  # 9th. Three of five functions had been redeployed; two had not. The emulator
+  # suite runs the REPO's functions and so was green throughout; only the live
+  # project can answer this, so the live project is asked: each function's
+  # updateTime must be after the last commit that touched index.js.
+  REPO_ROOT=$(git rev-parse --show-toplevel)
+  FN_SOURCE_AT=$(git -C "$REPO_ROOT" log -1 --format=%cI -- firebase/functions/index.js)
+  [[ -n "$FN_SOURCE_AT" ]] || die "cannot date firebase/functions/index.js from git"
+  for fn in shareSetlist createInvite claimInvite revokeInvite removeMember; do
+    DEPLOYED_AT=$(gcloud functions describe "$fn" --gen2 --region us-west1 \
+                    --project "$PROJ" --format='value(updateTime)' 2>/dev/null || true)
+    [[ -n "$DEPLOYED_AT" ]] || die "callable $fn is not deployed in $PROJ/us-west1"
+    python3 - "$fn" "$DEPLOYED_AT" "$FN_SOURCE_AT" <<'PYCHK' || die \
+"callable $fn was deployed before its source last changed -- redeploy the functions
+       (firebase/functions/index.js changed $FN_SOURCE_AT, $fn deployed $DEPLOYED_AT)"
+import sys
+from datetime import datetime
+fn, deployed, source = sys.argv[1:4]
+parse = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))
+sys.exit(0 if parse(deployed) >= parse(source) else 1)
+PYCHK
+  done
+  say "all five callables are newer than their source"
+fi
 
 # --------------------------------------------------- privacy manifests, sealed
 #

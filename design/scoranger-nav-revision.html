@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scoranger 0.4.1 Revision</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+
+
+/* ══════════════════════ TOKENS — the chosen system ══════════════════════ */
+:root{
+  /* surface + ink */
+  --paper:#FFFFFF; --ground:#F4F0E8; --panel:#FAF7F1; --well:#EFEAE0; --band:#F1ECE2;
+  --ink:#1A1917; --ink-2:#6B655C; --ink-3:#8A8378;
+  --line:#E2DBCE; --line-2:#CFC6B6;
+  /* the one accent */
+  --clay:#CC5C2E; --clay-strong:#A8481F; --clay-press:#B14D22; --clay-tint:#F7E7DD;
+  /* system status — outside the three-colour budget, never decorative */
+  --ok:#3BA05C; --warn:#C8791B; --danger:#C0392B; --hl:#FFE25A;
+  /* type */
+  --f-display:'Space Grotesk',system-ui,sans-serif;
+  --f-ui:Inter,system-ui,-apple-system,sans-serif;
+  --f-data:'IBM Plex Mono',ui-monospace,monospace;
+  /* spacing ladder */
+  --s1:2px; --s2:4px; --s3:6px; --s4:8px; --s5:12px; --s6:16px; --s7:20px; --s8:24px; --s9:32px;
+  /* border + radius */
+  --r-ctl:2px; --r-panel:3px; --r-pill:999px;
+  /* elevation: overlays only */
+  --e-panel:0 10px 34px rgba(26,25,23,.14);
+  --e-pill:0 6px 20px rgba(26,25,23,.16);
+  --e-sheet:0 20px 60px rgba(26,25,23,.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-ui);font-size:14px;-webkit-text-size-adjust:100%}
+
+/* ══════════════════════ presentation shell ══════════════════════ */
+.wrap{max-width:1560px;margin:0 auto;padding:26px 16px 70px}
+.masthead{display:flex;align-items:flex-end;gap:var(--s5);border-bottom:3px solid var(--ink);padding-bottom:var(--s5)}
+.masthead h1{font-family:var(--f-display);font-weight:700;font-size:30px;letter-spacing:-.02em;margin:0}
+.masthead .code{font-family:var(--f-data);font-size:13px;color:var(--clay-strong);margin-left:auto;font-weight:500}
+.lede{font-size:14px;line-height:1.55;color:var(--ink-2);max-width:78ch;margin:var(--s6) 0 0}
+.lede b{color:var(--ink)}
+h2.sec{font-family:var(--f-display);font-weight:600;font-size:19px;margin:44px 0 2px;letter-spacing:-.01em}
+h2.sec .n{font-family:var(--f-data);font-size:12px;color:var(--clay-strong);margin-right:8px;font-weight:500}
+.sec-sub{font-size:13px;color:var(--ink-2);margin:0 0 var(--s6);max-width:80ch;line-height:1.5}
+.label{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.screens{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:1100px){.screens{grid-template-columns:1fr}}
+.shot{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel);overflow:hidden}
+.shot-h{padding:10px 13px 9px;border-bottom:1px solid var(--line)}
+.shot-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.shot-h .d{font-size:12px;color:var(--ink-2);line-height:1.45;margin-top:2px}
+.stage{position:relative;width:100%;overflow:hidden;background:var(--well);cursor:zoom-in}
+.stage .scr{position:absolute;top:0;left:0;transform-origin:0 0}
+.tapz{position:absolute;right:7px;bottom:7px;font-family:var(--f-data);font-size:10px;background:rgba(26,25,23,.72);color:#fff;padding:2px 6px;border-radius:var(--r-ctl);pointer-events:none}
+/* token tables */
+.tok{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(196px,1fr))}
+.chip{border:1px solid var(--line-2);border-radius:var(--r-panel);overflow:hidden;background:var(--panel)}
+.chip .sw{height:52px;border-bottom:1px solid var(--line-2)}
+.chip .m{padding:7px 9px}
+.chip .nm{font-size:12px;font-weight:600}
+.chip .hx{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.chip .use{font-size:11px;color:var(--ink-3);line-height:1.35;margin-top:2px}
+table.spec{border-collapse:collapse;width:100%;font-size:12.5px}
+table.spec th,table.spec td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+table.spec th{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);border-bottom:1px solid var(--line-2)}
+table.spec td.mono,table.spec td .mono{font-family:var(--f-data);font-size:11.5px}
+.scroller{overflow-x:auto}
+.modal{position:fixed;inset:0;background:rgba(20,19,17,.94);z-index:60;display:none;align-items:center;justify-content:center}
+.modal.open{display:flex}
+.modal .scr{transform-origin:50% 50%}
+.modal .x{position:absolute;top:12px;right:14px;font:600 13px Inter,sans-serif;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:8px 12px;cursor:pointer;color:var(--ink)}
+body.shot-mode .wrap,body.shot-mode .modal{display:none}
+.shotbox{display:none}
+body.shot-mode .shotbox{display:block}
+
+/* ══════════════════════ THE APP — instrument panel, score-first ══════════════════════ */
+.scr{width:1180px;height:886px;position:relative;overflow:hidden;background:var(--ground);
+     font-family:var(--f-ui);font-size:13px;color:var(--ink)}
+.scr.phone{width:390px;height:844px}
+
+/* canvas: the permanent ground */
+.cv{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    padding:var(--s7) 0 96px;overflow:hidden;background:var(--ground)}
+.cv.shift-l{padding-left:320px}
+.cv.shift-r{padding-right:380px}
+.cv.shift-l.shift-r{--pg-w:436px}
+.pg{width:var(--pg-w,520px);background:var(--paper);border:1px solid var(--line-2);padding:22px 26px 16px;position:relative;
+    box-shadow:0 2px 10px rgba(26,25,23,.07)}
+.pg-hd{display:flex;align-items:flex-start;gap:var(--s5);border-bottom:1px solid #E9E4DA;padding-bottom:9px;margin-bottom:12px}
+.pg-t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;line-height:1.2}
+.pg-s{font-size:10.5px;color:#8A8378;margin-top:2px}
+.pg-n{margin-left:auto;font-family:var(--f-display);font-weight:700;font-size:34px;line-height:.86;
+      color:var(--clay);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.pg-n small{display:block;font-family:var(--f-ui);font-size:8.5px;font-weight:700;letter-spacing:.11em;
+      text-transform:uppercase;color:var(--ink-3);text-align:right;margin-top:3px}
+.hlband{position:absolute;background:var(--hl);opacity:.4}
+
+/* the pill: every canvas control, one object */
+.pill{position:absolute;bottom:var(--s7);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s2);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);
+      padding:6px 8px;box-shadow:var(--e-pill);z-index:6}
+.pill .b{width:38px;height:38px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;
+      font-size:16px;color:var(--ink-2)}
+.pill .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.pill .vchip{font-family:var(--f-data);font-size:11px;font-weight:500;color:var(--ink-2);
+      border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:4px 7px;margin:0 var(--s2)}
+.pill .div{width:1px;height:22px;background:var(--line);margin:0 var(--s2)}
+.pill .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);
+      font-variant-numeric:tabular-nums;padding:0 var(--s3) 0 var(--s2)}
+
+/* annotation bar: sits above the pill, same object language */
+.abar{position:absolute;bottom:74px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s3);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:6px 10px;
+      box-shadow:var(--e-pill);z-index:6}
+.abar .b{width:34px;height:34px;border-radius:var(--r-pill);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.abar .b.on{background:var(--clay-tint);color:var(--clay-strong)}
+.abar .div{width:1px;height:20px;background:var(--line)}
+.abar .dot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(26,25,23,.16)}
+.abar .dot.on{width:24px;height:24px;box-shadow:0 0 0 2px var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+
+/* highlight chip */
+.hchip{position:absolute;top:var(--s6);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s4);
+      background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);padding:7px 10px;
+      box-shadow:var(--e-pill);z-index:6;font-size:12px}
+.hchip .st{display:flex;align-items:center;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden}
+.hchip .st span{padding:3px 8px;font-family:var(--f-data);font-size:11px}
+.hchip .st b{padding:3px 7px;background:var(--well);font-weight:600;font-size:13px;border-left:1px solid var(--line-2);border-right:1px solid var(--line-2)}
+
+/* overlay panels */
+.ov{position:absolute;top:0;bottom:0;background:var(--panel);z-index:8;display:flex;flex-direction:column}
+.ov.left{left:0;width:320px;border-right:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov.right{right:0;width:380px;border-left:1px solid var(--line-2);box-shadow:var(--e-panel)}
+.ov-h{display:flex;align-items:center;gap:var(--s4);padding:13px 14px 11px;border-bottom:1px solid var(--line-2)}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.02em;text-transform:uppercase}
+.led{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(59,160,92,.22)}
+.led.bad{background:var(--danger);box-shadow:0 0 0 3px rgba(192,57,43,.22)}
+.ov-h .x{margin-left:auto;width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.scrollbody{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* silkscreen section band */
+.bandh{display:flex;align-items:center;gap:var(--s3);padding:5px 14px 4px;background:var(--band);
+      border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);
+      font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.bandh .plus{margin-left:auto;width:22px;height:22px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+      background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-2);line-height:1}
+
+/* rows */
+.row{display:flex;align-items:center;gap:var(--s3);padding:7px 14px;min-height:36px}
+.row .car{width:10px;flex:0 0 10px;font-size:9px;color:var(--clay);text-align:center}
+.stk{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row .nm{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pnm{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em}
+.row .sub{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .cnt{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.row .i{margin-left:auto;width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px}
+.row .num{font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);
+      font-variant-numeric:tabular-nums;min-width:36px;line-height:1}
+.row.sel{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.row.sel .sub{color:var(--ink-2)}
+.row.drop{background:var(--clay-tint);outline:1px dashed var(--clay);outline-offset:-2px}
+.vrow{display:flex;align-items:center;gap:var(--s3);padding:4px 14px 4px 42px;min-height:28px;font-size:12px}
+.vrow .vid{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.vrow .vt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vrow .stp{font-family:var(--f-data);font-size:10.5px;color:var(--ink-3)}
+.vrow .eye{margin-left:auto;color:var(--clay);font-size:11px}
+.vrow.deep{padding-left:64px;color:var(--ink-2)}
+.vrow.now{background:var(--well)}
+.prog{display:flex;align-items:center;gap:var(--s4);padding:7px 14px;font-size:11px;color:var(--ink-2)}
+.prog .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line);overflow:hidden}
+.prog .track i{display:block;height:100%;width:62%;background:var(--clay)}
+.foot{margin-top:auto;font-family:var(--f-data);font-size:10.5px;color:var(--ink-3);text-align:center;
+      padding:7px;border-top:1px solid var(--line-2);background:var(--band)}
+
+/* chat */
+.chat-h{display:flex;align-items:center;gap:var(--s4);padding:11px 14px;border-bottom:1px solid var(--line-2)}
+.chat-h .num{font-family:var(--f-display);font-weight:700;font-size:17px;color:var(--clay);font-variant-numeric:tabular-nums}
+
+.chat-h .t{font-family:var(--f-display);font-weight:600;font-size:15px}
+.chat-h .s{font-size:11px;color:var(--ink-3)}
+.mdl{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);
+     border-radius:var(--r-ctl);padding:4px 7px;display:flex;gap:5px;align-items:center;white-space:nowrap;flex:0 0 auto}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s5);padding:var(--s5);overflow:hidden}
+.bub{max-width:86%;padding:9px 11px;border:1px solid var(--line-2);border-radius:var(--r-panel);line-height:1.45;background:var(--panel)}
+.bub.me{align-self:flex-end;background:var(--clay-tint);border-color:#E7C4B1}
+.bub.err{border-color:#E3B4AE;background:#FBEEEC}
+.bub .who{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.card{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--panel)}
+.card .ch{display:flex;align-items:center;gap:var(--s3);padding:6px 10px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.card .cb{padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.stp{display:flex;align-items:center;gap:var(--s3);font-size:12px}
+.stp .k{color:var(--ok);font-size:12px;width:13px}
+.stp .w{color:var(--warn);width:13px}
+.stp .o{color:var(--ink-3);width:13px}
+.stp .d{font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.spin{width:11px;height:11px;border:2px solid var(--line-2);border-top-color:var(--clay);border-radius:50%}
+.inbar{display:flex;align-items:center;gap:var(--s4);padding:11px;border-top:1px solid var(--line-2);background:var(--band)}
+.fld{flex:1;background:var(--paper);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:9px 10px;color:var(--ink-3);font-size:13px}
+.iconb{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.iconb.go{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.iconb.rec{color:var(--danger);border-color:#E3B4AE}
+
+/* sheets, alerts, states */
+.dim{position:absolute;inset:0;background:rgba(26,25,23,.34);z-index:20}
+.sheet{position:absolute;top:64px;bottom:64px;left:50%;transform:translateX(-50%);width:620px;background:var(--panel);
+     border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:21;display:flex;flex-direction:column;overflow:hidden}
+.sheet-h{display:flex;align-items:center;gap:var(--s4);padding:12px 14px;border-bottom:1px solid var(--line-2)}
+.sheet-h .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.sheet-h .btn{margin-left:auto}
+.btn{font-size:13px;font-weight:600;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+     padding:8px 12px;color:var(--ink)}
+.btn.pri{background:var(--clay-press);border-color:var(--clay-press);color:#fff}
+.btn.dan{background:var(--danger);border-color:var(--danger);color:#fff}
+.sheet-b{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.frow{display:flex;align-items:center;gap:var(--s5);padding:9px 14px;border-bottom:1px solid var(--line);min-height:40px}
+.frow .k{font-size:12.5px;color:var(--ink-2);min-width:150px}
+.frow .v{margin-left:auto;font-size:12.5px}
+.frow .v.mono{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2)}
+.sw{width:44px;height:26px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--well);position:relative}
+.sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--panel);border:1px solid var(--line-2);border-radius:1px}
+.sw.on{background:var(--clay-tint);border-color:var(--clay)}
+.sw.on i{left:auto;right:2px;background:var(--clay);border-color:var(--clay-press)}
+.alert{width:420px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);box-shadow:var(--e-sheet);overflow:hidden}
+.alert .ah{padding:12px 14px 4px;font-family:var(--f-display);font-weight:600;font-size:16px}
+.alert .ab{padding:0 14px 12px;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.alert .af{display:flex;gap:var(--s4);padding:11px 14px;border-top:1px solid var(--line-2);background:var(--band);justify-content:flex-end}
+.state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s4);text-align:center;
+     height:100%;padding:var(--s9)}
+.state .ic{font-size:30px;color:var(--ink-3)}
+.state .t{font-family:var(--f-display);font-weight:600;font-size:17px}
+.state .d{font-size:12.5px;color:var(--ink-2);max-width:44ch;line-height:1.5}
+.tile{border:1px solid var(--line-2);border-radius:var(--r-panel);background:var(--ground);height:280px;position:relative;overflow:hidden}
+.tile .cap{position:absolute;top:0;left:0;right:0;padding:5px 9px;background:var(--band);border-bottom:1px solid var(--line-2);
+     font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.grid4{display:grid;gap:var(--s6);grid-template-columns:repeat(2,minmax(0,1fr))}
+.staff{display:block;margin-bottom:9px}
+/* phone */
+.scr.phone .ov.left,.scr.phone .ov.right{width:100%;box-shadow:none}
+.scr.phone .pg{width:340px;padding:14px 16px 10px}
+.scr.phone .lrow{padding-right:26px}
+.scr.phone .cv{padding:12px 0 86px}
+.scr.phone .pill{bottom:14px}
+
+/* ══════════════════ NEW: navigation & IA components ══════════════════ */
+/* tab bar ------------------------------------------------------------ */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:64px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:stretch;z-index:9}
+.tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+.tabbar .tab .g{font-size:19px;line-height:1;padding:3px 16px;border-radius:var(--r-ctl)}
+.tabbar .tab.on{color:var(--clay-strong)}
+.tabbar .tab.on .g{background:var(--clay-tint);color:var(--clay-strong)}
+.tabbar .tab.soon{opacity:.38}
+/* screen chrome shared by Home + Library ----------------------------- */
+.sc-top{display:flex;align-items:center;gap:var(--s4);padding:14px 20px 10px}
+.sc-top .ic{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px;position:relative}
+.sc-top .ic .badge{position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 4px;
+  background:var(--clay-press);color:#fff;border-radius:8px;font-family:var(--f-data);font-size:9px;
+  display:flex;align-items:center;justify-content:center;font-weight:600}
+.sc-top .enginechip{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);background:var(--panel);padding:5px 9px;font-family:var(--f-data);font-size:11px;color:var(--ink-2)}
+.search{display:flex;align-items:center;gap:8px;margin:0 20px;background:var(--paper);border:1px solid var(--line-2);
+  border-radius:var(--r-ctl);padding:10px 12px;color:var(--ink-3);font-size:13px}
+.search .g{font-size:13px;color:var(--ink-3)}
+.h-title{font-family:var(--f-display);font-weight:700;font-size:26px;letter-spacing:-.02em;padding:0 20px}
+.h-title .count{font-family:var(--f-data);font-size:13px;font-weight:500;color:var(--ink-3);margin-left:8px;letter-spacing:0}
+/* quick-action panels ------------------------------------------------ */
+.quick{display:flex;gap:var(--s5);padding:0 20px;overflow:hidden}
+.qp{flex:1;min-width:0;border:1px solid var(--line-2);border-radius:var(--r-panel);padding:12px;
+  display:flex;flex-direction:column;gap:6px;min-height:104px;position:relative}
+.qp .g{font-size:20px;line-height:1;color:var(--clay-strong)}
+.qp .t{font-family:var(--f-display);font-weight:600;font-size:14px;letter-spacing:-.01em}
+.qp .d{font-size:11px;color:var(--ink-2);line-height:1.35;margin-top:auto}
+.qp.f1{background:var(--clay-tint);border-color:var(--clay-border)}
+.qp.f2{background:var(--band)}
+.qp.f3{background:var(--well)}
+.qp.f4{background:var(--panel)}
+/* section headers on Home -------------------------------------------- */
+.h-sec{display:flex;align-items:baseline;gap:8px;padding:0 20px;margin-top:2px}
+.h-sec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong)}
+.h-sec .all{margin-left:auto;font-size:11px;color:var(--ink-2)}
+/* thumbnails --------------------------------------------------------- */
+.thumb{background:var(--paper);border:1px solid var(--line-2);flex:0 0 auto;position:relative;overflow:hidden}
+.thumb.sm{width:34px;height:44px}
+.thumb.md{width:44px;height:57px}
+.ln{position:absolute;left:4px;right:4px;height:1px;background:#C9C4BA}
+.thumb .tt{position:absolute;left:4px;right:4px;top:5px;height:3px;background:#8A8378;opacity:.55}
+/* list rows for Home + Library ---------------------------------------- */
+.lrow{display:flex;align-items:center;gap:var(--s5);padding:9px 20px;min-height:56px}
+.lrow .stk{min-width:0;display:flex;flex-direction:column;gap:2px}
+.lrow .t{font-family:var(--f-display);font-weight:600;font-size:15px;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .s{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .chips{display:flex;gap:5px;margin-top:3px}
+.lrow .go{margin-left:auto;color:var(--ink-3);font-size:12px}
+.lrow.on{background:var(--clay-tint);outline:1px solid var(--clay);outline-offset:-1px}
+.dchip{border:1px solid var(--line-2);background:var(--band);border-radius:var(--r-ctl);padding:1px 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.dchip.num{background:var(--clay-tint);border-color:var(--clay-border);color:var(--clay-strong);font-family:var(--f-data);letter-spacing:0}
+.dchip.warnc{background:#FBF2E6;border-color:#E8CFA6;color:#8A5A12}
+.sep-l{height:1px;background:var(--line);margin-left:20px}
+/* library controls ---------------------------------------------------- */
+.segwrap{display:flex;justify-content:center;padding:6px 0 2px}
+.seg{display:flex;border:1px solid var(--line-2);border-radius:var(--r-ctl);overflow:hidden;background:var(--panel)}
+.seg div{padding:7px 20px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.seg div.on{background:var(--clay-tint);color:var(--clay-strong);box-shadow:inset 0 0 0 1px var(--clay)}
+.libbar{display:flex;align-items:center;gap:8px;padding:6px 20px 8px}
+.libbar .btn{padding:6px 10px;font-size:12px;display:flex;align-items:center;gap:5px}
+.libbar .right{margin-left:auto}
+.azrail{position:absolute;right:5px;top:170px;bottom:80px;width:16px;display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;font-family:var(--f-data);font-size:9.5px;color:var(--ink-3);z-index:4}
+.azrail b{color:var(--clay-strong)}
+.alpha{padding:5px 20px 2px;font-family:var(--f-display);font-weight:700;font-size:13px;color:var(--clay-strong);
+  background:var(--band);border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
+.fab{position:absolute;right:22px;bottom:84px;width:54px;height:54px;border-radius:var(--r-panel);
+  background:var(--clay-press);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:26px;box-shadow:var(--e-pill);z-index:7}
+/* ── score view chrome ── */
+.stopbar{position:absolute;top:0;left:0;right:0;height:52px;background:var(--panel);
+  border-bottom:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s4);padding:0 12px;z-index:8}
+.stopbar .x{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:14px}
+.titleblock{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:5px 10px;border:1px solid transparent;border-radius:var(--r-ctl)}
+.titleblock.open{border-color:var(--line-2);background:var(--well)}
+.titleblock .num{font-family:var(--f-display);font-weight:700;font-size:19px;color:var(--clay);font-variant-numeric:tabular-nums}
+.titleblock .stk{align-items:flex-start}
+.titleblock .t{font-family:var(--f-display);font-weight:600;font-size:15px;line-height:1.15}
+.titleblock .s{font-size:10.5px;color:var(--ink-3);font-family:var(--f-data)}
+.titleblock .chev{color:var(--ink-2);font-size:12px;margin-left:2px;align-self:center}
+.stopbar .acts{margin-left:auto;display:flex;align-items:center;gap:6px}
+.stopbar .acts .b{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:15px}
+.stopbar .acts .b.on{background:var(--clay-tint);border-color:var(--clay);color:var(--clay-strong)}
+.poscount{position:absolute;top:60px;right:14px;display:flex;gap:6px;z-index:5}
+.poscount span{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2);background:var(--panel);
+  border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:3px 7px}
+/* page thumbnail strip */
+.thumbstrip{position:absolute;left:0;right:0;bottom:56px;height:96px;background:var(--panel);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:10px;padding:0 14px;z-index:7;overflow:hidden}
+.thumbstrip .pt{position:relative;flex:0 0 auto;width:52px;height:68px;background:var(--paper);
+  border:1px solid var(--line-2);overflow:hidden}
+.thumbstrip .pt.on{outline:2px solid var(--clay);outline-offset:-1px}
+.thumbstrip .pt .n{position:absolute;bottom:1px;right:2px;font-family:var(--f-data);font-size:8px;color:var(--ink-3)}
+.thumbstrip .grp{display:flex;gap:2px;align-items:center;padding:3px;border:1px dashed var(--line-2);border-radius:var(--r-ctl)}
+/* transport */
+.transport{position:absolute;left:0;right:0;bottom:0;height:56px;background:var(--band);
+  border-top:1px solid var(--line-2);display:flex;align-items:center;gap:var(--s5);padding:0 14px;z-index:7}
+.transport .b{width:32px;height:32px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--panel);
+  display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:13px}
+.transport .b.pri{background:var(--panel)}
+.transport.inert .b:not(.live),.transport.inert .track,.transport.inert .tm{opacity:.42}
+.transport .track{flex:1;height:4px;background:var(--well);border:1px solid var(--line-2);position:relative}
+.transport .track i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--ink-3)}
+.transport .tm{font-family:var(--f-data);font-size:10.5px;color:var(--ink-2)}
+.transport .tag{font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:2px 6px}
+/* more menu (two layers) */
+.menu{position:absolute;top:58px;right:12px;width:320px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:12;overflow:hidden}
+.menu .mrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px}
+.menu .mrow .g{width:18px;color:var(--ink-2);font-size:14px}
+.menu .mrow .ch{margin-left:auto;color:var(--ink-3);font-size:12px}
+.menu .mrow .val{margin-left:auto;font-family:var(--f-data);font-size:11px;color:var(--ink-3)}
+.menu .mrow.top{background:var(--clay-tint)}
+.menu .back{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--band);
+  border-bottom:1px solid var(--line-2);font-size:12px;font-weight:600}
+.menu .back .g{color:var(--clay-strong)}
+/* page-turn zones diagram */
+.zone{position:absolute;top:52px;bottom:0;width:22%;z-index:6;display:flex;align-items:center;justify-content:center}
+.zone.l{left:0;background:linear-gradient(90deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone.r{right:0;background:linear-gradient(270deg,rgba(204,92,46,.16),rgba(204,92,46,0))}
+.zone .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--clay-strong);
+  background:var(--panel);border:1px solid var(--clay);border-radius:var(--r-ctl);padding:4px 8px;text-align:center;line-height:1.5}
+.zonec{position:absolute;top:52px;bottom:0;left:22%;right:22%;z-index:5;display:flex;align-items:center;justify-content:center}
+.zonec .lab{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);
+  background:var(--panel);border:1px dashed var(--line-2);border-radius:var(--r-ctl);padding:4px 8px}
+.perfbadge{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:9;
+  background:var(--clay-press);color:#fff;border-radius:var(--r-ctl);padding:4px 10px;
+  font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+/* legend blocks used on the component board */
+.legend{font-size:11px;color:var(--ink-2);line-height:1.4}
+.kv{display:flex;gap:8px;font-size:11.5px;padding:3px 0}
+.kv b{font-family:var(--f-data);font-weight:500;color:var(--ink-2);min-width:112px}
+
+/* ═════════ 0.4.1 revision: selection, action bar, fab menu, paged canvas ═════════ */
+.cbox{width:20px;height:20px;border:1px solid var(--line-2);border-radius:var(--r-ctl);background:var(--paper);
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto;color:#fff;font-size:12px;font-weight:700}
+.cbox.on{background:var(--clay-press);border-color:var(--clay-press)}
+.actionbar{position:absolute;left:0;right:0;bottom:64px;background:var(--panel);border-top:1px solid var(--line-2);
+  display:flex;align-items:center;gap:8px;padding:10px 20px;z-index:8;box-shadow:0 -6px 18px rgba(26,25,23,.07)}
+.actionbar .cnt{font-family:var(--f-data);font-size:11.5px;color:var(--ink-2);margin-right:4px}
+.actionbar .btn{padding:8px 11px;font-size:12.5px}
+.actionbar .btn.off{opacity:.42}
+.rowacts{display:flex;gap:6px;padding:0 20px 9px 52px}
+.rowacts .btn{padding:5px 9px;font-size:11.5px}
+.fabmenu{position:absolute;right:22px;bottom:148px;width:250px;background:var(--panel);border:1px solid var(--line-2);
+  border-radius:var(--r-panel);box-shadow:var(--e-sheet);z-index:9;overflow:hidden}
+.fabmenu .mi{display:flex;align-items:center;gap:10px;padding:12px 13px;font-size:13.5px;border-bottom:1px solid var(--line)}
+.fabmenu .mi:last-child{border-bottom:0}
+.fabmenu .mi .g{width:18px;color:var(--clay-strong);font-size:14px}
+.fabmenu .mi .s{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}
+.fab.open{background:var(--panel);color:var(--clay-strong);border:1px solid var(--clay)}
+/* paged canvas */
+.pagedwrap{position:absolute;top:52px;left:0;right:0;bottom:152px;background:var(--ground);
+  display:flex;align-items:center;justify-content:center;gap:14px;overflow:hidden}
+.pagedwrap .pg{box-shadow:0 3px 14px rgba(26,25,23,.10)}
+.fitnote{position:absolute;left:14px;bottom:160px;z-index:6;font-family:var(--f-data);font-size:10.5px;color:var(--ink-2);
+  background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-ctl);padding:3px 7px}
+.panbox{position:absolute;border:1px dashed var(--clay);pointer-events:none}
+.panbox .lb{position:absolute;top:-9px;left:6px;background:var(--panel);padding:0 4px;font-size:9.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--clay-strong)}
+.callout{position:absolute;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-panel);
+  box-shadow:var(--e-pill);padding:8px 10px;font-size:11.5px;line-height:1.4;color:var(--ink-2);max-width:250px;z-index:10}
+.callout b{color:var(--ink);font-weight:600}
+.gone{position:relative;opacity:.35}
+.gone::after{content:"";position:absolute;left:-4px;right:-4px;top:50%;height:2px;background:var(--danger)}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<div class="shotbox" id="shotbox"></div>
+<div class="modal" id="modal"><button class="x" id="mx">Close</button></div>
+<script>
+/* staff art + thumbs, same as the other mockups */
+const VB = 400;
+function staff(seed){
+  const c = '#33312e';
+  const lines = [0,1,2,3,4].map(i => `<line x1="0" y1="${5+i*5}" x2="${VB}" y2="${5+i*5}" stroke="${c}" stroke-width=".6"/>`).join('');
+  const xs = [.10,.155,.20,.25,.30,.365,.42,.47,.52,.58,.65,.71,.77,.83,.90];
+  const heads = xs.map((x,i) => {
+    const y = 5 + ((i*3 + seed*2) % 9) * 2.5, cx = x * VB;
+    return `<ellipse cx="${cx}" cy="${y}" rx="2.9" ry="2.1" fill="#1b1b1b" transform="rotate(-16 ${cx} ${y})"/>`
+         + `<line x1="${cx+2.7}" y1="${y}" x2="${cx+2.7}" y2="${y-13}" stroke="#1b1b1b" stroke-width=".9"/>`;
+  }).join('');
+  const bars = [.335,.665,1].map(f => `<line x1="${f*VB-(f===1?.5:0)}" y1="5" x2="${f*VB-(f===1?.5:0)}" y2="25" stroke="${c}" stroke-width=".8"/>`).join('');
+  return `<svg class="staff" width="100%" viewBox="0 0 ${VB} 34" preserveAspectRatio="none" style="height:26px">
+    <text x="1" y="24" font-family="Georgia,serif" font-size="23" fill="#1b1b1b">&#119070;</text>${lines}${bars}${heads}</svg>`;
+}
+const staves = n => Array.from({length:n}, (_,i) => staff(i)).join('');
+const thumbArt = n => Array.from({length:n}, (_,i) => `<div class="ln" style="top:${14+i*6}px"></div>`).join('');
+const thumb = (cls='md') => `<div class="thumb ${cls}"><div class="tt"></div>${thumbArt(7)}</div>`;
+
+function scTop(){
+  return `<div class="sc-top"><span class="ic">?</span><span class="ic">&#9993;<span class="badge">2</span></span>
+    <span class="ic">&#9881;</span><span class="enginechip"><span class="led"></span>on&#8209;device</span></div>`;
+}
+function search(t){ return `<div class="search"><span class="g">&#9906;</span>${t}</div>`; }
+function tabbar(active='lib'){
+  return `<div class="tabbar">
+    <div class="tab${active === 'home' ? ' on' : ''}"><span class="g">&#9750;</span>Home</div>
+    <div class="tab${active === 'lib' ? ' on' : ''}"><span class="g">&#9776;</span>My library</div>
+    <div class="tab soon"><span class="g">&#8644;</span>Shared &middot; later</div></div>`;
+}
+function seg(which){
+  return `<div class="segwrap"><div class="seg"><div class="${which === 'p' ? 'on' : ''}">Pieces</div>
+    <div class="${which === 's' ? 'on' : ''}">Setlists</div></div></div>`;
+}
+function libbar(editing){
+  return `<div class="libbar"><span class="btn">&#8645; Sort: name</span><span class="btn">&#9636; Filter</span>
+    <span class="btn right${editing ? ' pri' : ''}">${editing ? 'Done' : 'Edit'}</span></div>`;
+}
+/* rows: subtitle spells the count once; no count chip (item 7) */
+const PIECES = [
+  ['Autumn Leaves','Kosma &middot; 1 arrangement',[]],
+  ['Blue Bossa','unknown &middot; 1 arrangement',['OMR DRAFT','UNFILED']],
+  ['Cavatina','Stanley Myers &middot; 3 arrangements',['1 SOURCE']],
+  ['Django','John Lewis &middot; 2 arrangements',[]],
+  ['El Choclo','Villoldo &middot; 1 arrangement',[]],
+  ['Gnossienne No. 1','Satie &middot; 1 arrangement',[]],
+  ['Libertango','Piazzolla &middot; 1 arrangement',[]],
+];
+function chip(c){
+  const k = c === 'OMR DRAFT' ? ' warnc' : '';
+  return `<span class="dchip${k}">${c}</span>`;
+}
+function pieceRow(p, o = {}){
+  const [t,s,chips] = p;
+  return `<div class="lrow${o.sel ? ' on' : ''}" style="${o.edit ? 'padding-left:16px' : ''}">
+    ${o.edit ? `<span class="cbox${o.sel ? ' on' : ''}">${o.sel ? '&#10003;' : ''}</span>` : ''}
+    ${thumb('md')}
+    <span class="stk"><span class="t">${t}</span><span class="s">${s}</span>
+    ${chips.length ? `<span class="chips">${chips.map(chip).join('')}</span>` : ''}</span>
+    ${o.edit ? '' : '<span class="go">&#9432;&nbsp;&nbsp;&#8250;</span>'}</div>`;
+}
+
+/* ───────── R1: browse, cleaned up ───────── */
+function r1(){
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(false)}
+    <div style="overflow:hidden">${PIECES.map(p => pieceRow(p)).join('<div class="sep-l"></div>')}</div>
+    ${tabbar()}<div class="fab">+</div>
+    <div class="callout" style="right:22px;top:300px">No A&ndash;Z rail (item 3). Sort still offers name,
+      composer, changed and count; the rail added a second, redundant way to reach the same rows and ate the
+      right edge where the chevrons live.</div>
+    <div class="callout" style="left:250px;top:560px">Count appears <b>once</b>, spelled out in the subtitle
+      (item 7). The <b>4 ARR</b> chip is gone; warning and fact chips stay.</div></div>`;
+}
+
+/* ───────── R2: Edit mode, selection + action bar ───────── */
+function r2(){
+  const rows = [
+    pieceRow(PIECES[0], {edit:true}),
+    pieceRow(PIECES[1], {edit:true, sel:true}),
+    pieceRow(PIECES[2], {edit:true, sel:true}) +
+      `<div class="rowacts"><span class="btn">Arrangements</span><span class="btn">Rename</span>
+        <span class="btn">New arrangement</span><span class="btn">Import into piece</span>
+        <span class="btn dan">Delete</span></div>`,
+    pieceRow(PIECES[3], {edit:true}),
+    pieceRow(PIECES[4], {edit:true}),
+  ].join('<div class="sep-l"></div>');
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(true)}
+    <div style="overflow:hidden">${rows}</div>
+    <div class="actionbar">
+      <span class="cnt">2 pieces selected</span>
+      <span class="btn off">Rename</span>
+      <span class="btn off">New arrangement</span>
+      <span class="btn dan" style="margin-left:auto">Delete 2 pieces</span>
+    </div>
+    ${tabbar()}
+    <div class="callout" style="left:14px;bottom:210px">Checkbox per row, a bar for the selection, labelled
+      buttons under the row you last tapped. <b>No long press anywhere.</b> Rename and New arrangement need
+      exactly one piece, so they grey out at two.</div>
+    <div class="callout" style="right:22px;bottom:210px">A piece is a folder: the only bulk verbs it has are
+      rename and delete. <b>Move, duplicate and set-list membership belong to arrangements</b> &mdash; they live
+      one level down, in the arrangement sheet (R4).</div></div>`;
+}
+/* ───────── R3: Move to piece ───────── */
+function r3(){
+  const opts = [
+    ['Cavatina','3 arrangements', true],
+    ['Django','2 arrangements', false],
+    ['Libertango','1 arrangement', false],
+    ['El Choclo','1 arrangement', false],
+  ];
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(true)}
+    <div style="overflow:hidden;opacity:.5">${PIECES.slice(0,4).map(p => pieceRow(p, {edit:true})).join('<div class="sep-l"></div>')}</div>
+    ${tabbar()}
+    <div class="dim"></div>
+    <div class="sheet" style="top:120px;bottom:150px;width:520px">
+      <div class="sheet-h"><span class="t">Move to piece</span>
+        <span style="font-family:var(--f-data);font-size:11px;color:var(--ink-3)">2 arrangements</span>
+        <span class="btn" style="margin-left:auto">Cancel</span></div>
+      <div class="sheet-b">
+        <div class="bandh">Moving &mdash; Blue Bossa #1, Autumn Leaves #1</div>
+        ${opts.map(([n,s,cur]) => `<div class="lrow" style="padding:10px 14px;min-height:48px">
+          <span class="cbox${cur ? ' on' : ''}">${cur ? '&#10003;' : ''}</span>
+          <span class="stk"><span class="t" style="font-size:14px">${n}</span><span class="s">${s}</span></span>
+          ${cur ? '<span class="go" style="font-family:var(--f-data);font-size:10.5px">current</span>' : ''}</div>`).join('<div class="sep-l" style="margin-left:14px"></div>')}
+        <div class="bandh">Or</div>
+        <div class="lrow" style="padding:10px 14px;min-height:48px"><span class="g" style="color:var(--clay-strong)">+</span>
+          <span class="stk"><span class="t" style="font-size:14px">New piece&hellip;</span>
+          <span class="s">Names the piece, then files both here</span></span></div>
+        <div class="lrow" style="padding:10px 14px;min-height:48px"><span class="g" style="color:var(--clay-strong)">&#8722;</span>
+          <span class="stk"><span class="t" style="font-size:14px">Remove from piece</span>
+          <span class="s">Sends them back to Unfiled</span></span></div>
+        <div class="frow" style="border:0;padding-top:14px"><span class="btn pri" style="margin-left:auto">Move</span></div>
+      </div>
+    </div></div>`;
+}
+
+/* ───────── R4: the arrangement sheet as the management home ───────── */
+function r4(){
+  const arr = [
+    [1,'String quartet','Vln I, Vln II, Vla, Vc &middot; 8 versions','v008 &middot; Mon', false],
+    [2,'Accordion duo','Acc. Bass, Acc. Chords &middot; 14 versions &middot; 1 source','v014 &middot; 14:02', true],
+    [3,'Solo guitar','Guitar &middot; 4 versions','v004 &middot; last week', false],
+  ];
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(false)}
+    <div style="overflow:hidden;opacity:.45">${PIECES.slice(0,3).map(p => pieceRow(p)).join('<div class="sep-l"></div>')}</div>
+    ${tabbar()}
+    <div class="dim"></div>
+    <div class="sheet" style="top:78px;bottom:96px;width:620px">
+      <div class="sheet-h"><span class="t">Cavatina</span>
+        <span style="font-size:11px;color:var(--ink-3);font-family:var(--f-data)">Stanley Myers &middot; 3 arrangements</span>
+        <span class="btn pri" style="margin-left:auto">Done editing</span></div>
+      <div class="sheet-b">
+        <div class="bandh">Arrangements</div>
+        ${arr.map(([n,t,s,m,open]) => `
+          <div class="lrow${open ? ' on' : ''}" style="padding:9px 14px;min-height:48px">
+            <span class="cbox${open ? ' on' : ''}">${open ? '&#10003;' : ''}</span>
+            <span style="font-family:var(--f-display);font-weight:700;font-size:21px;color:var(--clay);min-width:32px">#${n}</span>
+            ${thumb('sm')}
+            <span class="stk"><span class="t" style="font-size:14px">${t}</span><span class="s">${s}</span></span>
+            <span class="go" style="font-family:var(--f-data);font-size:10.5px">${m}</span>
+            <span class="btn" style="padding:5px 9px;font-size:11.5px;margin-left:10px">Open</span></div>
+          <div class="rowacts" style="padding:0 14px 9px 46px">
+            <span class="btn">Versions</span><span class="btn">Set lists</span><span class="btn">Move to piece</span>
+            <span class="btn">Duplicate</span><span class="btn">Rename</span><span class="btn">Details</span>
+            <span class="btn dan">Delete</span></div>`).join('<div class="sep-l" style="margin-left:14px"></div>')}
+        <div class="bandh">Sources &mdash; read only</div>
+        <div class="lrow" style="padding:9px 14px;min-height:44px">
+          <span style="font-family:var(--f-data);font-size:11px;color:var(--ink-2);min-width:32px">s01</span>
+          <span class="stk"><span class="t" style="font-size:14px">MuseScore tab version</span>
+          <span class="s">2 parts &middot; imported Tue</span></span></div>
+        <div class="bandh">1 arrangement selected</div>
+        <div class="frow" style="border:0;gap:8px;flex-wrap:wrap">
+          <span class="btn">Move to piece&hellip;</span><span class="btn">Add to set list&hellip;</span>
+          <span class="btn">Duplicate</span><span class="btn">Rename</span>
+          <span class="btn dan" style="margin-left:auto">Delete</span></div>
+        <div class="bandh">This piece</div>
+        <div class="frow" style="border:0;padding-top:10px;gap:8px;flex-wrap:wrap">
+          <span class="btn pri">New arrangement</span><span class="btn">Import into this piece</span>
+          <span class="btn">Rename piece</span><span class="btn dan" style="margin-left:auto">Delete piece</span></div>
+      </div>
+    </div>
+    <div class="callout" style="left:14px;bottom:104px">Every action the row&rsquo;s context menu carried is a
+      labelled button on the row that owns it (item 1): per row for one arrangement, in the banded blocks below
+      for whatever is ticked. Piece&#8209;level verbs sit last, so &ldquo;Delete piece&rdquo; is never next to
+      &ldquo;Delete&rdquo;.</div></div>`;
+}
+
+/* ───────── R5: the + menu ───────── */
+function r5(){
+  return `<div class="scr">${scTop()}${seg('p')}
+    <div class="h-title">My library<span class="count">7 pieces &middot; 9 arrangements</span></div>
+    ${search('Search in my library')}${libbar(false)}
+    <div style="overflow:hidden">${PIECES.slice(0,5).map(p => pieceRow(p)).join('<div class="sep-l"></div>')}</div>
+    ${tabbar()}
+    <div class="fab open">&#10005;</div>
+    <div class="fabmenu">
+      <div class="mi"><span class="g">&#9634;</span><span><b>New</b>
+        <span class="s">A blank arrangement, filed under a new piece</span></span></div>
+      <div class="mi"><span class="g">&#8681;</span><span><b>Import</b>
+        <span class="s">PDF, MusicXML, MIDI &mdash; a PDF goes through OMR</span></span></div>
+    </div>
+    <div class="callout" style="right:290px;bottom:150px">Item 8. Two items, 44pt each, anchored to the +,
+      which becomes &times; while open. In the Setlists tab <b>New</b> reads &ldquo;New set list&rdquo; and
+      Import still lands the file in Unfiled.</div></div>`;
+}
+
+/* ───────── R6 / R7: the paged canvas ───────── */
+function topbar(o = {}){
+  const b = (g, on) => `<span class="b${on ? ' on' : ''}">${g}</span>`;
+  return `<div class="stopbar"><span class="x">&#10005;</span>
+    <span class="titleblock"><span class="num">#2</span>
+      <span class="stk"><span class="t">Accordion duo</span><span class="s">Cavatina &middot; v014</span></span>
+      <span class="chev">&#9662;</span></span>
+    <span class="acts">${b('&#9998;')}${b('&#128172;')}${b('&#9707;', o.spread)}${b('&#8943;')}</span></div>`;
+}
+function pageArt(o = {}){
+  return `<div class="pg" style="--pg-w:${o.w}px;${o.h ? `height:${o.h}px;overflow:hidden` : ''}">
+    ${o.first ? `<div class="pg-hd"><div><div class="pg-t">Cavatina &mdash; accordion duo</div>
+      <div class="pg-s">Stanley Myers &middot; A minor &middot; 62 bars</div></div>
+      <div class="pg-n">#2<small>arrangement</small></div></div>` : '<div style="height:26px"></div>'}
+    ${staves(o.systems || 16)}</div>`;
+}
+function strip(current = 3){
+  let out = '';
+  for(let i = 1; i <= 12; i += 2){
+    out += `<div class="grp"><div class="pt${i === current ? ' on' : ''}">${thumbArt(9)}<span class="n">${i}</span></div>
+      <div class="pt${i + 1 === current ? ' on' : ''}">${thumbArt(9)}<span class="n">${i + 1}</span></div></div>`;
+  }
+  return `<div class="thumbstrip">${out}<span style="margin-left:auto;font-family:var(--f-data);font-size:10px;
+    color:var(--ink-3);flex:0 0 auto">12 pages &middot; tap to jump</span></div>`;
+}
+function transport(){
+  return `<div class="transport inert"><span class="b live">&#9664;&#9664;</span><span class="b live">&#9654;&#9654;</span>
+    <span class="tag" style="border-style:solid">setlist &middot; 2 of 4</span><span class="b">&#9654;</span>
+    <span class="b">&#8635;</span><span class="b">&#9679;</span><span class="tm">0:00</span>
+    <span class="track"><i></i></span><span class="tm">&mdash;:&mdash;&mdash;</span></div>`;
+}
+function r6(){
+  return `<div class="scr">${topbar()}
+    <div class="pagedwrap">${pageArt({w:520, first:true, systems:17})}</div>
+    <div class="poscount"><span>p. 3 / 12</span><span>bar 21</span></div>
+    <div class="fitnote">fit &middot; 100% &middot; zoom out is clamped here</div>
+    <div class="zone l"><span class="lab">tap<br>previous</span></div>
+    <div class="zone r"><span class="lab">tap<br>next</span></div>
+    ${strip()}${transport()}
+    <div class="callout" style="left:150px;top:110px">One page, fitted. There is no page above or below to
+      scroll to &mdash; the stack is gone. <b>Zoom out stops at fit</b>, so two pages is the most you can ever see.</div>
+    <div class="callout" style="right:24px;top:300px">A turn changes the page <b>index</b> and slides; it is no
+      longer a scroll offset. The strip sets the index directly.</div></div>`;
+}
+function r7(){
+  return `<div class="scr">${topbar({spread:true})}
+    <div class="pagedwrap">
+      ${pageArt({w:352, first:true, systems:17})}${pageArt({w:352, systems:18})}
+    </div>
+    <div class="poscount"><span>pp. 3&ndash;4 / 12</span><span>bar 21</span></div>
+    <div class="fitnote">spread &middot; fit &middot; index steps by two</div>
+    <div class="panbox" style="left:34%;top:130px;width:26%;height:300px"><span class="lb">pan is bounded to the spread</span></div>
+    ${strip()}${transport()}
+    <div class="callout" style="left:14px;top:120px">Spread on: the pair is fitted together and the index steps
+      by two. Turning from p.3&ndash;4 goes to 5&ndash;6, never 4&ndash;5.</div>
+    <div class="callout" style="right:24px;top:120px">Zoomed in, a finger drag pans <b>inside</b> the current
+      page or spread and cannot drag into a neighbour. Swipe&#8209;to&#8209;turn is therefore only live when
+      there is no horizontal slack left &mdash; at fit. Tap zones, the strip and the transport always turn.</div></div>`;
+}
+
+/* ───────── screens ───────── */
+const SCREENS = {
+r1:{t:'Library — browse, cleaned up', d:'A–Z rail removed (item 3); the arrangement count appears once, spelled out (item 7). Rows still open on tap, with details and chevron on the trailing edge.', html:r1},
+r2:{t:'Library — Edit mode', d:'Checkbox per row, an action bar for the selection, labelled buttons under the focused row. This is where the long-press menu’s contents went.', html:r2},
+r3:{t:'Move to piece', d:'The filing action that used to exist only as a drag or a context-menu item. Multi-select safe, with “New piece…” and “Remove from piece” in the same list.', html:r3},
+r4:{t:'Arrangement sheet — the management home', d:'Every per-arrangement action as a button on its own row: versions, set lists, move, duplicate, rename, details, delete. Piece-level actions along the bottom.', html:r4},
+r5:{t:'The “+” menu', d:'Item 8: New and Import, two 44pt rows anchored to the FAB, which becomes ✕ while open.', html:r5},
+r6:{t:'Paged canvas — one page', d:'Item 2: exactly one page, fitted, no continuous stack. Zoom out clamps at fit. Turn by tap zone, strip or transport.', html:r6},
+r7:{t:'Paged canvas — spread and pan bounds', d:'Spread fits the pair and steps the index by two. Panning is bounded to the current spread, which is what decides when swipe-to-turn may fire.', html:r7},
+};
+const ORDER = ['r1','r2','r3','r4','r5','r6','r7'];
+const W = 1180, H = 886;
+function fit(stage, el){
+  const k = stage.clientWidth / W;
+  el.style.transform = `scale(${k})`;
+  stage.style.height = (H * k) + 'px';
+}
+function build(){
+  const wrap = document.getElementById('wrap');
+  wrap.innerHTML = `<div class="masthead"><h1>Scoranger 0.4.1 &mdash; no context menus, paged canvas</h1>
+    <div class="code">revision addendum</div></div>
+  <p class="lede">A focused revision of the shipped 0.4.0 navigation. <b>Every long-press context menu is
+  removed</b> and each action it carried gets a visible home: an Edit mode with row selection and an action bar,
+  labelled buttons on the rows that own them, and a Move-to-piece sheet for filing. The <b>+</b> becomes a
+  two-item menu, the A&ndash;Z rail goes, the count is spelled once, and the score canvas becomes
+  <b>paged</b> &mdash; one page, or two with the spread on, and never more.</p>
+  <p class="lede">Spec: <b>design/NAV_REVISION_0.4.1.md</b>. Tap any screen to enlarge.</p>
+  <div class="screens" id="screens"></div>`;
+  const grid = document.getElementById('screens');
+  ORDER.forEach(id => {
+    const s = SCREENS[id];
+    const card = document.createElement('div');
+    card.className = 'shot';
+    card.innerHTML = `<div class="shot-h"><div class="t">${id.toUpperCase()} &nbsp;${s.t}</div><div class="d">${s.d}</div></div>
+      <div class="stage"><div class="tapz">tap to enlarge</div></div>`;
+    grid.appendChild(card);
+    const stage = card.querySelector('.stage');
+    const el = document.createElement('div');
+    el.innerHTML = s.html();
+    const scr = el.firstElementChild;
+    stage.insertBefore(scr, stage.firstChild);
+    new ResizeObserver(() => fit(stage, scr)).observe(stage);
+    stage.addEventListener('click', () => zoom(id));
+  });
+}
+function zoom(id){
+  const m = document.getElementById('modal');
+  m.querySelectorAll('.scr').forEach(n => n.remove());
+  const el = document.createElement('div');
+  el.innerHTML = SCREENS[id].html();
+  const scr = el.firstElementChild;
+  m.appendChild(scr);
+  m.classList.add('open');
+  const k = Math.min((m.clientWidth - 24) / W, (m.clientHeight - 24) / H);
+  scr.style.transform = `scale(${k})`;
+}
+document.getElementById('mx').onclick = () => document.getElementById('modal').classList.remove('open');
+const P = new URLSearchParams(location.search);
+if(P.get('screen')){
+  document.body.classList.add('shot-mode');
+  document.getElementById('shotbox').innerHTML = SCREENS[P.get('screen')].html();
+} else { build(); }
+</script>
+</body>
+</html>

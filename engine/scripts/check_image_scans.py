@@ -120,6 +120,35 @@ def main() -> int:
         check("a PDF still reports kind pdf",
               workspace.version_kind(pdf_result["score"]) == "pdf")
 
+        # --- Details on a scan or an image never parse the file --------------
+        # 0.8.0 build 194 (Ali's item 7): "Couldn't save those details:
+        # ConverterFileException: cannot find format from file extensions for
+        # ...jpeg". set_metadata ran the latest artifact through music21
+        # whatever it was. A scan has no notation to version, so its title,
+        # composer and arranger live on the document until OMR gives it one.
+        try:
+            saved = workspace.set_score_metadata(result["score"], title="A Picture, Named",
+                                           composer="Somebody")
+            doc = workspace._repo().get_score(result["score"])
+            check("details save on an image without parsing it",
+                  doc.get("name") == "A Picture, Named"
+                  and doc.get("title") == "A Picture, Named"
+                  and doc.get("composer") == "Somebody",
+                  f"doc name={doc.get('name')!r} title={doc.get('title')!r} composer={doc.get('composer')!r}")
+            check("an image's details make no notation version",
+                  saved.get("version") is None
+                  and workspace.version_kind(result["score"]) == "image",
+                  str(saved))
+        except Exception as exc:  # noqa: BLE001
+            check("details save on an image without parsing it", False,
+                  f"raised {type(exc).__name__}: {exc}")
+        try:
+            workspace.set_score_metadata(pdf_result["score"], title="A Scan, Named")
+            check("details save on a PDF too",
+                  workspace._repo().get_score(pdf_result["score"]).get("name") == "A Scan, Named")
+        except Exception as exc:  # noqa: BLE001
+            check("details save on a PDF too", False, f"raised {type(exc).__name__}: {exc}")
+
     for line in FAILURES:
         print(f"  FAIL {line}")
     if FAILURES:

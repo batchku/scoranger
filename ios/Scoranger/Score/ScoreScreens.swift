@@ -10,6 +10,13 @@ enum ScoreScreen: Hashable {
     case options
     case optionsSection(String)
     case details
+    // 0.8: the score's panel (§7.2) shows these too -- Chat, and what the
+    // title block opens (SC4): Versions and the piece's other arrangements,
+    // and the + button's set lists (SC11).
+    case chat
+    case titleVersions
+    case titleArrangements
+    case titleSetlists
     /// The set list checklist -- the SAME screen the pieces list pushes
     /// (Route.setlistsFor), rendered here because the score's stack is keyed by
     /// this enum and not by Route (§16). One behaviour, two entrances.
@@ -21,7 +28,6 @@ enum ScoreScreen: Hashable {
 struct ScoreOptionsScreen: View {
     @EnvironmentObject var state: AppState
     @Binding var mode: ScoreMode
-    @Binding var showTransport: Bool
     /// What the top bar seats at its current width (0.6.8).
     ///
     /// Performance mode and Show transport are BAR controls now -- the two
@@ -47,6 +53,7 @@ struct ScoreOptionsScreen: View {
     /// The format currently being written, so its row can say so: engraving a
     /// PDF of a long score takes a moment and a dead row reads as a dead app.
     @State private var exporting: ScoreExport.Format?
+    @State private var bundling = false
     /// The finished file, handed to Apple's share sheet.
     ///
     /// This is the ONE modal in the app, and it is deliberate: the system share
@@ -56,11 +63,11 @@ struct ScoreOptionsScreen: View {
     var body: some View {
         Group {
             if let section {
-                Screen(title: section, backLabel: "Options", onBack: onBack) {
+                Screen(title: section, backLabel: "More", onBack: onBack) {
                     sectionBody(section)
                 }
             } else {
-                Screen(title: "Options", backLabel: "Score", onBack: onBack) {
+                Screen(title: "More", backLabel: "Score", onBack: onBack) {
                     root
                 }
             }
@@ -96,7 +103,7 @@ struct ScoreOptionsScreen: View {
                     .padding(.vertical, 11)
                     .background(Theme.Accent.clayTint)
                     .overlay(alignment: .bottom) {
-                        Rectangle().fill(Theme.Line.line).frame(height: 1)
+                        Theme.Rule()
                     }
             }
 
@@ -104,11 +111,12 @@ struct ScoreOptionsScreen: View {
             // arrangement has a notation version and the row has nothing left
             // to offer. A row that stays and does nothing is worse than a row
             // that goes.
-            if state.displayedArtifact == .scan {
+            // A PDF or a picture (0.8.0 build 194, Ali's item 6: the gate
+            // said PDF only since 0.5.0, and 0.6.13's image path never
+            // reached it).
+            if ScoreArtifact.canBeMadeEditable(state.displayedArtifact) {
                 makeEditableRow
-                note("This arrangement is a PDF. Reading it produces a notation "
-                     + "version you can transpose, select and ask about — the "
-                     + "PDF stays as it is, so you can compare them.")
+                note(ScoreArtifact.makeEditableNote(state.displayedArtifact))
             }
             // "Score display" is gone (0.6.3 #6). It held page/spread/
             // continuous -- which are three buttons at the TOP of the score,
@@ -122,12 +130,6 @@ struct ScoreOptionsScreen: View {
             // Performance mode follows above. It was in both places at every
             // width, which is one switch too many on an iPad and the reason the
             // bar's copy read as a duplicate rather than as the control.
-            if barFit.optionsCarriesTransportToggle {
-                PanelToggle(title: "Show transport", isOn: $showTransport)
-                    .padding(.horizontal, Theme.Metric.s20)
-                    .padding(.vertical, 6)
-                    .accessibilityIdentifier("more-transport")
-            }
             ScreenRow(title: "Chord symbols", value: "\(state.chordDefaultSize) pt",
                       identifier: "more-chords") { push("Chord symbols") }
             // Every row states its current answer where it has one. A screen of
@@ -138,12 +140,12 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-annotations") {
                 push("Annotations")
             }
-            ScreenRow(title: "Selection & chat",
+            ScreenRow(title: "Select",
                       value: state.activeSelection.map {
                           "\($0.addresses.count) selected"
                       } ?? "nothing selected",
                       identifier: "more-selection") {
-                push("Selection & chat")
+                push("Select")
             }
             ScreenRow(title: "Transpose", value: "by interval",
                       identifier: "more-transpose") { push("Transpose") }
@@ -152,7 +154,7 @@ struct ScoreOptionsScreen: View {
             // and NOTHING ELSE -- which is what made a second list necessary.
             // The section body below is kept: "All N versions" in the dropdown
             // still pushes it.
-            ScreenRow(title: "Piece & arrangement details",
+            ScreenRow(title: "Details",
                       value: state.selectedScore.flatMap { score in
                           state.placement(of: score.slug)?.piece.name
                       },
@@ -186,9 +188,9 @@ struct ScoreOptionsScreen: View {
                       identifier: "more-setlists") {
                 onSetlists()
             }
-            ScreenRow(title: "Share & export", value: "MusicXML · MIDI · PDF",
+            ScreenRow(title: "Export", value: "MusicXML · MIDI · PDF",
                       identifier: "more-export") {
-                push("Share & export")
+                push("Export")
             }
             ScreenRow(title: "Settings",
                       value: state.useLocalEngine ? "on-device" : "remote",
@@ -237,7 +239,7 @@ struct ScoreOptionsScreen: View {
         .padding(.horizontal, Theme.Metric.s20)
         .padding(.vertical, 11)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
         }
         .accessibilityIdentifier("more-make-editable")
         .accessibilityElement(children: .combine)
@@ -331,8 +333,7 @@ struct ScoreOptionsScreen: View {
                         .background(selected ? Theme.Accent.clayTint : Theme.Surface.panel)
                         .overlay {
                             RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                                .stroke(selected ? Theme.Accent.clay : Theme.Line.line2,
-                                        lineWidth: 1)
+                                .stroke(selected ? Theme.Accent.clay : Color.clear, lineWidth: 1.5)
                         }
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                         .contentShape(Rectangle())
@@ -372,6 +373,25 @@ struct ScoreOptionsScreen: View {
         }
         note("The file is named for the arrangement, and carries the version "
              + "number only when you are looking at an older one.")
+
+        // Sharing with a person rather than with a program. The formats above
+        // hand the music to other software; this hands the ARRANGEMENT to
+        // another Scoranger -- the chart, and your markup on it -- with no
+        // account and no network (design/FIREBASE.md §13).
+        ScreenRow(title: "Send to another iPad",
+                  value: bundling ? "packing…" : "AirDrop, Files, Mail",
+                  leads: false,
+                  identifier: "export-bundle") {
+            guard !bundling, let score = state.selectedScore else { return }
+            bundling = true
+            Task {
+                sharing = await state.exportBundle(target: score.slug)
+                bundling = false
+            }
+        }
+        .disabled(bundling)
+        note("Carries this arrangement and your pencil marks as one file. "
+             + "Whoever opens it is asked before anything joins their library.")
     }
 
     @ViewBuilder
@@ -386,13 +406,13 @@ struct ScoreOptionsScreen: View {
                 ScreenRow(title: "Clear markup on this version", leads: false,
                           isDestructive: true, identifier: "annotations-clear") {
                     if let score = state.selectedScore, let vid = state.displayedVersionID {
-                        DrawingStore.shared.clear(prefix: "\(score.slug)/\(vid)")
+                        DrawingStore.shared.clear(prefix: "\(score.inkNamespace)/\(vid)")
                         Task { await state.renderIfNeeded(force: true) }
                     }
                     onBack()
                 }
                 note("Ink belongs to the version it was drawn on.")
-            case "Selection & chat":
+            case "Select":
                 ScreenRow(title: "Clear selection", leads: false,
                           identifier: "selection-clear") { state.clearSelection(); onBack() }
                 // The mode used to be named here -- "Pencil: select" -- and
@@ -410,11 +430,11 @@ struct ScoreOptionsScreen: View {
             case "Versions":
                 if let score = state.selectedScore {
                     ForEach(score.versions.reversed(), id: \.id) { version in
-                        ScreenRow(title: version.id,
+                        ScreenRow(title: version.name,
                                   value: VersionLabel.text(op: version.op,
                                                            prompt: version.turn?.prompt),
                                   leads: false,
-                                  identifier: "version-\(version.id)") {
+                                  identifier: "version-\(version.name)") {
                             state.pinnedVersion = version.id == score.latest ? nil : version.id
                             Task { await state.renderIfNeeded() }
                             onBack()
@@ -423,7 +443,7 @@ struct ScoreOptionsScreen: View {
                 }
             case "Chord symbols":
                 chordSymbolRows
-            case "Share & export":
+            case "Export":
                 exportRows
             default:
                 EmptyView()
@@ -455,9 +475,11 @@ struct TitleSwitcherBand: View {
     var onPickArrangement: (String) -> Void
     var onPickVersion: (String?) -> Void
     var onAllVersions: () -> Void
-    /// The height the score has to give: the band takes what it needs of it,
-    /// up to `TitleBandLayout.maxFraction`, and scrolls past that.
     var available: CGFloat = 0
+    /// 0.8: drawn inside the score's panel rather than as a band under the
+    /// bar (SC4) -- the column at its own height, under the panel's header.
+    var inPanel = false
+    var onDone: () -> Void = {}
 
     private var piece: PieceDoc? {
         state.manifest?.pieces?.first { $0.arrangements.contains(score.slug) }
@@ -510,6 +532,27 @@ struct TitleSwitcherBand: View {
     }
 
     var body: some View {
+        if inPanel {
+            Screen(title: panelTitle, backLabel: "Back",
+                   subtitle: ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                                        slug: score.slug),
+                   onBack: onDone) {
+                column.padding(.vertical, Theme.Metric.s8)
+            }
+        } else {
+            band
+        }
+    }
+
+    private var panelTitle: String {
+        switch mode {
+        case .versions:     return "Versions"
+        case .arrangements: return "Arrangements"
+        case .setlists:     return "Set lists"
+        }
+    }
+
+    private var band: some View {
         ScrollView {
             column
         }
@@ -518,7 +561,7 @@ struct TitleSwitcherBand: View {
         .scrollDisabled(!TitleBandLayout.scrolls(content: contentHeight,
                                                  available: available))
         .background(Theme.Surface.panel)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.Line.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Theme.Rule() }
         // NO identifier on this container. An identifier on a stack is taken by
         // its children: the two columns became two buttons both called
         // "title-switcher" and every row inside them -- the arrangements, the
@@ -538,7 +581,7 @@ struct TitleSwitcherBand: View {
 
     private var arrangementColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader(piece.map { "Arrangements of \($0.name)" } ?? "Arrangements")
+            PanelLabel(text: piece.map { "Arrangements of \($0.name)" } ?? "Arrangements", ruled: false)
             ForEach(Array(arrangements.enumerated()), id: \.offset) { index, slug in
                 if let arrangement = state.manifest?.scores.first(where: { $0.slug == slug }) {
                     switchRow(title: arrangementLabels[slug]
@@ -557,7 +600,7 @@ struct TitleSwitcherBand: View {
 
     private var versionColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Versions")
+            PanelLabel(text: "Versions", ruled: false)
             ForEach(shownVersions, id: \.id) { version in
                 // What MADE the version, not just its id: "v003 / v002 /
                 // v001" told a reader nothing, so switching version while
@@ -565,9 +608,9 @@ struct TitleSwitcherBand: View {
                 switchRow(title: TitleBandLayout.versionLabel(
                                     prompt: version.turn?.prompt, op: version.op),
                           number: nil,
-                          detail: version.id,
+                          detail: version.name,
                           selected: version.id == state.displayedVersionID,
-                          id: "menu-version-\(version.id)") {
+                          id: "menu-version-\(version.name)") {
                     onPickVersion(version.id == score.latest ? nil : version.id)
                 }
             }
@@ -593,7 +636,7 @@ struct TitleSwitcherBand: View {
     /// putting one arrangement in three set lists should not reopen it twice.
     private var setlistColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BandHeader("Set lists")
+            PanelLabel(text: "Set lists", ruled: false)
             let rows = SetlistMembership.rows(for: score.slug,
                                               in: state.manifest?.setlists ?? [])
             if rows.isEmpty {
@@ -692,7 +735,7 @@ struct ChatModelScreen: View {
     var onBack: () -> Void
 
     var body: some View {
-        Screen(title: "Chat model", backLabel: "Chat", onBack: onBack) {
+        Screen(title: "Model", backLabel: "Chat", onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
                 BandHeader("Models")
                 if let catalog = state.modelCatalog {

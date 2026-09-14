@@ -36,10 +36,6 @@ struct SearchField: View {
         .padding(.vertical, 10)
         .background(Theme.Surface.paper)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                .stroke(Theme.Line.line2, lineWidth: 1)
-        }
     }
 }
 
@@ -51,40 +47,65 @@ struct LRow: View {
     var action: () -> Void
     /// The one control a row carries (§4): row tap opens the music, ☰ manages.
     var onMenu: (() -> Void)?
+    /// Share this row, when it is shareable. §6A.2 puts it immediately
+    /// LEADING of the `☰` and NOT inside the `☰` screen: a control in two
+    /// places is what `optionsCarriesTransportToggle` exists to prevent.
+    var onShare: (() -> Void)?
+    /// Whether this row is already shared -- the button says so rather than
+    /// offering to share again as if nothing had happened.
+    var isShared: Bool = false
+    /// Checked in Edit mode: a flat tint band [C4].
+    var isSelected: Bool = false
     var menuIsOpen: Bool = false
+    /// The row's own actions while its ☰ is open (§7.3): they take the meta
+    /// line's slot, so the row's name does not move [C4].
+    var actions: [RowActionItem] = []
+    /// A long press enters Edit with this row checked [C11].
+    var onLongPress: (() -> Void)?
+
+    private var rowLabel: String {
+        [row.title, row.subtitle, row.meta].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Theme.Metric.s12) {
+        HStack(spacing: Theme.Metric.s12) {
                 PageThumb()
                 VStack(alignment: .leading, spacing: 3) {
                     Text(row.title).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
-                    if !row.subtitle.isEmpty {
-                        Text(row.subtitle).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                            .lineLimit(1)
-                    }
-                    if !row.chips.isEmpty {
-                        HStack(spacing: Theme.Metric.s4) {
-                            ForEach(Array(row.chips.enumerated()), id: \.offset) { _, chip in
-                                DerivedChip(chip: chip)
+                        .lineLimit(1)
+                    if !actions.isEmpty {
+                        RowActionsBar(actions: actions)
+                    } else {
+                        if !row.subtitle.isEmpty {
+                            Text(row.subtitle).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                                .lineLimit(1)
+                        }
+                        if !row.chips.isEmpty {
+                            HStack(spacing: Theme.Metric.s4) {
+                                ForEach(Array(row.chips.enumerated()), id: \.offset) { _, chip in
+                                    DerivedChip(chip: chip)
+                                }
                             }
                         }
                     }
                 }
                 Spacer(minLength: Theme.Metric.s8)
                 if !row.meta.isEmpty {
-                    // Never wrapped, never compressed, and never squeezed by
-                    // the title beside it: "v001 · 19:55" is one short mono
-                    // string and it is what the reader checks at a glance.
-                    Text(row.meta).typeRole(.data).foregroundStyle(Theme.Ink.ink3)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .layoutPriority(1)
+                    // Two mono lines at the right [C10]: the version and when
+                    // it changed in ink2, over when it was added in ink3.
+                    // Never wrapped, never squeezed by the title beside it.
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(row.meta).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                        if !row.added.isEmpty {
+                            Text("added \(row.added)").typeRole(.dataS).foregroundStyle(Theme.Ink.ink3)
+                        }
+                    }
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 }
-                // No chevron when there is a ☰. Three trailing affordances --
-                // meta, chevron, ☰ -- were two too many, and the chevron said
-                // exactly what the ☰ says: there is more here. The row itself
-                // is still a button; that is what its tap is for.
+                // No chevron when there is a ☰. The row itself is still a
+                // button; that is what its tap is for.
                 if onMenu == nil {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
@@ -94,21 +115,31 @@ struct LRow: View {
             .padding(.leading, Theme.Metric.s20)
             // a row with a ☰ keeps its content clear of it; the overlay sits
             // outside the layout, so nothing else would
-            .padding(.trailing, onMenu == nil ? Theme.Metric.s20
-                                              : Theme.Metric.rowMenuInset)
-            .padding(.vertical, 9)
-            .frame(minHeight: 56)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
+            .padding(.trailing, onMenu == nil
+                     ? Theme.Metric.s20
+                     : (onShare == nil ? Theme.Metric.rowMenuInset
+                                       : Theme.Metric.rowTwoControlInset))
+            .padding(.vertical, Theme.Metric.s8)
+            .frame(minHeight: 64)
+            .background(isSelected ? Theme.Accent.clayTint : Color.clear)
+            .rowTappable(label: rowLabel, identifier: identifier, isSelected: isSelected,
+                         container: !actions.isEmpty, action: action, onLongPress: onLongPress)
         .overlay(alignment: .trailing) {
-            if let onMenu {
-                RowMenuButton(identifier: "row-menu-\(row.id)",
-                              label: "Manage \(row.title)",
-                              isOpen: menuIsOpen, action: onMenu)
-                    .padding(.trailing, Theme.Metric.s8)
+            HStack(spacing: 0) {
+                if let onShare {
+                    RowShareButton(identifier: "row-share-\(row.id)",
+                                   title: row.title,
+                                   isShared: isShared,
+                                   action: onShare)
+                }
+                if let onMenu {
+                    RowMenuButton(identifier: "row-menu-\(row.id)",
+                                  label: menuIsOpen ? "Close \(row.title)'s actions"
+                                                    : "Manage \(row.title)",
+                                  isOpen: menuIsOpen, action: onMenu)
+                }
             }
+            .padding(.trailing, Theme.Metric.s8)
         }
     }
 }
@@ -129,7 +160,6 @@ struct PageThumb: View {
         .frame(width: width, height: height, alignment: .top)
         .padding(.top, 8)
         .background(Theme.Surface.paper)
-        .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
     }
 }
 
@@ -140,6 +170,7 @@ struct DerivedChip: View {
 
     var body: some View {
         Text(chip.text)
+            .fixedSize()
             .typeRole(chip.kind == .count ? .data : .meta)
             .foregroundStyle(foreground)
             .padding(.horizontal, 5)
@@ -172,5 +203,47 @@ struct DerivedChip: View {
         case .warning: return Color(hex: 0xE8CFA6)
         case .plain:   return Theme.Line.line2
         }
+    }
+}
+
+/// The share control on a set list row.
+///
+/// design/FIREBASE.md §6A.2: a 34pt bordered square inside a 44pt hit target,
+/// immediately leading of the `☰`. The visible square is smaller than the
+/// touchable one on purpose -- 44 is the smallest thing a finger reliably
+/// hits, and 34 is what does not crowd the row next to another control.
+///
+/// It is the SAME control whether or not the set list is already shared, and
+/// only its symbol changes. A second, differently-named control for
+/// "share again" would be the same affordance in two places.
+struct RowShareButton: View {
+    let identifier: String
+    let title: String
+    var isShared: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isShared
+                  ? "person.2.fill"          // already shared: who is in it
+                  : "square.and.arrow.up")   // not yet: the iOS share glyph
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.Accent.clayStrong)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.clear, lineWidth: 0)
+                )
+                .frame(width: Theme.Metric.hitTarget,
+                       height: Theme.Metric.hitTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // One element, so the identifier lands on the tappable thing rather
+        // than on a container -- the selection chip's lesson (Screen.swift).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isShared ? "Sharing for \(title)" : "Share \(title)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(identifier)
     }
 }

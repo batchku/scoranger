@@ -403,7 +403,8 @@ struct LocalChat {
                         with: Data(resultText.utf8)) as? [String: Any]) ?? [:]
                     let detail: String?
                     if let result = parsed["result"] as? [String: Any],
-                       let v = result["new_version"] as? String {
+                       let v = (result["new_version_label"] as? String)
+                            ?? (result["new_version"] as? String) {
                         detail = "→ \(v)"
                     } else if parsed["ok"] as? Bool == false {
                         detail = "⚠︎ \((parsed["error"] as? String ?? "error").prefix(60))"

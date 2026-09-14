@@ -51,7 +51,6 @@ struct LoupeView: View {
         .frame(width: size, height: size)
         .background(Theme.Surface.paper)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(Theme.Line.line2, lineWidth: 1))
         .modifier(PanelShadow())
         .opacity(TapSelection.loupeOpacity(pinching: pinching))
         .position(placement.centre)

@@ -11,7 +11,7 @@ enum LibrarySegment: String, CaseIterable, Equatable {
     var title: String {
         switch self {
         case .pieces:   return "Pieces"
-        case .setlists: return "Setlists"
+        case .setlists: return "Set lists"
         case .books:    return "Books"
         }
     }
@@ -23,34 +23,26 @@ enum LibrarySegment: String, CaseIterable, Equatable {
 /// would not agree with the order of the rows, so it would be pointing at
 /// nothing. It hides rather than lies (§4.2).
 enum LibrarySort: String, CaseIterable, Equatable {
-    case name, composer, recent, arrangements
+    case name, composer, recent, added, arrangements
 
-    /// Sentence case. These read as options in a revealed list, and a list of
-    /// lowercase fragments reads as debug output rather than as choices.
     var label: String {
         switch self {
         case .name:         return "Name"
         case .composer:     return "Composer"
         case .recent:       return "Recently changed"
+        case .added:        return "Date added"
         case .arrangements: return "Arrangement count"
         }
     }
 
-    /// How the Sort button says it, where the label is the ANSWER rather than
-    /// the name of a choice: "Sort: name".
     var buttonLabel: String { label.lowercased() }
 
-    /// The same answer, said shortly (§14.4 step 5).
-    ///
-    /// "Sort: recently changed" is 84pt wider than "Sort: name" on a phone,
-    /// which is most of the reason the row overflowed under one sort and not
-    /// another. This is the fifth thing the row gives up, and it is still the
-    /// ANSWER -- which is why it comes before giving the value up entirely.
     var shortButtonLabel: String {
         switch self {
         case .name:         return "name"
         case .composer:     return "composer"
         case .recent:       return "recent"
+        case .added:        return "added"
         case .arrangements: return "count"
         }
     }
@@ -58,27 +50,85 @@ enum LibrarySort: String, CaseIterable, Equatable {
     var showsAlphabetRail: Bool { self == .name }
 }
 
-/// Derived filters -- computed from what the library already knows, not from a
-/// tag store. Real tags need an engine change and are not in this release (§7).
-enum LibraryFilter: String, CaseIterable, Equatable {
-    case unfiled, omrDrafts, hasSources, inASetlist
+/// A library filter (design/DESIGN_SYSTEM.md [C9]): from the data model, in
+/// five groups -- the type of the latest artifact, the composer, an
+/// instrument read from the parts snapshot, a tag on the piece or the
+/// arrangement, and the status the app computes. Several at once: filters in
+/// one group widen (any of them), groups narrow (all of them).
+enum LibraryFilter: Hashable {
+    enum Status: String, CaseIterable, Hashable {
+        case unfiled, omrDrafts, hasSources, inASetlist
+        var label: String {
+            switch self {
+            case .unfiled:    return "Unfiled"
+            case .omrDrafts:  return "OMR drafts"
+            case .hasSources: return "Has sources"
+            case .inASetlist: return "In a set list"
+            }
+        }
+    }
+    enum Group: String, CaseIterable, Hashable {
+        case type, composer, instrument, tag, status
+        var title: String {
+            switch self {
+            case .type:       return "Type"
+            case .composer:   return "Composer"
+            case .instrument: return "Instrument"
+            case .tag:        return "Tag"
+            case .status:     return "Status"
+            }
+        }
+    }
+
+    case type(ArtifactHolding)
+    case composer(String)
+    case instrument(String)
+    case tag(String)
+    case status(Status)
+
+    var group: Group {
+        switch self {
+        case .type:       return .type
+        case .composer:   return .composer
+        case .instrument: return .instrument
+        case .tag:        return .tag
+        case .status:     return .status
+        }
+    }
 
     var label: String {
         switch self {
-        case .unfiled:    return "Unfiled"
-        case .omrDrafts:  return "OMR drafts"
-        case .hasSources: return "Has sources"
-        case .inASetlist: return "In a set list"
+        case .type(let holding):   return ArtifactTag.label(holding)
+        case .composer(let name):  return name
+        case .instrument(let name): return name
+        case .tag(let tag):        return tag
+        case .status(let status):  return status.label
         }
     }
+
+    /// Stable, test-addressable: the four statuses keep their old
+    /// identifiers ("filter-unfiled"); the data-model ones carry their value.
+    var identifier: String {
+        switch self {
+        case .status(let status):  return "filter-\(status.rawValue)"
+        case .type(let holding):   return "filter-type-\(ArtifactTag.label(holding).lowercased())"
+        case .composer(let name):  return "filter-composer-\(LibraryFilter.slug(name))"
+        case .instrument(let name): return "filter-instrument-\(LibraryFilter.slug(name))"
+        case .tag(let tag):        return "filter-tag-\(LibraryFilter.slug(tag))"
+        }
+    }
+
+    static func slug(_ text: String) -> String {
+        text.lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
+    }
+
+    /// The four statuses, as the older code and tests address them.
+    static let unfiled = LibraryFilter.status(.unfiled)
+    static let omrDrafts = LibraryFilter.status(.omrDrafts)
+    static let hasSources = LibraryFilter.status(.hasSources)
+    static let inASetlist = LibraryFilter.status(.inASetlist)
 }
 
-/// What the Pencil means right now.
-///
-/// The whole of §6 rests on this: the Pencil does exactly ONE thing per mode,
-/// and the mode is stated in the top bar. Page turning and lassoing cannot be
-/// told apart by timing or distance -- they are the same gesture -- so they are
-/// separated by mode instead of by a guess.
 enum ScoreMode: String, CaseIterable, Equatable {
     /// Pencil selects music.
     case read

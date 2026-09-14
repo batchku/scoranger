@@ -90,22 +90,27 @@ final class SwipeAtTheEdge: XCTestCase {
                        "a pan that reached the edge turned the page: "
                        + "\(before) -> \(app.staticTexts["counter-pages"].label)")
 
-        // AND A SECOND DRAG FROM THE EDGE DOES NOT TURN EITHER.
+        // AND A SECOND DRAG, FROM THE EDGE, TURNS -- and the readout follows.
         //
-        // That is the shipped rule for 0.6.14 and it is a deliberate one:
-        // swipe-to-turn has never run in any build, it came back broken with
-        // the recogniser repair, and it is left unwired rather than shipped
-        // half-finished (see `ScorePagesView`). Turning by TAP is what §12
-        // asked for and is proven on both size classes.
-        //
-        // If it is wired back, THIS is the assertion to invert -- and the page
-        // readout has to follow the turn before it can be.
+        // The other half of the same rule. The first drag began with slack, so
+        // it was a pan, however hard it ended against the edge; this one begins
+        // AT the edge, so it is a swipe, and a swipe turns the page (0.8.0
+        // build 196, Ali's item D, in performance mode: "I can't swipe to the
+        // next page"). Until then this asserted the opposite, because
+        // swipe-to-turn was left unwired in 0.6.14 as half-finished; what it
+        // lacked -- the edge read at the START of the gesture, the readout
+        // following the index -- is what makes both halves hold now.
         drag()
         settle(canvas, still: 0.8)
         snap("second-drag-from-the-edge")
-        XCTAssertEqual(app.staticTexts["counter-pages"].label, before,
-                       "a swipe turned the page: swipe-to-turn is unwired in "
-                       + "0.6.14, so something has changed that this test and "
-                       + "the note in ScorePagesView both need to know about")
+        let turned = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label != %@", before),
+            object: app.staticTexts["counter-pages"])
+        XCTAssertEqual(XCTWaiter().wait(for: [turned], timeout: 10), .completed,
+                       "a swipe that began at the edge did not turn the page: "
+                       + "still \(app.staticTexts["counter-pages"].label)")
+        XCTAssertTrue(app.staticTexts["counter-pages"].label.hasPrefix("p. 2 "),
+                      "the readout did not follow the swipe-turn: "
+                      + "\(app.staticTexts["counter-pages"].label)")
     }
 }

@@ -1,12 +1,23 @@
 """Versioned score library.
 
-Source of truth: a local document database (db.SqliteRepository, Firestore-shaped).
-Artifacts:       workspace/<slug>/vNNN.musicxml  (the "storage bucket")
-Serving layer:   workspace/manifest.json — a denormalized projection of the DB
-                 that the viewer polls (the Firestore-listener stand-in).
+Source of truth: a local document database (db.SqliteRepository).
+Artifacts:       workspace/<slug>/<version-id>.musicxml (or .pdf)
+Serving layer:   workspace/manifest.json, a denormalized projection of the DB
+                 that the app and the viewer poll.
 
 Every mutation appends an immutable version document carrying the operation
 that produced it and a snapshot of the resulting parts.
+
+Two names per thing, and they do different jobs:
+
+  slug   the local handle. The directory on disk, what the CLI takes, what
+         chat means by `arr:<slug>`. Derived from the title, so it MOVES when
+         the title does (`rename_slug`), and it is local to this device.
+  uid    the identity. Opaque, assigned once, never rewritten, unique without
+         coordination. What a share points at and what sync mirrors.
+
+A version has no slug: its key IS its opaque id, and `label` (`v012`) is the
+name a person reads. See `ids.py` and design/FIREBASE.md §3.
 """
 
 import json
@@ -14,15 +25,23 @@ import os
 import re
 import tempfile
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from .db import SqliteRepository
+from . import ids
+from .db import Repository, SqliteRepository
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = Path(os.environ.get("SCORANGER_WORKSPACE", REPO_ROOT / "workspace"))
 
-_repo_singleton: SqliteRepository | None = None
+_repo_singleton: Repository | None = None
+
+#: How a repository gets built, given the database path. The sync layer
+#: replaces this with a factory returning a decorator that wraps
+#: SqliteRepository and journals every write; nothing else in the engine has to
+#: know. Set it before the first call to `_repo()`.
+repository_factory: Callable[[Path], Repository] = SqliteRepository
 
 # The chat turn in progress, if any: versions created while it's open are
 # stamped with it so the UI can group one prompt's operations together.
@@ -47,14 +66,21 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _repo() -> SqliteRepository:
+def _repo() -> Repository:
     global _repo_singleton
     if _repo_singleton is None:
         WORKSPACE.mkdir(parents=True, exist_ok=True)
-        _repo_singleton = SqliteRepository(WORKSPACE / "scoranger.db")
+        _repo_singleton = repository_factory(WORKSPACE / "scoranger.db")
         if _repo_singleton.count_scores() == 0:
             _migrate_legacy(_repo_singleton)
+        _migrate_ids(_repo_singleton)
     return _repo_singleton
+
+
+def _reset_repo_for_testing() -> None:
+    """Drop the cached repository so a test can point WORKSPACE somewhere else."""
+    global _repo_singleton
+    _repo_singleton = None
 
 
 def _migrate_legacy(repo: SqliteRepository) -> None:
@@ -79,6 +105,114 @@ def _migrate_legacy(repo: SqliteRepository) -> None:
             "created": meta.get("created"), "latest": versions[-1]["id"] if versions else None,
         })
         meta_path.rename(d / "meta.legacy.json")
+
+
+def _migrate_ids(repo: Repository) -> None:
+    """Give every document a stable identifier, once, in place.
+
+    What changes: a score, piece, setlist, book and source gains `uid`, and a
+    version's KEY becomes an opaque id with its old `vNNN` kept as `label`.
+    Why: design/FIREBASE.md §3. Both old keys were derived from something that
+    moves -- the title, or the number of siblings -- so neither could survive a
+    rename or two devices allocating at once.
+
+    What deliberately does NOT change: **the filesystem**. A version document
+    already carries its artifact's name in `file`, independently of its id, so
+    every existing `v001.musicxml` keeps its name and stays exactly where it
+    is. A migration of 44 arrangements that renames nothing cannot half-rename
+    anything, and the worst case if it is interrupted is that it runs again.
+
+    Idempotent, and cheap once done: an arrangement that is already migrated is
+    skipped without its versions being read at all, so `_repo()` can call this
+    on every launch.
+    """
+    # The library itself, before any account exists. Signing in later writes an
+    # owner onto this document rather than migrating anything, because the
+    # library already had an identity (design/FIREBASE.md §9.2). Assigned here
+    # and never rewritten -- a second call finds it and leaves it alone.
+    if not (repo.get_library() or {}).get("uid"):
+        library = dict(repo.get_library() or {})
+        library["uid"] = ids.new_id()
+        library.setdefault("created", _now())
+        repo.set_library(library)
+
+    for score in repo.list_scores(include_deleted=True):
+        slug = score["slug"]
+        # Two conditions, and the second one is not redundant.
+        #
+        # The uid is written LAST, after this score's versions are done, so its
+        # presence means the arrangement was migrated. That is what keeps
+        # launch cheap: a migrated library costs one score row per arrangement
+        # here, not every version's parts snapshot deserialized from JSON.
+        # Interrupted halfway, the score has no uid and the next run redoes it,
+        # skipping the versions that already have ids.
+        #
+        # `latest` is checked too because a DOWNGRADE can put a `vNNN` version
+        # into an already-migrated arrangement: roll the build back, run an op,
+        # and the old engine appends a version keyed by counting. The uid alone
+        # would skip that score for ever, leaving one version that can never
+        # sync safely -- and if the old build wrote a second one it would
+        # compute the same `vNNN` and overwrite the first. Any version an old
+        # engine writes becomes `latest`, so this catches it, and it costs a
+        # field we are already holding.
+        if score.get("uid") and (score.get("latest") is None
+                                 or ids.is_id(score.get("latest"))):
+            continue
+        versions = repo.list_versions(slug)
+        needs_versions = any(not ids.is_id(v.get("id")) for v in versions)
+
+        remap: dict[str, str] = {}
+        if needs_versions:
+            for seq, v in enumerate(versions, start=1):
+                old = v.get("id")
+                if ids.is_id(old):
+                    continue
+                v = dict(v)
+                v["id"] = ids.new_id()
+                v["seq"] = v.get("seq") or seq
+                # the old key becomes the label, so a version that has always
+                # been called v007 in the history, in the CLI and in the app
+                # is still called v007 afterwards
+                v["label"] = old or f"v{v['seq']:03d}"
+                remap[old] = v["id"]
+                repo.delete_version(slug, old)
+                repo.add_version(slug, v["id"], v["seq"], v)
+
+            # parents second: a child may be migrated before its parent, so the
+            # remap has to be complete before any pointer is rewritten
+            for v in repo.list_versions(slug):
+                parent = v.get("parent")
+                if parent in remap:
+                    v = dict(v)
+                    v["parent"] = remap[parent]
+                    repo.add_version(slug, v["id"], v["seq"], v)
+                elif parent is not None and not ids.is_id(parent):
+                    # points at a version that no longer exists: a broken link
+                    # is worse than no link, and the chain is display only
+                    v = dict(v)
+                    v["parent"] = None
+                    repo.add_version(slug, v["id"], v["seq"], v)
+
+        score = dict(score)
+        score.setdefault("uid", ids.new_id())
+        if score.get("latest") in remap:
+            score["latest"] = remap[score["latest"]]
+        repo.set_score(slug, score)
+
+        for src in repo.list_sources(slug):
+            if not src.get("uid"):
+                src = dict(src)
+                src["uid"] = ids.new_id()
+                repo.add_source(slug, src["id"], src)
+
+    for listing, setter in ((repo.list_pieces, repo.set_piece),
+                            (repo.list_setlists, repo.set_setlist),
+                            (repo.list_books, repo.set_book)):
+        for doc in listing():
+            if not doc.get("uid"):
+                doc = dict(doc)
+                doc["uid"] = ids.new_id()
+                setter(doc["slug"], doc)
 
 
 def _parts_snapshot(path_or_score) -> list | None:
@@ -116,25 +250,53 @@ def load_meta(slug: str) -> dict:
     return doc
 
 
+def version_label(v: dict) -> str:
+    """What a person calls this version. `v012`, derived, never its identity.
+
+    Held on the document rather than recomputed from `seq` so that a version
+    that has always been called v007 keeps that name after the id migration,
+    and keeps it if its siblings are ever renumbered.
+    """
+    return v.get("label") or f"v{v.get('seq') or 0:03d}"
+
+
+def resolve_version(slug: str, ref: str | None = None) -> dict:
+    """The version document named by `ref`: an id, a `vNNN` label, or latest.
+
+    Both forms are accepted on purpose. The id is the identity and is what the
+    app and the manifest pass around; the label is what a person types and what
+    `CLAUDE.md` documents (`--version v012`), so the CLI and chat keep working
+    unchanged. `ids.is_id` is not consulted: an exact id match is tried first
+    and the label second, so a label that somehow looked like an id would still
+    resolve to the right document.
+    """
+    versions = _repo().list_versions(slug)
+    if not versions:
+        raise FileNotFoundError(f"Score '{slug}' has no versions")
+    if ref is None:
+        return versions[-1]
+    for v in versions:
+        if v["id"] == ref:
+            return v
+    want = str(ref).lower()
+    for v in versions:
+        if version_label(v).lower() == want:
+            return v
+    have = [version_label(v) for v in versions]
+    raise FileNotFoundError(f"No version '{ref}' of '{slug}'. Have: {have}")
+
+
 def version_path(slug: str, version_id: str) -> Path:
-    v = _repo().get_version(slug, version_id)
-    if v is None:
-        have = [x["id"] for x in _repo().list_versions(slug)]
-        raise FileNotFoundError(f"No version '{version_id}' of '{slug}'. Have: {have}")
-    return score_dir(slug) / v["file"]
+    return score_dir(slug) / resolve_version(slug, version_id)["file"]
 
 
 def latest_version(slug: str) -> dict:
-    meta = load_meta(slug)
-    if not meta["versions"]:
-        raise FileNotFoundError(f"Score '{slug}' has no versions")
-    return meta["versions"][-1]
+    load_meta(slug)  # raises with available slugs when the score is missing
+    return resolve_version(slug)
 
 
 def resolve_path(slug: str, version_id: str | None = None) -> Path:
-    if version_id is None:
-        version_id = latest_version(slug)["id"]
-    return version_path(slug, version_id)
+    return score_dir(slug) / resolve_version(slug, version_id)["file"]
 
 
 # music21 writes itself in as the composer on every export when the score has
@@ -215,6 +377,29 @@ def resolve_notation_path(slug: str, version_id: str | None = None) -> Path:
     return path
 
 
+def _allocate_version(slug: str, parent: str | None) -> tuple[str, int]:
+    """An id and a display position for a new version.
+
+    The id is opaque and needs no coordination, which is the whole point: two
+    devices appending offline to the same parent mint different ids and both
+    survive. The old scheme counted existing rows to make `vNNN`, so both would
+    have chosen v031 and one would have had to lose.
+
+    `seq` is one past the PARENT, not one past the row count. On a straight
+    chain those are the same number. On a fork they differ, and this is the
+    definition that tells the truth: two children of v030 are both v031, which
+    is what a branch IS, rather than one of them silently being called v032 and
+    looking like it came after the other.
+    """
+    seq = 1
+    if parent is not None:
+        try:
+            seq = int(resolve_version(slug, parent).get("seq") or 0) + 1
+        except FileNotFoundError:
+            seq = len(_repo().list_versions(slug)) + 1
+    return ids.new_id(), seq
+
+
 def _write_scan_version(slug: str, scan_path: Path, op: str, args: dict,
                         parent: str | None) -> dict:
     """A version whose artifact is the scan itself, copied in unchanged.
@@ -227,14 +412,14 @@ def _write_scan_version(slug: str, scan_path: Path, op: str, args: dict,
     import shutil
 
     repo = _repo()
-    seq = len(repo.list_versions(slug)) + 1
-    vid = f"v{seq:03d}"
+    vid, seq = _allocate_version(slug, parent)
     fname = f"{vid}{scan_path.suffix.lower()}"
     score_dir(slug).mkdir(parents=True, exist_ok=True)
     shutil.copyfile(scan_path, score_dir(slug) / fname)
     # `parts` is [] and not a guess: a scan has no parts until OMR reads it, and
     # inventing one would put a lie in the library.
-    doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
+    doc = {"id": vid, "seq": seq, "label": f"v{seq:03d}", "file": fname,
+           "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": []}
     if _current_turn is not None and _current_turn["slug"] == slug:
         doc["turn"] = {"id": _current_turn["id"], "prompt": _current_turn["prompt"]}
@@ -284,7 +469,7 @@ def create_book(name: str, pdf_path) -> tuple[str, dict]:
         n += 1
     books_dir().mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, book_path(slug))
-    doc = {"id": slug, "slug": slug, "name": name,
+    doc = {"id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
            "pages": len(PdfReader(str(book_path(slug))).pages),
            "created": _now()}
     repo.set_book(slug, doc)
@@ -371,7 +556,7 @@ def create_scan_score(name: str, pdf_path, op: str = "import-pdf",
         slug = f"{base}-{n}"
         n += 1
     repo.set_score(slug, {
-        "id": slug, "slug": slug, "name": name,
+        "id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
         # the file carries no metadata we can read, so the title is the name
         # the caller gave -- never a slug, never the file name. The app hands
         # us a file stem for a scan, so it is spelled out the same way an
@@ -441,12 +626,12 @@ def _write_version(slug: str, m21_score, op: str, args: dict, parent: str | None
     from . import ops
 
     repo = _repo()
-    seq = len(repo.list_versions(slug)) + 1
-    vid = f"v{seq:03d}"
+    vid, seq = _allocate_version(slug, parent)
     fname = f"{vid}.musicxml"
     score_dir(slug).mkdir(parents=True, exist_ok=True)
     warnings = _write_musicxml(m21_score, score_dir(slug) / fname)
-    doc = {"id": vid, "seq": seq, "file": fname, "op": op, "args": args,
+    doc = {"id": vid, "seq": seq, "label": f"v{seq:03d}", "file": fname,
+           "op": op, "args": args,
            "parent": parent, "time": _now(), "parts": _parts_snapshot(m21_score)}
     if warnings:
         # kept on the version so the app can say "this came in with 3 odd bars"
@@ -480,7 +665,7 @@ def create_score(name: str, m21_score, op: str = "import", args: dict | None = N
     from . import ops
     meta = ops.score_metadata(m21_score)
     repo.set_score(slug, {
-        "id": slug, "slug": slug, "name": name,
+        "id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
         "title": meta["title"], "composer": meta["composer"],
         "arranger": meta["arranger"],
         "created": _now(), "latest": None,
@@ -541,7 +726,8 @@ def add_source(slug: str, m21_score, name: str, origin: str) -> dict:
     # so a source written with a corrupted rhythm hands that corruption to
     # every arrangement that pulls a part out of it
     _write_musicxml(m21_score, src_dir / fname)
-    doc = {"id": sid, "name": name, "origin": origin, "file": f"sources/{fname}",
+    doc = {"id": sid, "uid": ids.new_id(), "name": name, "origin": origin,
+           "file": f"sources/{fname}",
            "time": _now(), "parts": _parts_snapshot(m21_score)}
     repo.add_source(slug, sid, doc)
     rebuild_manifest()
@@ -564,7 +750,8 @@ def create_piece(name: str) -> dict:
     while repo.get_piece(slug) is not None:
         slug = f"{base}-{n}"
         n += 1
-    doc = {"id": slug, "slug": slug, "name": name, "created": _now()}
+    doc = {"id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
+           "created": _now()}
     repo.set_piece(slug, doc)
     rebuild_manifest()
     return doc
@@ -659,6 +846,24 @@ def set_score_metadata(slug: str, title: str | None = None,
         raise ValueError("A title is required")
     if title is None and composer is None and arranger is None:
         raise ValueError("Nothing to change: pass a title, composer or arranger")
+
+    # A scan -- a PDF or a picture -- has no notation to carry a title, so its
+    # details live on the document until OMR gives it notation (which reads
+    # the document's name as its title). Parsing the artifact was the bug:
+    # music21 has no reader for a JPEG and died inside its converter with
+    # "cannot find format from file extensions" (Ali, 0.8.0 build 193).
+    if version_kind(slug) != "musicxml":
+        if title is not None:
+            doc["name"] = title.strip()
+            doc["title"] = title.strip()
+        for role, value in (("composer", composer), ("arranger", arranger)):
+            if value is not None:
+                doc[role] = value.strip() or None
+        repo.set_score(slug, doc)
+        rebuild_manifest()
+        return {"score": slug, "version": None, "name": doc["name"],
+                "title": doc.get("title"), "composer": doc.get("composer"),
+                "arranger": doc.get("arranger"), "scan": True}
 
     score = converter.parse(str(resolve_path(slug)), forceSource=True)
     applied = ops.set_metadata(score, title=title, composer=composer,
@@ -859,8 +1064,35 @@ def create_setlist(name: str) -> dict:
     while repo.get_setlist(slug) is not None:
         slug = f"{base}-{n}"
         n += 1
-    doc = {"id": slug, "slug": slug, "name": name, "scores": [], "created": _now()}
+    # shareId / ownerUid are NULLABLE and absent until a set list is shared
+    # (design/FIREBASE.md §6A.1). There is one kind of set list; sharing is a
+    # field on it, so `shareId is None` means no Firestore involvement at all.
+    doc = {"id": slug, "slug": slug, "uid": ids.new_id(), "name": name,
+           "scores": [], "created": _now(),
+           "shareId": None, "ownerUid": None}
     repo.set_setlist(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
+def bind_setlist_share(name_or_slug: str, share_id: str,
+                       owner_uid: str) -> dict:
+    """Record that this set list is now the shared document `share_id`.
+
+    The last step of promotion (§6A.1 step 4). Written AFTER the Firestore
+    document and its entries exist, so a set list is never marked shared
+    before it is: a `shareId` pointing at nothing would make the row claim a
+    collaboration it has not got, and the recovery from that is worse than
+    retrying a share.
+
+    Idempotent, and deliberately not fussy about being called twice -- the
+    share button will be pressed again.
+    """
+    repo = _repo()
+    doc = resolve_setlist(name_or_slug)
+    doc["shareId"] = share_id
+    doc["ownerUid"] = owner_uid
+    repo.set_setlist(doc["slug"], doc)
     rebuild_manifest()
     return doc
 
@@ -1139,8 +1371,11 @@ def rebuild_manifest() -> dict:
             # derived from the artifact, so versions written before PDFs
             # existed report correctly without a backfill
             v["kind"] = artifact_kind(v.get("file") or "")
+            # every version carries a label, including any written before
+            # labels existed, so no client ever has to render a raw id
+            v["label"] = version_label(v)
         scores.append({
-            "slug": doc["slug"], "name": doc["name"],
+            "slug": doc["slug"], "uid": doc.get("uid"), "name": doc["name"],
             "title": doc.get("title"), "composer": doc.get("composer"),
             "arranger": doc.get("arranger"),
             "latest": doc.get("latest"), "versions": versions,
@@ -1156,7 +1391,8 @@ def rebuild_manifest() -> dict:
         stragglers = sorted(members - set(ordered),
                             key=lambda s: next(d.get("created") or ""
                                                for d in score_docs if d["slug"] == s))
-        pieces.append({"slug": p["slug"], "name": p["name"],
+        pieces.append({"slug": p["slug"], "uid": p.get("uid"),
+                       "name": p["name"],
                        "composer": p.get("composer"),
                        "arranger": p.get("arranger"),
                        "tags": p.get("tags") or [],
@@ -1165,13 +1401,33 @@ def rebuild_manifest() -> dict:
     setlists = []
     for doc in sorted(repo.list_setlists(), key=lambda x: x["name"].lower()):
         doc = _setlist_with_scores(doc, pieces)
-        setlists.append({"slug": doc["slug"], "name": doc["name"],
+        setlists.append({"slug": doc["slug"], "uid": doc.get("uid"),
+                         "name": doc["name"],
+                         # Sharing is a field on the set list, so it has to be
+                         # in the projection the app reads: LibraryView shows a
+                         # row as shared because `shareId` is in the manifest
+                         # (Models.SetlistDoc.isShared). Left out, the binding
+                         # written by promotion's last step reaches the
+                         # database and nothing else, and a shared set list
+                         # looks local forever.
+                         "shareId": doc.get("shareId"),
+                         "ownerUid": doc.get("ownerUid"),
                          "arrangements": [s for s in doc.get("scores") or []
                                           if s in known]})
-    books = [{"slug": b["slug"], "name": b["name"], "pages": b.get("pages")}
+    books = [{"slug": b["slug"], "uid": b.get("uid"), "name": b["name"],
+              "pages": b.get("pages")}
              for b in sorted(repo.list_books(), key=lambda x: x["name"].lower())]
+    # The library's own identity, so the app can address this device without
+    # reading the database (design/FIREBASE.md §9.2). Named fields, not the
+    # whole document, like every other projection here: a journaling repository
+    # puts `rev` and `synced_rev` on what it writes, and §4.1 says neither is
+    # ever exposed to the user, the CLI or chat. Passed through wholesale, the
+    # manifest would differ with sync on and off -- which is exactly what
+    # check_sync.py's transparency assertion caught.
+    library_doc = repo.get_library() or {}
+    library = {"uid": library_doc.get("uid"), "created": library_doc.get("created")}
     manifest = {"generated": _now(), "scores": scores, "pieces": pieces,
-                "setlists": setlists, "books": books}
+                "setlists": setlists, "books": books, "library": library}
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     (WORKSPACE / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest

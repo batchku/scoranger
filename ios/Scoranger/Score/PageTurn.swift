@@ -1,3 +1,4 @@
+import SwiftUI
 import CoreGraphics
 import Foundation
 
@@ -83,4 +84,22 @@ enum PageTurn {
     // Everything above is unchanged: who may turn, in which mode, in which
     // zone, and what counts as a tap at all. That table is the part that
     // protects the lasso, and it did not move.
+}
+
+extension PageTurn {
+    /// How a unit slides in and out for a turn.
+    ///
+    /// Forward: the new unit enters from the trailing edge and the old one
+    /// leaves by the leading edge, right to left. Back: the mirror, left to
+    /// right. One function, so the two turns cannot drift apart again (0.8.0
+    /// build 196: both animated right to left).
+    static func slide(forward: Bool) -> AnyTransition {
+        .asymmetric(insertion: .move(edge: forward ? .trailing : .leading),
+                    removal: .move(edge: forward ? .leading : .trailing))
+    }
+
+    /// The edges, stated as values a test can read: (enters from, leaves by).
+    static func slideEdges(forward: Bool) -> (enters: Edge, leaves: Edge) {
+        forward ? (.trailing, .leading) : (.leading, .trailing)
+    }
 }

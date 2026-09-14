@@ -33,6 +33,7 @@ struct ScoreInfoView: View {
     @State private var draftTitle = ""
     @State private var draftComposer = ""
     @State private var draftArranger = ""
+    @State private var draftTags = ""
     /// What was last persisted; comparing against the snapshot would leave the
     /// Save button showing after a successful write.
     @State private var saved = AppState.ScoreMetadata()
@@ -89,7 +90,7 @@ struct ScoreInfoView: View {
             metadataEditor
             SheetRow(label: "Piece") { pieceMenu }
             slugEditor
-            if let latest = live.latest {
+            if let latest = live.latestLabel {
                 SheetRow("Latest version", latest, mono: true)
             }
 
@@ -102,7 +103,7 @@ struct ScoreInfoView: View {
 
             BandHeader("Versions")
             ForEach(live.versions.reversed()) { version in
-                SheetRow(label: version.id) {
+                SheetRow(label: version.name) {
                     HStack(spacing: Theme.Metric.s8) {
                         Text(VersionLabel.text(op: version.op,
                                                prompt: version.turn?.prompt))
@@ -134,7 +135,7 @@ struct ScoreInfoView: View {
             }
 
             // destructive last, in the body (§7.15)
-            BandHeader("Danger")
+            BandHeader("Careful")
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {
                 if confirmingDelete {
                     PanelNote(text: "This removes the arrangement and all its versions. The piece and its other arrangements are untouched.")
@@ -166,6 +167,12 @@ struct ScoreInfoView: View {
                          identifier: "arrangement-composer")
             LabeledField("Arranger", text: $draftArranger,
                          identifier: "arrangement-arranger")
+            // Tags are not notation [C14]: they save as they are typed, with
+            // no version, and are filterable in the library [C9].
+            LabeledField("Tags", text: $draftTags, identifier: "arrangement-tags")
+                .onChange(of: draftTags) { _, typed in
+                    state.setArrangementTags(score.slug, ArrangementTags.parse(typed))
+                }
             if let engravedTitle = engravedMismatch {
                 PanelNote(text: "The page still engraves \u{201C}\(engravedTitle)\u{201D}. "
                           + "Saving makes the title on the score the same as this one.")
@@ -232,13 +239,6 @@ struct ScoreInfoView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("piece-menu")
-            if let piece = currentPiece {
-                // the name is the control: tap it to rename, no pencil button
-                EditableTitle(text: piece.name, role: .body,
-                              identifier: "rename-piece") { name in
-                    Task { await state.renamePiece(piece: piece.slug, name: name) }
-                }
-            }
             Spacer(minLength: 0)
         }
         if pieceListOpen {
@@ -330,6 +330,7 @@ struct ScoreInfoView: View {
         draftTitle = doc.name
         draftComposer = fromNotation?.composer ?? doc.composer ?? ""
         draftArranger = fromNotation?.arranger ?? ""
+        draftTags = state.arrangementTags(doc.slug).joined(separator: ", ")
         saved = AppState.ScoreMetadata(title: draftTitle,
                                        composer: draftComposer,
                                        arranger: draftArranger)

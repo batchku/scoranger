@@ -55,13 +55,12 @@ struct BookScreen: View {
 
     var body: some View {
         Screen(title: book?.name ?? "Book",
-               backLabel: "My library",
+               backLabel: "Library",
                subtitle: book?.pages.map { "\($0) pages" },
                onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
-                BandHeader("Look through it")
                 browser
-                BandHeader("Take an arrangement out")
+                PanelLabel(text: "Take out pages")
                 form
             }
             .padding(.bottom, Theme.Metric.s32)
@@ -118,12 +117,12 @@ struct BookScreen: View {
     /// far said as a sentence — two numbers in two boxes do not read as a span.
     private func markers(_ pages: Int) -> some View {
         HStack(spacing: Theme.Metric.s8) {
-            PanelButton(title: "Starts here", kind: .normal) {
+            PanelButton(title: "From here", kind: .normal) {
                 (fromPage, toPage) = BookPages.starting(at: showing, from: fromPage,
                                                         to: toPage)
             }
             .accessibilityIdentifier("book-starts-here")
-            PanelButton(title: "Ends here", kind: .normal) {
+            PanelButton(title: "To here", kind: .normal) {
                 (fromPage, toPage) = BookPages.ending(at: showing, from: fromPage,
                                                       to: toPage)
             }
@@ -145,10 +144,6 @@ struct BookScreen: View {
                 .foregroundStyle(enabled ? Theme.Ink.ink : Theme.Ink.ink3)
                 .frame(width: 32, height: 32)
                 .background(Theme.Surface.panel)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -170,13 +165,13 @@ struct BookScreen: View {
                 PanelField(placeholder: "To page", text: $toPage, isMono: true)
                     .accessibilityIdentifier("book-to-page")
             }
-            PanelField(placeholder: "Name of the tune", text: $name)
+            PanelField(placeholder: "Name", text: $name)
                 .accessibilityIdentifier("book-name")
-            PanelField(placeholder: "File under this piece (optional)", text: $piece)
+            PanelField(placeholder: "Piece (optional)", text: $piece)
                 .accessibilityIdentifier("book-piece")
             PanelNote(text: "The pages are copied. \(book?.name ?? "The book") "
                       + "stays as it is.")
-            PanelButton(title: busy ? "Taking it out…" : "Add arrangement",
+            PanelButton(title: busy ? "Taking it out…" : takeOutTitle,
                         kind: .primary) {
                 extract()
             }
@@ -188,6 +183,11 @@ struct BookScreen: View {
         // this is the other half of "Starts here", not a replacement for it.
         .onChange(of: fromPage) { _, typed in follow(typed) }
         .onChange(of: toPage) { _, typed in follow(typed) }
+    }
+
+    /// "Take out pages 3–7" (§10), or the bare verb until the range is set.
+    private var takeOutTitle: String {
+        range.map { "Take out \(BookPages.summary(from: $0.from, to: $0.to))" } ?? "Take out pages"
     }
 
     private func follow(_ typed: String) {
@@ -252,7 +252,6 @@ private struct BookPageView: View {
                                                            : "book-page-drawing")
         }
         .background(Theme.Surface.paper)
-        .overlay { Rectangle().stroke(Theme.Line.line2, lineWidth: 1) }
         .frame(maxWidth: .infinity)
     }
 
@@ -342,58 +341,99 @@ private struct BookThumbnails: View {
     let chosen: (Int) -> Bool
     var onJump: (Int) -> Void
 
-    /// The cell, in points, and the raster it needs on a retina display.
-    private static let cell = CGSize(width: 52, height: 68)
-    private static let raster = CGSize(width: 104, height: 136)
+    // The filmstrip (design/DESIGN_SYSTEM.md §7.12, [C12]): every page at
+    // 20 × 27, 3 apart, across the whole width; the showing page ringed;
+    // page numbers at the ends; a 4pt scrub bar with a 16pt clay handle.
+    // Drag the bar to fly, tap a thumbnail to land.
+    private static let cell = CGSize(width: 20, height: 27)
+    private static let raster = CGSize(width: 40, height: 54)
+    private static let gap: CGFloat = 3
+    @State private var flying: Int?
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: Theme.Metric.s8) {
-                    ForEach(0..<document.pageCount, id: \.self) { index in
-                        thumb(index)
+        VStack(spacing: Theme.Metric.s6) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: Self.gap) {
+                        ForEach(0..<document.pageCount, id: \.self) { index in
+                            thumb(index)
+                        }
                     }
+                    .padding(.vertical, Theme.Metric.s4)
                 }
-                .padding(.vertical, Theme.Metric.s8)
+                .onChange(of: showing) { _, page in
+                    withAnimation { proxy.scrollTo(page - 1, anchor: .center) }
+                }
             }
-            .onChange(of: showing) { _, page in
-                withAnimation { proxy.scrollTo(page - 1, anchor: .center) }
+            scrubBar
+        }
+        .background(Theme.Surface.panel)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("book-thumbnails")
+    }
+
+    private var scrubBar: some View {
+        GeometryReader { geo in
+            let pages = max(document.pageCount, 1)
+            let current = (flying ?? showing) - 1
+            let usable = max(geo.size.width - 16, 1)
+            let x = pages > 1 ? usable * CGFloat(current) / CGFloat(pages - 1) : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.Surface.well).frame(height: 4)
+                Circle().fill(Theme.Accent.clay).frame(width: 16, height: 16)
+                    .offset(x: x)
+            }
+            .frame(height: 24)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let fraction = min(max((value.location.x - 8) / usable, 0), 1)
+                        flying = Int((fraction * CGFloat(pages - 1)).rounded()) + 1
+                    }
+                    .onEnded { _ in
+                        if let flying { onJump(flying) }
+                        flying = nil
+                    })
+        }
+        .frame(height: 24)
+        .overlay(alignment: .leading) {
+            Text("1").typeRole(.dataS).foregroundStyle(Theme.Ink.ink3).offset(y: 16)
+        }
+        .overlay(alignment: .trailing) {
+            Text("\(document.pageCount)").typeRole(.dataS).foregroundStyle(Theme.Ink.ink3).offset(y: 16)
+        }
+        .padding(.bottom, Theme.Metric.s12)
+        .accessibilityElement()
+        .accessibilityIdentifier("book-scrub")
+        .accessibilityLabel("Page")
+        .accessibilityValue("\(showing) of \(document.pageCount)")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: onJump(min(showing + 1, document.pageCount))
+            case .decrement: onJump(max(showing - 1, 1))
+            @unknown default: break
             }
         }
-        .frame(height: Theme.Metric.thumbStripHeight)
-        .background(Theme.Surface.panel)
-        .overlay { Rectangle().stroke(Theme.Line.line, lineWidth: 1) }
-        .accessibilityIdentifier("book-thumbnails")
     }
 
     private func thumb(_ index: Int) -> some View {
         let page = index + 1
-        let isShowing = page == showing
+        let isShowing = page == (flying ?? showing)
         let inRange = chosen(page)
         return Button { onJump(page) } label: {
-            ZStack(alignment: .bottomTrailing) {
-                PageImage(document: document, index: index, drawn: Self.cell,
-                          raster: Self.raster, interpolation: .medium) { phase in
-                    PageThumb(width: Self.cell.width, height: Self.cell.height)
-                        .overlay {
-                            if phase == .missing {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(Theme.Status.warn)
-                            }
-                        }
-                }
-                .background(Theme.Surface.paper)
-                Text("\(page)").typeRole(.data)
-                    .foregroundStyle(Theme.Ink.ink3)
-                    .padding(2)
+            PageImage(document: document, index: index, drawn: Self.cell,
+                      raster: Self.raster, interpolation: .medium) { _ in
+                PageThumb(width: Self.cell.width, height: Self.cell.height)
             }
-            .background(inRange ? Theme.Accent.clayTint : Color.clear)
+            .frame(width: Self.cell.width, height: Self.cell.height)
+            .background(inRange ? Theme.Accent.clayTint : Theme.Surface.paper)
+            .clipShape(RoundedRectangle(cornerRadius: 2))
             .overlay {
-                Rectangle()
-                    .stroke(isShowing ? Theme.Accent.clay
-                            : (inRange ? Theme.Accent.clayStrong : Theme.Line.line2),
-                            lineWidth: isShowing ? 2 : 1)
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(isShowing ? Theme.Accent.clay
+                                  : (inRange ? Theme.Accent.clayBorder : Color.clear),
+                                  lineWidth: isShowing ? 1.5 : 1)
             }
             .contentShape(Rectangle())
         }

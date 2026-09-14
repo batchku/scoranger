@@ -265,7 +265,7 @@ final class ScoreBarLayoutTests: XCTestCase {
             + ScoreBarLayout.titleMinimum
             + ScoreBarLayout.numeralWidth + ScoreBarLayout.threeCells
             + ScoreBarLayout.versionsWidth + ScoreBarLayout.switchesWidth
-            + ScoreBarLayout.addToSetlistWidth
+            + ScoreBarLayout.addToSetlistWidth + ScoreBarLayout.originNameWidth
         XCTAssertTrue(ScoreBarLayout.fits(widest, in: withoutAChip),
                       "the bar still reserves width for something it no longer draws")
     }
@@ -290,10 +290,15 @@ final class ScoreBarLayoutTests: XCTestCase {
             width -= 1
         }
         // widest, then the + gone, then the count gone: three distinct fits.
-        XCTAssertEqual(seen.count, 3, "the count did not yield second: \(seen)")
+        // Everything, then without the origin's name beside the ‹ [C6], then
+        // without the +, then without the count: four fits. The name is a
+        // courtesy about where the reader was; the count is a shortcut to
+        // versions. Both go before anything the reader cannot reach elsewhere.
+        XCTAssertEqual(seen.count, 4, "the count did not yield third: \(seen)")
         let dropped = try XCTUnwrap(seen.last)
         XCTAssertFalse(dropped.showsVersions)
         XCTAssertFalse(dropped.showsAddToSetlist, "the + should already be gone")
+        XCTAssertFalse(dropped.showsOriginName, "the origin's name should already be gone")
         XCTAssertEqual(dropped.layoutCells, widest.layoutCells,
                        "a layout cell went before the version count did")
         XCTAssertEqual(dropped.showsTransportToggle, widest.showsTransportToggle,
@@ -330,10 +335,23 @@ final class ScoreBarLayoutTests: XCTestCase {
             width -= 1
         }
         let changed = try XCTUnwrap(firstChange, "the bar never yielded anything")
-        XCTAssertFalse(changed.showsAddToSetlist,
-                       "something went before the + did")
-        XCTAssertTrue(changed.showsVersions,
-                      "the version count went before the + did")
+        // 0.8 [C6]: the ‹ carries the origin's NAME, and that name is the
+        // first thing to go -- a courtesy about where the reader was, ahead
+        // of every shortcut. The + goes second, and the version count
+        // survives both.
+        XCTAssertFalse(changed.showsOriginName, "something went before the origin's name did")
+        XCTAssertTrue(changed.showsAddToSetlist, "the + went before the origin's name did")
+        XCTAssertTrue(changed.showsVersions, "the version count went before the name did")
+
+        var secondChange: ScoreBarLayout.Fit?
+        while width > ScoreBarLayout.floor {
+            let fit = ScoreBarLayout.fit(barWidth: width)
+            if fit != changed { secondChange = fit; break }
+            width -= 1
+        }
+        let next = try XCTUnwrap(secondChange, "the bar yielded only the name")
+        XCTAssertFalse(next.showsAddToSetlist, "something went before the + did")
+        XCTAssertTrue(next.showsVersions, "the version count went before the + did")
     }
 
     /// A phone does not seat it, and that is allowed precisely because the

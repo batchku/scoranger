@@ -259,3 +259,57 @@ enum CanvasRasters {
     }
 }
 #endif
+
+/// Where off-main rasters run: a queue with a small, fixed width.
+///
+/// The first off-main rasters (0.8.0 build 195) were detached tasks, one per
+/// tile or page as it appeared -- two dozen CoreGraphics renders at once on
+/// opening a strip. On a device that is heat; under the gate's four
+/// simulators it starved the engine's own thread, and the playback timeline
+/// that the tray waits for stopped arriving inside three minutes. Two at a
+/// time keeps the main thread free, which was the point, without taking the
+/// machine.
+enum RasterWork {
+    private static let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.irllabs.scoranger.raster"
+        queue.maxConcurrentOperationCount = 2
+        // Utility, not user-initiated: a raster is a picture that will
+        // replace the one standing in, and the embedded engine's thread --
+        // which the tray and the transport wait on -- must win the cores
+        // when they are short. On an idle device utility work starts at once.
+        queue.qualityOfService = .utility
+        return queue
+    }()
+
+    /// One raster per key at a time. A tile's `.task(id:)` is cancelled and
+    /// restarted every time the page stack is re-rooted, which under load is
+    /// often; without this each restart queued the same raster again, and a
+    /// strip's two dozen tiles became a hundred renders.
+    private static let lock = NSLock()
+    private static var inFlight: [RasterKey: Task<UIImage, Never>] = [:]
+
+    /// The image for `key`: what the cache holds, or one raster shared by
+    /// everyone asking for it, made on the raster queue.
+    static func image(for key: RasterKey, make: @escaping @Sendable () -> UIImage) async -> UIImage {
+        if let held = CanvasRasters.shared.held(key) { return held }
+        lock.lock()
+        if let running = inFlight[key] {
+            lock.unlock()
+            return await running.value
+        }
+        let task = Task<UIImage, Never> {
+            let made: UIImage = await withCheckedContinuation { continuation in
+                queue.addOperation {
+                    continuation.resume(returning: CanvasRasters.shared.value(
+                        for: key, cost: CanvasRasters.bytes, make: make))
+                }
+            }
+            lock.lock(); inFlight[key] = nil; lock.unlock()
+            return made
+        }
+        inFlight[key] = task
+        lock.unlock()
+        return await task.value
+    }
+}

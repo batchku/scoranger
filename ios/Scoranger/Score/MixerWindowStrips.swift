@@ -46,11 +46,14 @@ struct MixerChannelStrip: View {
             MixerMuteButton(playback: playback, part: part).opacity(dim)
             // The KNOB, and the value inside its face (§13). The separate
             // value row is gone -- that is the row the knob spends on itself.
-            HStack(spacing: MixerLayout.ledInset) {
-                MixerKnob(playback: playback, part: part)
-                MixerLED(on: isSounding, part: part).opacity(dim)
-            }
-            .frame(minHeight: MixerLayout.knobRow(text: typeSize))
+            // The LED sits in the CENTRE of the knob and the knob is centred
+            // in its column (Ali, 2026-09-10). One control reads as one thing:
+            // the ring is the level, the light in the middle is whether the
+            // part is sounding right now.
+            MixerKnob(playback: playback, part: part,
+                      centre: { MixerLED(on: isSounding, part: part).opacity(dim) })
+                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(minHeight: MixerLayout.knobRow(text: typeSize))
             MixerSoundChip(playback: playback, part: part, action: onPickSound)
                 .opacity(dim)
             // Two lines, and `.fixedSize` so the text decides its own height.
@@ -154,10 +157,6 @@ struct MixerMuteButton: View {
                 .padding(.horizontal, 6)
                 .frame(minWidth: 26, minHeight: MixerLayout.muteRowMinimum)
                 .background(isOn ? Theme.Surface.well : Theme.Ink.ink2)
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                        .stroke(Theme.Line.line2, lineWidth: 1)
-                }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
                 .contentShape(Rectangle())
         }
@@ -206,9 +205,11 @@ struct MixerLED: View {
 /// four.
 ///
 /// Flat, like everything else here: no bevel, no gradient, no shadow (§0).
-struct MixerKnob: View {
+struct MixerKnob<Centre: View>: View {
     @ObservedObject var playback: PlaybackEngine
     let part: PlaybackTimeline.Part
+    /// What sits in the middle of the face: the strip puts its LED there.
+    @ViewBuilder var centre: () -> Centre
 
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The level the finger went down on. The drag is measured from here, not
@@ -219,25 +220,20 @@ struct MixerKnob: View {
 
     var body: some View {
         let face = MixerLayout.knobFace(text: typeSize)
-        let numeral = MixerLayout.knobNumeralWidth("\(fader)", text: typeSize)
-        let inside = MixerLayout.knobValueFitsInFace(numeralWidth: numeral,
-                                                     face: face)
-        VStack(spacing: 2) {
-            ZStack {
-                Circle()
-                    .fill(Theme.Surface.panel)
-                    .overlay { Circle().strokeBorder(Theme.Line.line2, lineWidth: 1) }
-                arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
-                arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
-                pointer(face: face)
-                if inside { value }
-            }
-            .frame(width: face, height: face)
-            // The numeral takes its OWN row rather than being clipped when it
-            // outgrows the face (§13.4, §6.3 rule 1). By §13.2's table that
-            // does not happen before AX3, but it must exist.
-            if !inside { value.frame(minHeight: max(16, numeral * 0 + 16)) }
+        // No numeral. The level is the ring, and the ring is what a player
+        // reads on a real desk; the number was a second statement of the same
+        // fact taking a row of its own (Ali, 2026-09-10). It is still SPOKEN:
+        // the accessibility value below carries it.
+        ZStack {
+            Circle()
+                .fill(Theme.Surface.panel)
+            arc(from: 0, to: 1, colour: Theme.Surface.well, face: face)
+            arc(from: 0, to: progress, colour: Theme.Accent.clay, face: face)
+            // No pointer tick [C3]: the clay arc alone carries the level, and
+            // the LED in the centre is the mute.
+            centre()
         }
+        .frame(width: face, height: face)
         // THE ROW IS THE HIT TARGET, never the face: at Large the face is 36pt
         // and a 36pt circle is not something to aim at (§13.2).
         .frame(maxWidth: .infinity, minHeight: MixerLayout.knobRow(text: typeSize))
@@ -325,10 +321,6 @@ struct MixerHorizontalFader: View {
                            height: MixerLayout.faderTrackWidth)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.height,
                            height: MixerLayout.capSize.width)
                     .offset(x: (geo.size.width - MixerLayout.capSize.height)
@@ -403,8 +395,7 @@ struct MixerSoundChip: View {
             .background(chosen ? Theme.Accent.clayTint : Theme.Surface.well)
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(chosen ? Theme.Accent.clayBorder : Theme.Line.line2,
-                            lineWidth: 1)
+                    .stroke(chosen ? Theme.Accent.clayBorder : Color.clear, lineWidth: 1.5)
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
             .contentShape(Rectangle())
@@ -441,10 +432,6 @@ struct MixerTempoSlider: View {
                            height: MixerLayout.tempoTrackHeight)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.height,
                            height: MixerLayout.capSize.width)
                     .offset(x: (geo.size.width - MixerLayout.capSize.height)
@@ -482,10 +469,6 @@ struct MixerScrubber: View {
                     .frame(width: geo.size.width * fraction, height: 4)
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Theme.Surface.panel)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2)
-                            .stroke(Theme.Line.line2, lineWidth: 1)
-                    }
                     .frame(width: MixerLayout.capSize.width,
                            height: MixerLayout.capSize.height * 1.6)
                     .offset(x: (geo.size.width - MixerLayout.capSize.width)
@@ -535,12 +518,12 @@ struct MixerSoundPicker: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             GeometryReader { geo in
                 if geo.size.width >= 380 {
                     HStack(spacing: 0) {
                         families.frame(width: MixerLayout.pickerFamilyWidth)
-                        Rectangle().fill(Theme.Line.line).frame(width: 1)
+                        Theme.Rule(vertical: true)
                         instruments(in: family ?? current.bank.defaultFamily)
                     }
                 } else if let chosen = family {
@@ -550,7 +533,7 @@ struct MixerSoundPicker: View {
                 }
             }
             .frame(minHeight: 132, maxHeight: 190)
-            Rectangle().fill(Theme.Line.line).frame(height: 1)
+            Theme.Rule()
             footer
         }
         .accessibilityElement(children: .contain)

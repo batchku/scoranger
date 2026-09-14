@@ -54,6 +54,18 @@ enum ScoreArtifact {
     /// marks up the parts they play from on day one.
     static func allowsAnnotation(_ kind: Kind) -> Bool { true }
 
+    /// A scan and a picture of a page are made editable the same way: OMR
+    /// reads them into a notation version. Notation already is editable.
+    static func canBeMadeEditable(_ kind: Kind) -> Bool { !kind.isNotation }
+
+    /// The sentence under Make editable, naming what the artifact is.
+    static func makeEditableNote(_ kind: Kind) -> String {
+        let what = kind == .image ? "picture" : "PDF"
+        return "This arrangement is a \(what). Reading it produces a notation "
+            + "version you can transpose, select and ask about — the \(what) "
+            + "stays as it is, so you can compare them."
+    }
+
     /// What to say when someone asks for an edit that cannot happen yet.
     static func whyNotEditable() -> String {
         "This arrangement is a PDF. Run OMR on it to make it editable."

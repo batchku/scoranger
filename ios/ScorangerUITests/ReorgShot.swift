@@ -61,106 +61,62 @@ final class ReorgShot: XCTestCase {
         snap("score-artifact-marker")
     }
 
-    func testTheMixerIsHalfHeightAndHasATempoSlider() {
+    /// The tray with its tempo knob (0.8 §7.7): photographed at rest, then
+    /// with the tempo turned up, for the owner to judge the knob by eye.
+    func testTheTrayAndItsTempoKnob() {
         let app = XCUIApplication()
         app.launchArguments = ["-seedTestLibrary"]
         app.launch()
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
-        guard openFirstScore(app, named: "Sous le ciel") else {
-            return XCTFail("the score never engraved")
-        }
-        _ = engravedPage(app).waitForExistence(timeout: 180)
-        settle(engravedPage(app), still: 0.6)
-        snap("score-top-bar-with-transport-toggle")
-
-        // The transport has to be showing for the mixer button to exist. It
-        // defaults on since 0.6.1, but say so rather than assume it.
-        if app.otherElements["transport"].exists == false,
-           app.buttons["score-transport-toggle"].exists {
-            app.buttons["score-transport-toggle"].tap()
-            _ = app.otherElements["transport"].waitForExistence(timeout: 20)
-        }
-        guard app.buttons["transport-mixer"].waitForExistence(timeout: 120) else {
-            snap("no-mixer-button")
-            return XCTFail("no mixer button: playback is unavailable for this score")
-        }
-        app.buttons["transport-mixer"].tap()
-        let panel = app.otherElements["mixer"].firstMatch
-        _ = panel.waitForExistence(timeout: 30)
-        settle(panel)
-        snap("mixer-half-height-with-tempo")
-        let mixer = app.otherElements["mixer"].firstMatch
-        if mixer.exists { print("MIXER frame: \(mixer.frame)") }
-        let tempo = app.descendants(matching: .any)["mixer-tempo"].firstMatch
-        if tempo.exists {
-            print("TEMPO frame: \(tempo.frame), value: \(tempo.value ?? "-")")
-            // Drag it well to the left and photograph the transport agreeing.
-            let was = tempo.value as? String ?? ""
-            tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
-            waitUntil("the tempo to move", timeout: 15) {
-                (tempo.value as? String ?? "") != was
-            }
-            snap("mixer-tempo-moved")
-            print("TRANSPORT tempo now: "
-                  + "\(app.descendants(matching: .any)["transport-tempo"].firstMatch.label)")
-        } else {
-            XCTFail("the tempo slider is not on the panel")
-        }
+        var step = ""
+        guard let tray = openTray(app, step: &step) else { return XCTFail(step) }
+        snap("score-with-the-tray")
+        print("TRAY frame: \(tray.frame)")
+        let tempo = app.descendants(matching: .any)["transport-tempo"].firstMatch
+        guard tempo.exists else { return XCTFail("the tempo knob is not on the tray") }
+        print("TEMPO frame: \(tempo.frame), value: \(tempo.value ?? "-")")
+        let was = tempo.value as? String ?? ""
+        // Up is faster (§7.8): 14pt a unit, two BPM a unit.
+        let from = tempo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        from.press(forDuration: 0.2, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -70)),
+                   withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertTrue(waitUntil("the tempo to move", timeout: 15) {
+            (tempo.value as? String ?? "") != was
+        }, "dragging the tempo knob did not change the tempo: \(was)")
+        snap("tray-tempo-turned")
+        print("TEMPO now: \(tempo.value ?? "-")")
     }
 
-    /// The mixer with the sound list open, for the 0.6.5 dropdown.
-    ///
-    /// Photographed rather than asserted: what the owner is judging is whether
-    /// a two-column list of General MIDI families sits inside a 300pt panel
-    /// without looking like a wheel bolted to a mixer. The behaviour is
-    /// asserted in `testTheMixerChoosesTheSoundAChannelIsPlayedWith`.
+    /// The sound picker, from a knob's label, for the 0.6.5 dropdown's 0.8
+    /// home: a popover over the tray. Photographed rather than asserted; the
+    /// behaviour is in `testTheMixerChoosesTheSoundAChannelIsPlayedWith`.
     func testTheMixerSoundPicker() {
         let app = XCUIApplication()
         app.launchArguments = ["-seedTestLibrary"]
         app.launch()
-        _ = app.descendants(matching: .any)["library-search"].waitForExistence(timeout: 90)
-        guard openFirstScore(app, named: "Sous le ciel") else {
-            return XCTFail("the score never engraved")
-        }
-        _ = engravedPage(app).waitForExistence(timeout: 180)
-        settle(engravedPage(app), still: 0.6)
-
-        if app.otherElements["transport"].exists == false,
-           app.buttons["score-transport-toggle"].exists {
-            app.buttons["score-transport-toggle"].tap()
-            _ = app.otherElements["transport"].waitForExistence(timeout: 20)
-        }
-        guard app.buttons["transport-mixer"].waitForExistence(timeout: 120) else {
-            snap("no-mixer-button")
-            return XCTFail("no mixer button: playback is unavailable for this score")
-        }
-        app.buttons["transport-mixer"].tap()
-        let panel = app.otherElements["mixer"].firstMatch
-        _ = panel.waitForExistence(timeout: 30)
-        settle(panel)
-        print("MIXER frame closed: \(panel.frame)")
-        snap("mixer-with-the-sound-row")
+        var step = ""
+        guard openTray(app, step: &step) != nil else { return XCTFail(step) }
+        snap("tray-with-the-sound-labels")
 
         let chip = app.descendants(matching: .any)["strip-sound-0"].firstMatch
         guard chip.waitForExistence(timeout: 20) else {
-            snap("no-sound-chip")
-            return XCTFail("the strip has no sound control")
+            snap("no-sound-label")
+            return XCTFail("the knob has no sound label")
         }
-        print("SOUND chip: \(chip.frame), value: \(chip.value as? String ?? "-")")
+        print("SOUND label: \(chip.frame), value: \(chip.value as? String ?? "-")")
         chip.tap()
         let picker = app.descendants(matching: .any)["mixer-picker"].firstMatch
-        _ = picker.waitForExistence(timeout: 20)
-        settle(panel, still: 0.5)
-        print("MIXER frame open: \(app.otherElements["mixer"].firstMatch.frame)")
-        snap("mixer-sound-picker-open")
+        XCTAssertTrue(picker.waitForExistence(timeout: 20), "the picker did not open")
+        settle(picker, still: 0.5)
+        print("PICKER frame: \(picker.frame)")
+        snap("tray-sound-picker-open")
 
         // A family further down the list, so the shot shows the two columns
         // doing what they are for rather than the one the channel opened on.
         let brass = app.descendants(matching: .any)["picker-family-7"].firstMatch
         if brass.exists {
             brass.tap()
-            settle(panel, still: 0.4)
-            snap("mixer-sound-picker-brass")
+            settle(picker, still: 0.4)
+            snap("tray-sound-picker-brass")
         }
     }
 

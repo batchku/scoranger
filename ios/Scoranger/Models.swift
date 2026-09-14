@@ -26,6 +26,11 @@ struct Manifest: Codable, Equatable {
     /// Collections that arrangements are taken OUT of -- a fake book, a
     /// method book. Not pieces, and not arrangements.
     var books: [BookDoc]?
+    /// This device's library, and its identity. Written before any account
+    /// exists, so signing in later gives the library an owner rather than
+    /// migrating it (design/FIREBASE.md §9.2). Optional: a manifest from an
+    /// engine that predates it still decodes.
+    var library: LibraryDoc?
 
     static func == (lhs: Manifest, rhs: Manifest) -> Bool {
         lhs.scores == rhs.scores && lhs.pieces == rhs.pieces
@@ -33,8 +38,20 @@ struct Manifest: Codable, Equatable {
     }
 }
 
+/// The library this device holds. One per device, identity assigned once.
+struct LibraryDoc: Codable, Equatable {
+    var uid: String?
+    var created: String?
+}
+
 struct ScoreDoc: Codable, Identifiable, Hashable {
     var slug: String
+    /// Identity that outlives the title. The slug is `slugify(name)` and moves
+    /// when a score is renamed; this does not, and it is what a bundle and a
+    /// shared setlist entry address (design/FIREBASE.md §3, §13). Optional so a
+    /// manifest written before the engine assigned one still decodes; the
+    /// engine backfills it on open, so in a shipped build it is always there.
+    var uid: String?
     var name: String
     var title: String?
     var composer: String?
@@ -45,6 +62,13 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
 
     var id: String { slug }
 
+    /// What a reader's pencil marks are filed under. The uid, because markup
+    /// must survive a rename and must mean the same thing on the device a
+    /// bundle is opened on; the slug only while an older manifest is in hand,
+    /// and `DrawingStore.migrateKeys` re-files onto the uid as soon as one
+    /// appears.
+    var inkNamespace: String { uid ?? slug }
+
     /// By content: the sidebar polls, and a poll that finds the same library
     /// must not look like a change or every row rebuilds twice a second.
     static func == (lhs: ScoreDoc, rhs: ScoreDoc) -> Bool {
@@ -53,6 +77,13 @@ struct ScoreDoc: Codable, Identifiable, Hashable {
             && lhs.versions == rhs.versions && lhs.sources == rhs.sources
     }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
+
+    /// The readable name of the version `latest` points at. `latest` is an
+    /// opaque id, so anywhere it was shown directly has to come through here.
+    var latestLabel: String? {
+        guard let latest else { return versions.last?.name }
+        return versions.first { $0.id == latest }?.name ?? versions.last?.name
+    }
 }
 
 struct PieceDoc: Codable, Identifiable, Hashable {
@@ -86,26 +117,71 @@ struct PieceDoc: Codable, Identifiable, Hashable {
 /// not pieces: what gets played is a particular version of a tune.
 struct SetlistDoc: Codable, Identifiable, Hashable {
     var slug: String
+    /// The identity: opaque, assigned once by the engine, never rewritten.
+    ///
+    /// Optional and defaulted so a manifest written by an older engine still
+    /// decodes, exactly as `ScoreDoc.uid` is. **Sharing addresses this, never
+    /// the slug** -- which is what lets a set list be PROMOTED in place: the
+    /// Firestore document takes the set list's own uid, so the shared thing is
+    /// the same thing rather than a copy that has to be kept in step.
+    var uid: String? = nil
     var name: String
     var arrangements: [String]
 
     var id: String { slug }
 
+    /// The Firestore `setlists/{id}` this row is bound to, or nil.
+    ///
+    /// §6A.1: sharing is a FIELD on the one set list object, not a second kind
+    /// of object. `shareId == nil` means no Firestore involvement at all --
+    /// the set list behaves exactly as it did before any of this existed.
+    /// Nullable and defaulted so every existing document decodes unchanged.
+    var shareId: String? = nil
+    /// Who owns it there. Nil means this device owns it.
+    var ownerUid: String? = nil
+
+    /// Whether this set list has been promoted.
+    var isShared: Bool { shareId != nil }
+
+    /// What a shared set list is keyed on, in Firestore and in an invite link.
+    /// Falls back to the slug for a set list the engine has not given a uid --
+    /// the same shape as `ScoreDoc.inkNamespace`, and for the same reason: a
+    /// missing uid must not make the feature unreachable.
+    var sharedId: String { uid ?? slug }
+
     static func == (lhs: SetlistDoc, rhs: SetlistDoc) -> Bool {
-        lhs.slug == rhs.slug && lhs.name == rhs.name
+        lhs.slug == rhs.slug && lhs.uid == rhs.uid && lhs.name == rhs.name
             && lhs.arrangements == rhs.arrangements
+            && lhs.shareId == rhs.shareId && lhs.ownerUid == rhs.ownerUid
     }
     func hash(into hasher: inout Hasher) { hasher.combine(slug) }
 }
 
 struct VersionDoc: Codable, Identifiable, Hashable {
+    /// The identity: opaque, assigned once, never rewritten. Key annotations,
+    /// caches and selections on this; never show it to anyone.
     var id: String
+    /// The name a person reads -- `v012`. Optional, and defaulted, so that a
+    /// manifest written by an older engine still decodes and so that every
+    /// existing `VersionDoc(...)` in the tests still compiles. `name` is what
+    /// callers use.
+    var label: String? = nil
     var file: String
     var op: String
     var time: String?
+    /// The version this one was made FROM. Present in the manifest since the
+    /// history existed; decoded here since two devices could append to the
+    /// same parent (`VersionGraph`, design/FIREBASE.md §7 rule 2).
+    var parent: String? = nil
     var parts: [PartDoc]?
     /// The chat turn (prompt) this version was created during, if any.
     var turn: TurnRef?
+
+    /// What to put on screen. The id became opaque when versions had to be
+    /// allocatable on two devices at once (design/FIREBASE.md §3); every place
+    /// that used to render `id` renders this instead, or the library fills up
+    /// with 26-character strings nobody can read.
+    var name: String { label ?? id }
 
     static func == (lhs: VersionDoc, rhs: VersionDoc) -> Bool {
         lhs.id == rhs.id && lhs.op == rhs.op && lhs.parts == rhs.parts

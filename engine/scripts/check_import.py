@@ -62,8 +62,9 @@ def expect_imports(label: str, build_or_path, *, expect_warnings: bool = False):
             return
         CHECKED.append(label)
 
-        if entry["id"] != "v001":
-            FAILURES.append(f"{label}: first version is {entry['id']}, not v001")
+        first = workspace.version_label(entry)
+        if first != "v001":
+            FAILURES.append(f"{label}: first version is labelled {first}, not v001")
             return
 
         path = workspace.resolve_path(slug)

@@ -1,0 +1,371 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Scoranger 0.8 Ledger</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="round2.css">
+<style>
+/* ===== Option 6 · Ledger — tokens ===== */
+.ipad, .demo { --r-ctl: 10px; --r-panel: 16px; --edge: transparent; --edge-soft: var(--line); --ctl-h: 40px; --row-h: 68px; --pw: 380px; }
+.btn { background: var(--well); font-weight: 600; font-size: 13.5px; }
+.btn.quiet { background: transparent; }
+.btn.on { background: var(--clayTint); box-shadow: inset 0 0 0 1.5px var(--clay); }
+.btn.primary { background: var(--clayPress); }
+.field { border-color: transparent; background: var(--panel); font-size: 15px; }
+.seg { background: transparent; border: 0; padding: 0; gap: 2px; }
+.seg span { font: 600 15px var(--sg); color: var(--ink3); padding: 0 8px; position: relative; min-width: 0; }
+.seg span.on { color: var(--ink); background: transparent; box-shadow: none; }
+.seg span.on::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 2px; background: var(--clay); border-radius: 1px; }
+.toggle { border-color: transparent; }
+.chip { border-color: transparent; background: var(--well); font-size: 11px; }
+
+/* the ledger: rows ruled, folio in the gutter */
+.lhead { display: flex; align-items: flex-end; gap: 20px; padding: 14px 24px 0; min-height: 66px; }
+.lhead h1 { font: 600 30px/1 var(--sg); letter-spacing: -0.025em; margin: 0; }
+.lhead .count { font: 400 13px var(--mo); color: var(--ink3); margin-top: 8px; }
+.lhead .seg { margin-left: auto; height: 36px; }
+.lhead .btn.icon { background: transparent; }
+.tools1 { padding: 12px 24px 4px; }
+.tools1 .btn { background: transparent; }
+.tools1 .btn.on { background: var(--clayTint); }
+.list { padding: 0 24px; }
+.row { grid-template-columns: 56px auto 1fr auto auto; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.row .folio { font: 700 30px/1 var(--sg); letter-spacing: -0.03em; color: var(--clay); text-align: right; padding-right: 8px; font-variant-numeric: tabular-nums; }
+.row .folio.letter { color: var(--clayStrong); font-size: 22px; }
+.row .name { font: 600 17px/1.2 var(--sg); letter-spacing: -0.01em; }
+.row .meta { font-size: 12.5px; }
+.row .trail .btn { background: transparent; }
+.row .trail .btn.on { background: var(--clayTint); }
+.row.sel { background: linear-gradient(to right, transparent, var(--clayTint) 60%); border-radius: 10px 0 0 10px; }
+.row .acts-inline .btn { background: var(--panel); }
+.ordered .row { grid-template-columns: 56px 1fr auto auto; }
+.ordered .row .folio { font-size: 22px; color: var(--ink3); }
+.ordered .row.sel .folio { color: var(--clay); }
+.sect { padding: 22px 24px 6px; font: 600 13px var(--sg); color: var(--clayStrong); border-bottom: 1px solid var(--line); margin: 0 24px 6px; padding-left: 0; padding-right: 0; }
+
+/* the panel: a note in the margin, tied to its row by a leader */
+.rpanel { background: var(--panel); border-radius: 16px 0 0 16px; padding: 18px 22px; }
+.rpanel .block { position: relative; }
+.rpanel .block.tied::before { content: ""; position: absolute; left: -44px; top: 22px; width: 36px; height: 2px; background: var(--clay); }
+.rpanel .block.tied::after { content: ""; position: absolute; left: -48px; top: 18px; width: 10px; height: 10px; border-radius: 50%; background: var(--clay); }
+.rpanel .pi.on { background: var(--clayTint); color: var(--clayStrong); font-weight: 600; }
+.rpanel .pi .ic { color: var(--clay); }
+.rpanel .ph .ttl { font-size: 19px; }
+
+/* the drawer: one ruled line */
+.drawer1 { background: var(--panel); border-top: 2px solid var(--clay); }
+.drawer1 .btn { background: transparent; }
+.drawer1 .btn.on { background: var(--clayTint); }
+.drawer1 .setchip { font: 500 12px var(--mo); color: var(--ink2); background: var(--well); border-radius: 8px; padding: 6px 10px; }
+.perfmark { position: absolute; top: 34px; right: 22px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--clay); opacity: .5; }
+
+/* bar and pushed screens */
+.bar .btn { background: transparent; }
+.bar .btn.on { background: var(--clayTint); }
+.bar .title .folio { font: 700 28px/1 var(--sg); letter-spacing: -0.03em; color: var(--clay); }
+.screen-head .btn { background: transparent; color: var(--clayStrong); }
+.head { padding: 10px 24px 14px; }
+.head .h1 { font-size: 26px; }
+.head .folio { font: 700 40px/1 var(--sg); letter-spacing: -0.03em; color: var(--clay); }
+.kv { padding: 6px 24px; border-bottom-color: var(--line); }
+.kv .k { font: 600 16px var(--sg); }
+.kv.sel { background: linear-gradient(to right, transparent, var(--clayTint) 60%); }
+.kv.sel .k, .kv.sel .v { color: var(--clayStrong); }
+.gap-row { height: 18px; }
+.sidx { width: 320px; padding: 8px 12px 8px 24px; }
+.sidx .it.on { background: var(--clayTint); color: var(--clayStrong); font-weight: 600; }
+.sidx .it { font: 500 16px var(--sg); }
+.sect-body { padding: 8px 32px 8px 24px; }
+.vrow.on { background: var(--clayTint); }
+.vrow.on .id { color: var(--clayStrong); }
+</style>
+
+<div class="deck">
+  <p class="kicker">Scoranger 0.8 · round 2 · option 6 of 8</p>
+  <h1>Ledger</h1>
+  <p class="lede">A ruled ledger with notes in its margin. Every row is a line in the book; every deeper thing is a note tied to its line.</p>
+  <ul class="toc">
+    <li><a href="#stance">Stance</a></li><li><a href="#s1">1 Pieces</a></li><li><a href="#s2">2 Set lists</a></li><li><a href="#s3">3 A set list</a></li><li><a href="#s4">4 Reading</a></li><li><a href="#s5">5 Playing</a></li><li><a href="#s6">6 Performance</a></li><li><a href="#s7">7 Settings</a></li><li><a href="#s8">8 Arrangement</a></li><li><a href="#s9">9 Share a set list</a></li><li><a href="#s10">10 Import a PDF</a></li><li><a href="#sheet">Components</a></li><li><a href="#cost">Cost</a></li>
+  </ul>
+
+  <h2 id="stance">Stance</h2>
+  <div class="stance">
+    <p><b>Typographic, ruled, quiet.</b> The library is a ledger: full-width lines at 68pt, ruled with hairlines, the name set in Space Grotesk 600 at 17pt so it reads from a stand, and the numeral as a 30pt folio in a 56pt gutter. There are no boxed controls in the body; buttons are words with glyphs and take a <code class="mono">well</code> fill only when they mean something. What made round 1's Margin work is kept and tightened: the next level opens in a 380pt panel at the right, and the block that opens is <b>tied to its row</b> by a clay leader line and a dot, at the row's own height, so the eye and the pencil travel sideways a few centimetres and never down. A row's own actions (Open, Arrangement, Remove, up, down) appear inside the row when its ☰ is tapped and take the space the meta text had. Nothing appears at the bottom except the one drawer.</p>
+    <p><b>The drawer</b> is one 56pt line under a 2pt clay rule: set list step, transport, one knob per part with the LED in the centre of the dial, a tempo knob, bar position, and the panel toggles. Nothing below it ever grows.</p>
+    <p><b>Performance mode</b> leaves a 28pt clay ring at the top right, where the panel's corner was. Tap it to come back.</p>
+  </div>
+
+  <!-- ============ 1 ============ -->
+  <h3 id="s1">1 · Library, Pieces, Sort and Filter tied to the tool row</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app"><div class="split">
+      <div class="main">
+        <div class="lhead"><div><h1>Library</h1><div class="count">6 pieces · 8 arrangements</div></div><div class="seg"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+        <div class="tools1"><div class="field"><svg class="ic"><use href="#i-search"/></svg>Search pieces</div><div class="grp"><span class="btn"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn"><svg class="ic"><use href="#i-plus"/></svg>New</span><span class="btn"><svg class="ic"><use href="#i-menu"/></svg>New set list</span></div><div class="grp"><span class="btn on"><svg class="ic"><use href="#i-sort"/></svg>Sort <span class="val">name</span></span><span class="btn"><svg class="ic"><use href="#i-filter"/></svg>Filter</span><span class="btn"><svg class="ic"><use href="#i-edit"/></svg>Edit</span></div></div>
+        <div class="list">
+          <div class="row"><span class="folio letter">B</span><span class="thumb"></span><div><div class="name">Blue Bossa</div><div class="sub"><span class="meta">Kenny Dorham · 1 arrangement</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v004 · Tue</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">C</span><span class="thumb"></span><div><div class="name">Cavatina</div><div class="sub"><span class="meta">Stanley Myers · 2 arrangements</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v011 · Mon</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">L</span><span class="thumb"></span><div><div class="name">Libertango</div><div class="sub"><span class="meta">Astor Piazzolla · 1 arrangement</span><span class="chip">MUSICXML</span></div></div><span class="meta mo">v002 · 3 Sep</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">S</span><span class="thumb pdf"></span><div><div class="name">Scanned score</div><div class="sub"><span class="meta">1 arrangement</span><span class="chip">PDF</span></div></div><span class="meta mo">v001 · 2 Sep</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio"></span><span class="thumb"></span><div><div class="name">Sous le ciel de Paris</div><div class="sub"><span class="meta">Hubert Giraud · 2 arrangements</span><span class="chip">MUSICXML</span><span class="chip warn">OMR DRAFT</span></div></div><span class="meta mo">v003 · today</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">U</span><span class="thumb"></span><div><div class="name">Under Paris Skies accordion solo</div><div class="sub"><span class="meta">unfiled · 0 versions</span></div></div><span class="meta mo"></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        </div>
+      </div>
+      <div class="rpanel">
+        <div class="block tied" style="--at:64px">
+          <div class="ph"><span class="ttl">Sort</span><span class="sub">pieces</span><span class="btn quiet">Done</span></div>
+          <div class="pi on">Name <svg class="ic s" style="margin-left:auto"><use href="#i-check"/></svg></div><div class="pi">Composer</div><div class="pi">Recently changed</div><div class="pi">Arrangements</div>
+          <div class="plabel">Show only</div>
+          <div class="pi">Unfiled <span class="v mo">1</span></div><div class="pi">Scans not yet notation <span class="v mo">1</span></div><div class="pi">In a set list <span class="v mo">5</span></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <p class="cap"><b>Full width, one tool row, and the panel tied to the button that opened it.</b> The leader runs from the Sort button's height into the panel; Filter shares the note. The list narrows once and its rows do not move.</p>
+
+  <!-- ============ 2 ============ -->
+  <h3 id="s2">2 · Library, Set lists, one shared; panel closed</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app"><div class="split closed">
+      <div class="main">
+        <div class="lhead"><div><h1>Library</h1><div class="count">3 set lists</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+        <div class="tools1"><div class="field"><svg class="ic"><use href="#i-search"/></svg>Search set lists</div><div class="grp"><span class="btn"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn"><svg class="ic"><use href="#i-plus"/></svg>New</span><span class="btn"><svg class="ic"><use href="#i-menu"/></svg>New set list</span></div><div class="grp"><span class="btn"><svg class="ic"><use href="#i-sort"/></svg>Sort <span class="val">name</span></span><span class="btn"><svg class="ic"><use href="#i-filter"/></svg>Filter</span><span class="btn"><svg class="ic"><use href="#i-edit"/></svg>Edit</span></div></div>
+        <div class="list">
+          <div class="row"><span class="folio letter">S</span><span class="thumb"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements · Cavatina #1 · Blue Bossa #1 · Libertango #1</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements · </span><span class="meta" style="display:inline-flex;gap:4px;align-items:center;color:var(--clayStrong)"><svg class="ic s"><use href="#i-people"/></svg>4 people</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio letter">W</span><span class="thumb"></span><div><div class="name">Wedding, 14 September</div><div class="sub"><span class="meta">8 arrangements</span></div></div><span class="meta mo">Fri</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <p class="cap">Share leads the ☰ on every set list row; the shared one adds the two-people glyph and a count. No drawer in the library.</p>
+
+  <!-- ============ 3 ============ -->
+  <h3 id="s3">3 · A set list, a member's actions inside its row, the arrangement note tied beside it</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app"><div class="split">
+      <div class="main">
+        <div class="screen-head"><span class="btn"><svg class="ic"><use href="#i-back"/></svg>Library</span><span class="ttl">Set list</span><span class="btn primary" style="padding:0 16px"><svg class="ic"><use href="#i-play"/></svg>Play</span></div>
+        <div class="head"><div><div class="h1 editable">Tuesday at the Ship</div><div class="h2">6 arrangements · <svg class="ic s"><use href="#i-people"/></svg> 4 people · shared by you</div></div></div>
+        <div class="list ordered">
+          <div class="row"><span class="folio">1</span><div><div class="name">Libertango <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#1</span></div><div class="sub"><span class="meta">Astor Piazzolla · v002</span></div></div><span></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row sel"><span class="folio">2</span><div><div class="name">Sous le ciel quartet <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#1</span></div></div><div class="acts-inline"><span class="btn icon"><svg class="ic"><use href="#i-up"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-down"/></svg></span><span class="btn">Open</span><span class="btn on">Arrangement <svg class="ic s"><use href="#i-chev"/></svg></span><span class="btn danger">Remove</span></div><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-x"/></svg></span></div></div>
+          <div class="row"><span class="folio">3</span><div><div class="name">Guitar duo <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#2</span></div><div class="sub"><span class="meta">Cavatina · v011</span></div></div><span></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio">4</span><div><div class="name">Blue Bossa <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#1</span></div><div class="sub"><span class="meta">Kenny Dorham · v004</span></div></div><span></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio">5</span><div><div class="name">Accordion solo <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#2</span></div><div class="sub"><span class="meta">Sous le ciel de Paris · v001</span></div></div><span></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+          <div class="row"><span class="folio">6</span><div><div class="name">Guitar solo <span class="num" style="font-size:15px;min-width:0;margin-left:6px">#1</span></div><div class="sub"><span class="meta">Cavatina · v006</span></div></div><span></span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        </div>
+      </div>
+      <div class="rpanel">
+        <div class="plabel" style="padding-top:0">This set list</div>
+        <div class="pi">Add <span class="v"><svg class="ic s"><use href="#i-plus"/></svg></span></div>
+        <div class="pi">People <span class="v"><span class="mo">4</span> <svg class="ic s"><use href="#i-chev"/></svg></span></div>
+        <div class="pi">Share <span class="v"><svg class="ic s"><use href="#i-share"/></svg></span></div>
+        <div class="pi">Markup <span class="v">everybody's</span></div>
+        <div class="pi danger">Delete for everybody</div>
+        <div class="block tied" style="--at:14px">
+          <div class="ph"><span class="folio" style="font:700 28px/1 var(--sg);letter-spacing:-.03em;color:var(--clay)">#1</span><div><div class="ttl" style="font-size:17px">Sous le ciel quartet</div><div class="sub">Sous le ciel de Paris · Hubert Giraud</div></div></div>
+          <div class="pi">Versions <span class="v"><span class="mo">3</span> <svg class="ic s"><use href="#i-chev"/></svg></span></div>
+          <div class="pi">Parts <span class="v"><span class="mo">4</span> <svg class="ic s"><use href="#i-chev"/></svg></span></div>
+          <div class="pi">Set lists <span class="v">1 of 3 <svg class="ic s"><use href="#i-chev"/></svg></span></div>
+          <div class="pi">Move to piece <span class="v"><svg class="ic s"><use href="#i-chev"/></svg></span></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <p class="cap"><b>Everything about row 2 happens on row 2's line.</b> Its ☰ became ✕ and the row's actions took the meta text's place: up, down, Open, Arrangement, Remove. Arrangement is lit because its note is open in the panel, tied by the leader at the same height. The set list's own tools sit at the top of the panel at rest, so there is no Manage button and no band.</p>
+
+  <!-- ============ 4 ============ -->
+  <h3 id="s4">4 · Score, reading, paged; the pages note open; the one-line drawer</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="split">
+        <div class="main">
+          <div class="bar"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="title"><span class="folio">#1</span><div><div class="t1">Sous le ciel quartet</div><div class="t2">Sous le ciel de Paris · v003 · 3 versions</div></div><svg class="ic s" style="color:var(--ink3)"><use href="#i-down"/></svg></div><div class="acts"><div class="seg" style="height:36px"><span class="on"><svg class="ic"><use href="#i-page"/></svg></span><span><svg class="ic"><use href="#i-spread"/></svg></span><span><svg class="ic"><use href="#i-cont"/></svg></span></div><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-chat"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+          <div class="scorecanvas"><div class="page" style="width:466px;height:660px"><canvas class="engraving" data-title="Sous le ciel quartet" data-staves="4" data-seed="11" data-pageno="1" style="width:466px;height:660px"></canvas></div><div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span><span>bar 1</span></div></div>
+        </div>
+        <div class="rpanel"><div class="block tied" style="--at:8px"><div class="ph"><span class="ttl">Pages</span><span class="sub">9</span><span class="btn quiet">Done</span></div><div class="thumbgrid"><span class="t on"><i>1</i></span><span class="t"><i>2</i></span><span class="t"><i>3</i></span><span class="t"><i>4</i></span><span class="t"><i>5</i></span><span class="t"><i>6</i></span><span class="t"><i>7</i></span><span class="t"><i>8</i></span><span class="t"><i>9</i></span></div></div></div>
+      </div>
+      <div class="drawer1">
+        <span class="setchip">Tuesday at the Ship · 2 of 6</span>
+        <div class="grp"><span class="btn icon"><svg class="ic"><use href="#i-prev"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-next"/></svg></span></div><span class="vr"></span>
+        <div class="grp"><span class="btn icon play"><svg class="ic"><use href="#i-play"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-start"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-metro"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-loop"/></svg></span></div><span class="vr"></span>
+        <div class="knobs"><div class="kg" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vln I <span class="mo">7</span></span></div><div class="kg" style="--v:.6"><span class="knob2"><span class="led"></span></span><span class="kl">Vln II <span class="mo">6</span></span></div><div class="kg muted" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vla <span class="mo">7</span></span></div><div class="kg" style="--v:.8"><span class="knob2"><span class="led"></span></span><span class="kl">Vc <span class="mo">8</span></span></div><div class="kg tempo" style="--v:.5"><span class="knob2"><span class="led" style="background:var(--ink3);box-shadow:none"></span></span><span class="kl">tempo <span class="mo">120</span></span></div></div><span class="vr"></span>
+        <span class="pos"><b>bar 1</b></span><span class="sp"></span>
+        <div class="grp"><span class="btn on"><svg class="ic s"><use href="#i-page"/></svg>Pages</span><span class="btn icon"><svg class="ic"><use href="#i-mixer"/></svg></span></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>One line, 56pt, everything on it.</b> Transport, one knob per part with its LED in the centre of the dial and its level beside its name, a tempo knob in ink, the bar, and the panel toggles. The pages open in the panel, not below. The title block opens the arrangement and version switcher in the panel too.</p>
+
+  <!-- ============ 5 ============ -->
+  <h3 id="s5">5 · Score, playing, scroll mode; the drawer is the mixer</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="split closed"><div class="main">
+        <div class="bar"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="title"><span class="folio">#1</span><div><div class="t1">Sous le ciel quartet</div><div class="t2">Sous le ciel de Paris · v003 · 3 versions</div></div><svg class="ic s" style="color:var(--ink3)"><use href="#i-down"/></svg></div><div class="acts"><div class="seg" style="height:36px"><span><svg class="ic"><use href="#i-page"/></svg></span><span><svg class="ic"><use href="#i-spread"/></svg></span><span class="on"><svg class="ic"><use href="#i-cont"/></svg></span></div><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-chat"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+        <div class="scorecanvas" style="padding:0"><div class="pano" style="height:698px"><canvas class="engraving" data-continuous data-staves="4" data-seed="5" data-bar-start="20" style="width:1194px;height:698px"></canvas><div class="playhead" style="left:25%"></div></div><div class="poschip" style="top:8px;right:16px"><span>bar 27</span></div></div>
+      </div></div>
+      <div class="drawer1">
+        <span class="setchip">2 of 6</span>
+        <div class="grp"><span class="btn icon"><svg class="ic"><use href="#i-prev"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-next"/></svg></span></div><span class="vr"></span>
+        <div class="grp"><span class="btn icon play"><svg class="ic"><use href="#i-pause"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-start"/></svg></span><span class="btn icon on"><svg class="ic"><use href="#i-metro"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-loop"/></svg></span></div><span class="vr"></span>
+        <div class="knobs"><div class="kg" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vln I <span class="mo">7</span></span></div><div class="kg" style="--v:.6"><span class="knob2"><span class="led"></span></span><span class="kl">Vln II <span class="mo">6</span></span></div><div class="kg muted" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vla <span class="mo">7</span></span></div><div class="kg" style="--v:.8"><span class="knob2"><span class="led"></span></span><span class="kl">Vc <span class="mo">8</span></span></div><div class="kg tempo" style="--v:.5"><span class="knob2"><span class="led" style="background:var(--ink3);box-shadow:none"></span></span><span class="kl">tempo <span class="mo">120</span></span></div></div><span class="vr"></span>
+        <div class="scrub" style="--p:24%;max-width:180px"></div><span class="pos"><b>bar 27</b> · 0:48 / 3:24</span><span class="sp"></span>
+        <div class="grp"><span class="btn icon"><svg class="ic"><use href="#i-page"/></svg></span><span class="btn icon on"><svg class="ic"><use href="#i-mixer"/></svg></span></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>The mixer is not a second row: it is the same line.</b> A knob is muted by tapping its LED, which goes grey; the level survives the mute. The seek scrubber appears on the line while playing. Nine parts scroll the knob group sideways within its slot; nothing grows downward. The line is parked a quarter in.</p>
+
+  <!-- ============ 6 ============ -->
+  <h3 id="s6">6 · Performance mode</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app"><div class="scorecanvas" style="padding-top:16px"><div class="page" style="width:560px;height:760px"><canvas class="engraving" data-title="Sous le ciel quartet" data-staves="4" data-seed="11" data-pageno="1" style="width:560px;height:760px"></canvas></div></div></div>
+    <div class="perfmark"></div>
+  </div></div>
+  <p class="cap"><b>The way back is a 28pt clay ring</b> at the top right, at half strength, where the panel's rounded corner was a moment ago; a 44pt hit area behind it. Nothing at the bottom. The outer thirds turn pages; the centre shows the bar for two seconds.</p>
+
+  <!-- ============ 7 ============ -->
+  <h3 id="s7">7 · Settings, index left and section right</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app">
+      <div class="screen-head"><span class="btn"><svg class="ic"><use href="#i-back"/></svg>Library</span><span class="ttl">Settings</span><span style="width:88px"></span></div>
+      <div style="flex:1;display:flex;min-height:0">
+        <div class="sidx">
+          <div class="it on">Account <span class="meta">signed out</span></div><div class="it">Reading <span class="meta">one page</span></div><div class="it">Titles <span class="meta">3 to fix</span></div><div class="it">Engine <span class="meta"><span class="led"></span> on-device</span></div><div class="it">Server <span class="meta mo">not set</span></div><div class="it">Scanning <span class="meta mo">audiveris</span></div><div class="it">Model <span class="meta mo">gemini-flash</span></div><div class="it">Diagnostics <span class="meta">off</span></div><div class="it">About <span class="meta mo">v0.8.0 · b200</span></div>
+        </div>
+        <div class="sect-body">
+          <div class="sect" style="margin:0;padding-top:12px">Account</div>
+          <div class="kv"><span class="k">Sign in</span><span class="v"><span class="btn" style="background:var(--ink);color:#fff">Apple</span><span class="btn">Google</span></span></div>
+          <div class="kv"><span class="k">Email</span><span class="v"><span class="field small" style="width:300px;background:var(--paper)">you@example.com</span><span class="btn">Send link</span></span></div>
+          <p class="note" style="padding-left:0">Only sharing a set list needs an account. Reading, arranging, playing and importing never ask you to sign in.</p>
+          <div class="gap-row"></div>
+          <div class="kv"><span class="k">Invitation</span><span class="v"><span class="field small" style="width:300px;background:var(--paper)"><svg class="ic s"><use href="#i-link"/></svg>Paste a link</span><span class="btn dis">Join</span></span></div>
+          <p class="note" style="padding-left:0">A link somebody sent you. Opening it where it arrived does the same thing.</p>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <p class="cap"><b>Desk's settings layout in the ledger's clothes:</b> nine sections down the left, each stating its answer, the chosen one on the right. Three rows and two notes, no scrolling, no fourteen bands.</p>
+
+  <!-- ============ 8 ============ -->
+  <h3 id="s8">8 · The arrangement screen; Versions tied beside its row</h3>
+  <div class="frame"><div class="ipad">
+    <div class="status"><span>9:41  Wed 10 Sep</span><span class="r">100% <i class="batt"></i></span></div>
+    <div class="app"><div class="split">
+      <div class="main">
+        <div class="screen-head"><span class="btn"><svg class="ic"><use href="#i-back"/></svg>Sous le ciel de Paris</span><span class="ttl">Arrangement</span><span class="btn primary" style="padding:0 16px">Open</span></div>
+        <div class="head"><span class="folio">#1</span><div><div class="h1 editable">Sous le ciel quartet</div><div class="h2">Hubert Giraud · 3 versions · 4 parts · changed today</div></div></div>
+        <div class="kv"><span class="k">Piece</span><span class="v">Sous le ciel de Paris <svg class="ic s chev"><use href="#i-chev"/></svg></span></div>
+        <div class="kv"><span class="k">Set lists</span><span class="v">1 of 3 <svg class="ic s chev"><use href="#i-chev"/></svg></span></div>
+        <div class="kv"><span class="k">Duplicate</span><span class="v"><svg class="ic s chev"><use href="#i-dup"/></svg></span></div>
+        <div class="gap-row"></div>
+        <div class="kv sel"><span class="k">Versions</span><span class="v"><span class="mo">3</span></span></div>
+        <div class="kv"><span class="k">Parts</span><span class="v"><span class="mo">4</span> <svg class="ic s chev"><use href="#i-chev"/></svg></span></div>
+        <div class="kv"><span class="k">Details</span><span class="v">title, composer, arranger <svg class="ic s chev"><use href="#i-chev"/></svg></span></div>
+        <div class="gap-row"></div>
+        <div class="kv"><span class="k" style="color:var(--danger)">Delete arrangement</span><span class="v"></span></div>
+      </div>
+      <div class="rpanel">
+        <div class="block tied" style="--at:296px">
+          <div class="ph"><span class="ttl">Versions</span><span class="sub">tap one to display it</span></div>
+          <div class="vrow on"><span class="id">v003</span><div><div class="p">Rename the four parts Violin I, Violin II, Viola, Cello</div><div class="m">4 ops · today · displayed</div></div><svg class="ic s" style="color:var(--clay)"><use href="#i-check"/></svg></div>
+          <div class="vrow"><span class="id">v002</span><div><div class="p">Transpose the whole thing down a tone</div><div class="m">2 ops · Tue</div></div><span></span></div>
+          <div class="vrow"><span class="id">v001</span><div><div class="p">Imported Sous-le-ciel.mxl</div><div class="m">import · 2 Sep</div></div><span></span></div>
+        </div>
+      </div>
+    </div></div>
+  </div></div>
+  <p class="cap"><b>The version list is a note tied to the Versions line.</b> Parts and Set lists tie the same way. A prompt gets a full line in a 380pt panel; fourteen versions scroll inside the note.</p>
+
+  <!-- ============ 9 ============ -->
+  <h3 id="s9">9 · Sequence: share a set list</h3>
+  <div class="seq">
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">3 set lists</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px">
+        <div class="row"><span class="folio letter">S</span><span class="thumb"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        <div class="row"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">6 arrangements</span></div></div><span class="meta mo">today</span><div class="trail"><span class="btn icon on" style="box-shadow:0 0 0 4px var(--clayTint)"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+      </div></div></div></div></div>
+    <p class="stepcap"><b>1 · Tap share</b>Signed out, the row's actions become Sign in with one line saying why; signed in, straight on.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">3 set lists</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px">
+        <div class="row"><span class="folio letter">S</span><span class="thumb"></span><div><div class="name">Sunday session</div><div class="sub"><span class="meta">3 arrangements</span></div></div><span class="meta mo">Sun</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+        <div class="row sel"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div></div><div class="acts-inline"><span class="ring"></span><span class="meta" style="color:var(--clayStrong)">Preparing to share · uploading 2 of 6</span><span class="btn">Stop</span></div><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div>
+      </div></div></div></div></div>
+    <p class="stepcap"><b>2 · Progress on the row</b>The row's action slot carries the state and a Stop. Nothing opens.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">3 set lists</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px"><div class="row sel"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">link ready · 12 places · 7 days</span></div></div><span></span><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div>
+      </div></div><div class="sys-sheet"><div class="grab"></div><div style="font-weight:600">Tuesday at the Ship</div><div style="font-size:13px;color:#666">a set list in Scoranger · scoranger.app/i/7f3a…</div><div class="apps"><span>Messages</span><span>Mail</span><span>WhatsApp</span><span>AirDrop</span></div><div class="acts"><div>Copy</div><div>Add to Notes</div></div></div></div></div>
+    <p class="stepcap"><b>3 · The system share sheet</b>Apple's own, the one sheet the app does not draw. The row states what the link is.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">1 set list</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px"><div class="row sel"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta">invitation from Ali Momeni · 6 arrangements</span></div></div><span></span><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-link"/></svg></span></div></div><div class="row"><span class="folio letter">C</span><span class="thumb"></span><div><div class="name">Choir Thursdays</div><div class="sub"><span class="meta">4 arrangements</span></div></div><span class="meta mo">Mon</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div>
+      </div><div class="rpanel"><div class="block tied" style="--at:96px"><div class="ph"><span class="ttl">Add to my set lists?</span></div><p class="note" style="padding-top:0">Shared by Ali Momeni · 6 arrangements · 3 people so far. Adding it downloads their six arrangements to this iPad and puts the list beside yours. Everybody in it can reorder and mark up.</p><div class="pgap"></div><div style="display:flex;gap:8px;padding:0 12px"><span class="btn primary" style="height:44px;flex:1">Add</span><span class="btn" style="height:44px">Not now</span></div></div></div></div></div></div>
+    <p class="stepcap"><b>4 · The recipient opens the link</b>The invitation is already a row, in the place the list will take; its note is tied beside it with the one confirmation and its reason.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">2 set lists</div></div><div class="seg"><span>Pieces</span><span class="on">Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px"><div class="row"><span class="folio letter">C</span><span class="thumb"></span><div><div class="name">Choir Thursdays</div><div class="sub"><span class="meta">4 arrangements</span></div></div><span class="meta mo">Mon</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div><div class="row"><span class="folio letter">T</span><span class="thumb"></span><div><div class="name">Tuesday at the Ship</div><div class="sub"><span class="meta" style="display:inline-flex;gap:4px;align-items:center;color:var(--clayStrong)"><svg class="ic s"><use href="#i-people"/></svg>4 people</span><span class="meta">· downloading 4 of 6</span></div></div><span class="meta mo">now</span><div class="trail"><span class="btn icon"><svg class="ic"><use href="#i-share"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div>
+      </div></div></div></div></div>
+    <p class="stepcap"><b>5 · The row is ordinary</b>The note closes, the row keeps its place and finishes its download in the meta line.</p></div>
+  </div>
+
+  <!-- ============ 10 ============ -->
+  <h3 id="s10">10 · Sequence: import a PDF and open it</h3>
+  <div class="seq">
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">6 pieces</div></div><div class="seg"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="tools1"><div class="field"><svg class="ic"><use href="#i-search"/></svg>Search pieces</div><div class="grp"><span class="btn on"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn">New</span><span class="btn">New set list</span></div></div>
+      <div class="sys-picker"><div class="hdr"><span>Recents</span><span>Cancel</span></div><div class="files"><div class="sel">Waltz-No2.pdf</div><div class="xml">Cavatina.mxl</div><div>Tango-parts.pdf</div><div>Hymn-scan.pdf</div><div class="xml">Bossa.musicxml</div><div>Choir-set.pdf</div></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>1 · Import</b>Apple's picker; Import stays lit under it.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="lhead"><div><h1>Library</h1><div class="count">7 pieces</div></div><div class="seg"><span class="on">Pieces</span><span>Set lists</span><span>Books</span></div><span class="btn icon"><svg class="ic"><use href="#i-gear"/></svg></span></div>
+      <div class="list" style="margin-top:14px"><div class="row sel"><span class="folio letter">W</span><span class="thumb pdf"></span><div><div class="name">Waltz No. 2</div></div><div class="acts-inline"><div class="track" style="--p:62%;width:220px"></div><span class="meta mo">reading 9 pages · 62%</span><span class="btn">Stop</span></div><div class="trail"><span class="btn icon dis"><svg class="ic"><use href="#i-menu"/></svg></span></div></div></div>
+      </div></div></div></div>
+    <p class="stepcap"><b>2 · Progress on the row</b>The new line appears where it will live; its action slot carries the track and a Stop.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split"><div class="main">
+      <div class="bar"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="title"><span class="folio">#1</span><div><div class="t1">Waltz No. 2</div><div class="t2">Waltz No. 2 · v001 · PDF</div></div></div><div class="acts"><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="scorecanvas"><div class="page" style="width:400px;height:560px"><canvas class="engraving" data-title="Waltz No. 2" data-staves="2" data-seed="3" data-gap="5" style="width:400px;height:560px"></canvas></div><div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span></div><div class="poschip" style="top:6px;left:16px"><span>PDF · a scan, not yet notation</span></div></div>
+      </div><div class="rpanel"><div class="block tied" style="--at:8px"><div class="ph"><span class="ttl">Convert to notation?</span></div><p class="note" style="padding-top:0">So it can be arranged, transposed and played. About two minutes for nine pages. The scan stays as v001 either way.</p><div class="pgap"></div><div style="display:flex;gap:8px;padding:0 12px"><span class="btn primary" style="height:44px;flex:1">Convert</span><span class="btn" style="height:44px">Read as is</span></div></div></div></div>
+      <div class="drawer1"><span class="setchip">not in a set list</span><span class="vr"></span><span class="btn icon dis"><svg class="ic"><use href="#i-play"/></svg></span><span class="meta">a scan cannot play until it is notation</span><span class="sp"></span><span class="btn icon"><svg class="ic"><use href="#i-page"/></svg></span></div>
+    </div></div>
+    <p class="stepcap"><b>3 · The scan opens, OMR offered in the panel</b>The question is tied to the title it concerns; either answer closes it. The page is already readable.</p></div>
+    <div class="step"><div class="ipad"><div class="status"><span>9:41</span><span class="r">100% <i class="batt"></i></span></div><div class="app"><div class="split closed"><div class="main">
+      <div class="bar"><span class="btn icon"><svg class="ic"><use href="#i-x"/></svg></span><div class="title"><span class="folio">#1</span><div><div class="t1">Waltz No. 2</div><div class="t2">Waltz No. 2 · v001 · PDF</div></div></div><div class="acts"><span class="btn icon"><svg class="ic"><use href="#i-pencil"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-perf"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-more"/></svg></span></div></div>
+      <div class="scorecanvas"><div class="page" style="width:400px;height:560px"><canvas class="engraving" data-title="Waltz No. 2" data-staves="2" data-seed="3" data-gap="5" style="width:400px;height:560px"></canvas></div><div class="poschip" style="top:6px;right:16px"><span>p. 1 / 9</span></div></div>
+      </div></div>
+      <div class="drawer1"><span class="ring"></span><span style="font:600 13px var(--in)">Converting · page 4 of 9</span><div class="track" style="--p:40%;width:220px"></div><span class="meta">keep reading</span><span class="sp"></span><span class="btn">Stop</span></div>
+    </div></div>
+    <p class="stepcap"><b>4 · Converting, on the drawer's line</b>The one line at the bottom carries the progress; it is the drawer, not a popup, and it becomes the transport when v002 arrives.</p></div>
+  </div>
+
+  <!-- ============ components ============ -->
+  <h2 id="sheet">Components sheet</h2>
+  <div class="sheet">
+    <div class="cell"><h4>Shape tokens</h4><dl class="rule"><dt>rCtl</dt><dd>10pt</dd><dt>rPanel</dt><dd>16pt on the panel's left corners</dd><dt>edges</dt><dd>1pt <code>line</code> rules between rows; none on controls</dd><dt>rule</dt><dd>2pt clay: the drawer's top edge and every leader</dd><dt>shadow</dt><dd>none</dd><dt>row</dt><dd>68pt</dd><dt>drawer</dt><dd>56pt, and never any other height</dd><dt>panel</dt><dd>380pt</dd></dl></div>
+    <div class="cell"><h4>Grid and centring</h4><dl class="rule"><dt>grid</dt><dd>24pt side margins; a 56pt gutter for the folio; 8pt inside controls</dd><dt>centring</dt><dd>Text centres on its x-height: line-height equals the control's height and the label lifts 1pt. The folio's baseline sits on the name's baseline. A knob's LED is the dial's exact centre and the label centres under the dial.</dd><dt>travel</dt><dd>A row's actions appear where its meta was, so the finger moves along the row, never off it; a panel block opens at the row's height.</dd></dl></div>
+    <div class="cell"><h4>Knob, LED centred</h4><div class="demo"><div class="knobs" style="display:flex;gap:14px"><div class="kg" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vln I <span class="mo">7</span></span></div><div class="kg muted" style="--v:.7"><span class="knob2"><span class="led"></span></span><span class="kl">Vla <span class="mo">7</span></span></div><div class="kg tempo" style="--v:.5"><span class="knob2"><span class="led" style="background:var(--ink3);box-shadow:none"></span></span><span class="kl">tempo <span class="mo">120</span></span></div></div></div><p class="note">32pt dial, 270° clay arc, pointer, the LED in the centre lit while the part sounds; tap the LED to mute. Level rides beside the label in mono. The tempo knob has an ink arc so it is never mistaken for a part.</p></div>
+    <div class="cell"><h4>Row with its actions</h4><div class="demo row-demo"><div class="row sel" style="border-bottom:0"><span class="folio">2</span><div><div class="name">Sous le ciel quartet</div></div><div class="acts-inline"><span class="btn icon"><svg class="ic"><use href="#i-up"/></svg></span><span class="btn icon"><svg class="ic"><use href="#i-down"/></svg></span><span class="btn">Open</span><span class="btn danger">Remove</span></div><div class="trail"><span class="btn icon on"><svg class="ic"><use href="#i-x"/></svg></span></div></div></div><p class="note">☰ becomes ✕; the actions fill the row's meta slot at 36pt on <code>panel</code>; the row tints toward clay on its right. Same 68pt.</p></div>
+    <div class="cell"><h4>Panel note with leader</h4><div class="demo" style="padding:0 0 0 48px;overflow:visible"><div class="rpanel" style="padding:12px 16px;width:100%;border-radius:12px"><div class="block tied"><div class="ph"><span class="ttl">Versions</span></div><div class="pi on">v003 · Rename the parts</div><div class="pi">v002 · Transpose</div></div></div></div><p class="note">A block in the panel with a 2pt clay leader and a dot at the row it belongs to. The panel is <code>panel</code>; the current item is <code>clayTint</code>.</p></div>
+    <div class="cell"><h4>Buttons and type</h4><div class="demo"><div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn quiet"><svg class="ic"><use href="#i-import"/></svg>Import</span><span class="btn on"><svg class="ic"><use href="#i-sort"/></svg>Sort <span class="val">name</span></span><span class="btn primary">Open</span><span class="btn">Send link</span></div><span style="font:700 30px/1 var(--sg);letter-spacing:-.03em;color:var(--clay)">#2</span><span style="font:600 17px var(--sg)">Row name · Space Grotesk 600 17</span><span style="font:500 14.5px var(--in)">Panel item · Inter 500 14.5</span></div><p class="note">Buttons are words at rest; <code>well</code> when standing alone; <code>clayTint</code> with a ring when current. Row names step up to 17pt for legibility from a stand.</p></div>
+  </div>
+
+  <h2 id="cost">What it costs to build</h2>
+  <ul class="cost">
+    <li><b>Changes shape:</b> a right <code class="mono">Panel</code> with row-anchored blocks replaces every reveal, the version and setlist pickers, the thumbnail strip, the OMR offer and the settings dock; <code class="mono">Row</code> gains an actions face; the drawer merges the transport bar and the mixer window into one 56pt line (the mixer's drag, park and clamp go; the knob keeps its 14pt-per-unit drag and gains a tap-to-mute on the LED).</li>
+    <li><b>Tokens only:</b> radii 2 and 3 to 10 and 16, borders to clear, toggle to a capsule, the numeral to the 30pt folio in a 56pt gutter, row height to 68, row name to Space Grotesk 600 17, <code class="mono">BandHeader</code> to the ruled section header.</li>
+    <li><b>Risk:</b> a knob at 32pt with a 44pt group is at the floor of MIXER_WINDOW §13.2; at AX sizes the drawer's knob group must become a scrolling list, as §13 already requires for the strip.</li>
+  </ul>
+</div>
+<script src="common.js"></script>

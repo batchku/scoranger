@@ -16,12 +16,27 @@ import UniformTypeIdentifiers
 /// screen is only hidden, never rebuilt from nothing.
 struct RootView: View {
     @EnvironmentObject var state: AppState
+    /// Only to stop the ink sync on the way out of a shared entry, and to hand
+    /// the shared set list screen its data. Publishes nothing while signed out.
+    @EnvironmentObject var shared: SharedSetlists
+    /// Whether there is an account, which decides whether the share button
+    /// can do its work or has to explain itself (§6A.2).
+    @EnvironmentObject var signIn: SignIn
 
     /// The library's stack. The score view stays OUTSIDE it -- it is presented
     /// over the library, which is what lets its page, zoom and selection
     /// survive going back and returning.
     @State private var libraryPath: [Route] = []
     @State private var scoreOpen = false
+    /// The right page (design/DESIGN_SYSTEM.md §7.2): what a tool-row button
+    /// or a row's action opened, beside the page. One for the library side;
+    /// the score has its own.
+    @StateObject private var panel = PanelModel()
+    /// A new piece or set list being named in place at the top of the list.
+    @State private var libraryNaming: String?
+    /// A row the library should open a rename on -- the set list just made
+    /// from a selection (REDESIGN_BRIEF_0.8 §7.4 rule 4).
+    @State private var libraryRenameRequest: String?
 
     /// Whether the app is frontmost, for ScreenWake. The idle timer is an
     /// application-wide flag, so the app's claim on the screen is dropped on
@@ -60,46 +75,79 @@ struct RootView: View {
     /// The camera roll's own picker, which is not a document picker.
     @State private var showPhotoImport = false
 
-    /// Settings is a panel docked at the trailing edge, not a screen that
-    /// covers the library (#51). Anchored, non-blocking, nothing to dismiss
-    /// but its own ✕ -- the same shape as the chat panel over the score.
-    @State private var settingsOpen = false
 
     var body: some View {
         ZStack {
-            Theme.Surface.ground.ignoresSafeArea()
+            Theme.Surface.band.ignoresSafeArea()
 
-            NavigationStack(path: $libraryPath) {
-                library.navigationBarHidden(true)
-                    .navigationDestination(for: Route.self) { screen($0) }
+            // The table (§7.1): the page 16 from the edges, the panel beside
+            // it when something is open. Pushed pages ride inside the stack;
+            // the panel stays put and each page sets what it shows at rest.
+            PanelHost(panel: panel, suspended: scoreOpen) {
+                NavigationStack(path: $libraryPath) {
+                    library.navigationBarHidden(true)
+                        .navigationDestination(for: Route.self) { screen($0) }
+                }
+                .pageShape()
+            } content: { route in
+                screen(route, inPanel: true)
+            }
+            .padding(.horizontal, Theme.Metric.tableMargin)
+            .environmentObject(panel)
+            // A page change closes what a row on the page before had open.
+            .onChange(of: libraryPath) { _, _ in panel.done() }
+            // An import opens what it brought in (Ali, build 193): from Files
+            // and from another app's share sheet alike.
+            .onChange(of: state.openAfterImport) { _, slug in
+                guard let slug else { return }
+                state.openAfterImport = nil
+                open(slug)
+            }
+            // SHARING'S PROGRESS AND FAILURES, through the app's own notice
+            // bar rather than a second surface invented for this one feature.
+            //
+            // Found by running it: only the `.ready` state had any UI, so
+            // tapping share while signed out set `.failed` and NOTHING
+            // appeared -- a control that did nothing and said nothing, which
+            // is the exact failure the Apple button had. A state machine with
+            // an unrendered state is a silent one.
+            .onChange(of: sharing.state) { _, now in
+                switch now {
+                case .working(let done, let total):
+                    state.notice = total > 0
+                        ? "Sharing… \(done) of \(total) uploaded."
+                        : "Sharing…"
+                case .failed(let why):
+                    state.notice = why
+                case .ready, .idle:
+                    break       // the sheet speaks for `ready`
+                }
+            }
+            // A tapped invite link, from a cold launch or from anywhere in
+            // the app. `.task` catches the cold case -- the URL is delivered
+            // before this view exists -- and `.onChange` the warm one.
+            .task { routePendingInvite(state.pendingInvite) }
+            .onChange(of: state.pendingInvite) { _, new in
+                routePendingInvite(new)
+            }
+            // The share sheet, and the two states before it.
+            .sheet(isPresented: Binding(
+                get: { if case .ready = sharing.state { return true } else { return false } },
+                set: { if !$0 { sharing.clear() } })) {
+                if case .ready(let url, let name) = sharing.state {
+                    ShareSheet(items: [ShareSetlistAction.message(name: name, url: url)])
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(scoreOpen ? 0 : 1)
             // hidden, not unloaded: coming back to the library should not cost
             // a rebuild, and the score is what is expensive to re-open
             .allowsHitTesting(!scoreOpen)
-
-            if settingsOpen, !scoreOpen {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    OverlayPanel(edge: .trailing, width: Theme.Metric.settingsWidth) {
-                        VStack(spacing: 0) {
-                            OverlayHeader(subject: {
-                                Text("Settings").typeRole(.title)
-                                    .foregroundStyle(Theme.Ink.ink)
-                            }, trailing: { EmptyView() }, onDismiss: {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    settingsOpen = false
-                                }
-                            }, dismissLabel: "Close settings")
-                            ScrollView { SettingsView() }
-                        }
-                    }
-                    .accessibilityIdentifier("settings-panel")
-                    .transition(.move(edge: .trailing))
-                }
-                .ignoresSafeArea(edges: .bottom)
-            }
+            // and out of the accessibility tree too: an invisible page's
+            // buttons were still elements, so a test (or VoiceOver) asking
+            // for the panel's Done found the piece screen's, under the score,
+            // and tapped the score bar's Perform where it lay.
+            .accessibilityHidden(scoreOpen)
 
             // Above the score too: a PDF that will not transcribe has its say
             // while the reader is looking at that very score.
@@ -111,6 +159,17 @@ struct RootView: View {
                         .padding(.horizontal, Theme.Metric.s16)
                 }
                 .zIndex(2)
+            }
+
+            if let offer = state.bundleOffer, !scoreOpen {
+                VStack {
+                    Spacer()
+                    BundleOfferBar(summary: offer.summary, detail: offer.detail,
+                                   onImport: { Task { await state.acceptBundle() } },
+                                   onDismiss: { state.bundleOffer = nil })
+                        .padding(.bottom, Theme.Metric.s20)
+                }
+                .zIndex(3)
             }
 
             if let undo = state.undoableDelete, !scoreOpen {
@@ -253,6 +312,33 @@ struct RootView: View {
 
     /// Deleting knows what it is deleting: a set list is unmade, a piece takes
     /// its arrangements with it, an arrangement goes on its own.
+    /// A quick action from the Import or New panel.
+    private func runQuickAction(_ action: LibraryQuickAction) {
+        switch action {
+        case .importScore:  importIntent.ask(for: .file)
+        case .importPhotos: showPhotoImport = true
+        case .importFolder: importIntent.ask(for: .folder)
+        case .importBook:   importIntent.ask(for: .book)
+        case .new:          segment = .pieces; libraryNaming = ""
+        case .newSetlist:   segment = .setlists; libraryNaming = ""
+        }
+    }
+
+    /// The Filter panel's groups and counts (L4), from the rows the segment
+    /// shows before any filter is applied.
+    private var filterGroups: [LibraryModel.FilterGroup] {
+        guard let manifest = state.manifest else { return [] }
+        let base: [LibraryRow]
+        switch segment {
+        case .pieces:
+            base = LibraryModel.pieceRows(manifest: manifest, arrangementTags: state.allArrangementTags)
+                + LibraryModel.unfiledRows(manifest: manifest, arrangementTags: state.allArrangementTags)
+        case .setlists: base = LibraryModel.setlistRows(manifest: manifest)
+        case .books:    base = LibraryModel.bookRows(manifest: manifest)
+        }
+        return LibraryModel.filterGroups(rows: base, manifest: manifest)
+    }
+
     private func commitDelete(_ row: LibraryRow) {
         if segment == .setlists {
             Task { _ = await state.deleteSetlist(row.id) }
@@ -263,11 +349,22 @@ struct RootView: View {
         }
     }
 
-    /// What a route shows.
+    /// What a route shows. Page routes are pushed on the stack; panel routes
+    /// are drawn in the panel (`inPanel`), where back is the panel's own ‹ or
+    /// Done and a push from inside opens beside. A push of a page route from
+    /// anywhere goes on the stack.
     @ViewBuilder
-    private func screen(_ route: Route) -> some View {
-        let pop = { _ = libraryPath.popLast() }
-        let push: (Route) -> Void = { libraryPath.append($0) }
+    private func screen(_ route: Route, inPanel: Bool = false) -> some View {
+        let pop: () -> Void = inPanel
+            ? { if panel.canGoBack { panel.back() } else { panel.done() } }
+            : { _ = libraryPath.popLast() }
+        let push: (Route) -> Void = { next in
+            if next.presentation == .panel { panel.push(next) } else { libraryPath.append(next) }
+        }
+        let importInto: (String) -> Void = { pieceSlug in
+            importIntoPiece = pieceSlug
+            importIntent.ask(for: .file)
+        }
         // A route holds the slug it was pushed with, and an arrangement can be
         // MOVED to a new slug from the screen the route points at. Follow the
         // move rather than resolving to nothing.
@@ -276,27 +373,54 @@ struct RootView: View {
             if let piece = (state.manifest?.pieces ?? []).first(where: { $0.slug == slug }) {
                 PieceScreen(piece: piece, onBack: pop,
                             onOpen: { open($0) }, push: push,
-                            onImport: { pieceSlug in
-                                importIntoPiece = pieceSlug
-                                importIntent.ask(for: .file)
-                            })
+                            onImport: importInto)
                     .navigationBarHidden(true)
-                    .accessibilityIdentifier("screen-piece-\(slug)")
+                    .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-piece-\(slug)")
+                    // The panel at rest on this page (P1).
+                    .onAppear { panel.setRest(.thisPiece(slug)) }
+                    .onDisappear { panel.clearRest(.thisPiece(slug)) }
+            }
+        case .sort:
+            SortPanel(sort: $sort)
+        case .filter:
+            FilterPanel(filters: $filters, groups: filterGroups)
+        case .importMenu:
+            ImportPanel(run: runQuickAction)
+        case .newMenu:
+            NewPanel(run: runQuickAction)
+        case .pieceArrangements(let slug):
+            PieceArrangementsPanel(slug: slug, onOpen: { open($0) },
+                                   onPieceScreen: { libraryPath.append(.piece(slug)) },
+                                   onImport: importInto)
+        case .thisPiece(let slug):
+            ThisPiecePanel(slug: slug, onImport: importInto,
+                           onDeleted: { if libraryPath.last == .piece(slug) { _ = libraryPath.popLast() } })
+        case .thisSetlist(let slug):
+            ThisSetlistPanel(slug: slug, push: push,
+                             onShare: { shareSetlist(slug) },
+                             onRemoved: { if libraryPath.last == .setlist(slug) { _ = libraryPath.popLast() } })
+        case .setlistInvite(let slug):
+            if let shareId = (state.manifest?.setlists ?? []).first(where: { $0.slug == slug })?.shareId {
+                SharedSetlistScreen(setlistId: shareId, onBack: pop, onOpen: { open($0) })
             }
         case .arrangement(let slug):
             if let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
                 ArrangementScreen(score: score, onBack: pop,
                                   onOpen: { open(slug) }, push: push)
                     .navigationBarHidden(true)
-                    .accessibilityIdentifier("screen-arrangement-\(slug)")
+                    .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
         case .book(let slug):
             BookScreen(slug: slug, onBack: pop, onOpen: { open($0) })
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-book-\(slug)")
         case .folderImport:
             FolderImportScreen(onBack: pop)
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-folder-import")
         case .moveToPiece(let slugs):
             MoveToPieceScreen(moving: slugs, onBack: pop)
@@ -315,7 +439,36 @@ struct RootView: View {
                           },
                           push: push)
                 .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
+                // The panel at rest on this page (S1).
+                .onAppear { panel.setRest(.thisSetlist(slug)) }
+                .onDisappear { panel.clearRest(.thisSetlist(slug)) }
+        case .joinSetlist(let inviteId):
+            JoinSetlistScreen(inviteId: inviteId, onBack: pop,
+                              onJoined: { slug in
+                                  // §6A.5: "the set list appears in Setlists as
+                                  // a normal row. The screen pops to it." So:
+                                  // back to the list, on the Setlists segment,
+                                  // and say what just arrived. Not the shared
+                                  // screen -- that is one tap away on the row,
+                                  // and landing there hid the fact that the
+                                  // row now exists.
+                                  libraryPath.removeLast()
+                                  segment = .setlists
+                                  let name = state.manifest?.setlists?
+                                      .first(where: { $0.slug == slug })?.name ?? "the set list"
+                                  state.notice = "Added \"\(name)\" to your set lists."
+                              })
+                .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-join-setlist")
+        case .sharedSetlist(let id):
+            SharedSetlistScreen(setlistId: id, onBack: pop,
+                                onOpen: { open($0) })
+                .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-shared-setlist")
         case .addArrangements(let slug):
             AddArrangementsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
@@ -339,10 +492,8 @@ struct RootView: View {
             DetailsScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
         case .settings, .settingsSection:
-            Screen(title: "Settings", backLabel: "My library", onBack: pop) {
-                SettingsView()
-            }
-            .navigationBarHidden(true)
+            SettingsPage(onBack: pop)
+                .navigationBarHidden(true)
         }
     }
 
@@ -356,22 +507,15 @@ struct RootView: View {
     private var library: some View {
         LibraryView(segment: $segment, search: $librarySearch, sort: $sort,
                     filters: $filters, editing: $editing,
+                    creatingName: $libraryNaming,
                     onOpenPiece: openPieceOrArrangement,
                     onOpenArrangement: { open($0) },
                     onOpenSetlist: openSetlist,
+                    onOpenSharedSetlist: { libraryPath.append(.sharedSetlist($0)) },
+                    onShareSetlist: { slug in shareSetlist(slug) },
                     onOpenBook: { libraryPath.append(.book($0)) },
-                    onRowMenu: { row in
-                        // A piece opens its own screen; an unfiled arrangement
-                        // opens the arrangement screen (§3.5's rule: both need
-                        // a target list, so both push).
-                        if (state.manifest?.pieces ?? []).contains(where: { $0.slug == row.id }) {
-                            libraryPath.append(.piece(row.id))
-                        } else if segment == .setlists {
-                            libraryPath.append(.setlist(row.id))
-                        } else {
-                            libraryPath.append(.arrangement(row.id))
-                        }
-                    },
+                    onOpenPieceScreen: { libraryPath.append(.piece($0)) },
+                    onOpenSetlistScreen: { libraryPath.append(.setlist($0)) },
                     onCreate: { name in
                         Task {
                             if segment == .setlists {
@@ -379,7 +523,8 @@ struct RootView: View {
                                 // making, so naming one leads straight to
                                 // choosing what goes in it
                                 if let slug = await state.createSetlist(name: name) {
-                                    libraryPath.append(.addArrangements(slug))
+                                    // S3: Add opens beside the new list's row.
+                                    panel.open(.addArrangements(slug))
                                 }
                             } else {
                                 _ = await state.createPiece(named: name)
@@ -402,11 +547,10 @@ struct RootView: View {
                     onImportPhotos: { showPhotoImport = true },
                     onImportFolder: { importIntent.ask(for: .folder) },
                     onImportBook: { importIntent.ask(for: .book) },
-                    onSettings: {
-                        withAnimation(.easeOut(duration: 0.18)) { settingsOpen = true }
-                    },
+                    onSettings: { libraryPath.append(.settings) },
                     onRowAction: handle,
-                    onBarAction: handleBar)
+                    onBarAction: handleBar,
+                    renameRequest: $libraryRenameRequest)
     }
 
     /// Choosing between the arrangements of a piece (§4.4). A piece is not
@@ -416,7 +560,7 @@ struct RootView: View {
     // MARK: - Row actions -- the sidebar's management, rehomed (§8)
 
     /// The Edit-mode action bar (§2.2), over whatever is highlighted.
-    private func handleBar(_ action: LibraryAction, _ ids: Set<String>,
+    private func handleBar(_ action: LibraryAction, _ ids: [String],
                            _ kind: LibrarySelectionKind) {
         let scores = ids.compactMap { id in state.manifest?.scores.first { $0.slug == id } }
         switch action {
@@ -427,6 +571,31 @@ struct RootView: View {
             libraryPath.append(.moveToPiece(scores.map(\.slug)))
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
+        case .newSetlist:
+            // A set list from the checked pieces (REDESIGN_BRIEF_0.8 §7.4):
+            // arrangement #1 of each, in the list's order; a piece with none
+            // is skipped and said so; the proposed name (§7.5) arrives in the
+            // new row's rename field, selected, so one keystroke replaces it.
+            let pieces = state.manifest?.pieces ?? []
+            let chosen = ids.compactMap { id in pieces.first { $0.slug == id } }
+            let plan = SetlistFromSelection.plan(pieces: chosen)
+            guard !plan.members.isEmpty else {
+                // Nothing to make; the selection survives (rule 3).
+                state.notice = plan.notices.joined(separator: " ")
+                return
+            }
+            let taken = Set((state.manifest?.setlists ?? []).map(\.name))
+            let name = SetlistNaming.name(
+                for: chosen.map { SetlistNaming.Piece(title: $0.name, composer: $0.composer) },
+                taken: taken)
+            editing = false
+            Task {
+                guard let slug = await state.createSetlist(name: name) else { return }
+                for member in plan.members { _ = await state.addToSetlist(setlist: slug, score: member) }
+                segment = .setlists
+                if !plan.notices.isEmpty { state.notice = plan.notices.joined(separator: " ") }
+                libraryRenameRequest = slug
+            }
         case .duplicate:
             Task { for score in scores { _ = await state.duplicateScore(slug: score.slug) } }
         case .delete:
@@ -531,8 +700,59 @@ struct RootView: View {
         if let first = setlist.arrangements.first { open(first) }
     }
 
+    /// Share a set list from its row: promote if needed, then the iOS sheet.
+    @StateObject private var sharing = ShareSetlistAction()
+
+    /// A tapped invite link pushes the one confirmation screen.
+    ///
+    /// Watched here rather than handled at `onOpenURL`, because the link can
+    /// arrive while the app is cold, mid-score, or on another tab -- and the
+    /// screen has to be pushed onto the library's stack wherever the reader
+    /// happens to be. Cleared immediately so a back-swipe does not re-push it.
+    private func routePendingInvite(_ inviteId: String?) {
+        guard let inviteId else { return }
+        state.pendingInvite = nil
+        if scoreOpen { close() }
+        segment = .setlists
+        libraryPath.append(.joinSetlist(inviteId))
+    }
+
+    private func shareSetlist(_ slug: String) {
+        guard let setlist = (state.manifest?.setlists ?? [])
+                .first(where: { $0.slug == slug }) else { return }
+        // ALREADY SHARED: the row's glyph is two people, and two people is what
+        // it opens -- who is in it, the invite, the link again, removal. It
+        // used to run the whole promotion again from here, re-uploading every
+        // arrangement and minting a fresh link on every tap.
+        if let shareId = setlist.shareId {
+            if scoreOpen { close() }
+            segment = .setlists
+            libraryPath.append(.sharedSetlist(shareId))
+            return
+        }
+        Task {
+            await sharing.share(setlist: setlist,
+                                arrangements: state.manifest?.scores ?? [],
+                                shared: shared, state: state,
+                                signedIn: signIn.account != nil)
+        }
+    }
+
     /// X always returns to the library, because there is nowhere else.
     private func close() {
+        // The music stops when the score goes. It did not: back to the set
+        // list, and the performance -- click included -- carried on under a
+        // screen with no transport on it (Ali, 2026-09-10). The beat is left
+        // where it was, so reopening resumes from there.
+        if state.playback.isPlaying { state.playback.stop() }
         withAnimation(.easeOut(duration: 0.18)) { scoreOpen = false }
+        // Leaving a shared entry stops the band's ink coming in AND stops mine
+        // going out. Left installed, the store hook would push the next local
+        // arrangement's private markup to whichever entry was open last
+        // (design/FIREBASE.md §6.3).
+        if state.openSharedEntry != nil {
+            state.openSharedEntry = nil
+            shared.closeInk(store: DrawingStore.shared)
+        }
     }
 }

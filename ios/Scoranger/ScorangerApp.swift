@@ -3,6 +3,14 @@ import SwiftUI
 @main
 struct ScorangerApp: App {
     @StateObject private var state = AppState()
+    /// The account. Constructed at launch and INERT until
+    /// somebody presses a sign-in button: constructing it does
+    /// not configure Firebase (design/FIREBASE.md §0.2).
+    @StateObject private var signIn = SignIn()
+    /// The shared set lists. Also inert until somebody signs in: every method
+    /// on it returns early while `FirebaseApp` has not been configured, so a
+    /// signed-out launch touches no network and starts no listener (§0.2).
+    @StateObject private var shared = SharedSetlists()
 
     /// The one moment a test's reset can be total.
     ///
@@ -18,6 +26,8 @@ struct ScorangerApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(state)
+                .environmentObject(signIn)
+                .environmentObject(shared)
                 // Paper & Clay is a single fixed light palette: every surface is
                 // a hard hex value with no dark variant. Left to follow the
                 // system, dark mode kept the light surfaces but handed every
@@ -26,14 +36,33 @@ struct ScorangerApp: App {
                 // with invisible text. One palette, one appearance.
                 .preferredColorScheme(.light)
                 .onOpenURL { url in
-                    state.receiveFile(at: url)
+                    // An invitation link comes in the same door as a
+                    // `.scorbundle` from AirDrop and a sign-in callback, so it
+                    // is recognised positively and everything else falls
+                    // through to the file path unchanged.
+                    // Both link forms land here: the https universal link
+                    // people actually send, and the scoranger:// fallback.
+                    // `inviteId(in:)` recognises either and refuses anything
+                    // else, so an AirDropped .scorbundle still reaches the
+                    // import path unchanged.
+                    if let invite = SharedInviteLink.inviteId(in: url) {
+                        state.pendingInvite = invite
+                    } else {
+                        state.receiveFile(at: url)
+                    }
                 }
                 .task {
+                    // Installs a CLOSURE and calls nothing. The closure's own
+                    // body is what guards on a configured app, so this reaches
+                    // no cloud at launch and returns nil for every reader who
+                    // never signs in -- which is what lets it be installed
+                    // here rather than at first sign-in, where a signed-in
+                    // reader who never opens Settings would be missed.
+                    OMRIdentity.install(into: state)
                     state.migrateStaleOMRURL()
                     state.prepareDocumentsFolders()
                     // The mixer window opens where it was left, and in the
                     // state it was left in (MIXER_WINDOW.md §5, §1.3).
-                    state.restoreMixerWindow()
                     // warm up the interpreter so first render doesn't pay import cost
                     let started = await PythonEngine.shared.start()
                     print("SCORANGER-ENGINE start: \(started)")

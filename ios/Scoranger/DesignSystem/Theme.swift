@@ -1,10 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// The design system's tokens: "instrument panel" — a warm paper-and-clay
-/// surface, score-first, with the arrangement numeral as the app's identity.
-/// Spec: design/DESIGN_SYSTEM.md. Light only, by decision, so nothing here
-/// consults the colour scheme.
+/// The design system's tokens: "Notebook" (0.8) — a rehearsal notebook on a
+/// warm table: pages of `panel` on a `band` ground, capsule controls, dashed
+/// rules instead of borders, the arrangement numeral stamped in a clay ring.
+/// Spec: design/DESIGN_SYSTEM.md; the sixteen binding rules are its §0.
+/// Light only, by decision, so nothing here consults the colour scheme.
+///
+/// 0.8.0 is TOKENS ONLY (§12 stage 1): values here change, shapes do not.
+/// Every existing view restyles through these.
 enum Theme {
 
     // Transitional aliases from build 116's placeholder Theme. Every call site
@@ -15,9 +19,14 @@ enum Theme {
 
     // MARK: - Colour (§1)
 
-    /// Surfaces. `paper` is the score page and the only pure white in the app.
+    /// Surfaces (§1). Values unchanged from 0.7; ROLES changed:
+    /// `band` is the table -- the app's base colour behind every page --
+    /// `panel` is a page, `well` a control at rest, `paper` the score page and
+    /// the inside of a text field and nothing else.
     enum Surface {
         static let paper  = Color(hex: 0xFFFFFF)
+        /// Retired in 0.8 (§1): kept one release for the transition, no new
+        /// use. Every 0.7 ground repointed to `band` in 0.8.0.
         static let ground = Color(hex: 0xF4F0E8)
         static let panel  = Color(hex: 0xFAF7F1)
         static let well   = Color(hex: 0xEFEAE0)
@@ -74,32 +83,37 @@ enum Theme {
     /// spec attaches to the role, so callers cannot get them out of step.
     enum Role {
         case numeralXL, numeralL, numeralM
-        case title, titleS
+        case title, titleS, panelTitle
         case row, body, control, label, meta
         case data, dataS
+        case knobLabel, knobData   // under a tray knob (§7.8): Inter 600 9.5, mono 9.5
 
         var font: Font { Theme.font(self) }
 
-        /// Tracking in points, converted from the spec's em values.
+        /// Tracking in points, converted from the spec's em values (§2).
         var tracking: CGFloat {
             switch self {
-            case .numeralXL: return -0.02 * 34
-            case .numeralL:  return -0.02 * 21
-            case .numeralM:  return -0.01 * 17
-            case .title:     return -0.01 * 17
-            case .titleS:    return -0.01 * 15
-            case .label:     return  0.11 * 10
-            case .data:      return -0.01 * 11
+            case .numeralXL: return -0.03 * 22
+            case .numeralL:  return -0.03 * 15
+            case .numeralM:  return -0.03 * 12
+            case .title:     return -0.02 * 26
+            case .titleS:    return -0.01 * 16
+            case .panelTitle: return -0.015 * 20
+            // The tracked-out caps label of 0.7 is retired (§2 rule 2): a
+            // section label is Inter 600 12, sentence case, no tracking.
+            case .label:     return 0
+            case .data:      return 0
             default:         return 0
             }
         }
 
-        var isUppercase: Bool { self == .label }
+        /// Nothing is uppercased by role any more (§2 rule 2).
+        var isUppercase: Bool { false }
 
         /// Line spacing where the spec pins it.
         var lineSpacing: CGFloat? {
             switch self {
-            case .body: return 13 * 0.45
+            case .body: return 14 * 0.45
             default:    return nil
             }
         }
@@ -115,20 +129,26 @@ enum Theme {
         static let monoMedium  = "IBMPlexMono-Medium"
     }
 
+    /// The 0.8 ladder (§2), one step larger than 0.7 throughout. The roles
+    /// keep their 0.7 names so no call site moves in the tokens-only stage;
+    /// the mapping to §2's names is in the comments.
     static func font(_ role: Role) -> Font {
         switch role {
-        case .numeralXL: return variable(Face.grotesk, 34, 700, .title2)
-        case .numeralL:  return variable(Face.grotesk, 21, 700, .title2)
-        case .numeralM:  return variable(Face.grotesk, 17, 700, .title2)
-        case .title:     return variable(Face.grotesk, 17, 600, .headline)
-        case .titleS:    return variable(Face.grotesk, 15, 600, .headline)
-        case .row:       return variable(Face.inter, 13.5, 500, .body)
-        case .body:      return variable(Face.inter, 13, 400, .body)
-        case .control:   return variable(Face.inter, 13, 600, .body)
-        case .label:     return variable(Face.inter, 10, 700, .caption1)
-        case .meta:      return variable(Face.inter, 11, 400, .caption1)
-        case .data:      return staticFace(Face.monoMedium, 11, .caption1)
-        case .dataS:     return staticFace(Face.monoRegular, 10.5, .caption1)
+        case .numeralXL: return variable(Face.grotesk, 22, 700, .title2)    // stamp in a 56 ring
+        case .numeralL:  return variable(Face.grotesk, 15, 700, .title2)    // stamp in a 40 ring
+        case .numeralM:  return variable(Face.grotesk, 12, 700, .title2)    // stamp in a 30 ring
+        case .title:     return variable(Face.grotesk, 26, 700, .title1)    // headTitle
+        case .titleS:    return variable(Face.grotesk, 16, 600, .headline)  // rowName / barTitle
+        case .panelTitle: return variable(Face.grotesk, 20, 700, .title3)  // the panel's header (§7.2)
+        case .row:       return variable(Face.inter, 14.5, 500, .body)      // panelItem
+        case .body:      return variable(Face.inter, 14, 400, .body)        // body
+        case .control:   return variable(Face.inter, 13.5, 600, .body)      // control
+        case .label:     return variable(Face.inter, 12, 600, .caption1)    // section label, sentence case
+        case .meta:      return variable(Face.inter, 12.5, 400, .caption1)  // meta
+        case .data:      return staticFace(Face.monoMedium, 12, .caption1)  // data
+        case .dataS:     return staticFace(Face.monoRegular, 11, .caption1)
+        case .knobLabel: return variable(Face.inter, 9.5, 600, .caption2)
+        case .knobData:  return staticFace(Face.monoMedium, 9.5, .caption2)
         }
     }
 
@@ -146,6 +166,30 @@ enum Theme {
         ])
         let base = UIFont(descriptor: descriptor, size: size)
         return Font(UIFontMetrics(forTextStyle: style).scaledFont(for: base))
+    }
+
+    /// The control role as a UIFont at a given text size, for MEASURING a
+    /// label before it is drawn (LibraryActionBarMetrics). The same face,
+    /// weight and scaling as `.control`, so what is measured is what is drawn.
+    static func controlUIFont(for size: DynamicTypeSize) -> UIFont {
+        let wght = UIFontDescriptor.AttributeName(
+            rawValue: kCTFontVariationAttribute as String)
+        let descriptor = UIFontDescriptor(fontAttributes: [
+            .name: Face.inter, wght: [0x77676874: 600.0],
+        ])
+        let base = UIFont(descriptor: descriptor, size: 13.5)
+        return UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: base, compatibleWith: UITraitCollection(
+                preferredContentSizeCategory: TextScale.category(for: size)))
+    }
+
+    /// The data role the same way (the bar's "N selected" readout).
+    static func dataUIFont(for size: DynamicTypeSize) -> UIFont {
+        let base = UIFont(name: Face.monoMedium, size: 12)
+            ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        return UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: base, compatibleWith: UITraitCollection(
+                preferredContentSizeCategory: TextScale.category(for: size)))
     }
 
     private static func staticFace(_ name: String, _ size: CGFloat,
@@ -218,6 +262,11 @@ enum Theme {
         /// under the ☰. The overlay is one hit target wide with `s8` of its own
         /// trailing padding; this leaves that much plus a gap.
         static let rowMenuInset: CGFloat = hitTarget + s8 + s8
+        /// Room for TWO trailing controls -- a share button leading of the
+        /// `☰` (design/FIREBASE.md §6A.2). Derived from `hitTarget`, not
+        /// written as 104: the whole point of these being metrics is that a
+        /// change to the hit target moves everything that depends on it.
+        static let rowTwoControlInset: CGFloat = hitTarget + hitTarget + s8 + s8
 
         /// The gutter Edit mode's checkbox lives in.
         ///
@@ -236,6 +285,14 @@ enum Theme {
         /// same reason.
         static let readingColumn: CGFloat = 720
 
+        // The Notebook's table (§3): pages 16 from the table's edges, the
+        // panel 380 wide and 10 from the page, 22 of padding inside it.
+        static let tableMargin: CGFloat = 16
+        static let pagePanelGap: CGFloat = 10
+        static let panelWidth: CGFloat = 380
+        static let panelSide: CGFloat = 22
+        static let pageSide: CGFloat = 24
+
         /// The navigation redesign's chrome (NAVIGATION_SYSTEM.md §5).
         static let scoreTopBar: CGFloat = 52
         /// The same bar on a phone (§9.6). Eight points, taken from the one
@@ -252,23 +309,68 @@ enum Theme {
         static let thumbStripHeight: CGFloat = 96
         static let transportHeight: CGFloat = 56
 
-        static let rCtl: CGFloat = 2
-        static let rPanel: CGFloat = 3
+        /// §4. Every button, field, chip, segment, panel item: a capsule.
+        static let rCtl: CGFloat = 999
+        /// §4 `rPage`: the top corners of a page, the panel and the tray.
+        /// Kept under its 0.7 name so no call site moves in 0.8.0.
+        static let rPanel: CGFloat = 22
+        static let rPage: CGFloat = rPanel
+        /// The scroll-mode strip and message bubbles.
+        static let rInner: CGFloat = 14
+        /// A score page; 3 for a thumbnail, 2 for a filmstrip thumbnail.
+        static let rScore: CGFloat = 6
+        /// The stamp's ring: 2.5pt at 40, 3 at 56, 2 at 30 (§4 `ring`).
+        static let stampRing: CGFloat = 2.5
         static let sheetWidth: CGFloat = 620
         static let alertWidth: CGFloat = 420
     }
 
-    /// Shadows exist only on things that float over the score.
+    // MARK: - The rule (§4)
+
+    /// The only line in the app: 1pt dashed `line2`, under rows, under
+    /// key/value rows, between panel blocks. Never doubled [C13]. Replaces
+    /// every 1pt solid divider and every border a control used to wear.
+    ///
+    /// A `Shape`, deliberately: it draws across whatever bounds it is given
+    /// and has no size of its own. The first version was a `Path` from 0 to
+    /// 4000 clipped to a 1pt frame, and a Path's IDEAL size is its bounding
+    /// box -- so every row it sat under grew to 3999pt wide, its centre went
+    /// off-screen, and no tap landed on the Details row (found by the UI
+    /// tests, the first run after the restyle).
+    struct Rule: View {
+        var vertical = false
+        var body: some View {
+            RuleLine(vertical: vertical)
+                .stroke(Line.line2, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                .frame(width: vertical ? 1 : nil, height: vertical ? nil : 1)
+        }
+    }
+
+    struct RuleLine: Shape {
+        var vertical: Bool
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            if vertical {
+                p.move(to: CGPoint(x: rect.midX, y: rect.minY))
+                p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+            } else {
+                p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+                p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            }
+            return p
+        }
+    }
+
+    /// Shadows exist only on the two things that float over the score: the
+    /// ink tools and the selection chip (§4). No shadows on pages. `panel` and
+    /// `sheet` are kept as names so no call site moves in 0.8.0, and both are
+    /// now the identity: a page on the table casts nothing.
     enum Elevation {
-        static func panel<V: View>(_ view: V) -> some View {
-            view.shadow(color: Color(hex: 0x1A1917).opacity(0.14), radius: 34 / 2, y: 10)
-        }
+        static func panel<V: View>(_ view: V) -> some View { view }
         static func pill<V: View>(_ view: V) -> some View {
-            view.shadow(color: Color(hex: 0x1A1917).opacity(0.16), radius: 20 / 2, y: 6)
+            view.shadow(color: Color(hex: 0x1A1917).opacity(0.12), radius: 10 / 2, y: 2)
         }
-        static func sheet<V: View>(_ view: V) -> some View {
-            view.shadow(color: Color(hex: 0x1A1917).opacity(0.22), radius: 60 / 2, y: 20)
-        }
+        static func sheet<V: View>(_ view: V) -> some View { view }
     }
 
     // MARK: - Motion (§5)

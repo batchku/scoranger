@@ -77,16 +77,12 @@ final class TopBarShot: XCTestCase {
         openFirstScore()
         print("SHOT: score-performance on the bar = "
               + "\(app.buttons["score-performance"].exists)")
-        print("SHOT: score-transport-toggle on the bar = "
-              + "\(app.buttons["score-transport-toggle"].exists)")
         snap("top-bar")
 
         app.buttons["score-more"].tap()
         settle(1.5)
         print("SHOT: more-performance in Options = "
               + "\(app.descendants(matching: .any)["more-performance"].exists)")
-        print("SHOT: more-transport in Options = "
-              + "\(app.descendants(matching: .any)["more-transport"].exists)")
         snap("options")
         back()
     }

@@ -96,10 +96,6 @@ struct TouchDiagnosticsOverlay: View {
             .frame(maxWidth: 420, alignment: .leading)
             .background(Theme.Surface.panel.opacity(0.92))
             .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
-            .overlay {
-                RoundedRectangle(cornerRadius: Theme.Metric.rCtl)
-                    .stroke(Theme.Line.line2, lineWidth: 1)
-            }
             .padding(Theme.Metric.s12)
             .allowsHitTesting(false)
             .accessibilityIdentifier("touch-diagnostics")

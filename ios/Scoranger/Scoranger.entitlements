@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple. Ali's son has an Apple account and no Google one,
+	     so this is not a nice-to-have: without it he cannot join a shared set
+	     list at all. The matching capability (APPLE_ID_AUTH, with
+	     PRIMARY_APP_CONSENT) is enabled on the App ID com.irllabs.scoranger;
+	     this entitlement without that capability fails code signing, and that
+	     capability without this entitlement is what made the button do
+	     nothing in build 183. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<!-- Universal links, which is what makes the invitation TAPPABLE.
+	     Without this key the entitlement is absent from the signed app and
+	     iOS never consults the association: tapping
+	     https://scoranger.web.app/invite/[id] opens Safari and the invitee
+	     lands on a web page instead of the join screen. The AASA has been
+	     live and correct at that host the whole time (HTTPS, 200,
+	     application/json, no redirect, appIDs
+	     V9DBGV72NL.com.irllabs.scoranger, components /invite/*), so this one
+	     missing key was the whole gap.
+
+	     The matching capability (ASSOCIATED_DOMAINS) is enabled on the App
+	     ID and the ACTIVE App Store profile carries
+	     com.apple.developer.associated-domains = *, so this signs without
+	     touching the profile. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:scoranger.web.app</string>
+	</array>
+</dict>
+</plist>

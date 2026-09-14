@@ -70,13 +70,15 @@ export default function App() {
     ? pinnedVersion
     : score?.latest
   const version = score?.versions.find(v => v.id === versionId)
+  // the id is opaque; `label` (v012) is the only one of the two to show
+  const versionName = version?.label ?? versionId
   const source = viewingSource ? (score?.sources ?? []).find(s => s.id === viewingSource) : null
   const url = source
     ? `/${score.slug}/${source.file}`
     : (score && version ? `/${score.slug}/${version.file}` : null)
   const viewLabel = source
     ? `${score.name} — source ${source.id}: ${source.name}`
-    : (score && version ? `${score.name} — ${versionId}` : '')
+    : (score && version ? `${score.name} — ${versionName}` : '')
 
   return (
     <div className="app">
@@ -113,7 +115,7 @@ export default function App() {
 
         {score && (
           <>
-            <h2>Parts <span className="h2-note">in {versionId}</span></h2>
+            <h2>Parts <span className="h2-note">in {versionName}</span></h2>
             {version?.parts ? (
               <ul className="parts">
                 {version.parts.map(p => (
@@ -188,7 +190,7 @@ export default function App() {
 
             {version?.parts && (
               <div className="export-box">
-                <h2>Export PDF <span className="h2-note">of {versionId}</span></h2>
+                <h2>Export PDF <span className="h2-note">of {versionName}</span></h2>
                 {version.parts.map(p => (
                   <label key={p.index} className="export-check">
                     <input type="checkbox"
@@ -227,7 +229,7 @@ export default function App() {
                     onClick={() => { setViewingSource(null); setPinnedVersion(v.id === score.latest ? null : v.id) }}
                     title={JSON.stringify(v.args)}
                   >
-                    <span className="vid">{v.id}</span>
+                    <span className="vid">{v.label ?? v.id}</span>
                     <span className="vop">{v.op}</span>
                     {v.id === score.latest && <span className="latest">latest</span>}
                   </button>
@@ -236,7 +238,7 @@ export default function App() {
             </ul>
             {pinnedVersion && (
               <p className="pin-note">
-                Pinned to {pinnedVersion}.{' '}
+                Pinned to {versionName}.{' '}
                 <a href="#" onClick={e => { e.preventDefault(); setPinnedVersion(null) }}>Follow latest</a>
               </p>
             )}

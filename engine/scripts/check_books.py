@@ -165,7 +165,7 @@ def main() -> int:
     check(any(p["name"] == "Misty" and score_slug in p["arrangements"]
               for p in manifest["pieces"]),
           "filed under the piece it was named for")
-    check(entry["id"] == "v001", "with its own first version")
+    check(workspace.version_label(entry) == "v001", "with its own first version")
 
     print("the reader can look through the book before naming a range")
     # The screen used to ask for two page numbers and show nothing, which in a

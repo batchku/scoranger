@@ -13,9 +13,10 @@ import Foundation
 /// The shape was measured on the iOS 26.5 runtime before it was written:
 ///
 ///   - music21 writes one MIDI track per part plus a leading conductor track,
-///     and `AVAudioSequencer.tracks` OMITS the conductor track. So `tracks[i]`
-///     is part `i` with nothing offset between them, which is what makes
-///     muting one part a one-line operation.
+///     and whether `AVAudioSequencer.tracks` includes that conductor track
+///     DEPENDS ON THE FILE: omitted for quartet-playback.mid, present for
+///     imate-li-vino.mid. `PlaybackGraph` measures the offset at load and
+///     applies it wherever a track is looked up.
 ///   - A track appended AFTER loading lands after the parts, so the click is
 ///     always last and the part indices stay put.
 ///   - `currentPositionInBeats` is in quarter notes and runs through the tempo
@@ -49,6 +50,9 @@ final class PlaybackEngine: ObservableObject {
     /// move through the arrangement.
     @Published var voices = PlaybackVoices() { didSet { applyMutes() } }
     @Published var metronome = false { didSet { applyMutes() } }
+    /// Round again at the end, rather than stopping. Kept across scores like
+    /// the mutes: a person practising loops everything they open.
+    @Published var loop = false
 
     /// Which SOUND each part is played with.
     ///
@@ -79,6 +83,10 @@ final class PlaybackEngine: ObservableObject {
     /// would be paid on every frame of a scroll the reader is also driving.
     private var follower: Task<Void, Never>?
     private static let pollInterval = Duration.milliseconds(50)
+    /// The beat at display rate, for the line and the strip only. See
+    /// `PlaybackClock` for why it is not `beat`.
+    let clock = PlaybackClock()
+    private let ticker = PlayheadTicker()
 
     /// What is loaded ("<slug>/<version>"), so re-selecting the same version
     /// does not rebuild the graph underneath a score that is playing.
@@ -172,6 +180,7 @@ final class PlaybackEngine: ObservableObject {
     func stop() {
         follower?.cancel()
         follower = nil
+        ticker.stop()
         sequencer?.stop()
         isPlaying = false
         // The beat is LEFT where it stopped, so the readout keeps saying which
@@ -191,6 +200,7 @@ final class PlaybackEngine: ObservableObject {
         guard let sequencer else { return }
         sequencer.currentPositionInBeats = target
         beat = target
+        clock.set(target)
     }
 
     func rewind() { seek(toBeat: 0) }
@@ -319,6 +329,11 @@ final class PlaybackEngine: ObservableObject {
     // MARK: - The play head
 
     private func startFollowing() {
+        // The fast lane: the line and the strip, every frame.
+        ticker.start { [weak self] in
+            guard let self, let sequencer = self.sequencer else { return }
+            self.clock.set(sequencer.currentPositionInBeats)
+        }
         follower?.cancel()
         follower = Task { [weak self] in
             while !Task.isCancelled {
@@ -326,12 +341,26 @@ final class PlaybackEngine: ObservableObject {
                 guard let self, let sequencer = self.sequencer else { return }
                 let now = sequencer.currentPositionInBeats
                 // The ONE published fact. `soundingBar` is derived from it, so
-                // nothing has to be kept in step with anything.
-                self.beat = now
+                // nothing has to be kept in step with anything. Published when
+                // the BAR changes or a whole beat has passed, not on every
+                // poll: every view of the score screen observes this engine,
+                // and twenty publishes a second re-rooted the page stack
+                // twenty times a second under a playing score (0.8.0 build
+                // 195). The line and the strip read `clock`, every frame.
+                if self.timeline.bar(atBeat: now) != self.timeline.bar(atBeat: self.beat)
+                    || abs(now - self.beat) >= 1 {
+                    self.beat = now
+                }
                 if PlaybackSound.hasFinished(beat: now, end: self.timeline.beats) {
-                    self.stop()
-                    self.seek(toBeat: 0)
-                    return
+                    switch PlaybackSound.atEnd(loop: self.loop) {
+                    case .rewind:
+                        // The sequencer keeps running; only its position moves.
+                        self.seek(toBeat: 0)
+                    case .stop:
+                        self.stop()
+                        self.seek(toBeat: 0)
+                        return
+                    }
                 }
             }
         }

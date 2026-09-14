@@ -20,6 +20,12 @@ enum Route: Hashable {
     case setlistsFor(String)
     /// A set list, its running order, and what can be done to it (§3.5).
     case setlist(String)
+    /// A SHARED set list, addressed by its Firestore id rather than a slug: it
+    /// is not in the local manifest and has no slug to be addressed by
+    /// (design/FIREBASE.md §4.2).
+    case sharedSetlist(String)
+    /// The one confirmation between a tapped invite link and joining (§6A.5).
+    case joinSetlist(String)
     /// Which arrangements a set list holds.
     case addArrangements(String)
     /// The version history of an arrangement (§3.6).
@@ -38,15 +44,77 @@ enum Route: Hashable {
     /// a place and this one can only be reached by having just made one.
     case folderImport
 
+    // 0.8: states the PANEL shows (design/DESIGN_SYSTEM.md §7.2). They are
+    // routes because the panel is a stack of them, and because half of what
+    // it shows used to be a pushed screen and keeps its builder.
+    /// The library's Sort and Filter (L3, L4), and the ways to bring a score in.
+    case sort
+    case filter
+    case importMenu
+    case newMenu
+    /// A piece row's Arrangements, beside the row (L6).
+    case pieceArrangements(String)
+    /// The piece screen's panel at rest: details, sources, delete (P1).
+    case thisPiece(String)
+    /// The set list screen's panel at rest: tools, people, marks, delete (S1).
+    case thisSetlist(String)
+    /// Invite somebody to a shared set list (S4).
+    case setlistInvite(String)
+
+    /// Whether this route is a page on the table or a state of the panel.
+    var presentation: Presentation {
+        switch self {
+        case .piece, .setlist, .sharedSetlist, .book, .settings, .settingsSection:
+            return .page
+        case .arrangement, .moveToPiece, .setlistsFor, .addArrangements, .versions,
+             .parts, .details, .folderImport, .joinSetlist, .sort, .filter,
+             .importMenu, .newMenu, .pieceArrangements, .thisPiece, .thisSetlist, .setlistInvite:
+            return .panel
+        }
+    }
+
+    enum Presentation { case page, panel }
+
+    /// The noun the panel is headed by when the screen inside has no title of
+    /// its own (§7.2: "headed by its name").
+    var panelTitle: String {
+        switch self {
+        case .piece:            return "Piece"
+        case .arrangement:      return "Arrangement"
+        case .moveToPiece:      return "Move to piece"
+        case .setlistsFor:      return "Set lists"
+        case .setlist:          return "Set list"
+        case .sharedSetlist:    return "People"
+        case .joinSetlist:      return "Join"
+        case .addArrangements:  return "Add"
+        case .versions:         return "Versions"
+        case .parts:            return "Parts"
+        case .details:          return "Details"
+        case .settings, .settingsSection: return "Settings"
+        case .book:             return "Book"
+        case .folderImport:     return "Import folder"
+        case .sort:             return "Sort"
+        case .filter:           return "Filter"
+        case .importMenu:       return "Import"
+        case .newMenu:          return "New"
+        case .pieceArrangements: return "Arrangements"
+        case .thisPiece:        return "This piece"
+        case .thisSetlist:      return "This set list"
+        case .setlistInvite:    return "Invite"
+        }
+    }
+
     /// What the back button says you are returning to. A back label that names
     /// the place is the difference between a stack you can trust and one you
     /// count taps out of.
     var backLabel: String {
         switch self {
-        case .piece, .setlist, .settings:
-            return "My library"
+        case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings:
+            return "Library"
         case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
-             .versions, .parts, .details, .settingsSection, .folderImport, .book:
+             .versions, .parts, .details, .settingsSection, .folderImport, .book,
+             .sort, .filter, .importMenu, .newMenu, .pieceArrangements, .thisPiece,
+             .thisSetlist, .setlistInvite:
             return "Back"
         }
     }
@@ -93,7 +161,11 @@ extension Route {
         case .versions(let s):        return .versions(now(s))
         case .parts(let s):           return .parts(now(s))
         case .details(let s):         return .details(now(s))
-        case .piece, .setlist, .settings, .settingsSection, .folderImport, .book:
+        case .pieceArrangements(let s):  return .pieceArrangements(s)
+        case .thisPiece(let s):          return .thisPiece(s)
+        case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings,
+             .settingsSection, .folderImport, .book, .sort, .filter, .importMenu, .newMenu,
+             .thisSetlist, .setlistInvite:
             return self
         }
     }

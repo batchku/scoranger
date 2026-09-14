@@ -1,21 +1,66 @@
 """Local document store backing the score library.
 
-Deliberately modeled on Firestore so the backend swap is mechanical:
+Document-shaped, not table-shaped:
 
-    scores/{id}                    -> score document
-    scores/{id}/versions/{vid}     -> version document (subcollection)
+    scores/{slug}                  -> score document
+    scores/{slug}/versions/{id}    -> version document (subcollection)
 
-Artifacts (the .musicxml files) live OUTSIDE the database and are referenced
-by relative path — the same shape as Cloud Storage refs. To move to Firebase:
-implement FirestoreRepository with this same interface, point artifact refs at
-a Storage bucket, and replace the manifest.json projection with Firestore
-listeners in the client. Documents are already plain JSON.
+Artifacts (the .musicxml and .pdf files) live OUTSIDE the database and are
+referenced by relative filename. Documents are plain JSON.
+
+This store stays authoritative for the device. It is NOT a cache of a remote
+database, and the way to Firebase is not a `FirestoreRepository` implementing
+this interface: the engine runs on-device, and a shipped client cannot hold the
+service-account credentials a server SDK needs. Sync belongs beside the engine,
+in Swift, mirroring these documents upward. See design/FIREBASE.md §2.
+
+`Repository` exists so that mirror can wrap this one and record what changed
+without `workspace.py` knowing.
 """
 
 import json
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Repository(Protocol):
+    """What `workspace.py` needs of a document store.
+
+    Stated as a protocol so `workspace._repo()` has something to be given other
+    than the concrete class. The intended second implementation is a decorator
+    that wraps SqliteRepository and journals every write for the sync layer,
+    not a replacement store.
+    """
+
+    def get_library(self) -> dict | None: ...
+    def set_library(self, doc: dict) -> None: ...
+    def set_score(self, score_id: str, doc: dict) -> None: ...
+    def get_score(self, score_id: str, include_deleted: bool = True) -> dict | None: ...
+    def list_scores(self, include_deleted: bool = False) -> list[dict]: ...
+    def count_scores(self) -> int: ...
+    def delete_score(self, score_id: str) -> None: ...
+    def set_piece(self, piece_id: str, doc: dict) -> None: ...
+    def get_piece(self, piece_id: str) -> dict | None: ...
+    def list_pieces(self) -> list[dict]: ...
+    def delete_piece(self, piece_id: str) -> None: ...
+    def set_setlist(self, setlist_id: str, doc: dict) -> None: ...
+    def get_setlist(self, setlist_id: str) -> dict | None: ...
+    def list_setlists(self) -> list[dict]: ...
+    def delete_setlist(self, setlist_id: str) -> None: ...
+    def set_book(self, book_id: str, doc: dict) -> None: ...
+    def get_book(self, book_id: str) -> dict | None: ...
+    def list_books(self) -> list[dict]: ...
+    def delete_book(self, book_id: str) -> None: ...
+    def add_source(self, score_id: str, source_id: str, doc: dict) -> None: ...
+    def get_source(self, score_id: str, source_id: str) -> dict | None: ...
+    def list_sources(self, score_id: str) -> list[dict]: ...
+    def add_version(self, score_id: str, version_id: str, seq: int, doc: dict) -> None: ...
+    def get_version(self, score_id: str, version_id: str) -> dict | None: ...
+    def list_versions(self, score_id: str) -> list[dict]: ...
+    def delete_version(self, score_id: str, version_id: str) -> None: ...
 
 
 class SqliteRepository:
@@ -39,9 +84,28 @@ class SqliteRepository:
                 "CREATE TABLE IF NOT EXISTS setlists (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS books (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
+            # One row, id 'self'. The library is a document like any other and
+            # it is the one this device IS -- design/FIREBASE.md §9.2: signing
+            # in later writes an owner onto it, it does not migrate anything,
+            # because the library already had an identity.
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS library (id TEXT PRIMARY KEY, doc TEXT NOT NULL)")
             self._conn.commit()
 
     # -- scores collection ------------------------------------------------
+
+    def get_library(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT doc FROM library WHERE id = 'self'").fetchone()
+        return json.loads(row[0]) if row else None
+
+    def set_library(self, doc: dict) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO library (id, doc) VALUES ('self', ?)"
+                " ON CONFLICT(id) DO UPDATE SET doc = excluded.doc",
+                (json.dumps(doc),))
+            self._conn.commit()
 
     def set_score(self, score_id: str, doc: dict) -> None:
         with self._lock:
@@ -150,9 +214,12 @@ class SqliteRepository:
     # -- sources subcollection (other found editions of the same piece) -----
 
     def add_source(self, score_id: str, source_id: str, doc: dict) -> None:
+        # upsert, like every other set_*: the caller supplies the key, so
+        # writing the same key twice means "this document changed"
         with self._lock:
             self._conn.execute(
-                "INSERT INTO sources (score_id, id, doc) VALUES (?, ?, ?)",
+                "INSERT INTO sources (score_id, id, doc) VALUES (?, ?, ?)"
+                " ON CONFLICT(score_id, id) DO UPDATE SET doc = excluded.doc",
                 (score_id, source_id, json.dumps(doc)))
             self._conn.commit()
 
@@ -170,9 +237,15 @@ class SqliteRepository:
     # -- versions subcollection -------------------------------------------
 
     def add_version(self, score_id: str, version_id: str, seq: int, doc: dict) -> None:
+        # upsert: a version's CONTENT is immutable, but its document is
+        # rewritten in place when a pointer inside it has to be repaired (the
+        # id migration rewrites `parent`). Failing there would abort a
+        # migration halfway, which is the one thing it must never do.
         with self._lock:
             self._conn.execute(
-                "INSERT INTO versions (score_id, id, seq, doc) VALUES (?, ?, ?, ?)",
+                "INSERT INTO versions (score_id, id, seq, doc) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(score_id, id) DO UPDATE SET"
+                " seq = excluded.seq, doc = excluded.doc",
                 (score_id, version_id, seq, json.dumps(doc)))
             self._conn.commit()
 
@@ -183,6 +256,17 @@ class SqliteRepository:
         return json.loads(row[0]) if row else None
 
     def list_versions(self, score_id: str) -> list[dict]:
+        # (seq, id) and not seq alone: two versions can share a seq once two
+        # devices append to the same parent, and `latest_version` takes the
+        # last row, so an unstable order would make "latest" flap between them.
         rows = self._conn.execute(
-            "SELECT doc FROM versions WHERE score_id = ? ORDER BY seq", (score_id,)).fetchall()
+            "SELECT doc FROM versions WHERE score_id = ? ORDER BY seq, id",
+            (score_id,)).fetchall()
         return [json.loads(r[0]) for r in rows]
+
+    def delete_version(self, score_id: str, version_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM versions WHERE score_id = ? AND id = ?",
+                (score_id, version_id))
+            self._conn.commit()

@@ -13,6 +13,22 @@ packages:
   SwiftDraw:
     url: https://github.com/swhitty/SwiftDraw
     from: 0.18.0
+  # Firebase, for the OPTIONAL half of the app: an account, and the shared
+  # setlists an account makes possible (design/FIREBASE.md).
+  #
+  # Pinned to a minor floor rather than a range, like the two above. Signed
+  # out, none of this runs: `FirebaseApp.configure()` is called at first
+  # sign-in and never at launch, which is what makes "no login gates the app"
+  # literal instead of approximate (§0.2, §9.1). Linking the SDK is not
+  # configuring it.
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 11.9.0
+  # Google's own sign-in flow. Firebase Auth takes the credential this hands
+  # back; it cannot obtain one itself.
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 8.0.0
 
 targets:
   Scoranger:
@@ -58,6 +74,19 @@ targets:
         product: VerovioToolkit
       - package: SwiftDraw
         product: SwiftDraw
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseStorage
+      # The two writes a client is never allowed to make itself: joining a
+      # setlist and removing somebody from one. Both edit the membership map,
+      # which the rules refuse to every client (design/FIREBASE.md §4.4).
+      - package: Firebase
+        product: FirebaseFunctions
+      - package: GoogleSignIn
+        product: GoogleSignIn
     postBuildScripts:
       - name: Install Python stdlib
         script: |
@@ -69,6 +98,27 @@ targets:
           bash "$PROJECT_DIR/scripts/seed_privacy_manifests.sh"
           source "$PROJECT_DIR/Vendor/Python.xcframework/build/utils.sh"
           install_python Vendor/Python.xcframework app app_packages
+        basedOnDependencyAnalysis: false
+      - name: Bake the Firebase config
+        script: |
+          # GoogleService-Info.plist is gitignored (design/FIREBASE.md §11.8):
+          # it names a specific Firebase project and carries that project's API
+          # key, and this repo is public. Copied in at build time, the same
+          # posture as the two keys below.
+          #
+          # The URL SCHEME is NOT injected here. It is in project.yml, because
+          # Xcode regenerates the built Info.plist after this phase runs and
+          # anything written to it here disappears without an error.
+          #
+          # No plist is not a failure: a signed-out build is a complete build,
+          # and the app must run for somebody who never signs in. SignIn.swift
+          # reports the absence rather than trapping.
+          CONFIG="$PROJECT_DIR/GoogleService-Info.plist"
+          if [ -f "$CONFIG" ]; then
+            cp "$CONFIG" "$CODESIGNING_FOLDER_PATH/GoogleService-Info.plist"
+          else
+            echo "warning: no GoogleService-Info.plist -- signing in is unavailable in this build"
+          fi
         basedOnDependencyAnalysis: false
       - name: Bake OMR key
         script: |
@@ -129,6 +179,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.irllabs.scoranger
+        # Sign in with Apple. Must match the APPLE_ID_AUTH capability on the
+        # App ID or the archive will not sign; SignIn.appleIsAvailable reads
+        # this back out of the built profile at runtime, so the button
+        # enables itself once both halves are in place.
+        CODE_SIGN_ENTITLEMENTS: Scoranger/Scoranger.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: V9DBGV72NL  # IRL Labs LLC
@@ -162,16 +217,255 @@ targets:
         #          heard as notes from a names-only staff, two staves of one
         #          name shown as one strip, and the OMR progress fix deployed
         #          at last. Cut from 0.6.19 and NOT from dev, which carries
-        #          0.7's sharing work
-        #   0.6.21 the EXTERNAL-ready build: 0.6.20's fixes, and no score
-        #          bundled in the binary. 180 shipped carrying four
-        #          copyrighted score files; this is the first build that does
-        #          not, and the first Ali can add external testers to
-        #          (design/FIREBASE.md §0.11)
-        # 181 is claimed by dev's 0.7.0 line and was never uploaded; a build
-        # number never goes backwards and must not collide, so this is 182.
-        CURRENT_PROJECT_VERSION: 182
-        MARKETING_VERSION: 0.6.21
+        #          0.7's sharing work. Shipped as build 180
+        #   0.7.0  SHARED SET LISTS. Identity that outlives a title (opaque ids
+        #          everywhere, the library named before anyone signs in, a
+        #          reader's pencil marks keyed to the score rather than to what
+        #          it is called today); share without the cloud, as one
+        #          .scorbundle over AirDrop; and then the cloud half -- an
+        #          account, a set list several people add to and reorder, and
+        #          everybody's markup on it.
+        #
+        #          Planned as 0.7.0 through 0.7.5 in design/FIREBASE.md §11 and
+        #          asked for as one build: "build all of these necessary
+        #          features for sharing playlists into the first 7.0 build."
+        #          §11.9 records the difference, including what was left out.
+        #   0.8.1  THE EXTERNAL CANDIDATE (2026-09-13). Scope before the work:
+        #          no new behaviour. This is build 196 as gated (1508/1508)
+        #          plus the consolidation of every open branch into one line
+        #          -- design/0.8-notebook, fast-forwarded into dev and merged
+        #          to main -- so that what Ali submits for external review is
+        #          the same commit that main, dev and origin carry. The three
+        #          things the topic branches still held were prose only
+        #          (iPhone spec sections 15-17, the pagination backlog entry,
+        #          the gate-time analysis). The version is bumped so that
+        #          App Store Connect's external review is asked about 0.8.1
+        #          and not about a 0.8.0 that already has six internal builds
+        #          behind it. External-group and public-link settings are
+        #          Ali's, in App Store Connect; this file and the deploy script
+        #          only put the build on TestFlight.
+        #   0.8.0  BUILD 196+: TWO MORE FROM ALI, IN PERFORMANCE MODE (2026-09-12):
+        #            D. a SWIPE turns the page, beside the tap on the right
+        #               edge that stays; it stops at the ends and the page
+        #               readout follows a swipe-turn (0.6.14 left the swipe
+        #               unwired as half-finished; this wires it);
+        #            E. turning BACK animates left-to-right -- the reverse of
+        #               the forward turn, which animates right-to-left. Both
+        #               turns animated the same way.
+        #   0.8.0  BUILD 195: THREE FROM ALI ON 194 (2026-09-12). Scope before
+        #          the work:
+        #            A. the layout control's ACTIVE cell draws a single clean
+        #               shape -- no tinted corners outside a pill stroke, no
+        #               layers behind the glyph; photographed highlighted;
+        #            B. the playhead and the follow-scroll move CONTINUOUSLY
+        #               against the audio clock -- interpolated between the
+        #               sequencer's readings and within a bar, never stepping
+        #               per note onset; smooth is the goal, the smallest note
+        #               value the floor;
+        #            C. a performance loop with a stated goal: dragging the
+        #               score holds the display's maximum refresh rate
+        #               (UIScreen.maximumFramesPerSecond, 120 on ProMotion)
+        #               with no degradation over time -- frame times measured
+        #               on the device with CADisplayLink, the budget-breaker
+        #               found, fixed, re-measured, repeated; before and after
+        #               reported.
+        #          Internal. External-group and public-link settings are Ali's.
+        #          What C measured, on Ali's iPhone 15 Pro (120Hz), a scripted
+        #          drag of thirty seconds at 2x (FrameProbe + AutoDrag):
+        #            paged        before 103 fps, 16% frames dropped, worst 36ms
+        #                         after  118 fps,  1.4% dropped, tail 116-120
+        #            continuous   before   3 fps (worst frame 467ms)
+        #                         after  110 fps (chip cost still in), and 118
+        #                         with the Sync chip's cost removed -- which
+        #                         is what the last change does.
+        #          Causes, in the order they were found and removed: tiles and
+        #          pages rasterised on the main thread in the view body; every
+        #          24pt of a drag publishing the bar readout on AppState, which
+        #          re-roots the whole page stack; the engine's 20Hz beat doing
+        #          the same under a playing score; the Sync chip rebuilding
+        #          every bar frame of the strip on each viewport publish.
+        #   0.8.0  BUILD 194 IS THE EXTERNAL CANDIDATE (Ali, 2026-09-11: external
+        #          testers, including Echo). Its Release archive was checked at
+        #          deploy time: no samples-seed, no score of its own
+        #          (check_no_bundled_scores.py, B1); PrivacyInfo.xcprivacy on
+        #          every OpenSSL framework (ITMS-91061); GoogleService-Info.plist
+        #          in the archive for project scoranger, with the Apple sign-in
+        #          controller retained (8c93cbc7) and the session restored
+        #          (8307e555); the 0.7.3 sharing rework merged (56fc0353,
+        #          e63d6107, b41890f5); ITSAppUsesNonExemptEncryption false.
+        #          Promoting it to an external group is an App Store Connect
+        #          action, not a rebuild.
+        #   0.8.0  BUILD 194+: WHAT ALI FOUND IN 193. Scope written before the
+        #          work, from his list of 2026-09-11, functional first:
+        #            1. an import OPENS what it brought in -- in-app Import and
+        #               the share/inbox path both land in the new arrangement,
+        #               not on the Pieces list;
+        #            6. Make editable is offered for an IMAGE artifact as it
+        #               is for a PDF (the More panel gated on .scan only);
+        #            7. saving Details on an image, and Make editable on it,
+        #               go the image -> PDF -> OMR path (0.6.13) and never run
+        #               a JPEG through music21's converter
+        #               (ConverterFileException on img-0229/...jpeg);
+        #            8. the playhead keeps within a small tolerance of the
+        #               sounding position through the last bar -- it fell a
+        #               bar behind by the end; the cause is found and a
+        #               measured test holds it;
+        #            2. one "uploading" progress, in More; the strip's goes;
+        #            3. the tempo knob runs to 480 and the sequencer honours it;
+        #            4. the inline New set list row is tidied (designer's
+        #               spec to follow);
+        #            5. Set list from selection: Edit mode's checked pieces
+        #               become a set list with a sensible name (designer's
+        #               spec for placement and naming to follow).
+        #          What was found, doing it:
+        #            - 8's cause was never the clock. Measured: the sequencer
+        #              keeps pace with the audio device to 0.05% in real
+        #              time, and the first note sounds where the map says.
+        #              music21 lays a part's bars out by what they HOLD, so a
+        #              bar OMR filled past its meter pushes that part's every
+        #              later bar late: Ali's accordion R.H. has 15 such bars
+        #              and sounded 12 bars behind the violin by the end. The
+        #              engine now puts every part's bar k on one grid, as the
+        #              page does (ops._on_one_grid), carries voltas to every
+        #              part, and check_playback.py proves it;
+        #            - 6/7 were not a lost 0.6.13 fix: the image path was
+        #              intact. Two gaps predate 0.6.13 -- the More gate and
+        #              makeEditable() asked for .scan, and set_score_metadata
+        #              parsed the latest artifact whatever it was;
+        #            - 4 and 5 are built to the designer's brief, which
+        #              landed mid-session (design/REDESIGN_BRIEF_0.8.md §7):
+        #              the two-line naming row on the list's grid; the
+        #              Edit-mode bar's "New set list" yielding by measurement;
+        #              #1 of each checked piece with a notice; the four naming
+        #              rules; the proposed name arriving selected.
+        #          Not in this build: the in-app Import path is asserted
+        #          through the same receiveFile the inbox uses, not through
+        #          the Files picker itself.
+        #   0.8.0  NOTEBOOK, THE WHOLE OF IT, IN ONE BUILD. Ali, 2026-09-11:
+        #          "one build instead of 5". design/DESIGN_SYSTEM.md is the
+        #          spec and design/redesign-0.8/notebook-spec.html draws every
+        #          screen; the sixteen rules of 0 bind. Done when:
+        #            - tokens: band ground, panel pages, capsules (999), pages
+        #              at 22, dashed rules for every hairline and border, the
+        #              type ladder of 2, the ring stamp, no shadows on pages;
+        #            - the TRAY: one 56pt line replacing ScoreFooter and the
+        #              mixer window -- transport, a knob per part (LED as
+        #              mute), tempo knob, position and scrubber; drag, park,
+        #              clamp and collapse gone;
+        #            - the PANEL (380, panel, no tabs [C1][C2]) and ROW ACTIONS
+        #              (inside the row on a flat tint band [C4]): Options,
+        #              the management bands, the version dropdown and
+        #              switcher, Sort and Filter, the OMR offer, dialogs as
+        #              inline confirms, Add, People, Invite, Join, Import
+        #              folder all fold in; the tool row wraps [C7][C8];
+        #            - the THUMBNAIL RAIL at the left in paged reading;
+        #            - SETTINGS as a split; filters from the data model [C9];
+        #              Date added on rows and in Sort [C10]; long-press
+        #              selection [C11]; the book filmstrip [C12]; Tags on
+        #              Details [C14]; the resizable chat compose [C15];
+        #            - the score bar: < and the origin [C6], Perform with its
+        #              word [C5], one-line title and subtitle [C16];
+        #            - the labels of 10, one or two words each;
+        #            - phone: the panel pushed as a page, the set list's foot
+        #              strip, the score bar's second row.
+        #          Every UI test that pinned a retired shape is rewritten to
+        #          the new one, not deleted; every behaviour it protected is
+        #          still asserted.
+        #          WHAT THIS BUILD DOES NOT HAVE, said before it ships: on the
+        #          phone only the panel-as-a-page landed -- the set list's foot
+        #          strip and the score bar's second row are 0.8.1; the OMR offer
+        #          is still More's row and the progress chip rather than a panel
+        #          state (SC13); a book row offers Open and Delete, not Rename,
+        #          because the engine has no rename for books; Settings inside
+        #          the score's 380pt panel is the list, the split is the page.
+        #   0.7.4  WHAT THE FIRST THREE-IPAD TEST FOUND. Scope written before
+        #          the work, from Ali's list of 2026-09-10 17:20:
+        #            1. the library lists run full width;
+        #            2. a shared set list can be left (member) or deleted for
+        #               everybody (owner) from its own screen, and either
+        #               removes the local row -- a joined set list with no
+        #               music is no longer stuck on the device;
+        #            4. the play head does not blink at barlines;
+        #            5. a repeat written on SOME staves is played by ALL of
+        #               them -- Imate li vino's repeat sat on the piano and not
+        #               the voice, so the voice ran out four bars early and its
+        #               later bars sounded under the piano's repeat: "notes
+        #               where there are none" and "the bottom voice misses the
+        #               repeat" were one fault;
+        #            6. the mixer knob: LED in the centre, no numeral, knob
+        #               centred in its column; ALL ON / ALL OFF labels centred;
+        #            7. a score whose repeats music21 cannot expand still
+        #               plays, straight through, instead of refusing with an
+        #               Expander exception.
+        #          Numbered as Ali numbered them; 3 was fixed in 189. Not in
+        #          this build and tracked: muting that does not mute, the
+        #          spacebar, playback stopping when the mixer opens, loop
+        #          playback (which does not exist yet).
+        #          BUILD 192 (the fourth of 2026-09-10), the rest of the list:
+        #            4.  the play head cannot blink: while playing, a tick that
+        #                yields no position keeps the last one, and the beat is
+        #                logged. The CAUSE is not found -- every bar has a
+        #                frame, the timeline has no gaps -- so this is the
+        #                symptom removed and labelled as such.
+        #            5.  LOOP: a transport toggle beside the metronome; at the
+        #                end the music goes round again instead of stopping.
+        #            6.  ALL ON / ALL OFF: photographed from a test and judged
+        #                by eye before anything was changed.
+        #          Not changed: the spacebar, which exists (ScoreFooter, a
+        #          hidden button with .keyboardShortcut(.space)) and cannot be
+        #          driven in the simulator; and "opening the mixer stops
+        #          playback", which a test now shows does not happen there.
+        #          BUILD 191, the second list of the same day:
+        #            6b. closing the score stops the performance, click and all;
+        #            7b. in scroll mode the score streams past the line, which
+        #                parks a QUARTER of the way in (was 0.30) -- and
+        #                following is re-armed on load and on Play, because
+        #                nothing ever re-armed it: one pan during playback
+        #                switched it off for the rest of the session.
+        #   0.7.3  ONE KIND OF SET LIST, BOTH ENDS. Written before the work,
+        #          because 187's predecessor was called "sharing" when only the
+        #          sender's half existed. This build is done when, on three
+        #          iPads signed in as three people:
+        #            1. the owner taps share on a set list's row and sends the
+        #               https link by Messages;
+        #            2. each recipient taps it, lands on "Add to my set lists",
+        #               and the set list APPEARS IN THEIR SET LISTS with its
+        #               music -- design/FIREBASE.md 6A.5, the sentence that was
+        #               never implemented;
+        #            3. every member can open it again from that row, and the
+        #               owner reaches the member list, invite and remove there;
+        #            4. a second tap on a shared row shows who is in it rather
+        #               than re-sharing.
+        #          Carried from the unshipped 187: the sender's half, and four
+        #          defects found by running the flow instead of grepping the
+        #          archive -- shareSetlist never wrote the owner's memberships
+        #          row, bind_setlist_share was missing from the vendored
+        #          engine, the manifest did not project shareId, and the app
+        #          never claimed the domain so the link opened Safari.
+        #   0.7.2  LOGIN THAT WORKS IN THE SHIPPED BUILD. 0.7.1 build 184
+        #          linked Firebase and carried no GoogleService-Info.plist, so
+        #          Settings read "no Firebase configuration" and no Firebase
+        #          feature could be reached at all. Shipped ahead of 0.7.2's
+        #          own feature work (QR + offline joining) because login is
+        #          what gates testing everything else.
+        #   0.7.1  the three showstoppers in Ali's build 183 report, so that
+        #          sharing can be TRIED: Google aborted the process on the
+        #          first tap, Apple did nothing and said nothing, and the two
+        #          buttons came from two different components. Sign in with
+        #          Apple is enabled on the App ID for real, and a Hide My Email
+        #          relay address is invitable rather than discarded.
+        # A build number NEVER goes backwards, whatever the marketing version
+        # does. 182 went out as 0.6.21 -- the external-ready build -- AFTER
+        # this line said 181, so 181 is now behind what has shipped and 183 is
+        # the next free number. Checked against App Store Connect rather than
+        # against this file's own history, which is what made 181 stale.
+        # 185: 184 shipped with sign-in DEAD. It linked Firebase and carried
+        # no GoogleService-Info.plist, because that file is gitignored and was
+        # not on link_worktree_inputs.sh's list -- so Settings read "This build
+        # has no Firebase configuration". deploy_testflight.sh now refuses such
+        # an archive outright.
+        CURRENT_PROJECT_VERSION: 196
+        MARKETING_VERSION: 0.8.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -233,6 +527,9 @@ targets:
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         OMRDefaultURL: "https://scoranger-omr-37kxlg2dpa-uc.a.run.app"
         ITSAppUsesNonExemptEncryption: false
+        # A ProMotion iPhone holds an app at 60 unless it asks; iPad does not
+        # need this, and it costs nothing there (build 195's frame loop).
+        CADisableMinimumFrameDurationOnPhone: true
         # Bundled by decision: the design system uses no system faces.
         # Space Grotesk and Inter are variable; weights come from the wght axis.
         UIAppFonts:
@@ -267,6 +564,45 @@ targets:
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.image, public.jpeg, public.png,
                                  public.heic]
+          # An arrangement or a setlist somebody sent, with its markup, over
+          # AirDrop or Files. Owner rank because this is our own format.
+          - CFBundleTypeName: "Scoranger bundle"
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.scoranger.bundle]
+        # EXPORTED, not imported: we define this one. The others are formats
+        # the world already had and we merely open (design/FIREBASE.md §13).
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.scoranger.bundle
+            UTTypeDescription: "Scoranger bundle"
+            UTTypeConformsTo: [public.zip-archive]
+            UTTypeTagSpecification:
+              public.filename-extension: [scorbundle]
+        # Google's sign-in flow returns through a custom URL scheme, and the
+        # scheme is the REVERSED CLIENT ID. It has to live here rather than be
+        # injected by a build phase: Xcode regenerates the built Info.plist
+        # AFTER post-build scripts run, so keys added there are silently
+        # clobbered -- measured, not assumed. Without a registered scheme the
+        # browser opens for sign-in and never comes back.
+        #
+        # This is the one piece of Firebase config the repo carries, and it is
+        # the harmless one: a reversed client id is a public OAuth client
+        # identifier, present in plain text inside every copy of every app that
+        # uses Google sign-in, and it grants nothing on its own. The API key and
+        # the rest of GoogleService-Info.plist stay gitignored (§11.8), and what
+        # actually protects the data is the security rules.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.googleusercontent.apps
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.185895597142-9s57s8gj4murutf1fg6ffrhel2itaaj0
+          # An invitation to a shared set list. The rules refuse `list` on
+          # `invites/`, so an invitee cannot go looking for their own -- the
+          # inviter has to send them the document's id, and this is the door it
+          # comes in by (SharedInviteLink). The link grants nothing on its own:
+          # the invitation names one verified email address and the Function
+          # refuses it from anybody else.
+          - CFBundleURLName: com.irllabs.scoranger.invite
+            CFBundleURLSchemes:
+              - scoranger
         UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.scoranger.musicxml
             UTTypeDescription: "MusicXML score"
@@ -308,12 +644,39 @@ targets:
       # on -- §14.5 says in terms not to copy ScoreBarLayout's 1.0x literals
       - path: Scoranger/Navigation/LibraryBarLayout.swift
       - path: Scoranger/Navigation/LibraryBarMetrics.swift
+      # the Edit-mode bar's rungs, the same way (REDESIGN_BRIEF_0.8 §7.3)
+      - path: Scoranger/Navigation/LibraryActionBarLayout.swift
+      - path: Scoranger/Navigation/LibraryActionBarMetrics.swift
       - path: Scoranger/Navigation/LibraryModel.swift
       - path: Scoranger/Navigation/LibraryActions.swift
       - path: Scoranger/Navigation/Route.swift
       - path: Scoranger/Navigation/FolderImport.swift
       - path: Scoranger/Score/ScoreExport.swift
+      # the annotation store: pure file handling over a scratch directory, and
+      # the key migration in it is the one thing standing between a reader's
+      # pencil marks and silence (design/FIREBASE.md §13.3)
+      - path: Scoranger/Score/DrawingStore.swift
       - path: Scoranger/Score/PageTurn.swift
+      # The two pieces of the sharing work that are pure and therefore testable
+      # here: what an invitation link is (and, more to the point, what it is
+      # NOT -- `onOpenURL` is one door for AirDropped bundles, PDFs and Google's
+      # sign-in callback too), and which shared entry a saved drawing belongs
+      # to, read off the key it was saved under. Neither imports Firebase, which
+      # is why they are separate files from `SharedSetlists`: this bundle has no
+      # host app and cannot link it (design/FIREBASE.md §6.3).
+      - path: Scoranger/Account/SharedInviteLink.swift
+      # The one bit that decides whether launch brings Firebase up: pure
+      # UserDefaults, no Firebase import, and the three transitions that keep
+      # "every launch asks you to sign in again" from coming back.
+      - path: Scoranger/Account/SignInMemory.swift
+      # Which import op a downloaded shared entry goes to, and where the slug
+      # is in what comes back -- pinned against the bridge's real shapes.
+      - path: Scoranger/Account/SharedEntryImport.swift
+      - path: Scoranger/Account/SharedEntryCopies.swift
+      # The QR code is the invite URL rendered, so it is pure CoreImage over
+      # SharedInviteLink and carries no Firebase -- which is what lets the
+      # round-trip test live in this host-app-less bundle.
+      - path: Scoranger/Account/InviteQRCode.swift
       # what a single-finger touch on the canvas means -- one pure function, so
       # it can be fuzzed for disjointness (§12) without a screen
       - path: Scoranger/Score/CanvasTap.swift
