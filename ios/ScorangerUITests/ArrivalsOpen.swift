@@ -91,13 +91,21 @@ final class ArrivalsOpen: XCTestCase {
         snap("photo-details-saved")
 
         // And the way out of being a picture is offered, and works.
+        //
+        // 0.8.2 (SC13): the offer is a PANEL STATE. More keeps a row that
+        // opens it -- which is what this asserts, because that row going is
+        // what would take the whole route away from a picture.
         element("panel-back").tap()
-        let makeEditable = element("more-make-editable")
-        XCTAssertTrue(makeEditable.waitForExistence(timeout: 20),
-                      "a picture should offer Make editable, as a PDF does")
-        snap("photo-more-make-editable")
-        makeEditable.tap()
-        element("panel-done").tap()
+        let convertRow = element("more-make-editable")
+        XCTAssertTrue(convertRow.waitForExistence(timeout: 20),
+                      "a picture should offer Convert, as a PDF does")
+        snap("photo-more-convert-row")
+        convertRow.tap()
+        let convert = element("convert-run")
+        XCTAssertTrue(convert.waitForExistence(timeout: 20),
+                      "the Convert row opened no offer")
+        snap("photo-convert-offer")
+        convert.tap()
         // The transcription goes to the OMR service and comes back as a
         // notation version; continuous layout coming alive is the arrival.
         let notation = XCTNSPredicateExpectation(

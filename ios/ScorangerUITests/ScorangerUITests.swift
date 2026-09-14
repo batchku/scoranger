@@ -1139,7 +1139,18 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["score-edit"].exists,
                       "Pencil markup is the whole point of bringing scans in early")
 
-        // and the way OUT of being a scan is offered
+        // and the way OUT of being a scan offers ITSELF (0.8.2, SC13). Until
+        // this build it was a switch two taps behind `…`, so a scan opened as
+        // a PDF and said nothing about what it could become.
+        let convert = menuRow("convert-run")
+        XCTAssertTrue(convert.waitForExistence(timeout: 20),
+                      "the scan did not offer to be converted when it opened")
+        XCTAssertTrue(menuRow("convert-read-as-is").exists,
+                      "the offer has no second answer")
+        // Read as is closes it, and More offers Convert again after.
+        menuRow("convert-read-as-is").tap()
+        XCTAssertFalse(convert.waitForExistence(timeout: 3),
+                       "Read as is left the offer on screen")
         app.buttons["score-more"].tap()
         XCTAssertTrue(menuRow("more-make-editable").waitForExistence(timeout: 10),
                       "a scan should offer to be read into notation")

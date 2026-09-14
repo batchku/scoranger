@@ -114,15 +114,32 @@ final class TopBarShot: XCTestCase {
         settle(3.0)
         snap("scan-before-omr")
 
-        app.buttons["score-more"].tap()
-        let makeEditable = app.switches["Make editable"]
-        guard makeEditable.waitForExistence(timeout: 20) else {
-            return print("SHOT: no Make editable switch: this is not a scan")
+        // 0.8.2 (SC13): the scan's own offer opens WITH it, so the panel is
+        // very likely already showing Convert. If a reader closed it, More's
+        // row opens the same state.
+        var convert = app.descendants(matching: .any)["convert-run"].firstMatch
+        if !convert.waitForExistence(timeout: 5) {
+            app.buttons["score-more"].tap()
+            let row = app.descendants(matching: .any)["more-make-editable"].firstMatch
+            guard row.waitForExistence(timeout: 20) else {
+                return print("SHOT: no Convert row: this is not a scan")
+            }
+            snap("convert-offer-from-more")
+            row.tap()
+            convert = app.descendants(matching: .any)["convert-run"].firstMatch
+            guard convert.waitForExistence(timeout: 20) else {
+                return print("SHOT: the Convert row opened no offer")
+            }
         }
-        makeEditable.tap()
+        snap("convert-offer")
+        convert.tap()
         settle(2.0)
-        snap("make-editable-running")
-        back()
+        snap("convert-running")
+        if app.buttons["panel-done"].firstMatch.exists {
+            app.buttons["panel-done"].firstMatch.tap()
+        } else {
+            back()
+        }
 
         // Back on the music, which is where a reader goes. Photograph it as the
         // transcription runs -- twice, so the pictures show whether the readout
