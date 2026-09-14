@@ -142,15 +142,30 @@ scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natu
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
-scor adjust-element <score> --part X [--kind harm|diagram|tab]
-                    [--measure N] [--ordinal N] [--all] [--size PT]
-                    [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
+scor adjust-element <score> --part X
+                    [--kind harm|diagram|dynamic|text|fermata|articulation|tab]
+                    [--measure N] [--ordinal N] [--all] [--scale RATIO]
+                    [--size PT] [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
   # how big an added element is and where it sits, stored in the notation
   # (MusicXML font-size / relative-x / relative-y) so it travels with the
   # score. `harm` is a chord symbol, `diagram` a chord diagram, `tab` a tab
-  # column -- addressed by the same measure + ordinal, because the reader is
-  # pointing at one thing on the page. Verovio honours none of the three, so
-  # each renderer carries them across itself.
+  # column, and dynamic/text/fermata/articulation are what they say --
+  # addressed by the same measure + ordinal, because the reader is pointing at
+  # one thing on the page. --scale is RELATIVE to the engraved default (1.0
+  # leaves it, 1.5 is half again); --size is the absolute point value for a
+  # caller that already holds one, and the two together are refused. Verovio
+  # honours none of the three fields, so each renderer carries them across
+  # itself.
+scor move-element <score> --part X --kind K --measure N [--ordinal N]
+                  [--to-measure N] [--to-offset QUARTERS]
+scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
+                       [--to-measure N] [--to-offset QUARTERS]
+  # the destination is a BAR plus an offset inside it (0 is the downbeat) --
+  # this app has no drag. Offset-anchored elements (harm, diagram, dynamic,
+  # text) are copied in at that offset; note-attached ones (fermata,
+  # articulation) are attached to the note that STARTS there, and the op
+  # refuses rather than guess if nothing does. SPANNERS (slurs, hairpins) are
+  # refused by name: a spanner has two anchors and a destination names one.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:
   # six holes top to bottom, a 7th verse "+" for the overblown octave.
