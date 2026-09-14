@@ -174,9 +174,17 @@ struct SetlistScreen: View {
     var onBack: () -> Void
     var onOpen: (String) -> Void
     var push: (Route) -> Void
+    /// Share, from the foot strip (Ph2). The SAME action `ThisSetlistPanel`'s
+    /// row runs -- a second sharing path would be a second answer to who owns
+    /// the upload.
+    var onShare: () -> Void = {}
 
     /// The member whose ☰ is open, its actions in the row (S2).
     @State private var expanded: String?
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// A phone has no column beside the page, so the list's own tools sit on
+    /// one line at its foot (Ph2, `PageFootStrip`).
+    private var isCompact: Bool { sizeClass == .compact }
 
     private var setlist: SetlistDoc? {
         state.manifest?.setlists?.first { $0.slug == slug }
@@ -221,8 +229,37 @@ struct SetlistScreen: View {
                     .padding(Theme.Metric.pageSide)
                 }
             }
-            .padding(.bottom, Theme.Metric.s32)
+            .padding(.bottom, isCompact ? PageFootStrip.inset : Theme.Metric.s32)
         }
+        .overlay(alignment: .bottom) {
+            if isCompact { PageFootStrip(items: tools) }
+        }
+    }
+
+    /// The four the panel at rest carries on an iPad (S1), as a strip: Add,
+    /// Share, People while it is shared, and More for the rest -- which is
+    /// the same `thisSetlist` state, pushed as a page (Ph3). Delete is not
+    /// promoted to the strip: it lives under More with the consequence
+    /// written beside it, where it already is.
+    private var tools: [PageFootStrip.Item] {
+        var items: [PageFootStrip.Item] = [
+            .init(id: "setlist-tool-add", title: "Add", glyph: "plus") {
+                push(.addArrangements(slug))
+            },
+        ]
+        if let setlist {
+            items.append(.init(id: "setlist-tool-share",
+                               title: setlist.isShared ? "Shared" : "Share",
+                               glyph: "square.and.arrow.up") { onShare() })
+            if setlist.isShared, let shareId = setlist.shareId {
+                items.append(.init(id: "setlist-tool-people", title: "People",
+                                   glyph: "person.2") { push(.sharedSetlist(shareId)) })
+            }
+        }
+        items.append(.init(id: "setlist-tool-more", title: "More") {
+            push(.thisSetlist(slug))
+        })
+        return items
     }
 
     private func memberRow(_ member: String, at index: Int) -> some View {

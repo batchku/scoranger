@@ -56,4 +56,15 @@ extension ScorePosition {
         guard chatOpen, !isCompact else { return base }
         return base + chatWidth
     }
+
+    /// Whether the counters and the artifact chip are drawn at all.
+    ///
+    /// They belong to the MUSIC, and on a phone a panel covers the music
+    /// entirely -- so they were being drawn over the panel's own header:
+    /// "More" under the MUSICXML chip, Done under "p. 1 / 9", photographed at
+    /// iPhone size. On an iPad the panel takes a column and `counterTrailing
+    /// Inset` moves them clear, which is why this is a compact-only rule.
+    static func counterShown(panelOpen: Bool, isCompact: Bool) -> Bool {
+        !(panelOpen && isCompact)
+    }
 }

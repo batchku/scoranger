@@ -16,6 +16,12 @@ struct PieceScreen: View {
     /// The arrangement row whose ☰ is open, its actions in the row (P2).
     @State private var openArrangement: String?
     @EnvironmentObject var panel: PanelModel
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Ph2's rule, on this page too: a phone has no column beside the page,
+    /// so the page's own tools sit on one line at its foot. Without it the
+    /// panel at rest -- "This piece" -- is not reachable on a phone at all
+    /// now that a rest state no longer covers the page it belongs to.
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         Screen(title: "", backLabel: "Library",
@@ -51,7 +57,16 @@ struct PieceScreen: View {
                         .padding(Theme.Metric.pageSide)
                 }
             }
-            .padding(.bottom, Theme.Metric.s32)
+            .padding(.bottom, isCompact ? PageFootStrip.inset : Theme.Metric.s32)
+        }
+        .overlay(alignment: .bottom) {
+            if isCompact {
+                PageFootStrip(items: [
+                    .init(id: "piece-tool-import", title: "Import",
+                          glyph: "arrow.down.to.line") { onImport(piece.slug) },
+                    .init(id: "piece-tool-more", title: "More") { push(.thisPiece(piece.slug)) },
+                ])
+            }
         }
     }
 

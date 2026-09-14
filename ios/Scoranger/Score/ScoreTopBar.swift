@@ -37,13 +37,46 @@ struct ScoreTopBar: View {
     var chatOpen: Bool
     var onClose: () -> Void
     var onAsk: () -> Void
+    /// Which of the phone's TWO rows this instance is (Ph4).
+    ///
+    /// One type, two instances, rather than a second view holding copies of
+    /// the layout cells, Perform and the +. Copies are how the bar and the
+    /// Options screen came to disagree about which of them owned a switch,
+    /// and these three carry more state between them than that pair did.
+    enum Row { case bar, second }
+    var row: Row = .bar
 
     var body: some View {
-        if mode == .performance {
-            performanceBar
-        } else {
-            fullBar
+        switch row {
+        case .bar:
+            if mode == .performance { performanceBar } else { fullBar }
+        case .second:
+            if mode != .performance && fit.secondRow { secondRow }
         }
+    }
+
+    /// The phone's second row: the layout control, Perform and the + , centred
+    /// over the tray (Ph4). Everything in it came off the bar, so nothing here
+    /// is a new control and nothing is in two places.
+    private var secondRow: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Spacer(minLength: 0)
+            // Each at its own width, so the row reads as three controls
+            // side by side rather than one stretched capsule: an HStack
+            // hands its slack to whatever will take it, and Perform's
+            // label took all of it.
+            layoutControl.fixedSize()
+            performanceToggle.fixedSize()
+            if ScoreBarLayout.secondRowFitsPlus(width: barWidth) {
+                addToSetlistTrigger.fixedSize()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.Metric.s12)
+        .padding(.vertical, Theme.Metric.s6)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("score-second-row")
     }
 
     // MARK: - Reading and editing
@@ -78,8 +111,12 @@ struct ScoreTopBar: View {
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             if fit.showsAddToSetlist { addToSetlistTrigger }
-            layoutControl
-            if fit.showsPerformanceToggle { performanceToggle }
+            // On a phone these three are the second row's (Ph4); everywhere
+            // else they are the bar's, as they have always been.
+            if !fit.secondRow {
+                layoutControl
+                if fit.showsPerformanceToggle { performanceToggle }
+            }
             if fit.showsOMRProgress {
                 OMRProgressChip(control: omr) { moreOpen = true; titleMenuOpen = false }
             }
@@ -343,7 +380,8 @@ struct ScoreTopBar: View {
     /// What this bar can seat. See `ScoreBarLayout` for the order things yield
     /// in -- ✕ never does (#60).
     private var fit: ScoreBarLayout.Fit {
-        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy,
+                           compact: isCompact)
     }
 
     private var titleBlock: some View {

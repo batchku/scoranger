@@ -213,7 +213,8 @@ struct ContentView: View {
     /// What the top bar can seat at its measured width. Read by the bar and by
     /// Options, which carries what the bar could not.
     private var barFit: ScoreBarLayout.Fit {
-        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy,
+                           compact: isCompact)
     }
 
     var body: some View {
@@ -333,38 +334,46 @@ struct ContentView: View {
         }
     }
 
+    /// The score bar, and on a phone its SECOND ROW (Ph4). One call
+    /// site, two instances: the row is what differs, and every binding
+    /// they share is shared rather than copied.
+    private func scoreBar(row: ScoreTopBar.Row) -> some View {
+        ScoreTopBar(annotation: state.annotation,
+                    number: state.selectedScore
+                        .flatMap { state.placement(of: $0.slug)?.number },
+                    title: scoreTitle,
+                    subtitle: scoreSubtitle,
+                    origin: scoreOrigin,
+                    mode: $state.scoreMode,
+                    titleMenuOpen: $state.titleMenuOpen,
+                    titleMenuMode: $titleMenuMode,
+                    barWidth: $barWidth,
+                    // The bar clears More when it opens something else;
+                    // that must not close what it just opened.
+                    moreOpen: Binding(get: { moreOpen },
+                                      set: { on in
+                                      if on {
+                                          setPanel(.options)
+                                      } else if moreOpen {
+                                          // Only More goes: the bar
+                                          // clears it AFTER opening
+                                          // the title menu, which
+                                          // must stay open.
+                                          withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+                                              scoreScreen = nil
+                                              optionsSection = nil
+                                          }
+                                      }
+                                      }),
+                    chatOpen: chatOpen,
+                    onClose: onClose,
+                    onAsk: { setPanel(chatOpen ? nil : .chat) },
+                    row: row)
+    }
+
     private var scoreBody: some View {
         VStack(spacing: 0) {
-            ScoreTopBar(annotation: state.annotation,
-                        number: state.selectedScore
-                            .flatMap { state.placement(of: $0.slug)?.number },
-                        title: scoreTitle,
-                        subtitle: scoreSubtitle,
-                        origin: scoreOrigin,
-                        mode: $state.scoreMode,
-                        titleMenuOpen: $state.titleMenuOpen,
-                        titleMenuMode: $titleMenuMode,
-                        barWidth: $barWidth,
-                        // The bar clears More when it opens something else;
-                        // that must not close what it just opened.
-                        moreOpen: Binding(get: { moreOpen },
-                                          set: { on in
-                                              if on {
-                                                  setPanel(.options)
-                                              } else if moreOpen {
-                                                  // Only More goes: the bar
-                                                  // clears it AFTER opening
-                                                  // the title menu, which
-                                                  // must stay open.
-                                                  withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
-                                                      scoreScreen = nil
-                                                      optionsSection = nil
-                                                  }
-                                              }
-                                          }),
-                        chatOpen: chatOpen,
-                        onClose: onClose,
-                        onAsk: { setPanel(chatOpen ? nil : .chat) })
+            scoreBar(row: .bar)
             ZStack(alignment: .top) {
                 Theme.Surface.band
                 canvasLayer
@@ -377,7 +386,8 @@ struct ContentView: View {
             }
             // What this arrangement IS, opposite the counters (0.6.3 #5).
             .overlay(alignment: .topLeading) {
-                if state.selectedScore != nil, state.pdfDocument != nil {
+                if state.selectedScore != nil, state.pdfDocument != nil,
+                   ScorePosition.counterShown(panelOpen: panelOpen, isCompact: isCompact) {
                     ArtifactMarker(kind: state.displayedArtifact)
                         .padding(.top, Theme.Metric.s8)
                         .padding(.leading, Theme.Metric.s12)
@@ -386,7 +396,8 @@ struct ContentView: View {
             }
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: Theme.Metric.s6) {
-                    if state.selectedScore != nil {
+                    if state.selectedScore != nil,
+                       ScorePosition.counterShown(panelOpen: panelOpen, isCompact: isCompact) {
                         LiveCounters(playback: state.playback,
                                      pages: state.layout.showsPageCounter ? pageCounter : nil,
                                      bar: barCounter,
@@ -446,6 +457,11 @@ struct ContentView: View {
                              current: state.visiblePageIndices.first ?? 0,
                              onJump: jumpToPage)
             }
+            // The phone's second row, between the canvas and the tray
+            // (Ph4). It draws itself only where `ScoreBarLayout` says the bar
+            // handed it something, so there is no second notion of "is this a
+            // phone" anywhere in this file.
+            scoreBar(row: .second)
             // THE TRAY (design/DESIGN_SYSTEM.md §7.7): always there while
             // reading -- there is no "show transport" any more -- and gone
             // with the bar in performance mode. It is the transport and the

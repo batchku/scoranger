@@ -21,6 +21,17 @@ final class PanelModel: ObservableObject {
     @Published var rest: Route?
 
     var top: Route? { stack.last ?? rest }
+    /// What a COMPACT width shows, which is the pushed stack and never the
+    /// page's panel at rest (Ph2).
+    ///
+    /// A panel at rest is a column BESIDE the page. On a phone the panel is a
+    /// pushed page, and a pushed page that nobody asked for covers the one
+    /// they are on: opening a set list on an iPhone showed "This set list"
+    /// and not the set list -- no title, no running order, no Play. The
+    /// page's own tools reach the reader as a foot strip instead
+    /// (`PageFootStrip`), and the rest state is still one tap away through
+    /// More on that strip.
+    var pushedTop: Route? { stack.last }
     var isOpen: Bool { top != nil }
     var canGoBack: Bool { stack.count > 1 }
 
@@ -212,7 +223,7 @@ struct PanelHost<Page: View, PanelContent: View>: View {
                             .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                     }
                 }
-                if compact, !suspended, let top = panel.top {
+                if compact, !suspended, let top = panel.pushedTop {
                     panelPage(top, width: nil)
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                 }

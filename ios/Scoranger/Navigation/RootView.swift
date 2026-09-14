@@ -437,7 +437,8 @@ struct RootView: View {
                               }
                               open(member)
                           },
-                          push: push)
+                          push: push,
+                          onShare: { shareSetlist(slug) })
                 .navigationBarHidden(true)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-setlist-\(slug)")

@@ -102,6 +102,15 @@ enum ScoreBarLayout {
         var showsSelectArm: Bool = true
         /// The "#N" badge: which arrangement of the piece this is.
         var showsNumeral: Bool = true
+        /// The PHONE's second row (Ph4): the layout control, Perform and +
+        /// sit in a 34pt row of their own above the tray, and the bar keeps
+        /// back, title, Pencil, Select, Ask and More.
+        ///
+        /// It is not a yield step. The three controls do not compete with the
+        /// bar for width at all once they have a row; what the phone gets out
+        /// of it is the PENCIL back on the bar, which every step of the yield
+        /// order above had to take off it.
+        var secondRow: Bool = false
         /// The second line under the title: piece name and version.
         ///
         /// Costs no WIDTH -- it is a second line in the same column -- so it is
@@ -129,7 +138,7 @@ enum ScoreBarLayout {
         /// neither, and the feature is gone. `ScoreOptionsScreen` reads these,
         /// `ScoreTopBar` reads the pair above them, and both are handed the
         /// same `Fit` from the one measurement `ContentView` owns.
-        var optionsCarriesPerformanceToggle: Bool { !showsPerformanceToggle }
+        var optionsCarriesPerformanceToggle: Bool { !showsPerformanceToggle && !secondRow }
         var optionsCarriesTransportToggle: Bool { !showsTransportToggle }
         /// The Options screen's Annotations row is markup's second door, and
         /// it is the only one at the widths the bar has yielded the pencil.
@@ -215,11 +224,60 @@ enum ScoreBarLayout {
     /// score view still says a transcription is running: `ContentView` draws
     /// the same chip over the canvas instead. One chip, one signal, two places
     /// it can sit.
-    static func fit(barWidth: CGFloat, omrBusy: Bool = false) -> Fit {
+    static func fit(barWidth: CGFloat, omrBusy: Bool = false,
+                    compact: Bool = false) -> Fit {
+        if compact {
+            var fit = phoneLayout(barWidth: barWidth)
+            // The chip is seated only where it genuinely fits beside what the
+            // bar already holds; everywhere else `ContentView` draws it over
+            // the canvas, which is the arrangement 0.6.8 settled.
+            if omrBusy, barWidth > 0 {
+                var withChip = fit
+                withChip.showsOMRProgress = true
+                if fits(withChip, in: barWidth) { fit = withChip }
+            }
+            return fit
+        }
         let seatsOMR = omrBusy && barWidth > 0 && barWidth - omrWidth >= floor
         var fit = layout(barWidth: seatsOMR ? barWidth - omrWidth : barWidth)
         fit.showsOMRProgress = seatsOMR
         return fit
+    }
+
+    /// The phone's bar, with the second row carrying three of its controls
+    /// (Ph4).
+    ///
+    /// Everything the yield order took off a narrow bar -- the pencil first,
+    /// then the title's own companions -- was taken to make room for the
+    /// layout cells, Perform and the +. Given those a row of their own, the
+    /// bar has 150pt it did not have, which is enough for the pencil AND the
+    /// numeral AND the subtitle at 375. The origin's NAME still yields first
+    /// [C6]: 151pt for a courtesy is what no phone has.
+    static func phoneLayout(barWidth: CGFloat) -> Fit {
+        let everything = Fit(showsVersions: false, showsAddToSetlist: false,
+                             layoutCells: 0, showsTransportToggle: false,
+                             showsPerformanceToggle: false, showsOriginName: true,
+                             secondRow: true)
+        guard barWidth > 0 else { return everything }
+        var ladder = [everything]
+        var step = everything
+        step.showsOriginName = false;  ladder.append(step)
+        step.showsSubtitle = false;    ladder.append(step)
+        step.showsNumeral = false;     ladder.append(step)
+        // And, last, the pencil -- which is where the old ladder started.
+        // Nothing reaches this rung on a phone the app supports (it needs
+        // less than 332pt), but the bar must not overflow at a width nobody
+        // has rather than yield one more control, because that is #60.
+        step.showsEdit = false;        ladder.append(step)
+        return ladder.first { fits($0, in: barWidth) } ?? step
+    }
+
+    /// What the second row seats, and in what order IT yields: the + first,
+    /// as on the bar (0.6.11), then Perform's word, and never the layout
+    /// cells -- which is what the row exists to carry.
+    static let secondRowCells: CGFloat = twoCells
+    static func secondRowFitsPlus(width: CGFloat) -> Bool {
+        width >= padding + secondRowCells + gap + performanceWidth + addToSetlistWidth
     }
 
     private static func layout(barWidth: CGFloat) -> Fit {
@@ -318,7 +376,9 @@ enum ScoreBarLayout {
     /// Used by the test that guards the phone.
     static func fits(_ fit: Fit, in width: CGFloat) -> Bool {
         var needed = essentials + titleMinimum
-        needed += fit.layoutCells >= 3 ? threeCells : twoCells
+        if fit.layoutCells >= 3 { needed += threeCells }
+        else if fit.layoutCells == 2 { needed += twoCells }
+        // 0 cells: the phone's second row has them (Ph4).
         if fit.showsEdit { needed += editWidth }
         if fit.showsVersions { needed += versionsWidth }
         if fit.showsAddToSetlist { needed += addToSetlistWidth }
