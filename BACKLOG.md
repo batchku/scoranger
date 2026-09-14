@@ -74,6 +74,71 @@ earlier ones.
    implies on the sharing path. Mostly Ali's decisions and a document. It
    belongs here because it gets harder the more external testers hold the app.
 
+### Found while building 0.8.2, recorded because nothing else records it
+
+**Two faults in the shipped rendering path, on every page, for months.** Both
+were found in an afternoon by a comparison harness -- the bitmap renderer's
+output beside the vector renderer's on the same engraving -- and then
+confirmed by eye on real pages. Neither had a test, neither was ever
+reported, and both are in the build Ali plays from:
+
+- A tempo mark's digits printed at roughly double their engraved size.
+  Verovio writes `♩. = 138` as one `<text>` of three runs -- a 720px glyph in
+  the music font, then `" = "` and `"138"` at 405px in the text font -- and
+  `SVGForSwiftDraw.flattenTextElements` took the size of the FIRST run for the
+  whole block. Fixed in 0.8.2: a music glyph gets no vote in the size, though
+  it still decides the FAMILY, because taking the family off leaves Core Text
+  drawing `.notdef` and the note becomes an empty box.
+- Verovio's italics and bolds were ignored outright. Its stylesheet sets
+  `g.dir`, `g.dynam`, `g.mNum` italic and `g.ending`, `g.fing`, `g.reh`,
+  `g.tempo` bold; SwiftDraw reads neither the stylesheet (its CSS selectors
+  stop short of the `#id g.dir` descendant form Verovio emits) nor
+  `font-style`, which its DOM has no notion of. Every direction, dynamic,
+  expression mark, bass fingering and measure number was drawn upright. Fixed
+  by resolving the face into a font NAME, asked of Core Text rather than
+  written down: `Times-Italic` is a macOS PostScript name and iOS ships the
+  Times New Roman faces instead, so a name chosen by reading a font list
+  would have silently fallen back.
+
+`render.py` was never wrong about either -- cairosvg reads per-tspan sizes and
+the stylesheet -- so this is a property of the iPad's renderer alone.
+
+**What the comparison harness is worth.** These are the first two faults it
+found, and it found them by looking rather than by asserting. That is the
+argument for 0.8.3's visual regression tests: the output is about to become
+vector, which is what can be asserted on.
+
+**Still open from the same family:** a tempo mark's metronome glyph is drawn
+by whatever font the system falls back to, which is why the mark cannot also
+be bold -- naming a real font takes the fallback away. Drawing the metronome
+glyph ourselves, the way the whistle's circles and the chord grids already
+are, buys both. Small, and not urgent.
+
+**A chord symbol's "up" arrow moved it down.** MusicXML's `relative-y`
+measures up and so does MEI's `@vo`; the `<harm>` translation negated its own
+on the belief that harm was the exception. It is not. Fixed in 0.8.2 along
+with generalising the translation to the other four kinds, and
+`check_adjust.py` now asserts the DIRECTION rather than only that the mark
+moved -- which is exactly what the old check was missing.
+
+**`LazyVStack(pinnedViews:)` keeps a stale rendering for a row whose id has
+not changed.** The bug behind "a renamed row did not redraw": after a rename
+the section header moved from B to R and the row under it still read the old
+name. `rowView` was re-evaluated with the new title -- logged, once -- and the
+pinned-header stack kept the rendering it had. Renaming WITHIN one letter
+always worked, which is why nobody saw it for as long as the lists have
+existed. The fix in place is to identify a row by its slug AND its title, so
+the id changes when the name does; the underlying SwiftUI behaviour is
+unchanged and will bite again anywhere else a pinned-header list shows text
+that can be edited in place.
+
+**`LibraryToolbarFits.testEveryActionIsStillReachable` fails at compact
+width.** The Import band covers the page, so the controls the test then
+reaches for are not hittable. Pre-existing, not introduced by the phone work;
+the fix is the same mutually-exclusive-bands rule the test's second half
+already asserts for New, applied to Import at compact width. Out of scope for
+the 0.8.2 build it was found in.
+
 ### 0.8.3 -- the renderer and what stands on it
 
 1. **Direct vector rendering behind a flag**, off by default, compared side by
