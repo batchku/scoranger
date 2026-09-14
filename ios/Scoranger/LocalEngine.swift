@@ -120,6 +120,13 @@ struct LocalEngine {
         return path
     }
 
+    /// Rename a book. The LABEL only: the slug names books/<slug>.pdf and
+    /// every extraction's recorded args, so the engine keeps it (workspace.
+    /// rename_book).
+    func renameBook(_ slug: String, name: String) async throws {
+        _ = try await result(op: "rename-book", args: ["book": slug, "name": name])
+    }
+
     func deleteBook(_ slug: String) async throws {
         _ = try await result(op: "delete-book", args: ["book": slug])
     }

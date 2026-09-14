@@ -2804,6 +2804,22 @@ final class AppState: ObservableObject {
         await runSetlistOp(op: "rename-setlist", args: ["setlist": setlist, "name": name])
     }
 
+    /// Rename a book, which is a LABEL and nothing else: the slug names the
+    /// stored PDF and every extraction's recorded args, so the engine refuses
+    /// to move it (`workspace.rename_book`). The row's title is the only thing
+    /// a reader is changing, and no UI here may suggest otherwise.
+    @discardableResult
+    func renameBook(_ book: String, name: String) async -> Bool {
+        do {
+            try await local.renameBook(book, name: name)
+            await refresh()
+            return true
+        } catch {
+            report("rename that book", error)
+        }
+        return false
+    }
+
     /// Delete a setlist. Only the grouping goes; pieces and arrangements stay.
     @discardableResult
     func deleteSetlist(_ setlist: String) async -> Bool {

@@ -649,8 +649,7 @@ struct LibraryView: View {
         selected = [row.id]
     }
 
-    /// The row's own actions, by what the row is (L6, L8, L9). A book has no
-    /// rename in the engine yet, so its row offers Open and Delete.
+    /// The row's own actions, by what the row is (L6, L8, L9).
     private func rowActions(_ row: LibraryRow) -> [RowActionItem] {
         var items: [RowActionItem] = []
         items.append(RowActionItem(id: "row-open-\(row.id)", title: "Open") { open(row) })
@@ -692,7 +691,14 @@ struct LibraryView: View {
                 onOpenSetlistScreen(row.id)
             })
         case .books:
-            break
+            // Rename, 0.8.2: the engine can do it now (`rename-book`). It is
+            // the LABEL and nothing else -- the slug names books/<slug>.pdf
+            // and every extraction ever taken out of this book recorded it --
+            // so this offers exactly what a set list's Rename offers and
+            // nothing that implies the file moves.
+            items.append(RowActionItem(id: "row-rename-\(row.id)", title: "Rename") {
+                renameDraft = row.title; renaming = row.id; openRow = nil
+            })
         }
         items.append(RowActionItem(id: "row-delete-\(row.id)", title: "Delete", destructive: true,
                                    confirm: "Delete?") {
@@ -715,8 +721,18 @@ struct LibraryView: View {
     private func commitRename(_ row: LibraryRow) {
         let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         renaming = nil
-        guard !name.isEmpty, name != row.title, segment == .setlists else { return }
-        Task { _ = await state.renameSetlist(setlist: row.id, name: name) }
+        guard !name.isEmpty, name != row.title else { return }
+        // Which engine op, by which list the row is in. Pieces have no inline
+        // rename here (a piece is renamed on its own screen, with its
+        // arrangements in view), so only these two reach a commit.
+        switch segment {
+        case .setlists:
+            Task { _ = await state.renameSetlist(setlist: row.id, name: name) }
+        case .books:
+            Task { _ = await state.renameBook(row.id, name: name) }
+        case .pieces:
+            break
+        }
     }
 
     /// The leading checkbox (§2.1). Selecting is what raises the action bar.
