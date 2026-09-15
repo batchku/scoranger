@@ -26,6 +26,51 @@ not transpiled Java.
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
 
+## Ali's second and third lists of 2026-09-14
+
+Sent while the first seven were being built. Eight items. Two carry a
+diagnosis made here rather than a symptom.
+
+8. **The empty space at the bottom of a score page is awkward.** Morrison's jig
+   (v016) carries two systems and then roughly a third of the sheet is blank.
+
+9. **Make the bottom drawer like the top.** The transport tray at the foot of
+   the score should match the top bar's treatment.
+
+10. **Make the shape straight along the top.** The top bar sits in a rounded,
+    inset container with background showing above it; he wants it flush and
+    straight along the screen's edge. He drew the corner he means.
+
+11. **Library rows contradict each other about what they hold.**
+    "Swallowtail Jig — 20 versions" sits above "Tam Lin (Glasgow Reel) — 3
+    arrangements"; "All Blues — 1 version" four rows above "Balkan Ornaments —
+    1 arrangement". A piece holds ARRANGEMENTS; a version count belongs to an
+    arrangement. He circled both and named them.
+
+12. **"New → Piece does nothing."** DIAGNOSED, and it is not dead — it is
+    off-screen. `runQuickAction(.new)` sets `segment = .pieces` and
+    `libraryNaming = ""`, and `LibraryView` renders `InlineRenameRow` as the
+    FIRST child of the list's `LazyVStack`, above the in-flight imports and
+    every section. He was scrolled into the P section of a 41-piece library, so
+    the row appeared several screens above the viewport. `LibraryView` has a
+    `scrollTo` state but nothing scrolls to the creating row and nothing moves
+    focus into it, so there is not even a keyboard to notice. **His own
+    screenshots corroborate it**: on Set lists, with two rows and the top of
+    the list on screen, the identical row appears with Cancel and Save. The fix
+    is scroll-and-focus, not a new action.
+
+13. **`+ New` should just create the thing the segment is showing.** He struck
+    the whole New panel out, twice — once from Pieces ("this should just create
+    a new piece") and once from Set lists ("this should just create a new set
+    list"). The segmented control already says which kind he is looking at, so
+    asking again is redundant. Note this does NOT remove the need to fix 12:
+    a direct create that scrolls nowhere looks equally dead.
+
+14. **Move the settings gear to the top right, and make it a bit bigger.**
+
+15. **What he expects of a new piece**, in his words: "a new piece w/ no
+    arrangements ready to type name" — the inline name field, focused.
+
 ## Ali's list of 2026-09-14, found using the app
 
 Six of the seven are in 0.8.2, with the two extra findings. The one still open
