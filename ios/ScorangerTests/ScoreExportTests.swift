@@ -78,6 +78,21 @@ final class ScoreExportTests: XCTestCase {
             "Morrison's Jig.musicxml")
     }
 
+    // MARK: - The seam with the UI test
+
+    /// `ExportFromTheApp` drives the rows by identifier ("export-musicxml")
+    /// and carries the extensions in a list of its own, because the UI bundle
+    /// has no host app and cannot read this enum. This is the seam between the
+    /// two: a format added, renamed or given another extension fails HERE,
+    /// naming what that test has to learn, rather than failing there as a row
+    /// that is mysteriously not on screen.
+    func testTheRowsTheUITestDrivesAreTheFormatsThisEnumHas() {
+        XCTAssertEqual(ScoreExport.Format.allCases.map { "export-\($0.rawValue)" },
+                       ["export-musicxml", "export-midi", "export-pdf"])
+        XCTAssertEqual(ScoreExport.Format.allCases.map(\.fileExtension),
+                       ["musicxml", "mid", "pdf"])
+    }
+
     /// A dot in the title must not read as the extension.
     func testADotInTheTitleSurvivesWithoutEatingTheExtension() {
         let name = ScoreExport.filename(title: "No. 4 in G", version: nil, format: .pdf)

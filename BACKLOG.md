@@ -138,6 +138,44 @@ offset -- is asserted in `MoveDestinationTests` against the engine's real
 wording, and has not been photographed. Reaching it needs a fermata selected
 by a finger, and a fermata is a smaller target than a dynamic.
 
+**Five more, from steps 5 and 6 (chat dispatch against a stub, and export
+from the app).**
+
+- **Three chat tools raised NameError on every call.** `chat.py`'s
+  `penny_whistle_fingerings`, `guitar_tablature` and `guitar_chord_diagrams`
+  call a `_part` helper that exists in `bridge.py` and did not exist beside
+  them. Nothing had ever run the agent's own tool functions -- the engine
+  checks call `ops.py` directly and the app's checks go through `bridge.py` --
+  so the desktop agent had three dead tools and no test could see it. The same
+  shape of failure as `scor whistle-fingerings`, one surface over.
+  `check_chat.py` now drives every registered tool and fails with those three
+  NameErrors the moment the helper is taken away again.
+- **Both agents were a build behind their own toolset.** `add-element`,
+  `move-element` and `duplicate-element` shipped in the engine, the CLI and
+  `bridge.py` in step 1 and were described to neither agent, so nothing a
+  reader could ASK produced a mark. `adjust-element`'s description was worse
+  than missing: it still called size "an absolute point size (12 is the
+  default)" after step 4 made `scale` the interface, which is the one sentence
+  standing between "make that dynamic bigger" and a model sending 12.
+- **The share sheet describes a file TWO ways, and which one a test sees is a
+  race.** The moment it appears the header reads `Sous le ciel
+  quartet.musicxml` with nothing under it; a second later the link metadata
+  resolves and the same header reads `Sous le ciel quartet` over `MusicXML
+  score · 591 KB`. An assertion on the extension passes or fails on timing.
+  `ExportFromTheApp` accepts either, and the photographs catch the first
+  state. Worth knowing: iOS resolves all three of our types -- "MusicXML
+  score", "Audio Recording" (the .mid) and "PDF Document" -- so what the
+  reader hands to another program is typed, not a blob.
+- **`PopoverDismissRegion` is not one element.** The share sheet raises
+  several, so `app.otherElements["PopoverDismissRegion"].tap()` fails with
+  "Multiple matching elements found" rather than dismissing anything. The
+  sheet's own X is `header.closeButton`, and that is what the test taps.
+- **Export does not wait for the page.** Through the whole journey the score
+  behind the panel still read "Opening…", and all three files came out right:
+  export reads the version artifact, and the PDF is engraved from it by the
+  same renderer rather than from what is on screen. Anyone tempted to make
+  export use the drawn page would be trading a working path for a slower one.
+
 **What the comparison harness is worth.** These are the first two faults it
 found, and it found them by looking rather than by asserting. That is the
 argument for 0.8.3's visual regression tests: the output is about to become
