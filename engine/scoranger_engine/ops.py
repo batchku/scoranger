@@ -1244,6 +1244,49 @@ def rebuild_part(score, target_name: str, src_score, base_name: str,
             "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
+def _measure_count(part) -> int:
+    """How many bars this staff actually holds."""
+    return len(part.getElementsByClass(stream.Measure))
+
+
+def _length_report(score) -> dict:
+    """How long each staff is, and a sentence when they are not all the same.
+
+    A score assembled out of two others -- which is what `pull_part` is for --
+    can end up with staves of different lengths, and nothing said so. Ali's
+    four-part arrangement was built by pulling from a one-part score and a
+    three-part one: the first system carried all four staves, the accordion
+    staves stopped, and the rest of the page was single-staff systems with a
+    blank region where the others had been. The op returned `pulled`,
+    `added_as`, `position` and an accidental count, so neither the reader nor
+    the chat agent had anything to notice it by; it was found by looking at
+    the page.
+
+    It REPORTS and does not pad. Adding bars a part does not have, to make a
+    page look tidy, is changing someone's music -- and the shortfall is
+    sometimes exactly right (a tacet second half, a coda one instrument sits
+    out). The reader is who can judge it, and they can only judge what they
+    are told.
+    """
+    lengths = [{"part": part_label(p), "measures": _measure_count(p)}
+               for p in score.parts]
+    if not lengths:
+        return {}
+    longest = max(row["measures"] for row in lengths)
+    short = [row for row in lengths if row["measures"] < longest]
+    out: dict = {"score_measures": longest, "parts_measures": lengths}
+    if short:
+        named = ", ".join(f"{row['part']} ({row['measures']})" for row in short)
+        out["uneven_parts"] = short
+        out["length_warning"] = (
+            f"The staves are not the same length. The score runs to {longest} bars; "
+            f"{named} stop before that, so those staves end early and the page "
+            f"shows a gap where they ran out. Nothing was padded: adding bars to "
+            f"tidy the page would change the music. Extend them deliberately if "
+            f"the shortfall is wrong.")
+    return out
+
+
 def pull_part(score, src_score, part_name: str, as_name: str | None = None,
               replace: str | None = None, measures: tuple[int, int] | None = None) -> dict:
     """Bring a part (or a measure range of it) from another document into this score.
@@ -1251,6 +1294,12 @@ def pull_part(score, src_score, part_name: str, as_name: str | None = None,
     - Whole part: added as a new staff, or swapped in for --replace.
     - Measure range: requires --replace; only those measures of the target part
       are overwritten with the source's content (clefs/keys/meters kept).
+
+    Every form reports the bars it brought (`measures_pulled`), how long every
+    staff in the score now is (`parts_measures`, `score_measures`) and, when
+    they differ, `uneven_parts` and a `length_warning` sentence. See
+    `_length_report`: assembling a score out of two others is what this op is
+    for, and parts of unequal length used to assemble silently.
     """
     src_part = find_parts(src_score, [part_name])[0]
 
@@ -1287,7 +1336,8 @@ def pull_part(score, src_score, part_name: str, as_name: str | None = None,
         cleaned = _normalize_part(target)
         return {"pulled": part_name, "into": part_label(target),
                 "measures": f"{m0}-{m1}", "measures_replaced": replaced,
-                "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
+                "redundant_accidentals_hidden": cleaned.get("hidden", 0),
+                **_length_report(score)}
 
     new_part = copy.deepcopy(src_part)
     if as_name:
@@ -1300,13 +1350,17 @@ def pull_part(score, src_score, part_name: str, as_name: str | None = None,
         _set_part_order(score, order)
         cleaned = _normalize_part(new_part)
         return {"pulled": part_name, "replaced": replace, "as": part_label(new_part),
-                "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
+                "measures_pulled": _measure_count(new_part),
+                "redundant_accidentals_hidden": cleaned.get("hidden", 0),
+                **_length_report(score)}
     order = list(score.parts) + [new_part]
     _set_part_order(score, order)
     cleaned = _normalize_part(new_part)
     return {"pulled": part_name, "added_as": part_label(new_part),
             "position": len(order) - 1,
-            "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
+            "measures_pulled": _measure_count(new_part),
+            "redundant_accidentals_hidden": cleaned.get("hidden", 0),
+            **_length_report(score)}
 
 
 def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:

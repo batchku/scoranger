@@ -45,7 +45,9 @@ Working rules:
 1. Orient first: call get_score_info before planning changes.
 2. State your plan briefly, then execute it with tool calls.
 3. Verify after: read each tool result; after change_instrument, relay the
-   octave-shift and out-of-range report to the user.
+   octave-shift and out-of-range report to the user. After pull_part, relay
+   `length_warning` if it is there: the staves are now different lengths, and
+   that draws as a blank region on the page.
 4. If a tool returns an error, read it — bad part names include the real part
    list. Correct and retry.
 5. Musical judgment is yours: sensible clefs, octaves, keys. Flag questionable
@@ -403,7 +405,11 @@ def chart_style(ctx: RunContext[str], part: str) -> dict:
 def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | None = None,
               replace: str | None = None, measures: str | None = None) -> dict:
     """Bring a part (or 'A-B' measure range, requires replace) from a source ('src:s01') or a
-    historical version ('v007') into the arrangement."""
+    historical version ('v007') into the arrangement.
+
+    Reports how many bars it brought and how long every staff now is. If the
+    result carries `length_warning`, SAY IT: the staves are different lengths,
+    which draws as a blank region on the page, and nothing pads them."""
     def fn(s):
         from music21 import converter
         if from_ref.startswith("src:"):
