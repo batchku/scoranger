@@ -139,7 +139,7 @@ struct SettingsSplit: View {
         case .account:
             if case .signedIn(let account) = signIn.state { return account.email ?? "signed in" }
             return "signed out"
-        case .reading:     return state.layout.label.lowercased()
+        case .reading:     return state.layoutChoice.label.lowercased()
         case .titles:      return "\(state.titleRepairsNeeded.count) to fix"
         case .engine:      return state.useLocalEngine ? "on-device" : "remote"
         case .server:      return state.engineURLString.isEmpty ? "not set" : state.engineURLString

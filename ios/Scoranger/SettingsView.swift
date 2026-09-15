@@ -94,10 +94,10 @@ struct SettingsView: View {
                 // single `ScoreLayout` was introduced to end.
                 ForEach(ScoreLayout.allCases, id: \.self) { option in
                     PanelToggle(title: option.label,
-                                isOn: Binding(get: { state.layout == option },
+                                isOn: Binding(get: { state.layoutChoice == option },
                                               set: { on in
                                                   guard on else { return }
-                                                  state.layout = option
+                                                  state.layoutChoice = option
                                                   state.pageIndex = 0
                                                   Task { await state.renderIfNeeded() }
                                               }))

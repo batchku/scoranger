@@ -815,10 +815,42 @@ final class AppState: ObservableObject {
     @AppStorage("twoPageSpread") private var legacySpread = false
     @AppStorage("didMigrateScoreLayout") private var didMigrateScoreLayout = false
 
-    var layout: ScoreLayout {
+    /// What the READER chose: what the layout control lights, what Settings
+    /// shows, what is remembered between launches.
+    var layoutChoice: ScoreLayout {
         get { ScoreLayout(rawValue: storedLayout) ?? .page }
-        set { storedLayout = newValue.rawValue }
+        // `@AppStorage` inside an ObservableObject writes UserDefaults and
+        // tells nobody, so the publish is made here. It used to arrive by
+        // accident, from the `pageIndex = 0` the control set beside it.
+        set {
+            guard newValue.rawValue != storedLayout else { return }
+            objectWillChange.send()
+            storedLayout = newValue.rawValue
+        }
     }
+
+    /// The layout the score on screen is DRAWN with, which is the choice
+    /// except while the canvas is still holding pages made for the other kind
+    /// of engraving (`ScoreLayout.displayed`). Everything that draws reads
+    /// this; only the control and Settings read the choice.
+    ///
+    /// Continuous is a different engraving of the same music and takes a
+    /// second or three to make. Publishing the choice straight to the canvas
+    /// drew the pages it already had under the new layout's rules for a frame
+    /// -- a paged document as a strip, a strip squeezed into a page frame --
+    /// which is Ali's "shows the WRONG view for a moment". One page and a
+    /// spread share an engraving, so switching between those two still takes
+    /// effect on the next frame and waits for nothing.
+    var layout: ScoreLayout {
+        get { ScoreLayout.displayed(chosen: layoutChoice, engraved: renderedLayout) }
+        set { layoutChoice = newValue }
+    }
+
+    /// The layout the pages currently on the canvas were engraved for, or nil
+    /// when the canvas is holding nothing. Set beside `pdfDocument`, in the
+    /// same publish, so the document and the layout it is drawn with can never
+    /// be one frame apart.
+    @Published private(set) var renderedLayout: ScoreLayout?
 
     /// Kept so the twelve places that ask "is this a spread?" still can. It is
     /// DERIVED: setting it chooses between the two page layouts and can no
@@ -1684,7 +1716,11 @@ final class AppState: ObservableObject {
         // still the first component, so RenderTransition reads this as the
         // same score and keeps the current pages up until the new ones arrive
         // rather than blanking the canvas (#44).
-        let key = "\(score.slug)/\(vid)/\(layout.rawValue)"
+        // The ENGRAVING, not the layout: one page and a spread are the same
+        // pages counted out differently, so they share a key and a reader
+        // toggling between them pays no engrave at all. Continuous is a
+        // different document and has its own.
+        let key = "\(score.slug)/\(vid)/\(layoutChoice.engraving.rawValue)"
         guard force || key != renderedKey else { return }
         // A forced render is asked for when the FILE behind the key changed
         // under it, which is the one thing the cache cannot see.
@@ -1708,6 +1744,7 @@ final class AppState: ObservableObject {
         if transition.blanksTheCanvas {
             pageIndex = 0
             pdfDocument = nil
+            renderedLayout = nil
             geometry = nil
             geometryKey = nil
             clearSelection()
@@ -1766,7 +1803,7 @@ final class AppState: ObservableObject {
                         for: key, cost: Self.engravingBytes,
                         make: {
                             let made = try await VerovioRenderer.shared.engrave(
-                                musicXMLPath: path, layout: layout)
+                                musicXMLPath: path, layout: layoutChoice)
                             engravingCount += 1
                             return HeldEngraving(engraving: made,
                                                  stamp: engravingCount)
@@ -1786,6 +1823,10 @@ final class AppState: ObservableObject {
                 if stamp == 0 { engravingCount += 1; stamp = engravingCount }
                 engravingKey = "\(key)#\(stamp)"
                 pdfDocument = PDFDocument(data: data)
+                // In the SAME publish as the document, or the canvas draws
+                // one of them a frame before the other -- which is the flash
+                // this pair exists to close.
+                renderedLayout = layoutChoice
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no
                 // pages at all, which is the blank canvas this was avoiding.

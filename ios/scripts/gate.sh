@@ -102,6 +102,10 @@ SKIP=(
   -skip-testing:ScorangerUITests/MixerShot
   # NotebookShot photographs the 0.8 pages and panel the same way.
   -skip-testing:ScorangerUITests/NotebookShot
+  # LayoutSwitchShot photographs the frames BETWEEN pressing a layout cell and
+  # the new pages arriving, so the one-frame flash can be looked at before and
+  # after the fix. It waits out three engraves and asserts nothing.
+  -skip-testing:ScorangerUITests/LayoutSwitchShot
   # DragPerformance is the frame-rate goal driven by a FINGER, for a real
   # device with a person at it; a simulator's frame timing says nothing
   # about an iPad, and it ran five minutes here to say so.

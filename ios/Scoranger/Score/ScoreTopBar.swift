@@ -288,11 +288,14 @@ struct ScoreTopBar: View {
     }
 
     private func layoutCell(_ option: ScoreLayout) -> some View {
-        let active = state.layout == option
+        // The CHOICE, not what is drawn: the cell lights the moment it is
+        // pressed, while the canvas keeps the pages it has until the new
+        // engraving lands (`AppState.layout`).
+        let active = state.layoutChoice == option
         let available = isAvailable(option)
         return Button {
-            guard state.layout != option else { return }
-            state.layout = option
+            guard state.layoutChoice != option else { return }
+            state.layoutChoice = option
             // continuous has no pages to be on, and coming back from it the
             // reader should be at the top of the score rather than at an index
             // the strip never had

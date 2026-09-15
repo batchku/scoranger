@@ -240,7 +240,7 @@ struct RootView: View {
                 }
                 if let first = state.manifest?.scores.first?.slug {
                     let args = ProcessInfo.processInfo.arguments
-                    state.layout = args.contains("-continuous") ? .continuous
+                    state.layoutChoice = args.contains("-continuous") ? .continuous
                         : (args.contains("-spread") ? .spread : .page)
                     open(first)
                 }
