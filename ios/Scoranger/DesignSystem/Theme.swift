@@ -311,8 +311,12 @@ enum Theme {
 
         /// §4. Every button, field, chip, segment, panel item: a capsule.
         static let rCtl: CGFloat = 999
-        /// §4 `rPage`: the top corners of a page, the panel and the tray.
-        /// Kept under its 0.7 name so no call site moves in 0.8.0.
+        /// §4: the rounded surfaces inside a page -- the segmented control,
+        /// panel blocks. Kept under its 0.7 name so no call site moves.
+        ///
+        /// It is NOT the page's own top corners any more, nor the tray's:
+        /// both are square against the screen's edge since 0.8.2 (items 9 and
+        /// 10). `rPage` is the alias those two used and now has no caller.
         static let rPanel: CGFloat = 22
         static let rPage: CGFloat = rPanel
         /// The scroll-mode strip and message bubbles.
