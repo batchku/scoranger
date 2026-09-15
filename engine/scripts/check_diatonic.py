@@ -277,7 +277,10 @@ SURFACES = {
     "the on-device bridge (bridge.py)": (ROOT / "ios/PythonApp/app/bridge.py",
                                          ['op == "transpose-diatonic"',
                                           'op == "transpose-diatonic-elements"']),
-    "the on-device agent (LocalChat.swift)": (ROOT / "ios/Scoranger/LocalChat.swift",
+    # The table moved out of LocalChat.swift into ScoreModel/ChatTools.swift in
+    # 0.8.2, so the dispatch it feeds could be tested without a host app. The
+    # surface is the same one; only the file changed.
+    "the on-device agent (ChatTools.swift)": (ROOT / "ios/Scoranger/ScoreModel/ChatTools.swift",
                                               ['name: "transpose_diatonic"',
                                                'op: "transpose-diatonic"']),
 }
@@ -290,9 +293,14 @@ for where, (path, needles) in SURFACES.items():
 # And what the two descriptions SAY, because that is what makes the model pick
 # the right one. Both agents read a list of tools and take the first plausible
 # match; the chromatic one had no reason to send a harmony request elsewhere.
-for label, path in (("the desktop agent", ROOT / "engine/scoranger_engine/chat.py"),
-                    ("the on-device agent", ROOT / "ios/Scoranger/LocalChat.swift")):
-    text = path.read_text().lower()
+# The on-device agent is TWO files: its standing instructions stayed in
+# LocalChat.swift when the tool table moved to ChatTools.swift, and what the
+# model reads is both of them together.
+for label, paths in (("the desktop agent", [ROOT / "engine/scoranger_engine/chat.py"]),
+                     ("the on-device agent",
+                      [ROOT / "ios/Scoranger/ScoreModel/ChatTools.swift",
+                       ROOT / "ios/Scoranger/LocalChat.swift"])):
+    text = "\n".join(p.read_text() for p in paths).lower()
     note_(f"{label} answers to the reader's own words (sixth below, third above, harmonise)",
           all(w in text for w in ("sixth below", "third above", "harmonis")))
     note_(f"{label}'s CHROMATIC tool points at the diatonic one instead",

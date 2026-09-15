@@ -15,6 +15,26 @@ enum ChatSteps {
     static func stepTitle(name: String, argsJSON: String) -> String {
         let args = (try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8)) as? [String: Any]) ?? [:]
         func s(_ key: String) -> String? { args[key] as? String }
+        /// A number the model may have written either way: JSON `3` or the
+        /// string "3". Both arrive from real providers.
+        func n(_ key: String) -> String? {
+            if let v = args[key] as? String { return v }
+            if let v = args[key] as? NSNumber { return v.stringValue }
+            return nil
+        }
+        /// The four marks `add_element` writes, named the way a reader would
+        /// say them rather than the way the tool spells them.
+        func mark(_ kind: String?) -> String {
+            switch kind {
+            case "dynamic": return "dynamic"
+            case "text": return "text mark"
+            case "fermata": return "fermata"
+            case "articulation": return "articulation"
+            case "diagram": return "chord diagram"
+            case "tab": return "tab column"
+            default: return "chord name"
+            }
+        }
         switch name {
         case "get_score_info": return "Reading the score"
         case "list_versions": return "Checking version history"
@@ -29,10 +49,24 @@ enum ChatSteps {
             if let to = s("move_to") { return "Moving the \(what) to bar \(to)" }
             return "Adding \(what) at bar \(s("measure") ?? "?")"
         case "adjust_element":
-            let what = s("kind") == "diagram" ? "chord diagram" : "chord name"
-            if s("reset") == "true" { return "Putting the \(what) back" }
-            if let size = s("size") { return "Setting the \(what) to \(size)pt" }
+            let what = mark(s("kind"))
+            if s("reset") == "true" || args["reset"] as? Bool == true {
+                return "Putting the \(what) back"
+            }
+            // Relative first, because relative is the interface: "make it
+            // bigger" is a multiple of the engraved size, and a point value
+            // only arrives from a caller that already holds one.
+            if let scale = n("scale") { return "Resizing the \(what) to \(scale)x" }
+            if let size = n("size") { return "Setting the \(what) to \(size)pt" }
             return "Moving the \(what)"
+        case "add_element":
+            return "Adding a \(mark(s("kind"))) at bar \(n("measure") ?? "?")"
+        case "move_element":
+            return "Moving the \(mark(s("kind"))) to bar \(n("to_measure") ?? "?")"
+        case "duplicate_element":
+            return "Copying the \(mark(s("kind"))) into bar \(n("to_measure") ?? "?")"
+        case "strip_notes":
+            return "Clearing the notes from \(s("part") ?? "the part")"
         case "guitar_tablature":
             return s("clear") == "true"
                 ? "Removing the tab from \(s("part") ?? "the part")"

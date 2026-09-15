@@ -551,6 +551,12 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: ops.limit_part(sc, a["part"], a.get("max_pitch"), a.get("monophonic", False)))
     if op == "simplify-repeats":
         return _mutate(s, op, a, lambda sc: ops.simplify_repeats(sc, a["part"]))
+    if op == "strip-notes":
+        # The names-only staff: the chart's changes with nothing engraved under
+        # them. The engine has had the op and the CLI has documented it since
+        # before this bridge existed, and the app could not ask for it -- found
+        # while building a fixture that wanted one.
+        return _mutate(s, op, a, lambda sc: ops.strip_notes(sc, a["part"]))
     if op == "set-chords":
         return _mutate(s, op, a, lambda sc: ops.set_chord_symbols(sc, a["part"], a["chords"]))
     if op == "chart-style":

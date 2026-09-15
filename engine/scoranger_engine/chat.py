@@ -84,6 +84,17 @@ def _mutate(slug: str, op: str, args: dict, details) -> dict:
     raise NotImplementedError
 
 
+def _part(score, name: str):
+    """The part a tool named, resolved the way every other surface resolves it.
+
+    `bridge.py` has carried this helper since it was written; three tools here
+    called it while it did not exist here and raised NameError on every
+    invocation. The same shape of failure as `scor whistle-fingerings`, and
+    invisible for the same reason: nothing ever ran the agent's tool functions.
+    """
+    return ops.find_parts(score, [name])[0]
+
+
 def _apply(slug: str, op: str, args: dict, fn) -> dict:
     """Load latest, apply fn(score) -> details, save as a new version."""
     try:
@@ -428,22 +439,117 @@ def set_structure(ctx: RunContext[str], kind: str, measure: int | None = None,
 
 
 def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
-                   kind: str = "harm", ordinal: int = 0, size: float | None = None,
+                   kind: str = "harm", ordinal: int = 0, scale: float | None = None,
+                   size: float | None = None,
                    offset_x: float | None = None, offset_y: float | None = None,
                    reset: bool = False, all_elements: bool = False) -> dict:
-    """Change the size or position of an added element. kind="harm" is a chord
-    symbol, kind="diagram" a guitar chord diagram.
-    `size` is an absolute point size (12 is the default); `offset_x`/`offset_y`
-    nudge it sideways/up in MusicXML tenths, positive y being up. Address one
-    with measure (+ ordinal when a bar has several), or pass all_elements=True
-    for every chord symbol in the part. reset=True puts them back."""
+    """Change how big an added element is, or where it sits.
+
+    `kind` is "harm" (a chord symbol), "diagram" (a guitar chord diagram),
+    "tab" (a tablature column), or one of the four marks add_element writes:
+    "dynamic", "text", "fermata", "articulation".
+
+    SIZE IS RELATIVE. `scale` is the interface: 1.0 is the engraved default,
+    1.5 is half again, 0.75 is three quarters. "Make that dynamic bigger" is a
+    scale, and so is every other size request a reader phrases in words.
+    `size` is the ABSOLUTE point value (12 engraves as the default) and exists
+    for a caller that already holds one -- the app's chord-symbol row reads a
+    point size back out of the notation and sends it. Pass one or the other,
+    never both; the op refuses both at once rather than letting one win.
+
+    `offset_x`/`offset_y` nudge it sideways and up in MusicXML tenths, positive
+    y being UP. Address one element with measure (plus ordinal when a bar has
+    several), or pass all_elements=True for every element of that kind in the
+    part. reset=True puts them back."""
     def fn(s):
         return ops.adjust_element(s, part, kind=kind, measure=measure, ordinal=ordinal,
-                                  size=size, offset_x=offset_x, offset_y=offset_y,
+                                  size=size, scale=scale,
+                                  offset_x=offset_x, offset_y=offset_y,
                                   reset=reset, all_elements=all_elements)
     return _apply(ctx.deps, "adjust-element",
-                  {"part": part, "kind": kind, "measure": measure, "size": size,
-                   "reset": reset}, fn)
+                  {"part": part, "kind": kind, "measure": measure,
+                   "scale": scale, "size": size, "reset": reset}, fn)
+
+
+def add_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                value: str | None = None, offset: float = 0.0,
+                placement: str | None = None) -> dict:
+    """Put a mark on the page: a dynamic, a text mark, a fermata or an articulation.
+
+    `kind` is "dynamic", "text", "fermata" or "articulation". `value` is the
+    dynamic ("mf"), the words ("dolce"), the articulation (accent, staccato,
+    tenuto, marcato...) or the fermata's shape (normal|angled|square).
+
+    THE DESTINATION IS A BAR PLUS AN OFFSET INSIDE IT, in quarter notes from
+    the barline: 0 is the downbeat, 1.5 the second half of beat two in 4/4.
+    Offset-anchored marks (dynamic, text) are inserted at that offset;
+    note-attached ones (fermata, articulation) are attached to the note that
+    STARTS there, and if nothing does the op refuses and lists the bar's real
+    onsets -- read them and pick one rather than retrying the same offset.
+    `placement` is "above" or "below".
+
+    Spanners (hairpins, slurs) are refused: they have two anchors. So are the
+    three kinds that already have their own creating op -- a chord symbol is
+    set_chords, a diagram guitar_chord_diagrams, a tab guitar_tablature.
+
+    The result carries the ORDINAL the mark landed at, which is what
+    adjust_element and move_element address it by."""
+    return _apply(ctx.deps, "add-element",
+                  {"part": part, "kind": kind, "measure": measure, "value": value},
+                  lambda s: ops.add_element(s, part, kind, measure, value=value,
+                                            offset=offset, placement=placement))
+
+
+def move_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                 ordinal: int = 0, to_measure: int | None = None,
+                 to_offset: float = 0.0) -> dict:
+    """Move an added element to another bar.
+
+    Address the one you mean with `measure` (plus `ordinal` when the bar holds
+    several of that kind, counting from 0). The destination is `to_measure`
+    plus `to_offset` quarter notes from its barline, the same destination
+    add_element takes.
+
+    Offset-anchored elements (harm, diagram, dynamic, text) land at that
+    offset; note-attached ones (fermata, articulation) attach to the note that
+    STARTS there, and the op refuses and lists the onsets rather than guessing.
+    Spanners are refused by name: a spanner has two anchors and a destination
+    names one. A move never touches pitch or rhythm."""
+    return _apply(ctx.deps, "move-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "to_measure": to_measure,
+                   "to_offset": to_offset},
+                  lambda s: ops.move_element(s, part, kind, measure, ordinal=ordinal,
+                                             to_measure=to_measure,
+                                             to_offset=to_offset, duplicate=False))
+
+
+def duplicate_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                      ordinal: int = 0, to_measure: int | None = None,
+                      to_offset: float = 0.0) -> dict:
+    """Copy an added element into another bar, leaving the original where it is.
+
+    Everything move_element says about addressing and about the destination
+    applies here -- this is the same placement with the source left alone. Use
+    it for "put that same accent on bar 9 too"."""
+    return _apply(ctx.deps, "duplicate-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "to_measure": to_measure,
+                   "to_offset": to_offset},
+                  lambda s: ops.move_element(s, part, kind, measure, ordinal=ordinal,
+                                             to_measure=to_measure,
+                                             to_offset=to_offset, duplicate=True))
+
+
+def strip_notes(ctx: RunContext[str], part: str) -> dict:
+    """Empty a staff of its notes and keep its chord symbols -- a names-only staff.
+
+    What a chart wants: the changes over the bars with nothing engraved under
+    them. Every bar is left with a whole-bar rest, so the meter is intact and
+    the chord symbols still sit where they sat. Pair it with chart_style, which
+    hides those rests and puts the names on the staff."""
+    return _apply(ctx.deps, "strip-notes", {"part": part},
+                  lambda s: ops.strip_notes(s, part))
 
 
 def guitar_tablature(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
@@ -521,17 +627,34 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, clean_accidentals, set_accidental, set_rehearsal,
          change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
-         limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
+         limit_part, simplify_repeats, strip_notes, analyze_harmony, set_chords,
+         chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
          guitar_tablature,
          set_structure,
-         adjust_element,
+         add_element, adjust_element, move_element, duplicate_element,
          assign_to_piece]
 
 
-def resolve_model(alias_or_string: str | None) -> str:
+def resolve_model(alias_or_string):
+    """A friendly alias, a raw pydantic-ai model string, or a Model already built.
+
+    The third case is how this agent is testable at all: a check hands in a
+    scripted stub instead of a provider, and nothing else about the run
+    changes. An unknown alias falls through as a raw model string, which is
+    what lets a new slug be tried without editing MODELS.
+    """
     name = alias_or_string or DEFAULT_MODEL
-    return MODELS.get(name, name)  # unknown alias = raw pydantic-ai model string
+    if not isinstance(name, str):
+        return name
+    return MODELS.get(name, name)
+
+
+def model_name(resolved) -> str:
+    """What to call the model in a reply, whether it arrived as a string or as
+    an object."""
+    return resolved if isinstance(resolved, str) else getattr(
+        resolved, "model_name", type(resolved).__name__)
 
 
 def run_chat(slug: str, message: str, model: str | None = None,
@@ -548,7 +671,7 @@ def run_chat(slug: str, message: str, model: str | None = None,
     usage = result.usage if not callable(result.usage) else result.usage()
     return {
         "reply": result.output,
-        "model": resolve_model(model),
+        "model": model_name(resolve_model(model)),
         "usage": {k: getattr(usage, k, None) for k in
                   ("input_tokens", "output_tokens", "requests")},
         "history": result.all_messages_json().decode(),
