@@ -223,12 +223,15 @@ struct PanelIconButton: View {
     var tint: Color = Theme.Ink.ink2
     var bordered = true
     var size: CGFloat = 34
+    /// The glyph inside the square. Separate from `size`, or a bigger button
+    /// is only a bigger tap target drawn around the same small icon.
+    var glyphSize: CGFloat = 13
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: glyphSize, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: size, height: size)
                 .background(Theme.Surface.panel.opacity(bordered ? 1 : 0))

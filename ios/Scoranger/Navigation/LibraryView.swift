@@ -258,7 +258,8 @@ struct LibraryView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
     }
 
-    /// The library's top row: the gear, and nothing else (#48-#50).
+    /// The library's top row: the gear at the trailing edge, and nothing else
+    /// (#48-#50, and item 14 of 2026-09-14).
     ///
     /// Help and the inbox were drawn and inert -- a "?" that opened nothing and
     /// a tray whose count was the only true thing about it. The engine chip
@@ -268,10 +269,14 @@ struct LibraryView: View {
     /// reachability separated).
     private var topRow: some View {
         HStack(spacing: Theme.Metric.s8) {
+            Spacer()
+            // TOP RIGHT, and bigger (item 14). The trailing edge is where a
+            // settings control sits in every other app, and it is the corner
+            // the reading hand is nearest on an iPad held in one hand.
             PanelIconButton(systemName: "gearshape", label: "Settings",
+                            size: 40, glyphSize: 18,
                             action: onSettings)
                 .accessibilityIdentifier("library-settings")
-            Spacer()
         }
         // Centred on the ROW rather than placed in it, so the gear's width
         // does not push it off centre -- and as an overlay it cannot make the
