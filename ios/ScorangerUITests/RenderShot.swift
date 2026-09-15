@@ -75,9 +75,18 @@ final class RenderShot: XCTestCase {
     }
 
     /// What the page counter says right now, or "" when there is none.
+    ///
+    /// Read through `snapshot()`, in ONE query. `chip.exists ? chip.label : ""`
+    /// is two: the element can go between them, and reading `.label` off one
+    /// that has gone records a test failure that cannot be caught. This poller
+    /// runs while the counter is DELIBERATELY being removed -- switching to
+    /// continuous takes it away -- so it is polling exactly the window the
+    /// race lives in, and it failed intermittently on both trees with
+    /// "Failed to get matching snapshot: No matches found for counter-pages".
+    /// `snapshot()` throws in Swift, so `try?` is an answer rather than a
+    /// failure, and the absent counter reads as "" the way it is meant to.
     private var counter: String {
-        let chip = app.staticTexts["counter-pages"]
-        return chip.exists ? chip.label : ""
+        (try? app.staticTexts["counter-pages"].snapshot().label) ?? ""
     }
 
     /// The total in "p. 3 / 9", or 0 when the counter is absent.
@@ -104,9 +113,9 @@ final class RenderShot: XCTestCase {
     }
 
     /// The transport's own bar readout, which says whether a sound is running.
+    /// One query, for the reason above.
     private var transportBar: String {
-        let chip = app.staticTexts["transport-bar"]
-        return chip.exists ? chip.label : ""
+        (try? app.staticTexts["transport-bar"].snapshot().label) ?? ""
     }
 
     /// Poll for a condition. Playback has to be BUILT before it can play, and
