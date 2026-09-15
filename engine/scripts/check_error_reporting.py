@@ -53,8 +53,9 @@ INTERNAL = {
                               "displays the number itself",
     "previewedSlug": "the row being previewed; AppState resolves it into "
                      "selectedSlug before any view asks",
-    "omrPendingID": "which pending import the OMR run belongs to; the row is "
-                    "rendered from pendingImports, not from this",
+    "renderedLayout": "the layout the pages on the canvas were engraved for; "
+                      "read by `layout` to decide what may be DRAWN "
+                      "(ScoreLayout.displayed), never shown",
     "selection": "the lasso's result, read back through selectionPaths and the "
                  "ops that consume it",
     "selectionKey": "the engraving a selection was drawn on, compared inside "
