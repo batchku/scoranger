@@ -186,15 +186,23 @@ extension PanelHeader where Trailing == EmptyView {
     }
 }
 
-/// The page shape the panel and the list page share: `panel` fill, `rPage`
-/// top corners, running off the bottom of the table (§7.1).
+/// The page shape the panel and the list page share: `panel` fill, straight
+/// along the screen's top edge, running off the bottom of the table (§7.1).
+///
+/// ## Why the top corners are square (Ali, 2026-09-14 item 10)
+///
+/// They were `rPage`, and the page began below the status bar, so the library
+/// read as a rounded card floating on the band with a strip of background
+/// above it. He drew the corner he meant and asked for flush and straight.
+///
+/// So the fill ignores the top safe area -- the same thing the score's own top
+/// bar already does, which is why that screen never drew the strip -- and the
+/// clip is gone with the radius. The content still starts below the status
+/// bar; only the paint goes up behind it.
 struct PageShape: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Theme.Surface.panel)
-            .clipShape(UnevenRoundedRectangle(
-                topLeadingRadius: Theme.Metric.rPage, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: Theme.Metric.rPage))
+            .background(Theme.Surface.panel.ignoresSafeArea(edges: .top))
     }
 }
 
