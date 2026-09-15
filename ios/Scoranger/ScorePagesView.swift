@@ -402,12 +402,13 @@ struct ScorePagesView: View {
         if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
-    /// POSITION ◀ ▲ ▼ ▶ │ SIZE A⁻ 1.4× A⁺ │ Reset, the caption and the
-    /// pending line.
+    /// POSITION ◀ ▲ ▼ ▶ │ SIZE A⁻ 1.4× A⁺ │ Reset, the caption, the pending
+    /// line, and the PLACE row that sends the mark to another bar.
     ///
-    /// The words are the model's: what a size means and what the mark is
-    /// called are sentences `ChordAdjustSession` and `AddedMark` hold, so the
-    /// row and its summary cannot say different things.
+    /// The words are the model's: what a size means, what the mark is called
+    /// and what the engine refused are all sentences `ChordAdjustSession`,
+    /// `AddedMark` and `MoveDestination` hold, so the row and its summary
+    /// cannot say different things.
     @ViewBuilder
     private var adjustRow: some View {
         if let session = state.adjustSession {
@@ -458,8 +459,111 @@ struct ScorePagesView: View {
                         Spacer(minLength: 0)
                     }
                 }
+                placeRow
             }
         }
+    }
+
+    /// PLACE [Move…] [Duplicate…], and then the destination itself.
+    ///
+    /// Only for a selection of ONE: move and duplicate address a single
+    /// element, and a row that offered to move four and moved one would be
+    /// lying about what it did.
+    @ViewBuilder
+    private var placeRow: some View {
+        if let destination = state.placing {
+            placing(destination)
+        } else if (state.activeSelection?.addresses.count ?? 0) == 1 {
+            HStack(spacing: Theme.Metric.s6) {
+                Text("PLACE").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                Button("Move…") { state.beginPlacing(.move) }
+                    .typeRole(.meta).foregroundStyle(Theme.Accent.clayStrong)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("adjust-move")
+                Button("Duplicate…") { state.beginPlacing(.duplicate) }
+                    .typeRole(.meta).foregroundStyle(Theme.Accent.clayStrong)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("adjust-duplicate")
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// Aiming: the prompt until a bar is tapped, then the bar, the offset
+    /// stepper, and whatever the engine last refused.
+    @ViewBuilder
+    private func placing(_ destination: MoveDestination) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(destination.summary ?? destination.prompt)
+                .typeRole(.meta)
+                .foregroundStyle(destination.isReady ? Theme.Ink.ink : Theme.Accent.clayStrong)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("place-summary")
+            if destination.isReady {
+                HStack(spacing: Theme.Metric.s6) {
+                    Text("OFFSET").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                    stepOffset(-MoveDestination.step, "minus", "earlier", destination)
+                    Text(MoveDestination.quarters(destination.offset))
+                        .typeRole(.data).foregroundStyle(Theme.Ink.ink)
+                        .frame(minWidth: 44)
+                        .accessibilityIdentifier("place-offset")
+                    stepOffset(MoveDestination.step, "plus", "later", destination)
+                    Spacer(minLength: 0)
+                }
+            }
+            if let note = destination.refusalNote {
+                Text(note)
+                    .typeRole(.meta).foregroundStyle(Theme.Status.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("place-refusal")
+            }
+            if !destination.onsets.isEmpty {
+                HStack(spacing: Theme.Metric.s6) {
+                    ForEach(destination.onsets, id: \.self) { onset in
+                        Button(MoveDestination.quarters(onset)) {
+                            state.snapPlacement(to: onset)
+                        }
+                        .typeRole(.meta)
+                        .foregroundStyle(Theme.Accent.clayStrong)
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("place-onset-\(onset)")
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            HStack(spacing: Theme.Metric.s8) {
+                PanelButton(title: destination.confirmTitle, kind: .primary) {
+                    state.commitPlacement()
+                }
+                .disabled(!destination.isReady)
+                .opacity(destination.isReady ? 1 : 0.42)
+                .accessibilityIdentifier("place-confirm")
+                Button("Cancel") { state.cancelPlacing() }
+                    .typeRole(.meta)
+                    .foregroundStyle(Theme.Accent.clayStrong)
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("place-cancel")
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func stepOffset(_ delta: Double, _ glyph: String, _ word: String,
+                            _ destination: MoveDestination) -> some View {
+        let enabled = destination.canStep(by: delta)
+        return Button {
+            state.stepPlacement(by: delta)
+        } label: {
+            Image(systemName: glyph)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 32, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.42)
+        .accessibilityLabel("An eighth note \(word)")
+        .accessibilityIdentifier("place-\(word)")
     }
 
     /// One nudge button. Press-and-hold repeats, but a plain tap always works
@@ -508,6 +612,15 @@ struct ScorePagesView: View {
         let hit = touch.page.map { state.hasElement(at: $0.unit, onPage: $0.index) } ?? false
         let outcome = CanvasTap.tap(touch, mode: mode, lassoArmed: state.lassoArmed,
                                     hit: hit)
+        // While a move is being aimed a tap names the DESTINATION BAR. The
+        // selection must not move: it is still pointing at the mark being
+        // sent, and the op is addressed by it.
+        if state.isPlacingMark, case .select = outcome, let page = touch.page {
+            if let bar = state.barNumber(at: page.unit, onPage: page.index) {
+                state.aimPlacement(atBar: bar)
+            }
+            return
+        }
         switch outcome {
         case .turn(let zone):
             turn(zone)

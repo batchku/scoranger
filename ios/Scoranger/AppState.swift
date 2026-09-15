@@ -317,6 +317,81 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Sending a mark to another bar
+    //
+    // The destination is a TAPPED BAR plus an offset stepper inside it. There
+    // is no drag in this app, so there is no drag here.
+
+    /// The move or duplicate in progress, or nil. While it is set, a tap on the
+    /// canvas picks a BAR instead of selecting anything.
+    @Published var placing: MoveDestination?
+
+    /// True while a tap on the page means "that bar", not "that element".
+    var isPlacingMark: Bool { placing != nil }
+
+    /// Start one. The pending adjustment is committed first: the reader is
+    /// about to move the thing they were nudging, and an uncommitted nudge
+    /// would be written against the element's OLD bar afterwards.
+    func beginPlacing(_ intent: MoveDestination.Intent) {
+        guard let address = adjustTarget else { return }
+        commitAdjustment()
+        placing = MoveDestination(intent: intent, kind: address.kind,
+                                  source: address)
+    }
+
+    func cancelPlacing() { placing = nil }
+
+    func aimPlacement(atBar number: Int) {
+        placing?.aim(atBar: number, barLength: barLength(ofMeasure: number))
+    }
+
+    func stepPlacement(by delta: Double) { placing?.step(by: delta) }
+
+    func snapPlacement(to onset: Double) { placing?.snap(to: onset) }
+
+    /// How long a bar is, in quarter notes, when the playback timeline knows.
+    ///
+    /// It is the only thing in the app that measures a bar, and it is there
+    /// only when the score is playable. Nil is a fine answer: the stepper is
+    /// then unclamped and `ops.move_element` is the authority, which it is in
+    /// either case.
+    func barLength(ofMeasure number: Int) -> Double? {
+        guard let bar = playback.timeline.bars.first(where: { $0.measure == number })
+        else { return nil }
+        let length = bar.end - bar.start
+        return length > 0 ? length : nil
+    }
+
+    /// Send it. A refusal is kept ON the destination rather than thrown at the
+    /// notice bar, because the engine's refusal names the offsets that WOULD
+    /// work and the chip turns them into buttons.
+    func commitPlacement() {
+        guard let destination = placing, let bar = destination.bar,
+              let slug = selectedScore?.slug,
+              let kind = AddedMark.engineKind(destination.kind),
+              let part = partName(forStaff: destination.source.staff) else { return }
+        let op = destination.intent == .move ? "move-element" : "duplicate-element"
+        let args: [String: Any] = [
+            "score": slug, "part": part, "kind": kind,
+            "measure": destination.source.measure,
+            "ordinal": destination.source.ordinal,
+            "to_measure": bar, "to_offset": destination.offset]
+        Task {
+            do {
+                _ = try await local.call(op: op, args: args)
+                placing = nil
+                // The element has moved, so the selection that pointed at it
+                // points at nothing. Dropping it also closes the adjust row,
+                // which would otherwise address the old bar.
+                clearSelection()
+                await refresh()
+                await renderIfNeeded(force: true)
+            } catch {
+                placing?.refused(OperationReport.reason(error))
+            }
+        }
+    }
+
     // MARK: - The part-wide default
 
     /// The size new chord symbols inherit. Per-element overrides are absolute
@@ -569,6 +644,18 @@ final class AppState: ObservableObject {
     /// is asked BEFORE the decision and handed in as a fact -- a turn that
     /// depended on what was under the thumb would be unpredictable, which is
     /// exactly what §12 rejected.
+    /// The number of the bar under a point, without selecting anything.
+    ///
+    /// What a tap means while a move is being aimed: the reader is naming a
+    /// DESTINATION, so the bar is the answer and the selection must not move
+    /// -- it still points at the mark being sent.
+    func barNumber(at point: CGPoint, onPage index: Int) -> Int? {
+        guard let page = geometry?.page(index) else { return nil }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        return page.element(at: scaled, kinds: ScoreElementKind.barLike)?
+            .address?.measure
+    }
+
     func hasElement(at point: CGPoint, onPage index: Int) -> Bool {
         guard let page = geometry?.page(index) else { return false }
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
