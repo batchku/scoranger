@@ -28,6 +28,52 @@ The prototype is: local React viewer + Python score engine, driven by Claude Cod
 
 ## Ali's list of 2026-09-14, found using the app
 
+Six of the seven are in 0.8.2, with the two extra findings. The one still open
+is the first, and the analysis is below it so nobody has to find it again.
+
+### Still open: a shared set list does not auto-update (item 1)
+
+NOT BUILT in 0.8.2. What the code does today, read on 2026-09-14:
+
+- A shared set list's local row is filled from Firestore ONCE, at join
+  (`AppState.joinSharedSetlist`): claim, fetch the document, fetch the
+  entries, adopt each one through the ordinary import, file it into the local
+  running order. After that nothing ever reads the entries again. Re-tapping
+  the invitation link is the only thing that catches the row up, and it works
+  precisely because both halves of adoption are idempotent.
+- The only writer of a shared entry is the SHARED screen's Add
+  (`SharedSetlistScreen` -> `SharedSetlists.addEntry`). Adding an arrangement
+  to the set list on its ORDINARY library row calls `assign-setlist` and
+  pushes nothing.
+- So both directions are missing for the row Ali actually uses, and the
+  feature needs both: a change made locally has to go up, and a change made
+  by somebody else has to come down.
+
+What a build of it looks like, so the next pass starts here:
+
+1. A pure `SetlistSync` in `ScoreModel/`: the state of one shared row (not
+   shared / signed out / in step / catching up / offline showing a cache /
+   trouble) and the DIFF between a remote running order and the local one.
+   Testable with no Firebase, like `SetlistPermission` and `SharedOrder`.
+2. PULL: an entries listener per bound set list, not just the open one. This
+   needs NO new rule and no new query shape -- it is the same
+   `setlists/{id}/entries` listen the shared screen already opens, which the
+   deployed rules already allow a member. Then a reconcile that adopts what
+   arrived, files it in `order`, and removes what was removed.
+3. PUSH: `assign-setlist` and the reorder on a bound row have to upload the
+   artifact and write the entry, which is what the shared screen's Add
+   already does end to end.
+4. The sync icon beside the share icon on the row (Ali asked for it by name),
+   drawn from (1) so the state is visible rather than inferred.
+
+Why it was not built here, plainly: the pull half imports arrangements into
+somebody's library automatically, and it cannot be proven against the real
+Firestore without a deploy, which is Ali's to authorise. An auto-reconcile
+that writes to a reader's library on evidence no stronger than "it compiles"
+does not belong in a release branch. Items 2-4 above are the rest of it.
+
+### The seven as they were written
+
 Seven, from a session with the app on his iPad. Two carry a diagnosis made
 here rather than a symptom; the rest are as he described them.
 
