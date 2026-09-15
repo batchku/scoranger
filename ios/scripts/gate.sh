@@ -92,6 +92,12 @@ SKIP=(
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a
   # gate has no reason to be running. Neither asserts.
   -skip-testing:ScorangerUITests/TopBarShot
+  # MarkAdjustShot photographs the adjust row and the move destination. It
+  # SEARCHES for its target -- two hundred taps until one lands on an added
+  # mark -- because where a mark is engraved is not something a test can be
+  # told, and it asserts nothing about the row it finds. Two to four minutes
+  # of gate time for a picture that cannot fail a build.
+  -skip-testing:ScorangerUITests/MarkAdjustShot
   # MixerShot photographs the tray for a person to judge; it asserts nothing.
   -skip-testing:ScorangerUITests/MixerShot
   # NotebookShot photographs the 0.8 pages and panel the same way.

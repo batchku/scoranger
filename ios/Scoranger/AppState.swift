@@ -1358,6 +1358,63 @@ final class AppState: ObservableObject {
                     print("SCORANGER-SEED chord chart FAILED: \(error)")
                 }
             }
+            // A STAFF OF NOTHING BUT MARKS, so the adjust row can be
+            // reached by a finger at all.
+            //
+            // The row appears for a selection of ONE added mark, and a mark
+            // engraves a few points across. Landing a synthetic tap or lasso
+            // on one is a property of the engraving rather than of the code:
+            // measured, a pinch reaches 1.0, 1.37, 1.61, 5.42 or 5.53 from run
+            // to run, so the bars on screen afterwards are not the same twice.
+            // Three earlier attempts to assert through the lasso were deleted
+            // as flaky for the same reason (BACKLOG.md).
+            //
+            // So the fixture removes the problem rather than the test working
+            // around it: a dynamic under every other bar of the top part and a
+            // text mark over the ones between, so the staff is crowded with
+            // the one kind of thing the row is about.
+            //
+            // Two things it deliberately does NOT do. It does not empty the
+            // staff first -- `strip-notes` has no route through bridge.py, so
+            // the app cannot ask for it (noted; that is step 2's business).
+            // And it does not scale the marks up to make them easier to hit:
+            // measured, a text mark drawn at 4x keeps the HIT FRAME of its
+            // engraved size, because `ChordAdjustments.applySizes` rewrites
+            // the tspan's font-size in the drawn SVG and the geometry is read
+            // from the box the parser computes for it. Scaling up moved the
+            // picture and not the target.
+            if ProcessInfo.processInfo.arguments.contains("-seedMarkChart"),
+               let first = (try await local.manifest()).scores
+                    .sorted(by: { $0.slug < $1.slug }).first {
+                var outcome: [String] = []
+                var steps: [(String, [String: Any])] = []
+                for bar in stride(from: 1, through: 24, by: 2) {
+                    steps.append(("add-element",
+                                  ["score": first.slug, "part": "#0",
+                                   "kind": "dynamic", "value": "mf",
+                                   "measure": bar, "placement": "below"]))
+                }
+                for bar in stride(from: 2, through: 24, by: 2) {
+                    steps.append(("add-element",
+                                  ["score": first.slug, "part": "#0",
+                                   "kind": "text", "value": "dolce",
+                                   "measure": bar, "placement": "above"]))
+                }
+                for (op, args) in steps {
+                    do {
+                        _ = try await local.call(op: op, args: args)
+                    } catch {
+                        outcome.append("\(op)=FAILED(\(error.localizedDescription))")
+                        break
+                    }
+                }
+                // The outcome goes where the test can see it, not to stdout:
+                // app stdout is not in the xcodebuild log, so a step that
+                // failed would be invisible and the shot would be of a score
+                // that never got its marks.
+                seedOutcome = "marks:"
+                    + (outcome.isEmpty ? "ok" : outcome.joined(separator: " "))
+            }
             // A guitar tab, which is the other half of the pagination
             // fixture. Ali's report is that a chat op which ADDS material --
             // a staff, a tab, chords -- collapses the page layout to one long
