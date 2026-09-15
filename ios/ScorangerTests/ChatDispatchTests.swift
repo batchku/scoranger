@@ -246,3 +246,77 @@ final class ChatDispatchTests: XCTestCase {
                        "Setting the chord name to 14pt")
     }
 }
+
+/// What a failed step SAYS (Ali's photographs, 2026-09-14: the transcript
+/// showed a reader `ValueError: No par…` from a rename that was refused).
+///
+/// A stack-trace class name is not a sentence for a musician. Nothing is
+/// swallowed: the full text still goes back to the model, and what is dropped
+/// here is the class name in front of the engine's own words.
+final class ChatStepErrorTests: XCTestCase {
+
+    func testThePythonClassNameGoesAndTheReasonStays() {
+        XCTAssertEqual(
+            ChatSteps.readableError(
+                "ValueError: No part named 'Violin 1'. Score has: Violin I, Viola"),
+            "No part named 'Violin 1'. Score has: Violin I, Viola")
+    }
+
+    /// The photographed case, end to end: it used to be cut at sixty
+    /// characters, eleven of which said nothing, so the reader never reached
+    /// the part list that was the whole point of the message.
+    func testTheReaderReachesThePartListThatUsedToBeCutOff() {
+        let said = ChatSteps.readableError(
+            "ValueError: No part named 'Violin 1'. Score has: Violin I, "
+            + "Violin II, Viola, Violoncello")
+        XCTAssertTrue(said.hasPrefix("No part named 'Violin 1'"))
+        XCTAssertTrue(said.contains("Violoncello"), "the names are the message")
+        XCTAssertFalse(said.contains("ValueError"))
+    }
+
+    func testEveryExceptionShapeTheEngineCanRaise() {
+        for klass in ["ValueError", "KeyError", "FileNotFoundError",
+                      "RuntimeError", "LocalEngineError", "Exception"] {
+            XCTAssertEqual(ChatSteps.readableError("\(klass): nothing to do here"),
+                           "nothing to do here", "\(klass) was not stripped")
+        }
+    }
+
+    /// A refusal that happens to contain a colon keeps all of itself. The
+    /// class name is matched by SHAPE, not by "there is a colon".
+    func testAColonInTheMessageIsNotAClassName() {
+        for message in ["Measure 3: nothing starts there",
+                        "Part Acc. Bass: out of range at bars 12, 13",
+                        "note: the score has no key signature"] {
+            XCTAssertEqual(ChatSteps.readableError(message), message)
+        }
+    }
+
+    /// A traceback names its failure on the last line.
+    func testATracebackIsReducedToItsLastLine() {
+        let traceback = """
+        Traceback (most recent call last):
+          File "ops.py", line 81, in find_parts
+            raise ValueError(...)
+        ValueError: No part named 'Oboe'
+        """
+        XCTAssertEqual(ChatSteps.readableError(traceback), "No part named 'Oboe'")
+    }
+
+    /// A class name with nothing after it is all the reason there is; it is
+    /// kept rather than leaving the line blank.
+    func testAClassNameAloneIsNotDroppedIntoNothing() {
+        XCTAssertEqual(ChatSteps.readableError("ValueError:"), "ValueError:")
+        XCTAssertEqual(ChatSteps.readableError(""), "the engine gave no reason")
+        XCTAssertEqual(ChatSteps.readableError("   "), "the engine gave no reason")
+    }
+
+    /// It is still bounded: a step line is one line.
+    func testAVeryLongReasonIsCutWithAnEllipsis() {
+        let long = "ValueError: " + String(repeating: "a", count: 400)
+        let said = ChatSteps.readableError(long)
+        XCTAssertEqual(said.count, ChatSteps.reasonLimit + 1)
+        XCTAssertTrue(said.hasSuffix("…"))
+        XCTAssertFalse(said.contains("ValueError"))
+    }
+}

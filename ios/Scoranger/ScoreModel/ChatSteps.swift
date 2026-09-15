@@ -121,4 +121,55 @@ enum ChatSteps {
         }
     }
 
+    // MARK: - What a failed step says
+
+    /// How far a refusal reaches into the step line before it is cut.
+    static let reasonLimit = 100
+
+    /// The reader's half of a tool failure.
+    ///
+    /// The engine reports a refusal as `"<ExceptionClass>: <message>"`, which
+    /// is right for the model -- it goes back in the transcript unchanged and
+    /// the model corrects itself off it -- and wrong for the step line a
+    /// musician reads. Ali was shown `ValueError: No par…`: sixty characters
+    /// of which eleven were a Python class name and the rest was cut off
+    /// before it could say which part.
+    ///
+    /// So the class name is dropped and the message kept. NOTHING IS
+    /// SWALLOWED: the full text still goes to the model as the tool result,
+    /// and the message here is the engine's own words -- "No part named
+    /// 'Violin 1'. Score has: Violin I, Violin II, Viola, Violoncello" --
+    /// which is the half that tells the reader what happened.
+    ///
+    /// A traceback names its failure on the LAST line; the frames above it
+    /// are for a log, not for someone holding an iPad.
+    static func readableError(_ raw: String) -> String {
+        let lines = raw.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var text = lines.last ?? raw.trimmingCharacters(in: .whitespaces)
+        text = strippingExceptionClass(text)
+        if text.isEmpty { return "the engine gave no reason" }
+        if text.count > reasonLimit {
+            return String(text.prefix(reasonLimit)).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return text
+    }
+
+    /// Drop a leading Python exception class name. Matched by SHAPE -- one
+    /// unspaced identifier ending in Error or Exception, then ": ", then
+    /// something -- so a refusal that happens to contain a colon ("Measure 3:
+    /// nothing starts there") keeps all of itself.
+    private static func strippingExceptionClass(_ text: String) -> String {
+        guard let colon = text.firstIndex(of: ":") else { return text }
+        let head = String(text[text.startIndex..<colon])
+        guard !head.isEmpty, head.count <= 40,
+              head.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }),
+              head.first?.isUppercase == true,
+              head.hasSuffix("Error") || head.hasSuffix("Exception") else { return text }
+        let rest = text[text.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        // A class name and nothing else is all the reason there is; keep it
+        // rather than hand the reader an empty line.
+        return rest.isEmpty ? text : rest
+    }
 }

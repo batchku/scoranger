@@ -173,7 +173,12 @@ struct LocalChat {
                             ?? (result["new_version"] as? String) {
                         detail = "→ \(v)"
                     } else if parsed["ok"] as? Bool == false {
-                        detail = "⚠︎ \((parsed["error"] as? String ?? "error").prefix(60))"
+                        // The reader's half of the refusal: the engine's own
+                        // words without the Python class name in front of
+                        // them (ChatSteps.readableError). The FULL text still
+                        // goes back to the model below, untouched.
+                        detail = "⚠︎ " + ChatSteps.readableError(
+                            parsed["error"] as? String ?? "")
                     } else {
                         detail = nil
                     }
