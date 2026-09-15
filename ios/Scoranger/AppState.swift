@@ -1644,6 +1644,13 @@ final class AppState: ObservableObject {
             if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
                 await seedBigBook()
             }
+            // The SHAPE of a real library, for the pictures Ali's list is
+            // about: enough rows that the top of the list is off-screen, and
+            // an arrangement filed under no piece beside the pieces -- the
+            // two row kinds that contradicted each other on his screen.
+            if ProcessInfo.processInfo.arguments.contains("-seedLibraryShape") {
+                await seedLibraryShape()
+            }
             await refresh()
             // `-autoDrag`: the frame probe's scripted drag needs a score open
             // with nobody at the device; the first seeded arrangement opens
@@ -1658,6 +1665,38 @@ final class AppState: ObservableObject {
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture only: a library long enough to scroll, with one
+    /// arrangement left unfiled.
+    ///
+    /// Both halves are photographic evidence, not product: a library of one
+    /// piece can never show a naming row landing off-screen, and the seeded
+    /// library files every score under a piece, so it can never show the
+    /// unfiled arrangement row beside a piece row.
+    private func seedLibraryShape() async {
+        let names = ["All Blues", "Balkan Ornaments", "Ciribiribin", "Djangology",
+                     "El Choclo", "Fascination", "Gnossienne", "Hejira",
+                     "Indifference", "Jeux d'enfants", "Kalinka", "La Foule",
+                     "Manha de Carnaval", "Nuages", "Orient Express",
+                     "Padam padam", "Quelqu'un m'a dit", "Recuerdos",
+                     "Swallowtail Jig", "Tam Lin", "Une nuit", "Valse d'Amelie",
+                     "Waltz for Debby", "Xarabanda", "Yesterdays", "Zigeunerweisen",
+                     "Auprès de ma blonde", "Berceuse", "Chanson d'automne",
+                     "Danse macabre"]
+        // The unfiling FIRST. `assign_score_to_piece` drops every piece left
+        // holding nothing, so unfiling after the pieces are made deletes all
+        // of them -- which is how the first run of this fixture produced a
+        // library of one piece.
+        if let last = try? await local.manifest().scores
+            .sorted(by: { $0.slug < $1.slug }).last {
+            _ = try? await local.call(op: "unassign-piece",
+                                      args: ["score": last.slug])
+        }
+        for name in names {
+            _ = try? await local.call(op: "create-piece", args: ["name": name])
+        }
+        print("SCORANGER-SEED library shape: \(names.count) pieces, one unfiled")
     }
 
     /// Test fixture only: a several-hundred-page book, made on the spot and
