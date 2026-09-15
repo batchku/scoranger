@@ -270,6 +270,11 @@ struct ScoreTopBar: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        // Three answers to ONE question, so they are drawn as one thing: the
+        // app's dashed rule closed around the group (Ali, 2026-09-14 #7).
+        // The boundary is the group's, not a cell's -- the active cell keeps
+        // the single clean shape build 195 gave it.
+        .dashedBoundary()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("score-layout")
     }

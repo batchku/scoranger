@@ -72,6 +72,7 @@ private struct InPanelKey: EnvironmentKey { static let defaultValue = false }
 private struct PanelTitleKey: EnvironmentKey { static let defaultValue: String? = nil }
 private struct PanelBackKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
 private struct PanelDoneKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
+private struct PanelAtRestKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
     /// True inside the panel: `Screen` draws the panel's header rather than a
@@ -91,6 +92,13 @@ extension EnvironmentValues {
     /// Done.
     var panelDone: (() -> Void)? {
         get { self[PanelDoneKey.self] } set { self[PanelDoneKey.self] = newValue }
+    }
+    /// True when this state is the page's panel AT REST rather than something
+    /// the reader opened. Nothing was pushed, so Done has nothing to pop: it
+    /// is a button that does nothing, beside a title repeating the page it
+    /// sits next to. A state at rest can leave both out (Ali, 2026-09-14 #5).
+    var panelAtRest: Bool {
+        get { self[PanelAtRestKey.self] } set { self[PanelAtRestKey.self] = newValue }
     }
 }
 
@@ -238,6 +246,7 @@ struct PanelHost<Page: View, PanelContent: View>: View {
             .environment(\.panelTitle, route.panelTitle)
             .environment(\.panelBack, panel.canGoBack ? { panel.back() } : nil)
             .environment(\.panelDone, { panel.done() })
+            .environment(\.panelAtRest, panel.stack.isEmpty)
             .frame(width: width)
             .frame(maxHeight: .infinity, alignment: .top)
             .pageShape()

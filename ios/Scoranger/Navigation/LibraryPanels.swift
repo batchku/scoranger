@@ -191,73 +191,150 @@ struct PieceArrangementsPanel: View {
 
 /// P1 · This piece: the panel at rest on the piece screen. Details as
 /// editable fields, the sources, and Delete last under Careful.
+///
+/// AT REST it has no header. Nothing was pushed, so Done had nothing to pop --
+/// a dead button beside a title ("This piece") repeating the page it sits
+/// next to. Pushed, from a library row's Details or from More on a phone, the
+/// header is the only way back and stays (Ali, 2026-09-14 #5).
+///
+/// Composer, Arranger and Tags are `LabeledField`s with a Save, which is how
+/// an arrangement's own metadata is already edited (`ScoreInfoView`). They
+/// were tap-to-reveal rows before: they drew as "—", nothing said they were
+/// pressable, and the field they revealed took the keyboard only sometimes.
 struct ThisPiecePanel: View {
     @EnvironmentObject var state: AppState
     let slug: String
     var onImport: (String) -> Void
     var onDeleted: () -> Void
     @State private var confirmingDelete = false
+    @State private var draftComposer = ""
+    @State private var draftArranger = ""
+    @State private var draftTags = ""
+    /// What was last written. Comparing against the piece document instead
+    /// would leave Save showing for a moment after a successful save, while
+    /// the manifest refresh catches up.
+    @State private var saved = Details()
+    @State private var saving = false
+    @State private var seededFor: String?
     @Environment(\.panelDone) private var done
+    @Environment(\.panelAtRest) private var atRest
+
+    private struct Details: Equatable {
+        var composer = ""
+        var arranger = ""
+        var tags = ""
+    }
 
     private var piece: PieceDoc? { (state.manifest?.pieces ?? []).first { $0.slug == slug } }
 
+    private func trimmed(_ s: String) -> String {
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var draft: Details {
+        Details(composer: trimmed(draftComposer), arranger: trimmed(draftArranger),
+                tags: trimmed(draftTags))
+    }
+
+    private var canSave: Bool { !saving && draft != saved }
+
     var body: some View {
         if let piece {
-            Screen(title: "This piece", backLabel: "Back", onBack: { done?() }) {
-                VStack(alignment: .leading, spacing: 0) {
-                    PieceField(label: "Composer", value: piece.composer ?? "",
-                               identifier: "piece-composer") { v in
-                        Task { _ = await state.setPieceMetadata(piece.slug, composer: v) }
-                    }
-                    Theme.Rule().padding(.horizontal, Theme.Metric.panelSide)
-                    PieceField(label: "Arranger", value: piece.arranger ?? "",
-                               identifier: "piece-arranger") { v in
-                        Task { _ = await state.setPieceMetadata(piece.slug, arranger: v) }
-                    }
-                    Theme.Rule().padding(.horizontal, Theme.Metric.panelSide)
-                    PieceField(label: "Tags", value: (piece.tags ?? []).joined(separator: ", "),
-                               hint: "chanson, waltz", identifier: "piece-tags") { v in
-                        let tags = v.split(separator: ",")
-                            .map { $0.trimmingCharacters(in: .whitespaces) }
-                            .filter { !$0.isEmpty }
-                        Task { _ = await state.setPieceMetadata(piece.slug, tags: tags) }
-                    }
-
-                    PanelLabel(text: "Sources")
-                    Text(sourceSummary(piece)).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        .padding(.horizontal, Theme.Metric.panelSide)
-                        .padding(.bottom, Theme.Metric.s8)
-                    ScreenRow(title: "Import into this piece", leads: false,
-                              identifier: "piece-import-\(piece.slug)") { onImport(piece.slug) }
-                    ScreenRow(title: "New arrangement", leads: false,
-                              identifier: "panel-new-arrangement-\(piece.slug)") {
-                        Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
-                    }
-
-                    PanelLabel(text: "Careful")
-                    if confirmingDelete {
-                        ConfirmDeleteStrip(what: deleteQuestion(piece),
-                                           consequence: "Its arrangements and every version of them go with it.",
-                                           identifier: "confirm-delete-\(piece.slug)",
-                                           onDelete: {
-                                               confirmingDelete = false
-                                               state.deletePiece(piece.slug)
-                                               done?()
-                                               onDeleted()
-                                           },
-                                           onKeep: { confirmingDelete = false })
-                    } else {
-                        ScreenRow(title: "Delete piece", leads: false, isDestructive: true,
-                                  identifier: "piece-delete-\(piece.slug)") {
-                            confirmingDelete = true
-                        }
-                    }
+            Group {
+                if atRest {
+                    ScrollView { fields(piece) }
+                        .background(Theme.Surface.panel)
+                } else {
+                    Screen(title: "This piece", backLabel: "Back",
+                           onBack: { done?() }) { fields(piece) }
                 }
-                .padding(.vertical, Theme.Metric.s8)
-                .padding(.bottom, Theme.Metric.s32)
             }
+            .task(id: piece.slug) { seed(piece) }
         } else {
             Color.clear
+        }
+    }
+
+    @ViewBuilder
+    private func fields(_ piece: PieceDoc) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Theme.Metric.s12) {
+                LabeledField("Composer", text: $draftComposer,
+                             identifier: "piece-composer")
+                LabeledField("Arranger", text: $draftArranger,
+                             identifier: "piece-arranger")
+                LabeledField("Tags", text: $draftTags, identifier: "piece-tags")
+                Text("Separate tags with commas.")
+                    .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                HStack(spacing: Theme.Metric.s8) {
+                    Spacer(minLength: 0)
+                    if saving {
+                        ProgressView().controlSize(.small).tint(Theme.Accent.clay)
+                    } else if canSave {
+                        PanelButton(title: "Save", kind: .primary) { save(piece) }
+                            .accessibilityIdentifier("save-piece-details")
+                    }
+                }
+            }
+            .padding(Theme.Metric.panelPadding)
+
+            PanelLabel(text: "Sources")
+            Text(sourceSummary(piece)).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                .padding(.horizontal, Theme.Metric.panelSide)
+                .padding(.bottom, Theme.Metric.s8)
+            ScreenRow(title: "Import into this piece", leads: false,
+                      identifier: "piece-import-\(piece.slug)") { onImport(piece.slug) }
+            ScreenRow(title: "New arrangement", leads: false,
+                      identifier: "panel-new-arrangement-\(piece.slug)") {
+                Task { _ = await state.createArrangement(pieceSlug: piece.slug) }
+            }
+
+            PanelLabel(text: "Careful")
+            if confirmingDelete {
+                ConfirmDeleteStrip(what: deleteQuestion(piece),
+                                   consequence: "Its arrangements and every version of them go with it.",
+                                   identifier: "confirm-delete-\(piece.slug)",
+                                   onDelete: {
+                                       confirmingDelete = false
+                                       state.deletePiece(piece.slug)
+                                       done?()
+                                       onDeleted()
+                                   },
+                                   onKeep: { confirmingDelete = false })
+            } else {
+                ScreenRow(title: "Delete piece", leads: false, isDestructive: true,
+                          identifier: "piece-delete-\(piece.slug)") {
+                    confirmingDelete = true
+                }
+            }
+        }
+        .padding(.vertical, Theme.Metric.s8)
+        .padding(.bottom, Theme.Metric.s32)
+    }
+
+    /// Fill the drafts from the document, once per piece. Not on every
+    /// manifest tick: the manifest refreshes every two seconds and that would
+    /// overwrite what the reader is halfway through typing.
+    private func seed(_ piece: PieceDoc) {
+        guard seededFor != piece.slug else { return }
+        seededFor = piece.slug
+        draftComposer = piece.composer ?? ""
+        draftArranger = piece.arranger ?? ""
+        draftTags = (piece.tags ?? []).joined(separator: ", ")
+        saved = draft
+    }
+
+    private func save(_ piece: PieceDoc) {
+        let wanted = draft
+        saving = true
+        Task {
+            let tags = wanted.tags.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let ok = await state.setPieceMetadata(piece.slug, composer: wanted.composer,
+                                                  arranger: wanted.arranger, tags: tags)
+            saving = false
+            if ok { saved = wanted }
         }
     }
 

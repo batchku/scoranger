@@ -346,6 +346,24 @@ enum Theme {
         }
     }
 
+    /// The rule, closed around a group: the same 1pt dashed `line2`, drawn as
+    /// a boundary rather than a line, so a set of controls reads as one thing.
+    ///
+    /// The app had only the straight rule, and a group of controls could be
+    /// separated from its neighbours but never enclosed by them -- the three
+    /// layout cells sat on the bar with nothing saying they were three answers
+    /// to one question.
+    struct DashedBoundary: ViewModifier {
+        var cornerRadius: CGFloat = Metric.rCtl
+        func body(content: Content) -> some View {
+            content.overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Line.line2,
+                                  style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
+        }
+    }
+
     struct RuleLine: Shape {
         var vertical: Bool
         func path(in rect: CGRect) -> Path {
@@ -396,6 +414,11 @@ extension View {
     /// cannot drift apart.
     func typeRole(_ role: Theme.Role) -> some View {
         modifier(TypeRoleModifier(role: role))
+    }
+
+    /// Encloses a group of controls in the app's dashed rule.
+    func dashedBoundary(cornerRadius: CGFloat = Theme.Metric.rCtl) -> some View {
+        modifier(Theme.DashedBoundary(cornerRadius: cornerRadius))
     }
 }
 
