@@ -26,6 +26,61 @@ not transpiled Java.
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
 
+## Ali's list of 2026-09-14, found using the app
+
+Seven, from a session with the app on his iPad. Two carry a diagnosis made
+here rather than a symptom; the rest are as he described them.
+
+1. **A shared set list does not auto-update.** A change by one member has to
+   reach every member. He wants a **sync icon beside the share icon** on the
+   set list's row, so the state is visible rather than inferred.
+
+2. **Switching the score canvas between one page, two pages and scroll shows
+   the WRONG view for a moment** before it settles. A frame of the old layout
+   is drawn before the new one arrives.
+
+3. **The transcribing chip belongs to no arrangement.** He opened one
+   arrangement and saw "page 1 of 2" and "Transcribing…" for a job that
+   belonged to a DIFFERENT one. Diagnosed: `AppState.omrPendingID` is a single
+   app-wide "transcription in flight", and `omrStage`/`omrFraction` read it
+   with no reference to what is on screen. `PendingImport` carries `name` and
+   `piece` but NOT the arrangement it is transcribing, so there is nothing to
+   scope by yet -- the identity has to be recorded before the chip can be
+   filtered. Both readers (the More screen's row, the transport's chip) share
+   the fault.
+
+4. **A blank region mid-score, and staves that stop before the others.** On
+   his 4-part arrangement, one system carries all four staves, the accordion
+   staves stop, and the rest of the page is single-staff systems with a gap
+   where the others were. Diagnosed: that arrangement was assembled by pulling
+   parts out of two different arrangements (one of 1 part, one of 3), and
+   `pull_part` neither pads a short part nor reports a length. Its return is
+   `pulled` / `added_as` / `position` / `redundant_accidentals_hidden` -- no
+   measure count, no comparison against the score it joined. So parts of
+   unequal length assemble silently and the reader finds out by looking at the
+   page. The op should report the measures it brought and how that compares,
+   so a person AND the chat agent both notice.
+
+5. **The piece panel's header should go** -- both the "This piece" title and
+   its Done button -- and **Composer, Arranger and Tags must be editable**.
+   They render as "—" today and cannot be typed into.
+
+6. **The row action labelled `Arrangement` should read `Details`.** It sits
+   between "Move to piece" and "Delete" on an expanded arrangement row.
+
+7. **The three view-mode icons in the score bar want a dashed boundary**
+   around them as a group -- one page, two pages, scroll -- in the dashed idiom
+   the rest of the app already uses.
+
+### Also seen in the photographs, not on his list
+
+- The chat transcript showed a reader a raw `ValueError: No par…` from a
+  failed rename step, then recovered by renaming with `#0`/`#1` indices. A
+  stack-trace class name is not a sentence for a musician.
+- The top bar said `page 1 of 2` while the canvas said `pp. 1-2 / 2` at the
+  same moment, in two-page view. One of those is counting pages and the other
+  spreads; they should not contradict each other on one screen.
+
 ## The release plan after 0.8.1 (set 2026-09-14)
 
 Everything open in this file is assigned to one of two builds. The split is
