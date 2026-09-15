@@ -103,6 +103,41 @@ reported, and both are in the build Ali plays from:
 `render.py` was never wrong about either -- cairosvg reads per-tspan sizes and
 the stylesheet -- so this is a property of the iPad's renderer alone.
 
+**Four more, from step 4 (size, position, move and duplicate in the UI).**
+
+- **The adjust row only ever opened from a lasso.** `retargetAdjustment`
+  builds the session the row is drawn from, and it was called from
+  `commitSelection` -- the lasso's route alone. `selectBar`, `addToSelection`
+  and `dropFromSelection` wrote `selection` directly, so a chord symbol TAPPED
+  at 2x selected, highlighted, raised the chip and had no row under it. This
+  is why every attempt to test the row went through the lasso, and the lasso
+  is the hard gesture. Fixed by routing all three through
+  `select(_:mode:path:page:)`, which already documented itself as the one
+  writer every route goes through.
+- **A mark's hit frame does not follow its size.** `adjust-element --scale 4`
+  draws a text mark four times as big and leaves the frame the geometry
+  reports at the engraved size, because the size is applied to the rendered
+  SVG (`ChordAdjustments.applySizes` rewrites the tspan's font-size) and the
+  model is built from the box the parser computes. A reader who makes a chord
+  symbol bigger so they can hit it does not get a bigger target. Not fixed
+  here; it belongs with 0.8.3's vector work, where the drawn extent is
+  something the app computes rather than reads.
+- **`strip-notes` has no route through bridge.py.** The engine has the op and
+  the CLI reference documents it; the app cannot ask for it. Found while
+  building a fixture that wanted a names-only staff. Step 2's territory.
+- **A synthetic pinch is not reproducible.** Eight runs of the same code
+  reached 1.00, 1.37, 1.61, 2.91, 2.98, 5.42 and 5.53. Any UI test that needs
+  a particular zoom -- and a tap means the NOTE only at 2x and above -- has to
+  read `score-canvas`'s accessibility value back and pinch again, which is
+  what `MarkAdjustShot.zoomIn` does. It is also why that test asserts nothing
+  about what it finds.
+
+**Not covered by a photograph.** The refused move -- the sentence and the row
+of onset buttons a note-attached mark gets when nothing starts at the chosen
+offset -- is asserted in `MoveDestinationTests` against the engine's real
+wording, and has not been photographed. Reaching it needs a fermata selected
+by a finger, and a fermata is a smaller target than a dynamic.
+
 **What the comparison harness is worth.** These are the first two faults it
 found, and it found them by looking rather than by asserting. That is the
 argument for 0.8.3's visual regression tests: the output is about to become

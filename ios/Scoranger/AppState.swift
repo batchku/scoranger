@@ -301,8 +301,15 @@ final class AppState: ObservableObject {
                 // `size`; the op refuses both at once, which is what keeps the
                 // two interfaces from quietly meaning the same thing.
                 if let size = commit.size {
-                    args[commit.isRelative ? "scale" : "size"] =
-                        commit.isRelative ? Double(size) / 100 : Double(size)
+                    // An absolute size stays an Int: it is written into the
+                    // notation as a font-size, and a chord symbol nudged
+                    // before 0.8.2 carries "14". Sending 14.0 would rewrite
+                    // every one of them as "14.0" for no reader's benefit.
+                    if commit.isRelative {
+                        args["scale"] = Double(size) / 100
+                    } else {
+                        args["size"] = size
+                    }
                 }
                 if let x = commit.offsetX { args["offset_x"] = x }
                 if let y = commit.offsetY { args["offset_y"] = y }
