@@ -138,19 +138,24 @@ final class ChromeShot: XCTestCase {
     func testPhotographWhatTheRowsSayTheyHold() {
         launch(["-seedLibraryShape"])
         snap("rows-top-of-the-pieces-list")
-        let unfiled = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-                        "row-", "version")).firstMatch
-        if unfiled.exists {
-            print("SHOT: the unfiled row reads \"\(unfiled.label)\"")
-        } else {
-            print("SHOT: no row mentions versions")
+        // "Paris" puts both kinds in one short list, deterministically: the
+        // piece "Sous le ciel de Paris" and the unfiled arrangement "Under
+        // Paris Skies accordion Solo". Scrolling to them depends on how many
+        // rows the seed made and on how far a swipe goes.
+        let search = app.textFields["library-search"].firstMatch
+        if search.waitForExistence(timeout: 20) {
+            search.tap()
+            app.typeText("Paris")
+            pause(1.5)
         }
+        snap("rows-the-two-kinds-side-by-side")
         let piece = element("row-sous-le-ciel-de-paris")
         if piece.exists { print("SHOT: the piece row reads \"\(piece.label)\"") }
-        let list = app.scrollViews.firstMatch
-        for _ in 0..<10 { list.swipeUp() }
-        pause(1.5)
-        snap("rows-further-down-the-pieces-list")
+        let unfiled = element("row-under-paris-skies-accordion-solo")
+        if unfiled.exists {
+            print("SHOT: the arrangement row reads \"\(unfiled.label)\"")
+        } else {
+            print("SHOT: the unfiled arrangement row was not found")
+        }
     }
 }
