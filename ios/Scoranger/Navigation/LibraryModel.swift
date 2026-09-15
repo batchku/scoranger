@@ -203,6 +203,21 @@ enum LibraryModel {
     /// Arrangements filed under no piece. They have no `#N` -- a number is only
     /// meaningful inside a piece (§2) -- so the row shows no numeral and
     /// reserves no space for one.
+    ///
+    /// ## What the subtitle says, and why it changed (Ali, 2026-09-14 item 11)
+    ///
+    /// Two row kinds share the Pieces list. A PIECE row is a folder and says
+    /// how many arrangements it holds; this row IS one arrangement. It used to
+    /// say "20 versions", which put a version count where the row above it put
+    /// an arrangement count -- "Under Paris Skies accordion Solo, 1 version"
+    /// directly above "Une nuit, 0 arrangements" in the photographs -- and
+    /// nothing on either row said which kind it was.
+    ///
+    /// The count was also a second copy of a fact already on the row: `meta`
+    /// carries the latest version label (`v020`) on BOTH kinds. So the
+    /// subtitle now names the KIND and the version fact stays where the piece
+    /// row keeps it. Both rows then read the same way: what it is or holds,
+    /// then the version and the day.
     static func unfiledRows(manifest: Manifest,
                             arrangementTags: [String: [String]] = [:]) -> [LibraryRow] {
         manifest.scores.filter { ($0.piece ?? "").isEmpty }.map { score in
@@ -214,8 +229,7 @@ enum LibraryModel {
                 id: score.slug,
                 title: ScoreTitle.arrangementName(title: score.title, name: score.name,
                                                   slug: score.slug),
-                subtitle: [score.composer ?? "", "\(score.versions.count) "
-                    + (score.versions.count == 1 ? "version" : "versions")]
+                subtitle: [score.composer ?? "", "Arrangement"]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [score.latestLabel ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]

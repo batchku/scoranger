@@ -118,6 +118,29 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(rows.first?.chips.contains { $0.text == "UNFILED" } ?? false)
     }
 
+    /// Ali, 2026-09-14 item 11: the two row kinds in one list contradicted
+    /// each other. A piece holds ARRANGEMENTS and says so; an arrangement row
+    /// counted VERSIONS in the same slot, and neither said which kind it was.
+    func testTheTwoRowKindsAgreeAboutWhatTheyHold() {
+        let piece = LibraryModel.pieceRows(manifest: manifest)
+            .first { $0.title == "Cavatina" }
+        let unfiled = LibraryModel.unfiledRows(manifest: manifest).first
+
+        XCTAssertTrue(piece?.subtitle.contains("arrangement") ?? false,
+                      "a piece row must say how many arrangements it holds: "
+                      + "\(piece?.subtitle ?? "nil")")
+        XCTAssertEqual(unfiled?.subtitle.hasSuffix("Arrangement"), true,
+                       "an unfiled row must say it IS an arrangement: "
+                       + "\(unfiled?.subtitle ?? "nil")")
+        XCTAssertFalse(unfiled?.subtitle.contains("version") ?? true,
+                       "a version count does not belong in the slot a piece "
+                       + "row uses for its arrangement count")
+        // The version fact is not lost: it is in `meta`, where the piece row
+        // keeps its own.
+        XCTAssertFalse(unfiled?.meta.isEmpty ?? true,
+                       "the unfiled row lost its version label too")
+    }
+
     func testAFiledArrangementIsNotListedAsUnfiled() {
         let rows = LibraryModel.unfiledRows(manifest: manifest)
         XCTAssertFalse(rows.contains { $0.title == "Accordion duo" })
