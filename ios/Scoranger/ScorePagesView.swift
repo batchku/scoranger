@@ -402,7 +402,12 @@ struct ScorePagesView: View {
         if out != state.visibleBarRects { state.visibleBarRects = out }
     }
 
-    /// POSITION ◀ ▲ ▼ ▶ │ SIZE A⁻ 14 pt A⁺ │ Reset, and the pending line.
+    /// POSITION ◀ ▲ ▼ ▶ │ SIZE A⁻ 1.4× A⁺ │ Reset, the caption and the
+    /// pending line.
+    ///
+    /// The words are the model's: what a size means and what the mark is
+    /// called are sentences `ChordAdjustSession` and `AddedMark` hold, so the
+    /// row and its summary cannot say different things.
     @ViewBuilder
     private var adjustRow: some View {
         if let session = state.adjustSession {
@@ -418,9 +423,10 @@ struct ScorePagesView: View {
 
                     Text("SIZE").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
                     resize(.smaller, "textformat.size.smaller", "smaller")
-                    Text("\(session.pending.size) pt")
+                    Text(session.metric.readout(session.pending.size))
                         .typeRole(.data).foregroundStyle(Theme.Ink.ink)
                         .frame(minWidth: 40)
+                        .accessibilityLabel(session.metric.spoken(session.pending.size))
                         .accessibilityIdentifier("adjust-size")
                     resize(.bigger, "textformat.size.larger", "bigger")
 
@@ -432,6 +438,12 @@ struct ScorePagesView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("adjust-reset")
                     Spacer(minLength: 0)
+                }
+                if let caption = session.metric.caption {
+                    Text(caption)
+                        .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("adjust-size-caption")
                 }
                 if let pending = session.pendingDescription {
                     HStack(spacing: Theme.Metric.s8) {

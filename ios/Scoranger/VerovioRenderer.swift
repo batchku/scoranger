@@ -100,12 +100,13 @@ actor VerovioRenderer {
         /// selection that cannot be made is better than a score that cannot be
         /// read.
         let geometry: ScoreGeometry?
-        /// What each chord symbol already carries, by address, so the chip
+        /// What each added mark already carries, by address, so the chip
         /// starts a nudge from the truth in the file rather than from the
         /// default. Matched by document order -- the same 1:1 correspondence
         /// between <harmony> tags and <harm> elements that ChordAdjustments
-        /// relies on to place the offsets in the first place.
-        var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+        /// relies on to place the offsets in the first place, and the same for
+        /// the other four kinds.
+        var markAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     }
 
     func engrave(musicXMLPath: String, layout: ScoreLayout = .page) throws -> Engraving {
@@ -136,12 +137,9 @@ actor VerovioRenderer {
 
         // The user's adjustments live in the MusicXML, and Verovio's importer
         // drops them, so they are carried across here -- for every kind
-        // `adjust-element` can reach, not for chord symbols alone. The
-        // chord-symbol list is kept separately because the adjust row addresses
-        // one by ScoreAddress.
+        // `adjust-element` can reach, not for chord symbols alone.
         let source = (try? String(contentsOfFile: musicXMLPath, encoding: .utf8)) ?? ""
         let byKind = ChordAdjustments.allAdjustments(inMusicXML: source)
-        let adjustments = byKind[.harm] ?? []
 
         var reload = false
         if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
@@ -244,25 +242,34 @@ actor VerovioRenderer {
         return Engraving(pdf: data,
                          failedPages: failures.compactMap(\.pageNumber),
                          geometry: geometry,
-                         chordAdjustments: Self.byAddress(adjustments, in: geometry))
+                         markAdjustments: Self.byAddress(byKind, in: geometry))
     }
 
-    /// Pair each chord symbol's stored adjustment with its address.
+    /// Pair each added mark's stored adjustment with its address.
     ///
-    /// Both sequences are in document order -- the geometry's harm elements
-    /// come from the same MEI the offsets were written into -- so they zip.
-    /// A mismatch in count means the join is unsafe, and nothing is returned
-    /// rather than a map that is subtly wrong about which symbol is which.
-    static func byAddress(_ adjustments: [ChordAdjustments.Adjustment],
+    /// Both sequences are in document order -- the geometry's elements come
+    /// from the same MEI the offsets were written into -- so they zip. A
+    /// mismatch in count means the join is unsafe for THAT KIND, and that kind
+    /// is dropped rather than returned as a map that is subtly wrong about
+    /// which mark is which. Per kind, not all-or-nothing: a score whose text
+    /// marks do not line up should still let its dynamics be nudged from the
+    /// truth.
+    static func byAddress(_ byKind: [ChordAdjustments.Kind: [ChordAdjustments.Adjustment]],
                           in geometry: ScoreGeometry?)
         -> [ScoreAddress: ChordAdjustments.Adjustment] {
-        guard let geometry, !adjustments.isEmpty else { return [:] }
-        let harms = geometry.pages
-            .flatMap(\.elements)
-            .compactMap(\.address)
-            .filter { $0.kind == .harm }
-        guard harms.count == adjustments.count else { return [:] }
-        return Dictionary(uniqueKeysWithValues: zip(harms, adjustments))
+        guard let geometry else { return [:] }
+        let addresses = geometry.pages.flatMap(\.elements).compactMap(\.address)
+        var out: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+        for kind in AddedMark.kinds {
+            guard let reading = AddedMark.adjustmentKind(kind),
+                  let adjustments = byKind[reading], !adjustments.isEmpty else { continue }
+            let drawn = addresses.filter { $0.kind == kind }
+            guard drawn.count == adjustments.count else { continue }
+            for (address, adjustment) in zip(drawn, adjustments) {
+                out[address] = adjustment
+            }
+        }
+        return out
     }
 
     /// Pages only, for callers with nothing to select (export, iPhone).

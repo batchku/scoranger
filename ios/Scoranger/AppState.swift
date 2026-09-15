@@ -99,9 +99,9 @@ final class AppState: ObservableObject {
     /// a walk of every address in the document -- 2724 of them on a nine-page
     /// quartet -- while it changes only when the engraving does.
     private(set) var barPopulations: [SelectionMerge.Key: Int] = [:]
-    /// What each chord symbol already carries, by address — the chip's starting
+    /// What each added mark already carries, by address — the chip's starting
     /// point, so a nudge builds on the file rather than on the default.
-    @Published var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+    @Published var markAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     /// Bumped to ask the UI to open chat, with text for its input: how a
     /// finished lasso shows the user that the selection registered.
     /// The setlist being played, if the score was opened from one. It is what
@@ -238,10 +238,12 @@ final class AppState: ObservableObject {
         if adjustTarget == address { return }
         commitAdjustment()
         closeAdjustTurn()
+        let metric = AddedMark.sizeMetric(address.kind)
         adjustSession = ChordAdjustSession(
-            size: chordSize(at: address) ?? ChordAdjustSession.defaultSize,
-            committedDX: chordOffset(at: address).dx,
-            committedDY: chordOffset(at: address).dy)
+            size: markSize(at: address) ?? metric.defaultValue,
+            committedDX: markOffset(at: address).dx,
+            committedDY: markOffset(at: address).dy,
+            metric: metric)
         adjustTarget = address
         adjustTurnID = nil
     }
@@ -272,6 +274,7 @@ final class AppState: ObservableObject {
         guard var session = adjustSession, let address = adjustTarget,
               let commit = session.commit(),
               let slug = selectedScore?.slug,
+              let kind = AddedMark.engineKind(address.kind),
               let part = partName(forStaff: address.staff) else { return }
         adjustSession = session   // the commit clears what was pending
         // Group this sitting's versions the way a chat turn's steps are
@@ -280,20 +283,27 @@ final class AppState: ObservableObject {
         // unrelated versions.
         let openTurn = adjustTurnID == nil
         adjustTurnID = adjustTurnID ?? UUID().uuidString
-        let what = "Adjusted the chord symbol in bar \(address.measure)"
+        let noun = AddedMark.noun(address.kind)
+        let what = "Adjusted the \(noun) in bar \(address.measure)"
         Task {
             if openTurn {
                 _ = try? await local.call(op: "begin-turn",
                                           args: ["score": slug, "prompt": what])
             }
             var args: [String: Any] = ["score": slug, "part": part,
-                                       "kind": "harm",
+                                       "kind": kind,
                                        "measure": address.measure,
                                        "ordinal": address.ordinal]
             if commit.reset {
                 args["reset"] = true
             } else {
-                if let size = commit.size { args["size"] = size }
+                // A relative rung is sent as `scale`, an absolute one as
+                // `size`; the op refuses both at once, which is what keeps the
+                // two interfaces from quietly meaning the same thing.
+                if let size = commit.size {
+                    args[commit.isRelative ? "scale" : "size"] =
+                        commit.isRelative ? Double(size) / 100 : Double(size)
+                }
                 if let x = commit.offsetX { args["offset_x"] = x }
                 if let y = commit.offsetY { args["offset_y"] = y }
             }
@@ -302,7 +312,7 @@ final class AppState: ObservableObject {
                 await refresh()
                 await renderIfNeeded(force: true)
             } catch {
-                report("move that chord symbol", error)
+                report("move that \(noun)", error)
             }
         }
     }
@@ -396,14 +406,21 @@ final class AppState: ObservableObject {
         return parts[staff - 1].name
     }
 
-    /// What the notation already carries for this symbol, so the session starts
-    /// from the truth rather than from the default.
-    private func chordSize(at address: ScoreAddress) -> Int? {
-        chordAdjustments[address]?.size.map { Int($0.rounded()) }
+    /// What the notation already carries for this mark, in the unit its own
+    /// row steps, so the session starts from the truth rather than the default.
+    ///
+    /// The file always holds POINTS -- MusicXML has no relative font size --
+    /// so a relative ladder reads its rung back out by dividing by the same
+    /// constant every renderer divides by.
+    private func markSize(at address: ScoreAddress) -> Int? {
+        guard let points = markAdjustments[address]?.size else { return nil }
+        let metric = AddedMark.sizeMetric(address.kind)
+        guard metric.isRelative else { return Int(points.rounded()) }
+        return Int((points / ChordAdjustments.defaultChordPoints * 100).rounded())
     }
 
-    private func chordOffset(at address: ScoreAddress) -> (dx: Int, dy: Int) {
-        let adjustment = chordAdjustments[address]
+    private func markOffset(at address: ScoreAddress) -> (dx: Int, dy: Int) {
+        let adjustment = markAdjustments[address]
         return (Int((adjustment?.dx ?? 0).rounded()), Int((adjustment?.dy ?? 0).rounded()))
     }
 
@@ -1599,7 +1616,7 @@ final class AppState: ObservableObject {
                         })
                     data = held.engraving.pdf
                     model = held.engraving.geometry
-                    engravedAdjustments = held.engraving.chordAdjustments
+                    engravedAdjustments = held.engraving.markAdjustments
                     stamp = held.stamp
                 }
             } else {
@@ -1618,7 +1635,7 @@ final class AppState: ObservableObject {
                 pageIndex = PagedCanvas.clampedIndex(pageIndex,
                                                      pageCount: pdfDocument?.pageCount ?? 0)
                 geometry = model
-                chordAdjustments = engravedAdjustments
+                markAdjustments = engravedAdjustments
                 let previousKey = geometryKey
                 geometryKey = key
                 carrySelection(from: previousKey, to: key, into: model)
