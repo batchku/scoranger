@@ -7,9 +7,10 @@ import XCTest
 /// degrees has to come back out as the interval a musician says.
 ///
 /// That the tool is OFFERED at all -- in ops.py, cli.py, chat.py, bridge.py and
-/// LocalChat.swift, five hand-maintained lists -- is asserted in
-/// engine/scripts/check_diatonic.py, which can read all five at once. This
-/// bundle has no host app and cannot see LocalChat.
+/// the on-device table in ChatTools.swift, five hand-maintained lists -- is
+/// asserted in engine/scripts/check_diatonic.py, which can read all five at
+/// once. The table itself moved into ScoreModel in 0.8.2, so what the app does
+/// with a tool call is now asserted here too: ChatDispatchTests.
 final class DiatonicHarmonyTests: XCTestCase {
 
     // MARK: the checklist line the reader watches

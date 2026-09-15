@@ -182,6 +182,10 @@ do("split-bass", score=quartet, part="Accordion L.H.",
    bass_name="Acc. Bass", chords_name="Acc. Chords")
 do("keep-parts", score=quartet, parts=["Violin I", "Acc. Bass", "Acc. Chords"])
 do("remove-parts", score=quartet, parts=["Acc. Chords"])
+# the names-only staff. The engine and the CLI have had this op since before
+# the bridge existed and the bridge had no route to it, so the app could not
+# ask -- found while building a fixture that wanted one.
+do("strip-notes", score=quartet, part="Acc. Bass")
 
 # -- pieces and set lists ----------------------------------------------------
 piece = do("create-piece", name="Reels")["slug"]
@@ -347,6 +351,14 @@ def main() -> int:
     check(any(d.get("scale") == 1.5 and d.get("size") == 18.0 for d in scaled),
           "the bridge passes `scale` through, so the app can drive size "
           "relatively: 1.5 arrived as 18.0pt of the 12.0 default")
+
+    stripped = ((by_op.get("strip-notes") or [{}])[0] or {}).get("details", {})
+    check((stripped.get("notes_removed") or 0) > 0
+          and stripped.get("part") == "Acc. Bass",
+          "strip-notes emptied the staff the app asked for: "
+          f"{stripped.get('notes_removed')} notes off {stripped.get('part')}")
+    check(bool(((by_op.get("strip-notes") or [{}])[0] or {}).get("new_version")),
+          "'strip-notes' made a version, like every other mutation")
 
     moved = ((by_op.get("move-element") or [{}])[0] or {}).get("details", {})
     check(moved.get("op") == "move" and moved.get("to") == {"measure": 3, "offset": 1.5},

@@ -107,6 +107,16 @@ def marked_score(path: Path) -> Path:
     return path
 
 
+def chord_chart(path: Path) -> Path:
+    """The chart `set-chords` takes on the command line: a JSON file, because
+    that is the interface a person at a terminal gets."""
+    path.write_text(json.dumps([{"measure": 1, "symbol": "Em"},
+                                {"measure": 3, "symbol": "G"},
+                                {"measure": 5, "symbol": "D"}]),
+                    encoding="utf-8")
+    return path
+
+
 def plain_score(path: Path) -> Path:
     """The same jig with NOTHING added to it -- what add-element starts from."""
     fixtures.jig(bars=8).write("musicxml", fp=str(path))
@@ -321,6 +331,33 @@ def main() -> int:
                                 "--kind", "tab", "--measure", "1",
                                 "--to-measure", "2"),
           "and moving one is refused: moving it would mean moving the music")
+
+    print("\nstrip-notes leaves the chart and takes the music")
+    # The op the app could not ask for: the engine has had it and the CLI
+    # reference has documented it since before `bridge.py` existed, and there
+    # was no route through the bridge until this build. Driven here as a
+    # process for the same reason every other op is.
+    chart = scor(env, "import", str(plain_score(root / "chart.musicxml")),
+                 "--name", "A Names-Only Staff")["score"]
+    scor(env, "set-chords", chart, "--part", "#0", "--json",
+         str(chord_chart(root / "chart.json")))
+    before = scor(env, "info", chart)["parts"][0]
+    out = scor(env, "strip-notes", chart, "--part", "#0")["details"]
+    check(out["notes_removed"] == before["notes"],
+          f"it took every note off the staff: {out['notes_removed']} of "
+          f"{before['notes']}")
+    after = scor(env, "info", chart)["parts"][0]
+    check(after["notes"] == 0 and after["measures"] == before["measures"],
+          f"the bars are still there and empty: {after['measures']} bars, "
+          f"{after['notes']} notes")
+    xml = exported(env, chart, root / "stripped.musicxml")
+    check("<harmony" in xml and "<pitch" not in xml,
+          "the chord symbols survived and no pitch did")
+    check(xml.count("<rest") >= before["measures"],
+          "every bar kept a rest, so the staff still holds its meter")
+    check("No part matches" in refusal(env, "strip-notes", chart, "--part",
+                                       "Trombone"),
+          "and a part that is not there is refused by name")
 
     print("\nevery mutation left a version behind it")
     versions = (scor(env, "versions", slug)["versions"]
