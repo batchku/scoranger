@@ -6,12 +6,16 @@ import XCTest
 /// in it, in what order, under which identifiers, and when Ask can be used.
 final class LibraryActionRowTests: XCTestCase {
 
-    /// Three ways in, then the two ways to make something: a file, a whole
-    /// exported folder, and a book to take arrangements out of.
+    /// The four ways in: a file, a photograph, a whole exported folder, and a
+    /// book to take arrangements out of.
+    ///
+    /// The two creations left with the New band in 0.8.2 (item 13). `+ New`
+    /// makes the thing the segment is showing rather than offering a list, so
+    /// there is nothing for a quick action to carry.
     func testTheRowCarriesEveryActionInThePanelsOldOrder() {
         XCTAssertEqual(LibraryQuickAction.ordered,
                        [.importScore, .importPhotos, .importFolder,
-                        .importBook, .new, .newSetlist])
+                        .importBook])
         XCTAssertEqual(LibraryQuickAction.ordered.count,
                        LibraryQuickAction.allCases.count,
                        "an action exists that the row does not show")
@@ -19,23 +23,20 @@ final class LibraryActionRowTests: XCTestCase {
 
     /// The ids move with the actions; `home-*` and `library-add` retire.
     ///
-    /// Three of the five kept the identifier they had -- §14.3 says so in
-    /// terms. The other two had to change: `importScore` was `library-import`
-    /// and `new` was `library-new`, and those two names now belong to the VERB
-    /// buttons on the row. Two elements under one identifier is a test that
-    /// taps whichever SwiftUI listed first, so the band's items say which kind
-    /// they are, in the same shape as their siblings.
+    /// Three of the four kept the identifier they had -- §14.3 says so in
+    /// terms. `importScore` had to change: it was `library-import`, which is
+    /// now the VERB button on the row. Two elements under one identifier is a
+    /// test that taps whichever SwiftUI listed first.
     func testTheIdentifiersAreTheLibrarysNotHomes() {
         XCTAssertEqual(LibraryQuickAction.ordered.map(\.identifier),
                        ["library-import-score", "library-import-photos",
-                        "library-import-folder", "library-import-book",
-                        "library-new-arrangement", "library-new-setlist"])
+                        "library-import-folder", "library-import-book"])
         XCTAssertFalse(LibraryQuickAction.allCases
             .contains { $0.identifier.hasPrefix("home-") })
     }
 
     /// And no action shares an identifier with the verb that opens its band,
-    /// which is the collision the two renames above exist to prevent.
+    /// which is the collision the rename above exists to prevent.
     func testNoActionCollidesWithItsVerb() {
         let verbs = Set(LibraryVerb.allCases.map(\.identifier))
         for action in LibraryQuickAction.allCases {

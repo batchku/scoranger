@@ -777,12 +777,10 @@ final class ScorangerUITests: XCTestCase {
     /// Home's actions, on the library where they now live (§4C) -- less Ask,
     /// which Ali had removed (#47).
     ///
-    /// Five of them are two verbs since IPHONE_0.6.14 §14: the three imports
-    /// live in `Import`'s band and the two creations in `New`'s, because five
-    /// permanent buttons is what made the row 56pt wider than a phone. So the
-    /// row carries the verbs, and the variants are one tap inside them --
-    /// which is what this now checks, rather than assuming they are all on the
-    /// row.
+    /// The row carries two verbs since IPHONE_0.6.14 §14. Import still opens a
+    /// band of variants; New does not, and has not since 0.8.2 item 13 -- it
+    /// makes the thing the segment is showing, which on Pieces is a piece with
+    /// its name waiting to be typed.
     func testTheLibraryCarriesTheMakingActions() {
         XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
                       "the library has no import action")
@@ -790,10 +788,15 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["library-ask"].exists, "Ask is back")
 
         app.buttons["library-new"].tap()
-        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
-                      "New set list is not in the New band")
-        app.buttons["library-new"].tap()   // close it again
+        let field = app.textFields["inline-rename-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20),
+                      "New did not raise the naming row")
+        XCTAssertEqual(field.placeholderValue, "Piece name",
+                       "on Pieces, New makes a piece")
+        XCTAssertFalse(app.buttons["library-new-setlist"].exists,
+                       "the New band is back")
         shot("library-action-row")
+        app.buttons["inline-rename-cancel"].tap()
     }
 
     /// #48-#50: the library's top row is the gear and nothing else. Help and
@@ -3101,12 +3104,8 @@ final class ScorangerUITests: XCTestCase {
     func testNewSetlistAsksForANameThenOffersArrangements() {
 
         app.buttons["segment-setlists"].tap()
-        // New set list lives in `New`'s band since §14 -- one tap in, and
-        // named in words rather than drawn as three horizontal lines.
+        // One tap: on Set lists, New makes a set list (0.8.2 item 13).
         app.buttons["library-new"].tap()
-        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
-                      "New set list is not in the New band")
-        app.buttons["library-new-setlist"].tap()
         // naming happens in a band at the top of the list, not in an alert
         let field = app.textFields["inline-rename-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no field to name it in")

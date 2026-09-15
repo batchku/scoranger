@@ -165,7 +165,6 @@ extension NotebookShot {
         // 4. the inline row, empty and then with a name in it
         app.descendants(matching: .any)["segment-setlists"].firstMatch.tap(); sleep(1)
         app.descendants(matching: .any)["library-new"].firstMatch.tap(); sleep(1)
-        app.descendants(matching: .any)["library-new-setlist"].firstMatch.tap(); sleep(1)
         let field = app.textFields.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "inline-")).firstMatch
         guard field.waitForExistence(timeout: 10) else { return XCTFail("no inline New set list row") }

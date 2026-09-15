@@ -40,7 +40,12 @@ final class ChromeShot: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         _ = element("library-search").waitForExistence(timeout: 240)
-        _ = element("row-sous-le-ciel-de-paris").waitForExistence(timeout: 240)
+        // The row to wait for is one the library OPENS on. A LazyVStack has
+        // not built a row several screens down, so waiting for the quartet in
+        // a shaped library waits out the whole timeout and then carries on.
+        let first = extra.contains("-seedLibraryShape")
+            ? "row-all-blues" : "row-sous-le-ciel-de-paris"
+        _ = element(first).waitForExistence(timeout: 240)
         pause(2)
     }
 

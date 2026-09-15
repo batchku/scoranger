@@ -319,8 +319,6 @@ struct RootView: View {
         case .importPhotos: showPhotoImport = true
         case .importFolder: importIntent.ask(for: .folder)
         case .importBook:   importIntent.ask(for: .book)
-        case .new:          segment = .pieces; libraryNaming = ""
-        case .newSetlist:   segment = .setlists; libraryNaming = ""
         }
     }
 
@@ -387,8 +385,6 @@ struct RootView: View {
             FilterPanel(filters: $filters, groups: filterGroups)
         case .importMenu:
             ImportPanel(run: runQuickAction)
-        case .newMenu:
-            NewPanel(run: runQuickAction)
         case .pieceArrangements(let slug):
             PieceArrangementsPanel(slug: slug, onOpen: { open($0) },
                                    onPieceScreen: { libraryPath.append(.piece(slug)) },

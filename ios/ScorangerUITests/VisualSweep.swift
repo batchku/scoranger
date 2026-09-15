@@ -146,13 +146,13 @@ final class VisualSweep: XCTestCase {
         toLibrary("before making a piece")
         guard tap("library-new", wait: 4) else { return }
         settle(0.8)
-        let field = app.textFields["inline-name-field"]
+        let field = app.textFields["inline-rename-field"]
         if field.waitForExistence(timeout: 3) {
             field.tap(); field.typeText(name)
             if !tap("inline-rename-save", wait: 2) { app.keyboards.buttons["return"].tap() }
             settle(2.0)
         } else {
-            print("SWEEP: no inline-name-field for the new piece")
+            print("SWEEP: no inline-rename-field for the new piece")
         }
         toLibrary("after making a piece")
     }
@@ -386,7 +386,7 @@ final class VisualSweep: XCTestCase {
         lines.append(ask.exists
             ? "library-ask enabled=\(ask.isEnabled) hittable=\(ask.isHittable) label=\(ask.label)"
             : "library-ask — absent (removed in #47)")
-        for id in ["library-import", "library-new", "library-new-setlist",
+        for id in ["library-import", "library-new",
                    "library-edit", "library-sort", "library-filter",
                    "library-settings", "library-empty", "build-stamp"] {
             let e = app.descendants(matching: .any)[id]

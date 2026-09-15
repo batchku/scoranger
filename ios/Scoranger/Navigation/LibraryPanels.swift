@@ -96,33 +96,6 @@ struct ImportPanel: View {
     }
 }
 
-/// New: a piece or a set list. Either names itself in place on the page.
-struct NewPanel: View {
-    var run: (LibraryQuickAction) -> Void
-    @Environment(\.panelDone) private var done
-
-    var body: some View {
-        Screen(title: "New", backLabel: "Back", onBack: { done?() }) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(LibraryQuickAction.creations) { action in
-                    ScreenRow(title: action == .new ? "Piece" : "Set list", leads: false,
-                              identifier: action.identifier) {
-                        done?()
-                        run(action)
-                    }
-                    Text(action == .new ? "A piece holds its arrangements, numbered."
-                                        : "A running order you can play from the top and share.")
-                        .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Theme.Metric.panelSide + Theme.Metric.s16)
-                        .padding(.bottom, Theme.Metric.s8)
-                }
-            }
-            .padding(.vertical, Theme.Metric.s8)
-        }
-    }
-}
-
 /// L6 · A piece's arrangements beside its row, each with its own Open, so
 /// the common path -- open #2 -- is two taps and no screen change. The full
 /// piece screen is the last item.

@@ -375,21 +375,68 @@ struct LibraryView: View {
         }
     }
 
+    /// `+ New` makes the thing the segment is SHOWING (item 13).
+    ///
+    /// It used to open a band asking which kind, and Ali struck that band out
+    /// twice -- once from Pieces ("this should just create a new piece") and
+    /// once from Set lists. The segmented control above the row already says
+    /// which kind he is looking at, so asking again is a second answer to a
+    /// question already answered on screen.
+    ///
+    /// Books have no New. A book is a PDF somebody already owns; it arrives
+    /// through Import's Book row, which sits in the same cluster two controls
+    /// to the left. A `+ New` on that segment could only be an import wearing
+    /// the wrong verb, or a button that does nothing.
+    @ViewBuilder
     private func verbButton(_ verb: LibraryVerb, labelled: Bool,
                             labels: LibraryBarLayout.Labels) -> some View {
-        Button {
-            switch verb {
-            case .importing: toggle(.importing)
-            case .creating:  toggle(.creating)
+        if verb == .creating && segment == .books {
+            EmptyView()
+        } else {
+            Button {
+                switch verb {
+                case .importing: toggle(.importing)
+                case .creating:  startCreating()
+                }
+            } label: {
+                rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
+                          active: verb == .importing
+                              ? panel.isShowing(.importMenu)
+                              : creatingName != nil,
+                          icon: labels.iconButton)
             }
-        } label: {
-            rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
-                      active: panel.isShowing(verb == .importing ? .importMenu : .newMenu),
-                      icon: labels.iconButton)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(verb.identifier)
+            .accessibilityLabel(verb == .creating ? newLabel : verb.title)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(verb.identifier)
-        .accessibilityLabel(verb.title)
+    }
+
+    /// What `+ New` makes, said in full for VoiceOver: the visible label is
+    /// one word and the segment supplies the noun.
+    private var newLabel: String {
+        switch segment {
+        case .pieces:   return "New piece"
+        case .setlists: return "New set list"
+        case .books:    return "New"
+        }
+    }
+
+    /// Raise the naming row, and put it where it can be seen.
+    ///
+    /// Item 12. The row was never dead: it is the FIRST child of the list's
+    /// LazyVStack, and Ali was scrolled into the P section of 41 pieces, so it
+    /// appeared several screens above the viewport. A LazyVStack does not even
+    /// build a child that far off screen, so its `onAppear` never ran and
+    /// there was no keyboard to notice either.
+    private func startCreating() {
+        if creatingName != nil {
+            creatingName = nil
+            creatingDraft = ""
+        } else {
+            panel.done()
+            creatingName = ""
+            creatingDraft = ""
+        }
     }
 
     private func sortButton(_ fit: LibraryBarLayout.Fit,
@@ -432,19 +479,18 @@ struct LibraryView: View {
         .accessibilityIdentifier("library-edit")
     }
 
-    /// The verbs open the panel (§7.6): Import lists the ways in, New the two
-    /// things to make. Sort and Filter open theirs the same way. One panel
-    /// state at a time, and no floating menus.
+    /// Import opens its band (§7.6); Sort and Filter open theirs the same way.
+    /// One panel state at a time, and no floating menus. New is not here: it
+    /// creates rather than offering (item 13).
     private func toggle(_ band: Band) {
         switch band {
         case .importing: panel.toggle(.importMenu)
-        case .creating:  panel.toggle(.newMenu)
         case .sort:      panel.toggle(.sort)
         case .filter:    panel.toggle(.filter)
         }
     }
 
-    private enum Band { case importing, creating, sort, filter }
+    private enum Band { case importing, sort, filter }
 
     private func rowButton(_ text: String, glyph: String,
                            iconOnly: Bool, active: Bool = false,
@@ -491,6 +537,10 @@ struct LibraryView: View {
     }
 
     private var list: some View {
+        // A reader. Item 12: raising the naming row is not enough if the row
+        // is three screens above the viewport, which is where it is for
+        // anybody scrolled past the letter A.
+        ScrollViewReader { proxy in
         ScrollView {
             // The content column is CAPPED AND CENTRED, the same rule `Screen`
             // applies to every pushed screen (L34, and A-B of
@@ -519,6 +569,7 @@ struct LibraryView: View {
                                     },
                                     onCancel: { creatingName = nil; creatingDraft = "" })
                     .onAppear { creatingDraft = creatingName ?? "" }
+                    .id(Self.creatingAnchor)
                     Theme.Rule()
                 }
 
@@ -558,7 +609,23 @@ struct LibraryView: View {
             // row now: a tester should not have to scroll past their whole
             // library to say which build they are on (#53).
         }
+        // The row is put on screen the instant it exists. Deferred by one
+        // runloop turn because the row is not in the scroll view's content
+        // until this state change has been laid out, and `scrollTo` on an id
+        // that is not there yet does nothing at all.
+        .onChange(of: creatingName == nil) { _, gone in
+            guard !gone else { return }
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(Self.creatingAnchor, anchor: .top)
+                }
+            }
+        }
+        }
     }
+
+    /// What the list scrolls to when a new thing is being named.
+    private static let creatingAnchor = "inline-create-row-anchor"
 
     @ViewBuilder
     private var grouped: some View {

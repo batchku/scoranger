@@ -24,10 +24,10 @@ final class InlineCreate: XCTestCase {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
+    /// One tap since 0.8.2 (item 13): New makes the kind the segment shows.
     private func openCreateRow(in segment: String) -> XCUIElement {
         element("segment-\(segment)").tap(); sleep(1)
         element("library-new").tap(); sleep(1)
-        element(segment == "setlists" ? "library-new-setlist" : "library-new-arrangement").tap()
         let field = app.textFields["inline-rename-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no inline row in \(segment)")
         return field
@@ -117,6 +117,61 @@ final class InlineCreate: XCTestCase {
         if row.waitForExistence(timeout: 5) {
             XCTAssertTrue(row.label.contains("1 arrangement"), "the set list should hold #1 only: \(row.label)")
         }
+    }
+
+    /// Ali, 2026-09-14 item 12: `+ New -> Piece` "does nothing".
+    ///
+    /// It was never dead. The naming row is the FIRST child of the list's
+    /// LazyVStack, and he was scrolled into the P section of 41 pieces, so it
+    /// appeared several screens above the viewport -- and a LazyVStack does
+    /// not build a child that far off screen, so its autofocus never ran and
+    /// there was no keyboard to notice either.
+    ///
+    /// `-seedLibraryShape` is what makes this fail without the fix: a library
+    /// of one piece cannot be scrolled, so the row is always on screen.
+    func testNamingANewPieceLandsOnScreenFromWhereverTheReaderIs() {
+        app = XCUIApplication()
+        app.launchArguments = ["-resetLibrary", "-resetViewPreferences",
+                               "-seedTestLibrary", "-seedLibraryShape"]
+        app.launch()
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(element("library-search").waitForExistence(timeout: 300),
+                      "the library never appeared")
+        // "All Blues" is the first row alphabetically and so the one the
+        // library opens on. Waiting for the seeded quartet instead would wait
+        // out the whole timeout: it is in the S section, which a LazyVStack
+        // has not built.
+        XCTAssertTrue(element("row-all-blues").waitForExistence(timeout: 300),
+                      "the seeded library shape never appeared")
+        // Down to the far end of the list, where he was.
+        let list = app.scrollViews.firstMatch
+        for _ in 0..<8 { list.swipeUp() }
+        sleep(1)
+        XCTAssertFalse(app.textFields["inline-rename-field"].exists,
+                       "a naming row was already up before New was tapped")
+
+        element("library-new").tap()
+        let field = app.textFields["inline-rename-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20),
+                      "New raised no naming row")
+        // ON SCREEN, not merely present: an element several screens up exists
+        // in the tree and answers `exists` perfectly happily.
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(field.isHittable,
+                      "the naming row is not on screen: \(field.frame) in \(window)")
+        XCTAssertGreaterThanOrEqual(field.frame.minY, window.minY,
+                                    "the naming row is above the viewport")
+        XCTAssertLessThanOrEqual(field.frame.maxY, window.maxY,
+                                 "the naming row is below the viewport")
+        // And READY TO TYPE (item 15).
+        XCTAssertTrue((field.value(forKey: "hasKeyboardFocus") as? Bool) == true,
+                      "the naming row is not focused, so there is no keyboard")
+        XCTAssertEqual(field.placeholderValue, "Piece name",
+                       "New on Pieces should make a piece")
+        field.typeText("Morrison's jig")
+        XCTAssertEqual(field.value as? String, "Morrison's jig",
+                       "typing did not reach the field")
+        app.buttons["inline-rename-cancel"].tap()
     }
 
     private func proposedSlug(_ name: String) -> String {

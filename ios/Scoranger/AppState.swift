@@ -1675,15 +1675,15 @@ final class AppState: ObservableObject {
     /// library files every score under a piece, so it can never show the
     /// unfiled arrangement row beside a piece row.
     private func seedLibraryShape() async {
+        // Sixteen, not forty. Each one is a separate trip through the bridge
+        // and costs seconds in the simulator; sixteen rows under sixteen
+        // letter headers is already several screens of list, which is all the
+        // fixture is for.
         let names = ["All Blues", "Balkan Ornaments", "Ciribiribin", "Djangology",
                      "El Choclo", "Fascination", "Gnossienne", "Hejira",
                      "Indifference", "Jeux d'enfants", "Kalinka", "La Foule",
-                     "Manha de Carnaval", "Nuages", "Orient Express",
-                     "Padam padam", "Quelqu'un m'a dit", "Recuerdos",
-                     "Swallowtail Jig", "Tam Lin", "Une nuit", "Valse d'Amelie",
-                     "Waltz for Debby", "Xarabanda", "Yesterdays", "Zigeunerweisen",
-                     "Auprès de ma blonde", "Berceuse", "Chanson d'automne",
-                     "Danse macabre"]
+                     "Nuages", "Orient Express", "Padam padam",
+                     "Quelqu'un m'a dit"]
         // The unfiling FIRST. `assign_score_to_piece` drops every piece left
         // holding nothing, so unfiling after the pieces are made deletes all
         // of them -- which is how the first run of this fixture produced a
