@@ -170,6 +170,12 @@ from the app).**
   several, so `app.otherElements["PopoverDismissRegion"].tap()` fails with
   "Multiple matching elements found" rather than dismissing anything. The
   sheet's own X is `header.closeButton`, and that is what the test taps.
+- **The Export rows' captions are truncated in the panel.** Seen in the
+  photograph, not in any assertion: at the score panel's 380pt the value
+  column shows "Open in another notation pr…" and "AirDrop, Files, Ma…". The
+  caption is the whole reason those rows say what a format is FOR rather than
+  what it is called, and the half a reader gets is the half without the point.
+  Cosmetic, and it belongs with whoever next touches ScreenRow's two columns.
 - **Export does not wait for the page.** Through the whole journey the score
   behind the panel still read "Opening…", and all three files came out right:
   export reads the version artifact, and the PDF is engraved from it by the
