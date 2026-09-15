@@ -91,6 +91,8 @@ struct ScorangerApp: App {
                     // after the library seed, and after the refresh that gives
                     // it a manifest to check itself against
                     await state.seedScanArrangementIfRequested()
+                    // last: it names the arrangements the seeds above made
+                    await state.seedOMRQueueIfRequested()
                     #endif
                 }
         }

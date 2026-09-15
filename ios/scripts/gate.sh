@@ -102,6 +102,9 @@ SKIP=(
   -skip-testing:ScorangerUITests/MixerShot
   # NotebookShot photographs the 0.8 pages and panel the same way.
   -skip-testing:ScorangerUITests/NotebookShot
+  # OMRQueueShot photographs the queue and the two scores either side of it,
+  # from a seed with no network. It asserts nothing.
+  -skip-testing:ScorangerUITests/OMRQueueShot
   # LayoutSwitchShot photographs the frames BETWEEN pressing a layout cell and
   # the new pages arriving, so the one-frame flash can be looked at before and
   # after the fix. It waits out three engraves and asserts nothing.

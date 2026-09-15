@@ -775,12 +775,24 @@ struct LibraryView: View {
 
     /// A piece filling up. It sits in the list from the moment the file is
     /// chosen, so "where did it go?" never has to be asked.
+    ///
+    /// THESE ROWS ARE THE TRANSCRIPTION QUEUE. They are already ordered, they
+    /// already sit at the top of the library, and every import in flight is
+    /// among them -- so the queue Ali asked to see is the list he was already
+    /// looking at, with a position on each row that has not started and the
+    /// word TRANSCRIBING or WAITING rather than a blanket IMPORTING. Adding a
+    /// second surface to show the same six rows would be a second place for
+    /// them to disagree.
     private func importingRow(_ pending: AppState.PendingImport) -> some View {
-        VStack(spacing: 0) {
+        let waiting = pending.isTranscription && pending.waiting
+        let badge = pending.isTranscription
+            ? (waiting ? "WAITING" : "TRANSCRIBING")
+            : "IMPORTING"
+        return VStack(spacing: 0) {
             HStack(spacing: Theme.Metric.s12) {
                 PageThumb()
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(pieceName(for: pending) ?? pending.name)
+                    Text(rowTitle(for: pending))
                         .typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
                     Text(pending.stage).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                     if let fraction = pending.fraction {
@@ -790,7 +802,7 @@ struct LibraryView: View {
                     }
                 }
                 Spacer(minLength: Theme.Metric.s8)
-                Text("IMPORTING").typeRole(.meta)
+                Text(badge).typeRole(.meta)
                     .foregroundStyle(Color(hex: 0x8A5A12))
                     .padding(.horizontal, 5).padding(.vertical, 1.5)
                     .background(Color(hex: 0xFBF2E6))
@@ -805,7 +817,20 @@ struct LibraryView: View {
             Theme.Rule()
         }
         .accessibilityIdentifier("importing-\(pending.id.uuidString)")
-        .accessibilityLabel("\(pieceName(for: pending) ?? pending.name), importing, \(pending.stage)")
+        .accessibilityLabel("\(rowTitle(for: pending)), \(badge.lowercased()), \(pending.stage)")
+    }
+
+    /// What the row is called. A transcription of a scan the reader already
+    /// has is named by the ARRANGEMENT it belongs to -- which is the whole
+    /// point of recording that identity -- and everything else by its piece or
+    /// its file.
+    private func rowTitle(for pending: AppState.PendingImport) -> String {
+        if let slug = pending.arrangement,
+           let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
+            return ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                              slug: score.slug)
+        }
+        return pieceName(for: pending) ?? pending.name
     }
 
     private func pieceName(for pending: AppState.PendingImport) -> String? {

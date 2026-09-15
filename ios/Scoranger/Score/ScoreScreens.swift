@@ -128,8 +128,7 @@ struct ScoreOptionsScreen: View {
             // itself; what More owes is a way back to it.
             if ScoreArtifact.canBeMadeEditable(state.displayedArtifact) {
                 ScreenRow(title: ConvertOffer.convert,
-                          value: ConvertOffer.rowValue(busy: state.omrBusy,
-                                                       stage: state.omrStage),
+                          value: ConvertOffer.rowValue(status: state.omrHere),
                           identifier: "more-make-editable") { onConvert() }
                 note(ScoreArtifact.makeEditableNote(state.displayedArtifact))
             }

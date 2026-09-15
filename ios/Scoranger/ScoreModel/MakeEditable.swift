@@ -59,29 +59,53 @@ enum MakeEditable {
         guard pages > 0 else { return ("reading…", nil) }
         let current = min(max(page, 1), pages)
         let behind = Double(current - 1) / Double(pages)
-        // "page 8 of 12", not "reading page 8 of 12". The words sit in a chip on
-        // the top bar between the layout cells and `…`, and the longer form
-        // compressed to "reading page 8…" there -- a readout that has stopped
-        // being one. Everywhere else they follow something that already says
-        // what is happening: the Make editable switch, and the score's name in
-        // the library's import row.
-        return ("page \(current) of \(pages)",
+        // "reading p. 8 / 12". Ali photographed the top bar saying "page 1 of
+        // 2" while the canvas, on the same screen in two-page view, said
+        // "pp. 1-2 / 2" -- two position readouts contradicting each other.
+        // They were never about the same thing: one is where the reader is,
+        // the other is which sheet Audiveris is on. So this one names the
+        // ACTION and counts in the same grammar the page counter uses
+        // (`ScorePosition.pageLabel`), and the pair can be read together
+        // without one denying the other.
+        //
+        // The verb was dropped once, for width: "reading page 8 of 12"
+        // compressed to "reading page 8…" in the chip. "reading p. 8 / 12" is
+        // eighteen characters, the same as "waiting (1 ahead)…", which is what
+        // `ScoreBarLayout.omrWidth` was already sized for.
+        return ("reading p. \(current) / \(pages)",
                 min(max(behind, convertingFloor), convertingCeiling))
     }
 
-    static func control(busy: Bool, stage: String?, fraction: Double?) -> OMRControl {
-        guard busy else {
+    /// The switch, from THIS ARRANGEMENT'S transcription and nothing else.
+    ///
+    /// `status` is `OMRQueue.status(ofArrangement:)` -- the single answer the
+    /// chip, the Convert panel and the transport also read. The switch used to
+    /// be built from an app-wide `busy` Bool and the chip from the same one,
+    /// which is how a score could show a progress bar with its own Make
+    /// editable off. One value, one answer, nothing to drift.
+    ///
+    /// A job WAITING its turn reads as on: the reader asked for it, and a
+    /// switch that flicks back off until the queue reaches it would look like
+    /// the tap was lost.
+    static func control(status: OMRStatus?) -> OMRControl {
+        guard let status else {
             return OMRControl(isOn: false, detail: offer, fraction: nil,
                               showsSpinner: false, acceptsTap: true)
         }
         // The stage is the OMR job's own word for what it is doing --
-        // "uploading…", "converting…", "importing…". It is more use than
-        // "reading…" was, and it is the only sign the reader gets that the
-        // wait is a wait rather than a failure.
-        let detail = (stage?.trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "reading…"
-        return OMRControl(isOn: true, detail: detail, fraction: fraction,
-                          showsSpinner: fraction == nil, acceptsTap: false)
+        // "uploading…", "converting…", "importing…" -- or its place in the
+        // queue when it has not started. It is more use than "reading…" was,
+        // and it is the only sign the reader gets that the wait is a wait
+        // rather than a failure.
+        let detail = detailText(status)
+        return OMRControl(isOn: true, detail: detail, fraction: status.fraction,
+                          showsSpinner: status.showsSpinner, acceptsTap: false)
+    }
+
+    /// The words, in one place, so the switch and the chip say the same thing.
+    static func detailText(_ status: OMRStatus) -> String {
+        let said = status.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return said.isEmpty ? "reading…" : said
     }
 }
 
@@ -121,18 +145,28 @@ enum ConvertOffer {
     /// again by opening the same scan, and More's row is how they change
     /// their mind.
     static func opens(artifact: ScoreArtifact.Kind, slug: String,
-                      answered: Set<String>, busy: Bool) -> Bool {
+                      answered: Set<String>, status: OMRStatus?) -> Bool {
         guard ScoreArtifact.canBeMadeEditable(artifact) else { return false }
-        guard !busy else { return false }
+        guard status == nil else { return false }
         guard !slug.isEmpty else { return false }
         return !answered.contains(slug)
     }
 
     /// What More's row says on its trailing edge, so the row is a summary and
     /// not a bare label (L34).
-    static func rowValue(busy: Bool, stage: String?) -> String {
-        guard busy else { return "not yet" }
-        return (stage?.trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 } ?? "reading…"
+    /// What the panel is headed by. A job that has not started yet is not
+    /// converting, and saying it is would be the same lie the app-wide busy
+    /// flag told.
+    static func heading(_ status: OMRStatus?) -> String {
+        switch status {
+        case .none:      return question
+        case .waiting:   return "In the queue"
+        case .running:   return "Converting"
+        }
+    }
+
+    static func rowValue(status: OMRStatus?) -> String {
+        guard let status else { return "not yet" }
+        return MakeEditable.detailText(status)
     }
 }

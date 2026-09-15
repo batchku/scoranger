@@ -415,12 +415,9 @@ struct ContentView: View {
                     // what 0.6.8 set out to fix. Same view, same signal -- only
                     // where it sits changes, and it sits here only while the
                     // bar is not showing it.
-                    if state.omrBusy, !barFit.showsOMRProgress,
+                    if let here = state.omrHere, !barFit.showsOMRProgress,
                        state.scoreMode != .performance {
-                        OMRProgressChip(control: MakeEditable.control(
-                                            busy: state.omrBusy,
-                                            stage: state.omrStage,
-                                            fraction: state.omrFraction),
+                        OMRProgressChip(control: MakeEditable.control(status: here),
                                         action: { setPanel(.convert(fromMore: false)) })
                     }
                 }
@@ -785,7 +782,7 @@ struct ContentView: View {
         guard ConvertOffer.opens(artifact: state.displayedArtifact,
                                  slug: state.selectedScore?.slug ?? "",
                                  answered: state.convertOfferAnswered,
-                                 busy: state.omrBusy) else { return }
+                                 status: state.omrHere) else { return }
         setPanel(.convert(fromMore: false))
     }
 

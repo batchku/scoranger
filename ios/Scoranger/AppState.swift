@@ -53,14 +53,41 @@ final class AppState: ObservableObject {
     }
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
-    @Published var omrBusy = false
-    /// The transcription in flight, so a control that OFFERS OMR can show what
-    /// OMR is doing rather than a bare "busy". Both paths in -- the More
-    /// screen's switch and the transport's button -- read it.
-    @Published private(set) var omrPendingID: UUID?
+    /// The transcription queue, projected out of `pendingImports` so the
+    /// arithmetic can be tested with no app (`OMRQueue`).
+    var omrEntries: [OMRQueue.Entry] {
+        pendingImports.filter(\.isTranscription).map {
+            OMRQueue.Entry(id: $0.id, arrangement: $0.arrangement, name: $0.name,
+                           running: !$0.waiting, stage: $0.stage, fraction: $0.fraction)
+        }
+    }
 
-    var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
-    var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
+    /// What ONE arrangement's transcription is doing, or nil. THE answer: the
+    /// top bar's chip, the Make editable switch, the Convert panel, More's row
+    /// and the transport all read this and nothing else, so they cannot
+    /// disagree.
+    ///
+    /// They used to read an app-wide `omrBusy` Bool, which is how Ali opened
+    /// one arrangement and saw another's progress -- and, worse, saw a
+    /// progress bar over a score whose own Make editable read off.
+    func omrStatus(for slug: String?) -> OMRStatus? {
+        OMRQueue.status(ofArrangement: slug, in: omrEntries)
+    }
+
+    /// The score ON SCREEN, which is what every surface in the score view
+    /// means by "is this transcribing?".
+    var omrHere: OMRStatus? { omrStatus(for: selectedSlug) }
+
+    /// Kept as a spelling for the surfaces that ask "is the score I am drawing
+    /// being transcribed?". It is SCOPED now; there is no app-wide busy flag
+    /// left to read.
+    var omrBusy: Bool { omrHere != nil }
+
+    var omrStage: String? { omrHere.map(MakeEditable.detailText) }
+    var omrFraction: Double? { omrHere?.fraction }
+
+    /// The whole queue in a line, for the surface that shows all of it.
+    var omrQueueSummary: String? { OMRQueue.summary(omrEntries) }
     /// What the lasso caught, held by durable address so it survives the
     /// re-render every engine op triggers. This replaces the yellow-band
     /// highlight, which inferred bar numbers from where a stroke landed across
@@ -729,14 +756,32 @@ final class AppState: ObservableObject {
         /// The piece it is going into, so the library can show that piece
         /// filling up rather than the import vanishing (0.4.1 item 9).
         var piece: String?
+        /// The ARRANGEMENT being transcribed, when this is OMR on demand on a
+        /// scan the reader already has. Nil when the transcription is
+        /// BECOMING an arrangement (a PDF from the share sheet), and nil for
+        /// an import that is not a transcription at all.
+        ///
+        /// Without this there was nothing to scope the progress by, which is
+        /// why the chip belonged to no arrangement: `PendingImport` recorded
+        /// the file's name and the piece and not the thing being transcribed.
+        var arrangement: String?
         /// Which list this row belongs in. A book is not an arrangement and
         /// its progress must not appear under Pieces (ImportProgress).
         var target: ImportTarget = .arrangement
+        /// Whether this import is a TRANSCRIPTION and therefore in the OMR
+        /// queue. A book being copied is an import and is not.
+        var isTranscription = false
+        /// In the queue but not started. Only a transcription waits.
+        var waiting = false
         var stage: String = "uploading…"
         /// nil = indeterminate (spinner); 0…1 = determinate bar
         var fraction: Double? = nil
     }
     @Published var pendingImports: [PendingImport] = []
+
+    /// The inputs of each queued transcription, by the id of the row that
+    /// stands for it. Not published: the row is what the reader sees.
+    private var omrWork: [UUID: OMRWork] = [:]
 
     /// What an import just brought in, for the root to OPEN (0.8.0 build
     /// 194, Ali's item 1): a reader who imported a score, from Files or from
@@ -1318,10 +1363,54 @@ final class AppState: ObservableObject {
                                      args: ["path": scan.path,
                                             "name": "Scanned score",
                                             "piece": "Scanned score"])
+            // A SECOND scan, for the pair Ali named: one arrangement being
+            // transcribed and another that is PDF-only and is not. Without
+            // two, the "different arrangement" in that sentence has to be
+            // notation, which has no Make editable row to contradict.
+            if ProcessInfo.processInfo.arguments.contains("-seedSecondScan") {
+                _ = try await local.call(op: "import-pdf",
+                                         args: ["path": scan.path,
+                                                "name": "Another scan",
+                                                "piece": "Another scan"])
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED scan failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture: a transcription queue with nothing on the network.
+    ///
+    /// Three jobs against real arrangements -- one running with a stage and a
+    /// bar, two waiting -- so the queue and the per-score chip can be
+    /// photographed and driven without an OMR service, an API key or
+    /// Audiveris. It seeds the ROWS only: no work is enqueued, so nothing is
+    /// uploaded and nothing finishes.
+    func seedOMRQueueIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-seedOMRQueue"),
+              !pendingImports.contains(where: \.isTranscription) else { return }
+        // The running one is a SCAN, transcribed on demand -- the only kind of
+        // arrangement that can be. The waiting two are PDFs on their way in,
+        // which belong to no arrangement yet; that is the mix a reader who
+        // hands the app several pieces at once actually produces.
+        // By slug, so which scan is the running one does not depend on import
+        // order and the photographs can be named truthfully.
+        guard let scan = (manifest?.scores ?? []).filter({
+            ScoreArtifact.canBeMadeEditable(
+                ScoreArtifact.kind(ofFile: $0.versions.last?.file ?? ""))
+        }).min(by: { $0.slug < $1.slug }) else { return }
+        let running = MakeEditable.converting(page: 2, pages: 9)
+        pendingImports.append(PendingImport(name: scoreName(scan.slug) ?? scan.slug,
+                                            arrangement: scan.slug,
+                                            isTranscription: true, waiting: false,
+                                            stage: running.stage,
+                                            fraction: running.fraction))
+        for name in ["Valse d'Amelie.pdf", "Padam padam.pdf"] {
+            pendingImports.append(PendingImport(name: name,
+                                                isTranscription: true, waiting: true))
+        }
+        restateTheQueue()
+        print("SCORANGER-SEED omr queue: \(OMRQueue.summary(omrEntries) ?? "none")")
     }
 
     /// Test fixture only. The app ships with no sample library: a fresh install
@@ -2011,22 +2100,38 @@ final class AppState: ObservableObject {
               let version = displayedVersion,
               ScoreArtifact.canBeMadeEditable(ScoreArtifact.kind(ofFile: version.file))
         else { return }
-        // Claimed HERE, not inside convertPDF: fetching the artifact's path is
-        // a round trip to the engine, and until this was set both ways in --
-        // the More screen's switch and the transport's button -- read as idle
-        // and a second tap started a second run on the same page.
-        guard !omrBusy else { return }
-        omrBusy = true
+        // One transcription per arrangement. Two of the same scan is two
+        // versions of the same draft and twice the wait; asking again while it
+        // is queued is a tap that must do nothing.
+        guard omrStatus(for: slug) == nil else { return }
+        // The place in the queue is claimed HERE, not inside `convertPDF`:
+        // fetching the artifact's path is a round trip to the engine, and
+        // until something was set both ways in -- the More screen's switch and
+        // the transport's button -- read as idle and a second tap started a
+        // second run on the same page.
+        let claim = PendingImport(name: scoreName(slug) ?? slug, arrangement: slug,
+                                  isTranscription: true, waiting: true,
+                                  stage: "reading the scan…")
+        pendingImports.append(claim)
         Task {
             do {
                 let path = try await local.versionFilePath(score: slug, version: version.id)
-                convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
+                convertPDF(at: URL(fileURLWithPath: path), intoScore: slug,
+                           claiming: claim.id)
             } catch {
-                omrBusy = false
+                pendingImports.removeAll { $0.id == claim.id }
                 notice = "That scan could not be opened for transcription: "
                        + OperationReport.reason(error)
             }
         }
+    }
+
+    /// What an arrangement is called, for a queue row that stands for it.
+    private func scoreName(_ slug: String) -> String? {
+        guard let score = manifest?.scores.first(where: { $0.slug == slug })
+        else { return nil }
+        return ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                          slug: score.slug)
     }
 
     /// Books opened for browsing, by slug. Not published: nothing redraws
@@ -2334,58 +2439,151 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// PDF -> MusicXML via the cloud OMR service (Audiveris on Cloud Run),
+    /// PDF -> MusicXML through the cloud OMR service (Audiveris on Cloud Run),
     /// then import. Falls back to saving into Documents/intake when no
     /// service is configured.
-    /// PDF -> MusicXML through the cloud OMR service.
     ///
     /// `intoScore` is OMR ON DEMAND: the transcription becomes the next
     /// version of that arrangement rather than a new one, so the scan the
     /// reader knows stays as v001 and the two can be compared with the version
     /// control. Without it, this is the old share-sheet path: a new
     /// arrangement from a PDF handed to the app from outside.
+    ///
+    /// It ENQUEUES. See `OMRQueue`: the work is serial on the service, so the
+    /// client keeps an ordered queue of one at a time and every score says
+    /// where in it its own transcription is.
     private func convertPDF(at url: URL, intoPiece piece: String? = nil,
-                            intoScore: String? = nil) {
+                            intoScore: String? = nil,
+                            claiming claimed: UUID? = nil) {
         let scoped = url.startAccessingSecurityScopedResource()
         let raw = try? Data(contentsOf: url)
         let name = url.deletingPathExtension().lastPathComponent
         if scoped { url.stopAccessingSecurityScopedResource() }
-        guard let raw else {
-            omrBusy = false
-            notice = "Couldn't read the scan."
-            return
+
+        /// Give the reader the reason and take the row back out of the queue.
+        func abandon(_ why: String?) {
+            if let claimed { pendingImports.removeAll { $0.id == claimed } }
+            if let why { notice = why }
         }
+
+        guard let raw else { return abandon("Couldn't read the scan.") }
         // The OMR service is handed `Content-Type: application/pdf`, so a
         // photograph is wrapped into a one-page PDF here rather than the
         // service learning about images. One helper does this and the score
         // view's own display, so what is transcribed is what was looked at.
         let kind = ScoreArtifact.kind(ofFile: url.lastPathComponent)
         guard let pdfData = ScanImage.displayable(raw, kind: kind) else {
-            omrBusy = false
-            notice = ScanImageError.undecodable.errorDescription
-            return
+            return abandon(ScanImageError.undecodable.errorDescription)
         }
         guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
-            omrBusy = false
+            abandon(nil)
             saveToIntake(pdfData, filename: url.lastPathComponent)
             return
         }
         // Notation software exports pages OMR cannot read: oversized, vector,
         // no raster layer. Re-render those before they go anywhere.
         let preflight = PDFPreflight.prepare(pdfData)
-        let uploadData = preflight.data
         if let note = preflight.note { print("SCORANGER-OMR preflight: \(note)") }
 
-        omrBusy = true
-        let pending = PendingImport(name: name, piece: piece)
-        pendingImports.append(pending)
-        omrPendingID = pending.id
-        Task {
-            defer {
-                omrBusy = false
-                omrPendingID = nil
-                pendingImports.removeAll { $0.id == pending.id }
-            }
+        // The bytes go to a file, not into the queue. A queue of scans held as
+        // Data is a queue of tens of megabytes, and the reader is invited to
+        // put several pieces in it.
+        let spool: URL
+        do {
+            spool = try spoolOMRUpload(preflight.data, id: claimed ?? UUID())
+        } catch {
+            return abandon("Couldn't hold on to that scan: "
+                           + OperationReport.reason(error))
+        }
+
+        let id: UUID
+        if let claimed, pendingImports.contains(where: { $0.id == claimed }) {
+            id = claimed
+        } else {
+            let pending = PendingImport(name: name, piece: piece,
+                                        arrangement: intoScore,
+                                        isTranscription: true, waiting: true,
+                                        stage: OMRStatus.waiting(place: 1, of: 1).detail)
+            pendingImports.append(pending)
+            id = pending.id
+        }
+        omrWork[id] = OMRWork(id: id, name: name, piece: piece,
+                              arrangement: intoScore, endpoint: endpoint,
+                              spool: spool, preflightNote: preflight.note)
+        restateTheQueue()
+        pumpOMRQueue()
+    }
+
+    /// One transcription's inputs, held while it waits its turn. Not
+    /// published: nothing on screen reads it, and the row beside it in
+    /// `pendingImports` is what the reader sees.
+    private struct OMRWork {
+        let id: UUID
+        let name: String
+        let piece: String?
+        /// The arrangement this becomes a new version of, or nil when it is
+        /// becoming an arrangement of its own.
+        let arrangement: String?
+        let endpoint: URL
+        /// The preflighted upload bytes, on disk.
+        let spool: URL
+        let preflightNote: String?
+    }
+
+    private func spoolOMRUpload(_ data: Data, id: UUID) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "omr-queue")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: "\(id.uuidString).pdf")
+        try data.write(to: file, options: .atomic)
+        return file
+    }
+
+    /// Say where each waiting job is, so a row that has not started still
+    /// reads as something rather than as a stalled upload.
+    private func restateTheQueue() {
+        let entries = omrEntries
+        for (index, pending) in pendingImports.enumerated() where pending.isTranscription && pending.waiting {
+            guard let status = OMRQueue.status(of: pending.id, in: entries) else { continue }
+            let said = MakeEditable.detailText(status)
+            if pendingImports[index].stage != said { pendingImports[index].stage = said }
+            if pendingImports[index].fraction != nil { pendingImports[index].fraction = nil }
+        }
+    }
+
+    /// Start the next transcription if a slot is free. Called when one is
+    /// added and when one finishes; `OMRQueue.next` owns the decision.
+    private func pumpOMRQueue() {
+        guard let id = OMRQueue.next(in: omrEntries), let work = omrWork[id] else { return }
+        guard let index = pendingImports.firstIndex(where: { $0.id == id }) else {
+            omrWork[id] = nil
+            return
+        }
+        pendingImports[index].waiting = false
+        pendingImports[index].stage = "uploading…"
+        pendingImports[index].fraction = 0
+        Task { await runTranscription(work) }
+    }
+
+    private func finishTranscription(_ id: UUID) {
+        if let spool = omrWork[id]?.spool { try? FileManager.default.removeItem(at: spool) }
+        omrWork[id] = nil
+        pendingImports.removeAll { $0.id == id }
+        restateTheQueue()
+        pumpOMRQueue()
+    }
+
+    private func runTranscription(_ work: OMRWork) async {
+        defer { finishTranscription(work.id) }
+        let endpoint = work.endpoint
+        let name = work.name
+        let uploadData: Data
+        do {
+            uploadData = try Data(contentsOf: work.spool)
+        } catch {
+            notice = "That scan is no longer where it was put: "
+                   + OperationReport.reason(error)
+            return
+        }
             do {
                 // stored key if present, baked-in default otherwise; a 401
                 // self-heals below by falling back to the baked key
@@ -2410,7 +2608,7 @@ final class AppState: ObservableObject {
 
                 let progressDelegate = UploadProgressDelegate { [weak self] sent in
                     Task { @MainActor in
-                        self?.updatePending(pending.id, stage: "uploading…", fraction: sent)
+                        self?.updatePending(work.id, stage: "uploading…", fraction: sent)
                     }
                 }
 
@@ -2475,7 +2673,7 @@ final class AppState: ObservableObject {
                         switch state {
                         case "queued":
                             let queue = s["queue"] as? Int ?? 0
-                            updatePending(pending.id,
+                            updatePending(work.id,
                                           stage: queue > 0 ? "waiting (\(queue) ahead)…" : "waiting for converter…",
                                           fraction: nil)
                         case "converting":
@@ -2484,7 +2682,7 @@ final class AppState: ObservableObject {
                             // ON, so the bar behind it is `page - 1` and it
                             // never fills here (MakeEditable.converting).
                             let progress = MakeEditable.converting(page: page, pages: pages)
-                            updatePending(pending.id, stage: progress.stage,
+                            updatePending(work.id, stage: progress.stage,
                                           fraction: progress.fraction)
                         case "done":
                             break poll
@@ -2502,7 +2700,7 @@ final class AppState: ObservableObject {
                 }
 
                 // -- 3. fetch result, import ---------------------------------
-                updatePending(pending.id, stage: "downloading…", fraction: nil)
+                updatePending(work.id, stage: "downloading…", fraction: nil)
                 var resultReq = URLRequest(url: endpoint.appending(path: "jobs/\(jobID)/result"))
                 resultReq.timeoutInterval = 60
                 resultReq.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
@@ -2512,12 +2710,12 @@ final class AppState: ObservableObject {
                     throw LocalEngineError.engine(detail ?? "couldn't fetch the converted score")
                 }
 
-                updatePending(pending.id, stage: "importing…", fraction: nil)
-                let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
+                updatePending(work.id, stage: "importing…", fraction: nil)
+                let tmp = FileManager.default.temporaryDirectory.appending(path: "\(work.name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
                 try data.write(to: tmp)
                 let slug: String
-                if let intoScore {
+                if let intoScore = work.arrangement {
                     // Prove it can be DRAWN before it becomes a version.
                     //
                     // OMR output is a draft and some of it cannot be engraved
@@ -2539,19 +2737,26 @@ final class AppState: ObservableObject {
                                                    recordedAs: "omr")
                     slug = intoScore
                 } else {
-                    slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
+                    slug = try await local.importScore(fileURL: tmp, name: work.name, piece: work.piece)
                 }
                 try? FileManager.default.removeItem(at: tmp)
-                selectedSlug = slug
-                previewedSlug = slug
-                // follow the newest version, which is the transcription
-                pinnedVersion = nil
+                // Follow it ONLY if the reader is already there, or if it is
+                // brand new. With a queue a transcription can land while the
+                // reader is reading something else, and jumping them off the
+                // page they are on is what a background job must never do.
+                // A new arrangement still opens: an import the reader asked
+                // for wants to be seen (0.8.0 build 194, item 1).
+                if work.arrangement == nil || selectedSlug == slug {
+                    selectedSlug = slug
+                    previewedSlug = slug
+                    // follow the newest version, which is the transcription
+                    pinnedVersion = nil
+                }
                 await refresh()
             } catch {
                 notice = PDFPreflight.advice(name: name, error: error,
-                                             preflight: preflight.note)
+                                             preflight: work.preflightNote)
             }
-        }
     }
 
     /// Reports upload byte progress for the OMR job submission.

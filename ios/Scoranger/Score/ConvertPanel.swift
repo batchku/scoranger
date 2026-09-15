@@ -23,8 +23,7 @@ struct ConvertPanel: View {
     var onAnswered: () -> Void
 
     private var omr: OMRControl {
-        MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
-                             fraction: state.omrFraction)
+        MakeEditable.control(status: state.omrHere)
     }
 
     var body: some View {
@@ -33,9 +32,9 @@ struct ConvertPanel: View {
             // out, and a third one would leave the reader unsure which of them
             // closing counts as. Running, Done is back -- the work carries on
             // without the panel.
-            PanelHeader(title: state.omrBusy ? "Converting" : ConvertOffer.question)
-                .environment(\.panelDone, state.omrBusy ? closeFromRunning : nil)
-            if state.omrBusy { running } else { offer }
+            PanelHeader(title: ConvertOffer.heading(state.omrHere))
+                .environment(\.panelDone, state.omrHere == nil ? nil : closeFromRunning)
+            if state.omrHere == nil { offer } else { running }
         }
         .padding(.bottom, Theme.Metric.s16)
         .accessibilityElement(children: .contain)

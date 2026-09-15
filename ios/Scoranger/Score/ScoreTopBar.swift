@@ -211,11 +211,10 @@ struct ScoreTopBar: View {
     private var setlistsOpen: Bool { titleMenuOpen && titleMenuMode == .setlists }
 
     /// What OMR is doing, read from the one signal the app keeps for it
-    /// (`AppState.omrBusy` + the stage of the pending import it started). No
+    /// (`AppState.omrHere`, the status of THIS arrangement's job). No
     /// second notion: the Make editable switch in Options reads exactly this.
     private var omr: OMRControl {
-        MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
-                             fraction: state.omrFraction)
+        MakeEditable.control(status: state.omrHere)
     }
 
     /// Performance mode, on the bar (0.6.8).
@@ -529,7 +528,7 @@ struct ScoreTopBar: View {
 /// minute or two the conversion takes. A reader who came back to the music saw
 /// a PDF that was still a PDF.
 ///
-/// It reads the SAME signal the Make editable switch does -- `AppState.omrBusy`
+/// It reads the SAME signal the Make editable switch does -- `AppState.omrHere`
 /// and the stage of the pending import it started, through `MakeEditable` --
 /// because two notions of "is OMR running" fall out of step the moment either
 /// moves.
