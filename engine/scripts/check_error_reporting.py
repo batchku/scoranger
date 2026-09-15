@@ -59,8 +59,9 @@ INTERNAL = {
                  "ops that consume it",
     "selectionKey": "the engraving a selection was drawn on, compared inside "
                     "carrySelection when a re-render lands",
-    "chordAdjustments": "handed to VerovioRenderer as a parameter, not read off "
-                        "AppState",
+    "markAdjustments": "what every added mark already carries, by address; read "
+                       "by retargetAdjustment to start a session from the "
+                       "notation rather than from the default, not rendered",
     "combineMode": "replace/add/subtract, applied inside the selection merge",
     "adjustTarget": "the address the open adjust session points at; the session "
                     "itself is what views read",

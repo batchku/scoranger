@@ -413,20 +413,28 @@ struct ScorePagesView: View {
     private var adjustRow: some View {
         if let session = state.adjustSession {
             VStack(alignment: .leading, spacing: 4) {
+                // TWO lines, not one. Photographed at iPad width the single
+                // row ran out of space and SwiftUI wrapped the words inside
+                // it -- "POSI/TION" and "Rese/t" -- which is the panel
+                // reporting that it does not fit by mangling its own labels.
+                // Each line here is short enough that nothing can wrap.
                 HStack(spacing: Theme.Metric.s6) {
                     Text("POSITION").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                        .fixedSize()
                     nudge(.left, "chevron.left", "left")
                     nudge(.up, "chevron.up", "up")
                     nudge(.down, "chevron.down", "down")
                     nudge(.right, "chevron.right", "right")
-
-                    Divider().frame(height: 16)
-
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: Theme.Metric.s6) {
                     Text("SIZE").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                        .fixedSize()
                     resize(.smaller, "textformat.size.smaller", "smaller")
                     Text(session.metric.readout(session.pending.size))
                         .typeRole(.data).foregroundStyle(Theme.Ink.ink)
                         .frame(minWidth: 40)
+                        .fixedSize()
                         .accessibilityLabel(session.metric.spoken(session.pending.size))
                         .accessibilityIdentifier("adjust-size")
                     resize(.bigger, "textformat.size.larger", "bigger")
@@ -437,6 +445,7 @@ struct ScorePagesView: View {
                         .typeRole(.meta)
                         .foregroundStyle(Theme.Accent.clayStrong)
                         .buttonStyle(.plain)
+                        .fixedSize()
                         .accessibilityIdentifier("adjust-reset")
                     Spacer(minLength: 0)
                 }
@@ -476,6 +485,7 @@ struct ScorePagesView: View {
         } else if (state.activeSelection?.addresses.count ?? 0) == 1 {
             HStack(spacing: Theme.Metric.s6) {
                 Text("PLACE").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                    .fixedSize()
                 Button("Move…") { state.beginPlacing(.move) }
                     .typeRole(.meta).foregroundStyle(Theme.Accent.clayStrong)
                     .buttonStyle(.plain)
@@ -502,6 +512,7 @@ struct ScorePagesView: View {
             if destination.isReady {
                 HStack(spacing: Theme.Metric.s6) {
                     Text("OFFSET").typeRole(.label).foregroundStyle(Theme.Ink.ink3)
+                        .fixedSize()
                     stepOffset(-MoveDestination.step, "minus", "earlier", destination)
                     Text(MoveDestination.quarters(destination.offset))
                         .typeRole(.data).foregroundStyle(Theme.Ink.ink)

@@ -87,3 +87,66 @@ final class TextMarkAddressTests: XCTestCase {
         XCTAssertEqual(addresses["n1"]?.kind, .note)
     }
 }
+
+/// Can a finger reach an added mark at all?
+///
+/// The adjust row is offered to a selection, a selection comes from the
+/// geometry, and the geometry is built from the SVG groups Verovio draws. A
+/// mark with no group, or with an empty frame, is adjustable in the engine and
+/// unreachable on the page -- which is indistinguishable, from the reader's
+/// side, from the feature not existing.
+final class MarkHitTargetTests: XCTestCase {
+
+    private func fixture(_ name: String, _ ext: String) throws -> String {
+        guard let url = Bundle(for: Self.self).url(forResource: name,
+                                                   withExtension: ext,
+                                                   subdirectory: "Fixtures") else {
+            XCTFail("missing fixture \(name).\(ext)")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func page() throws -> ScorePage {
+        let geometry = try ScoreModelBuilder.build(
+            svgPages: [try fixture("marks-adjusted", "svg")],
+            mei: try fixture("marks-adjusted", "mei"))
+        return try XCTUnwrap(geometry.page(0))
+    }
+
+    func testEveryAddedMarkIsOnThePageWithAFrame() throws {
+        let elements = try page().elements
+        for kind in [ScoreElementKind.dynam, .text, .fermata, .articulation] {
+            let drawn = elements.filter { $0.kind == kind }
+            XCTAssertFalse(drawn.isEmpty, "\(kind) has no drawn group at all")
+            for element in drawn {
+                XCTAssertGreaterThan(element.frame.width * element.frame.height, 0,
+                                     "\(kind) has an empty frame: \(element.frame)")
+            }
+        }
+    }
+
+    /// And a tap in the middle of one finds it, which is the rule
+    /// `AppState.addToSelection` uses.
+    func testATapInTheMiddleOfAMarkFindsThatMark() throws {
+        let page = try page()
+        for kind in [ScoreElementKind.dynam, .text, .fermata, .articulation] {
+            guard let drawn = page.elements.first(where: { $0.kind == kind })
+            else { continue }
+            let hit = page.element(at: CGPoint(x: drawn.frame.midX,
+                                               y: drawn.frame.midY))
+            XCTAssertEqual(hit?.kind, kind,
+                           "a tap on the \(kind) found \(hit?.kind.rawValue ?? "nothing")")
+        }
+    }
+
+    /// Every drawn mark carries an ADDRESS, or the op cannot be told which one
+    /// the reader pointed at.
+    func testEveryDrawnMarkIsAddressed() throws {
+        for element in try page().elements
+        where AddedMark.kinds.contains(element.kind) {
+            XCTAssertNotNil(element.address,
+                            "\(element.kind) \(element.sessionID) has no address")
+        }
+    }
+}

@@ -387,6 +387,11 @@ final class AppState: ObservableObject {
                 await refresh()
                 await renderIfNeeded(force: true)
             } catch {
+                // NOT reported to the notice bar, deliberately. The engine's
+                // refusal names the offsets that WOULD work, and the chip
+                // turns them into buttons -- a sentence in a bar that vanishes
+                // would throw that away and leave the reader where they were.
+                // `MoveDestination.refusalNote` is where it is rendered.
                 placing?.refused(OperationReport.reason(error))
             }
         }
@@ -534,6 +539,14 @@ final class AppState: ObservableObject {
         selection = combined.isEmpty ? nil : combined
         selectionKey = combined.isEmpty ? nil : geometryKey
         if combined.isEmpty { selectionPaths = [:] }
+        // The adjust row follows the selection, through THIS writer, because
+        // every route goes through it. It used to be retargeted from
+        // `commitSelection` -- the lasso's route alone -- so a chord symbol
+        // TAPPED at 2x selected fine, the chip appeared, and no adjust row
+        // came with it: `adjustSession` was still nil and the row is drawn
+        // only when it is not. Found by photographing the row: the picture was
+        // of a selection with no row under it.
+        retargetAdjustment()
         return selection
     }
 
@@ -550,9 +563,6 @@ final class AppState: ObservableObject {
         // never be changed back
         combineMode = SelectionCombine.modeAfter(combineMode,
                                                  selectionIsEmpty: combined == nil)
-        // Selecting a different symbol WRITES whatever the last one had
-        // pending, rather than carrying the pending values onto it.
-        retargetAdjustment()
         // Nothing is inserted into the chat box here any more (#4c). The user
         // builds the selection up -- lasso, add with a held finger, drop what
         // they did not mean -- and hands it over when it is right, by tapping
@@ -617,9 +627,7 @@ final class AppState: ObservableObject {
             return allStaves || address.staff == wanted
         }
         guard !members.isEmpty else { return false }
-        selection = ScoreSelection(addresses: members)
-        selectionKey = geometryKey
-        selectionPaths = [:]
+        select(members, mode: .replace)
         combineMode = .replace
         return true
     }
@@ -682,9 +690,7 @@ final class AppState: ObservableObject {
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let hit = page.element(at: scaled)?.address,
               !ScoreElementKind.barLike.contains(hit.kind) else { return false }
-        selection = (selection ?? ScoreSelection(addresses: []))
-            .combining([hit], mode: .add)
-        selectionKey = geometryKey
+        select([hit], mode: .add)
         return true
     }
 
@@ -699,12 +705,12 @@ final class AppState: ObservableObject {
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let hit = page.element(at: scaled)?.address,
               selection.addresses.contains(hit) else { return false }
-        let left = selection.dropping(hit)
-        self.selection = left.isEmpty ? nil : left
-        if left.isEmpty { selectionPaths = [:] }
-        selectionKey = left.isEmpty ? nil : selectionKey
+        // Through the writer, so the adjust row follows: dropping four of a
+        // five-element selection leaves one mark, and that is a selection the
+        // row belongs to.
+        select(selection.dropping(hit).addresses, mode: .replace)
         combineMode = SelectionCombine.modeAfter(combineMode,
-                                                 selectionIsEmpty: left.isEmpty)
+                                                 selectionIsEmpty: self.selection == nil)
         return true
     }
 
