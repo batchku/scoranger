@@ -93,13 +93,85 @@ final class ExportFromTheApp: XCTestCase {
     /// top, and underneath it the type and size iOS read off the file itself.
     /// Both are Apple's own identifiers, taken from the element tree of a real
     /// run rather than guessed at.
+    ///
+    /// ONE query each, through `snapshot()`. `top.exists ? top.label : ""` is
+    /// two, and this caption is being BUILT while it is read -- if the element
+    /// arrives between them, reading `.label` records a failure that cannot be
+    /// caught. Same fault, same fix, as `RenderShot.counter`.
     private func header() -> (name: String, detail: String) {
-        let top = app.descendants(matching: .any)
-            .matching(identifier: "LP.CaptionBar.TopCaption").firstMatch
-        let bottom = app.descendants(matching: .any)
-            .matching(identifier: "LP.CaptionBar.BottomCaption").firstMatch
-        return (top.exists ? top.label : "",
-                bottom.exists ? bottom.label : "")
+        func caption(_ id: String) -> String {
+            (try? app.descendants(matching: .any)
+                .matching(identifier: id).firstMatch.snapshot().label) ?? ""
+        }
+        return (caption("LP.CaptionBar.TopCaption"),
+                caption("LP.CaptionBar.BottomCaption"))
+    }
+
+    /// The header once it actually HAS a name.
+    ///
+    /// The sheet EXISTING and the sheet's caption being populated are two
+    /// different moments. `UIActivityViewController` puts the list up first and
+    /// resolves the file's caption afterwards, and while it does the sheet says
+    /// three things in turn: nothing, then "Sous le ciel quartet.musicxml" with
+    /// no second line, then "Sous le ciel quartet" over "MusicXML score ·
+    /// 591 KB". Reading once, straight after `waitForExistence`, wins on an
+    /// idle machine and loses under four gate workers -- which is how this test
+    /// came back with "the file is called ''".
+    ///
+    /// So it waits for the VALUE, on a bounded budget, and both of the settled
+    /// forms carry the arrangement's name, so nothing has to guess which one it
+    /// caught. A caption that never gets a name is a failure with what it saw
+    /// in the message, not something to accept.
+    /// It REPORTS what it took, because the next person to see this fail will
+    /// want the numbers rather than the argument. `reads` is the one that
+    /// matters: `reads: 1` means the first read already had a name and this
+    /// wait cost nothing, and anything above 1 is a run the old single read
+    /// would have failed on.
+    ///
+    /// What was measured here, on 2026-09-15, so nobody has to guess again:
+    /// three runs of this class on an 11-inch beside ReorgShot, RenderShot and
+    /// PhoneShot on three other simulators plus fourteen busy cores, and the
+    /// first read carried the name all twelve times (four sheets per run). The
+    /// gate's four workers found the empty name and this host would not
+    /// reproduce it. The seconds say why the old code usually got away with
+    /// it: under that load ONE caption query takes 0.86s to 3.89s to come
+    /// back, which is an accidental wait of its own. Nothing about that is a
+    /// guarantee, which is the point of making the wait deliberate.
+    private func headerOnceNamed(_ what: String,
+                                 timeout: TimeInterval = 90) -> (name: String, detail: String) {
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
+        var seen = header()
+        var polls = 1
+        while Date() < deadline {
+            if !seen.name.trimmingCharacters(in: .whitespaces).isEmpty {
+                print(String(format: "EXPORT %@: caption named after %.2fs, "
+                             + "reads: %d (1 = the first read had it; the "
+                             + "seconds include the query itself)",
+                             what, Date().timeIntervalSince(started), polls))
+                return seen
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+            seen = header()
+            polls += 1
+        }
+        XCTFail("\(what): the share sheet's caption never carried a name in "
+                + "\(Int(timeout))s -- the last thing it said was "
+                + "'\(seen.name)' / '\(seen.detail)'")
+        return seen
+    }
+
+    /// How many things the sheet offers to do with the file, once it offers
+    /// any. Built after the sheet appears, like the caption, so it is waited
+    /// for rather than read once.
+    private func shareTargets(timeout: TimeInterval = 90) -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        var count = shareSheet.cells.matching(identifier: "shareCell").count
+        while Date() < deadline, count == 0 {
+            Thread.sleep(forTimeInterval: 0.25)
+            count = shareSheet.cells.matching(identifier: "shareCell").count
+        }
+        return count
     }
 
     /// Anything on screen whose label carries this text. The file's name is
@@ -151,10 +223,12 @@ final class ExportFromTheApp: XCTestCase {
             // takes is a property of the host.
             XCTAssertTrue(shareSheet.waitForExistence(timeout: 300),
                           "\(format): no share sheet -- nothing was handed over")
-            snap("02-share-sheet-\(format)")
 
             // A real file, with the right type and a name a person can use.
-            let (name, detail) = header()
+            let (name, detail) = headerOnceNamed(format)
+            // Photographed after the caption lands, so the picture is of the
+            // file that went over rather than of a sheet still building.
+            snap("02-share-sheet-\(format)")
             print("EXPORT \(format): name '\(name)' detail '\(detail)'")
             XCTAssertTrue(name.contains(title),
                           "\(format): the file is called '\(name)' and not after "
@@ -176,7 +250,7 @@ final class ExportFromTheApp: XCTestCase {
             }
             // ...and iOS resolved it as something it can do things with.
             XCTAssertGreaterThan(
-                shareSheet.cells.matching(identifier: "shareCell").count, 0,
+                shareTargets(), 0,
                 "\(format): the sheet came up with nothing to do to the file")
 
             dismissShareSheet()
@@ -205,8 +279,10 @@ final class ExportFromTheApp: XCTestCase {
         bundle.tap()
         XCTAssertTrue(shareSheet.waitForExistence(timeout: 300),
                       "the bundle was never handed over")
+        // The same wait as the format rows: this row reads the same caption
+        // off the same sheet and had the same single read.
+        let (name, detail) = headerOnceNamed("bundle")
         snap("04-share-sheet-bundle")
-        let (name, detail) = header()
         print("EXPORT bundle: name '\(name)' detail '\(detail)'")
         // A bundle is named for the arrangement's SLUG -- it is the library's
         // own handle on it and not a title anybody typed -- and iOS knows a
