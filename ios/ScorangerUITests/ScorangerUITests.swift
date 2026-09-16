@@ -2393,8 +2393,19 @@ final class ScorangerUITests: XCTestCase {
         let broken = app.buttons["row-broken-arrangement"]
         XCTAssertTrue(broken.waitForExistence(timeout: 60),
                       "the version-less arrangement is not in the library")
-        XCTAssertTrue(broken.label.contains("0 versions"),
+        // The wording moved in 0.8.2 (item 11): an unfiled arrangement's
+        // subtitle names its KIND rather than counting versions, so a healthy
+        // one reads "Arrangement" and this one has to say more than that.
+        // Asserted against a HEALTHY row in the same list, or "contains
+        // Arrangement" would pass for both and this test would stop
+        // protecting anything.
+        XCTAssertTrue(broken.label.contains("no versions"),
                       "expected it to admit it has no versions: \(broken.label)")
+        let healthy = app.buttons["row-sous-le-ciel-de-paris"]
+        XCTAssertTrue(healthy.waitForExistence(timeout: 60),
+                      "no healthy row to tell the broken one apart from")
+        XCTAssertFalse(healthy.label.contains("no versions"),
+                       "a healthy row must not read as broken: \(healthy.label)")
         broken.tap()
 
         // it must say what is wrong rather than spin

@@ -132,6 +132,23 @@ final class ChromeShot: XCTestCase {
         snap("create-a-set-list")
     }
 
+    /// The broken row beside the healthy ones: an arrangement with no
+    /// versions has no version label and no day either, so its subtitle is
+    /// the last thing left to say it is broken.
+    func testPhotographAVersionLessArrangementInTheList() {
+        launch(["-seedBrokenArrangement"])
+        element("segment-pieces").tap()
+        let broken = element("row-broken-arrangement")
+        guard broken.waitForExistence(timeout: 120) else {
+            return XCTFail("the version-less arrangement never appeared")
+        }
+        pause(1.5)
+        print("SHOT: the broken row reads \"\(broken.label)\"")
+        let healthy = element("row-sous-le-ciel-de-paris")
+        if healthy.exists { print("SHOT: a healthy row reads \"\(healthy.label)\"") }
+        snap("rows-a-version-less-arrangement")
+    }
+
     /// The two row kinds in one picture: a piece that says how many
     /// arrangements it holds, and an arrangement that said how many versions
     /// it has.

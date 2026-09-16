@@ -141,6 +141,64 @@ final class LibraryModelTests: XCTestCase {
                        "the unfiled row lost its version label too")
     }
 
+    /// Ali's device grew a "Morrison's jig" with ZERO versions that sat on
+    /// "Opening…" for ever. The row is where a reader finds that out before
+    /// opening it, so naming the kind must not swallow the state -- a broken
+    /// row and a healthy one have to read differently.
+    ///
+    /// A separate manifest, because the shared fixture's counts are asserted
+    /// all over this file.
+    func testAVersionLessArrangementStillSaysSo() {
+        let broken = ScoreDoc(slug: "broken-arrangement", name: "Morrison's jig",
+                              title: "Morrison's jig", composer: nil, latest: nil,
+                              versions: [], sources: nil, piece: nil)
+        let m = Manifest(generated: nil,
+                         scores: [broken, score("loose-sketch", name: "Loose sketch")],
+                         pieces: nil, setlists: nil)
+        let rows = LibraryModel.unfiledRows(manifest: m)
+        let jig = rows.first { $0.title == "Morrison's jig" }
+        let healthy = rows.first { $0.title == "Loose sketch" }
+
+        XCTAssertEqual(jig?.subtitle, "Arrangement · no versions")
+        XCTAssertEqual(healthy?.subtitle, "Arrangement")
+        XCTAssertNotEqual(jig?.subtitle, healthy?.subtitle,
+                          "a broken arrangement reads exactly like a healthy one")
+        // And the state is in the SUBTITLE, not only a chip: `LRow.spoken` is
+        // title + subtitle + meta, so a chip-only warning never reaches
+        // VoiceOver. `meta` is empty here -- no label, no day -- which is why
+        // the subtitle is the last thing left to say it.
+        XCTAssertEqual(jig?.meta, "", "a version-less row has no meta to lean on")
+    }
+
+    /// The piece row hid the same fault, and hid it before 0.8.2 too: it
+    /// counts what it holds, and a piece whose arrangements have no versions
+    /// has an empty `meta` as well.
+    func testAPieceWithNothingToOpenSaysSo() {
+        let empty = ScoreDoc(slug: "jig-1", name: "Morrison's jig",
+                             title: "Morrison's jig", composer: nil, latest: nil,
+                             versions: [], sources: nil, piece: "jig")
+        let m = Manifest(generated: nil,
+                         scores: [empty, score("libertango-1", name: "Libertango",
+                                               composer: "Piazzolla", piece: "libertango")],
+                         pieces: [PieceDoc(slug: "jig", name: "Morrison's jig",
+                                           arrangements: ["jig-1"]),
+                                  PieceDoc(slug: "libertango", name: "Libertango",
+                                           arrangements: ["libertango-1"]),
+                                  PieceDoc(slug: "nothing", name: "Nothing yet",
+                                           arrangements: [])],
+                         setlists: nil)
+        let rows = LibraryModel.pieceRows(manifest: m)
+
+        XCTAssertEqual(rows.first { $0.title == "Morrison's jig" }?.subtitle,
+                       "1 arrangement · no versions")
+        XCTAssertEqual(rows.first { $0.title == "Libertango" }?.subtitle,
+                       "Piazzolla · 1 arrangement")
+        // A piece holding nothing already says so; "no versions" on top of
+        // "0 arrangements" is the same absence twice.
+        XCTAssertEqual(rows.first { $0.title == "Nothing yet" }?.subtitle,
+                       "0 arrangements")
+    }
+
     func testAFiledArrangementIsNotListedAsUnfiled() {
         let rows = LibraryModel.unfiledRows(manifest: manifest)
         XCTAssertFalse(rows.contains { $0.title == "Accordion duo" })
