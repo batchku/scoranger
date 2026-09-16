@@ -100,15 +100,60 @@ final class SwipeAtTheEdge: XCTestCase {
         // swipe-to-turn was left unwired in 0.6.14 as half-finished; what it
         // lacked -- the edge read at the START of the gesture, the readout
         // following the index -- is what makes both halves hold now.
+        // The state the SECOND drag begins in, which is what decides whether it
+        // is a swipe at all: `PagedCanvas.swipeMayTurn` turns when there is no
+        // slack -- at fit, or already hard against the limit WHEN THE GESTURE
+        // BEGAN.
+        print("SWIPE before the second drag: zoom=\(canvas.value as? String ?? "?") "
+              + "page.maxX=\(page.frame.maxX) canvas.maxX=\(canvas.frame.maxX) "
+              + "counter='\(app.staticTexts["counter-pages"].label)'")
         drag()
         settle(canvas, still: 0.8)
         snap("second-drag-from-the-edge")
+        // WHICH OF THE TWO FAILED, said by the test rather than worked out
+        // afterwards. The canvas names the page it is showing, so p1 with the
+        // counter still on p. 1 is a readout that has not caught up, and p0
+        // still there is a gesture that was never read as a swipe at all.
+        //
+        // This is here because the gate found the second one and the message
+        // could not tell them apart. What it is most likely to be, if it
+        // happens again (`TurnTapRecognizer`): the swipe branch in
+        // `touchesEnded` is gated on `!wasPress`, and `wasPress` is set by a
+        // 0.25s timer armed at touch-down and cancelled only once the finger
+        // has moved past `PageTurn.tapSlop`. `press(forDuration: 0.05,
+        // thenDragTo:)` holds the finger STILL for 0.05s first. A host that
+        // stretches the synthetic event stream five-fold -- four gate workers
+        // on one machine -- delivers a finger that sat still for longer than a
+        // quarter of a second, which this app correctly calls a press. The
+        // loupe comes up and the turn never happens, at any distance. No wait
+        // fixes that, and the number to change is not in this file.
+        func showing(_ suffix: String) -> Bool {
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier ENDSWITH %@", suffix))
+                .firstMatch.exists
+        }
+        let observed = Date()
+        let onP1 = showing("/p1")
+        print("SWIPE observed immediately after the drag: p0=\(showing("/p0")) "
+              + "p1=\(onP1) counter='\(app.staticTexts["counter-pages"].label)' "
+              + "zoom=\(canvas.value as? String ?? "?")")
         let turned = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label != %@", before),
             object: app.staticTexts["counter-pages"])
-        XCTAssertEqual(XCTWaiter().wait(for: [turned], timeout: 10), .completed,
+        let outcome = XCTWaiter().wait(for: [turned], timeout: 10)
+        print(String(format: "SWIPE after the wait (%.2fs): p0=%@ p1=%@ "
+                     + "counter='%@' outcome=%@",
+                     Date().timeIntervalSince(observed),
+                     String(describing: showing("/p0")), String(describing: showing("/p1")),
+                     app.staticTexts["counter-pages"].label,
+                     outcome == .completed ? "completed" : "timedOut"))
+        XCTAssertEqual(outcome, .completed,
                        "a swipe that began at the edge did not turn the page: "
-                       + "still \(app.staticTexts["counter-pages"].label)")
+                       + "still \(app.staticTexts["counter-pages"].label). "
+                       + (onP1
+                          ? "The canvas DID turn -- this is the readout, not the gesture."
+                          : "The canvas is still on page 1 -- the drag was not read "
+                            + "as a swipe, so no wait would have helped."))
         XCTAssertTrue(app.staticTexts["counter-pages"].label.hasPrefix("p. 2 "),
                       "the readout did not follow the swipe-turn: "
                       + "\(app.staticTexts["counter-pages"].label)")
