@@ -331,11 +331,19 @@ final class LibraryModelTests: XCTestCase {
 /// Tags on a piece: shown as chips, and findable by typing.
 final class LibraryTagTests: XCTestCase {
 
+    /// The arrangement HAS its v001. The fixture used to say `latest: "v001"`
+    /// and carry no versions at all, which is not a piece -- it is the broken
+    /// shape `testAPieceWithNothingToOpenSaysSo` is about, and once the piece
+    /// row started admitting that shape this credit test was asserting it by
+    /// accident.
     private func manifest(tags: [String]) -> Manifest {
         Manifest(generated: "", scores: [
             ScoreDoc(slug: "a1", name: "Pravo Horo", title: "Pravo Horo",
                      composer: nil, latest: "v001",
-                     versions: [], sources: nil, piece: "pravo")],
+                     versions: [VersionDoc(id: "v001", file: "v001.musicxml",
+                                           op: "import", time: "2026-08-25T14:02:00",
+                                           parts: nil, turn: nil)],
+                     sources: nil, piece: "pravo")],
                  pieces: [PieceDoc(slug: "pravo", name: "Pravo Horo",
                                    arrangements: ["a1"], composer: "Boris Karlov",
                                    arranger: nil, tags: tags)],
