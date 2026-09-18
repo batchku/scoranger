@@ -3307,6 +3307,23 @@ final class ScorangerUITests: XCTestCase {
     /// stroke must not come back. Stroke counts are read off the canvas.
     func testAnnotationUndoAcrossColourChange() {
         openArrangement(firstArrangement)
+        // THE ENGRAVING FIRST. The annotation canvas is a child of a PAGE, so
+        // it cannot exist until the pages do, and the pages are an engine
+        // round trip away. What stood here was a ten-second wall-clock budget
+        // spent across that round trip -- one of the "fifteen places [that]
+        // waited twelve seconds for this and hoped" that `waitForEngraving`
+        // was written to remove, and the one place that never got converted.
+        //
+        // Measured 2026-09-17, solo on an idle machine, at this commit AND at
+        // 38bd7557 before items 8-10: the wait took 7.2 of its 10 seconds and
+        // passed with 2.8 to spare. Under four gate workers it ran out, twice.
+        // Nothing about the branch made it slower -- 7.15s at HEAD against
+        // 7.23s at the base -- the budget was always this close to the edge.
+        //
+        // `waitForEngraving` waits for the SIGNAL instead, and for this
+        // arrangement's own engraving rather than whatever page happens to be
+        // on screen. Every assertion below is unchanged.
+        waitForEngraving(of: firstArrangement)
         XCTAssertTrue(app.buttons["score-edit"].waitForExistence(timeout: 90),
                       "the markup toggle never appeared in the pill")
         app.buttons["score-edit"].tap()
@@ -3316,7 +3333,7 @@ final class ScorangerUITests: XCTestCase {
         let canvas = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
             .firstMatch
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no annotation canvas")
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no annotation canvas")
 
         func strokes() -> Int {
             Int((canvas.value as? String)?
