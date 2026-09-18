@@ -1862,8 +1862,22 @@ def simplify_rhythm(score, mode: str, names: list[str] | None = None,
                  f"{note_value_name(after)}, still faster than the "
                  f"{note_value_name(step)} you asked for")
         if mode == "thin":
+            # name the bars, not a guess at why. Two different things leave a
+            # fast note behind: a bar left alone whole, and a grid note pinned
+            # short by an off-grid note too long to drop -- and lengthening
+            # that one would mean moving the note after it.
+            where = sorted({m.number for part in targets
+                            for m in _measures_in_range(part, from_measure,
+                                                        to_measure)
+                            for cont in (list(m.voices) or [m])
+                            for el in _sounding(cont)
+                            if not el.isRest and not el.duration.isGrace
+                            and 0 < float(el.quarterLength) < step - 1e-6})
+            report["measures_still_fast"] = where
             report["still_faster_than_unit"] = (
-                short + " -- the bars left alone are where it is")
+                short + f" -- in bar{'s' if len(where) > 1 else ''} "
+                f"{', '.join(str(n) for n in where)}. Lengthening those would "
+                f"mean moving the note after them, which this op will not do.")
         elif _can_double_again(targets, from_measure, to_measure):
             report["still_faster_than_unit"] = (
                 short + " -- run it again to double once more")
