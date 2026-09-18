@@ -220,6 +220,47 @@ earlier ones.
    implies on the sharing path. Mostly Ali's decisions and a document. It
    belongs here because it gets harder the more external testers hold the app.
 
+### Found while building 0.9.0: two licence texts that do not ship
+
+Building Settings -> "How Scoranger works" meant auditing what the app
+actually carries, against `ios/project.yml`, `Package.resolved`, the vendored
+trees under `ios/Vendor/`, `ios/PythonApp/app_packages/` and each Python
+package's own `.dist-info`. The credit list on that screen is the result and
+NAMES everything found. Two gaps are about the licence TEXTS, which several of
+these licences require to travel with the binary, and neither is fixed by a
+screen that names them:
+
+1. **`ios/scripts/vendor_engine.sh` deletes every `.dist-info` on the way into
+   the bundle**, and the `LICENSE` file goes with it. Eleven packages ship
+   without their text: music21 (BSD-3-Clause), pypdf (BSD-3-Clause), requests
+   (Apache-2.0), urllib3 (MIT), certifi (MPL-2.0), idna (BSD-3-Clause),
+   chardet (0BSD), charset-normalizer (MIT), joblib (BSD-3-Clause), jsonpickle
+   (BSD-3-Clause), more-itertools (MIT), webcolors (BSD-3-Clause). BSD-3,
+   MIT, Apache-2.0 and MPL-2.0 all require the notice in a binary
+   distribution. The fix is to keep each `dist-info/LICENSE*` rather than the
+   whole `dist-info` (which is what made the directory worth deleting -- it is
+   mostly `RECORD` and `WHEEL`), and to show them on this screen. A side
+   effect of the same deletion, unrelated and harmless: `jsonpickle` reports
+   its version as `0.0.0-alpha` on the device, because it reads
+   `importlib.metadata`.
+
+2. **The C libraries inside BeeWare's Python build carry no licence files in
+   this tree.** `ios/Vendor/VERSIONS` declares OpenSSL 3.5.7, XZ 5.6.4,
+   Zstandard 1.5.7, BZip2 1.0.8, libFFI 3.4.7 and mpdecimal 4.0.0, and
+   `Scoranger.app/Frameworks/` confirms every one of them ships. The only
+   licence file anywhere under `ios/Vendor/Python.xcframework` is CPython's
+   own. 0.9.0 NAMES them on the credits screen, beside the Python build that
+   brings them, and deliberately gives them no SPDX identifier, because
+   nothing in this tree states one and a guessed licence identifier on a
+   shipping attribution screen is worse than an honest gap. Source the six
+   texts upstream and add them.
+
+Also found, and NOT a problem: `samples-seed` holds two copyrighted editions
+in a Debug build only. `project.yml`'s "Bake UI-test fixtures" phase removes
+it for every other configuration and `check_no_bundled_scores.py` is the
+release gate, both since 0.6.20. An audit of a Debug `.app` will keep finding
+it; that is the gate working, not a leak.
+
 ### Found while building 0.8.2, recorded because nothing else records it
 
 **Two faults in the shipped rendering path, on every page, for months.** Both
