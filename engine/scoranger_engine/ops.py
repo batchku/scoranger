@@ -1543,7 +1543,12 @@ def _thin_container(container, step: float, phase: float) -> dict | None:
 
     kept, dropped = [], []
     for el in events:
-        if el.duration.isGrace or not on_grid(float(el.offset)):
+        # a note already as long as the unit is not one of the fast ones and is
+        # kept wherever it starts. Without this, three quarter-note TRIPLETS --
+        # each longer than an eighth, and not what anyone means by "too fast" --
+        # are two-thirds deleted for landing between the eighth lines.
+        long_enough = float(el.quarterLength) >= step - 1e-6
+        if el.duration.isGrace or not (long_enough or on_grid(float(el.offset))):
             dropped.append(el)
         elif kept and abs(float(el.offset) - float(kept[-1].offset)) < 1e-6:
             dropped.append(el)  # a second attack on the same grid line
