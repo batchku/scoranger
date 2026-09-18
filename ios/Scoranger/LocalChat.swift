@@ -2,7 +2,7 @@ import Foundation
 
 /// On-device arrangement agent: an OpenAI-style tool loop over OpenRouter,
 /// dispatching tool calls into the embedded Python engine. Mirrors
-/// engine/scoranger_engine/chat.py (same instructions, same 21 tools).
+/// engine/scoranger_engine/chat.py (same instructions, same tools).
 struct LocalChat {
 
     /// Friendly alias -> OpenRouter model slug (mirror of chat.py MODELS,
@@ -51,6 +51,16 @@ struct LocalChat {
     and changes key -- right for "put this in D", wrong for a harmony. Never \
     answer that scale-degree transposition within a key is unsupported; it is \
     transpose_diatonic.
+    8. "I can't play this fast", "reduce the 16ths to eighths", "simplify the \
+    rhythm" is simplify_rhythm, and it has TWO answers that are different \
+    pieces of music: augment (every value doubles, the meter's denominator \
+    halves, nothing is lost, the passage lasts twice as long) and thin (notes \
+    between the beats are dropped, the passage keeps its place and length). \
+    Never say rhythmic augmentation or quantization is unsupported, and never \
+    choose between the two silently -- say which you used and what it cost, \
+    and relay notes_removed when you thinned. A solo can have augment for \
+    free; a part playing with others can only be thinned. The third answer \
+    needs no tool: play it slower, which is what augmenting writes down.
     Answer concisely; the user sees the score update live.
     """
 
@@ -211,6 +221,15 @@ struct LocalChat {
                                      "monophonic": bool("keep only the lowest note per moment")],
                                     required: ["part"]),
                  op: "limit-part", rename: [:]),
+        ToolSpec(name: "simplify_rhythm",
+                 description: "Make a passage slower to READ. This is the tool for \"I can't play this fast\", \"reduce the 16th notes down to eighth notes\", \"simplify the rhythm\", \"this run is too quick for me\". Never answer that rhythmic augmentation or quantization is unsupported. DO NOT pick a mode silently — the two are different pieces of music. mode='augment': every value doubles and the meter's denominator halves (4/4 becomes 4/2), so every sixteenth is written as an eighth. NOT ONE NOTE IS LOST and no bar is added or renumbered; the passage lasts twice as long, which is to say it sounds at half speed. Right for a SOLO. It changes how long a bar lasts, so it applies to the whole score — naming one part of a multi-part score is refused. mode='thin': attacks are quantized onto the unit grid and the notes between are DROPPED. The passage keeps its place in the bar and its length, so it still fits everything else playing, but it is no longer the same tune. Right for a part in an ensemble. RELAY notes_removed and removed_by_measure — that is someone's music. A third answer needs no tool at all: play it slower, which is exactly what augmenting writes down; offer it before rewriting anything. If the score has one part, offer augment first — it costs nothing. When unsure which the reader wants, ASK. Set from_measure/to_measure to fix just the passage that defeats them. Read the result's `cost` sentence and pass its substance on.",
+                 parameters: params(["mode": str("'augment' (double the values, lose nothing, twice as long) or 'thin' (drop notes, keep the place and the length)"),
+                                     "part": str("required for thin; for augment, only meaningful on a one-part score"),
+                                     "unit": str("the fastest value to read: 'eighth' (default), '16th', 'quarter'"),
+                                     "from_measure": int("first measure of the passage"),
+                                     "to_measure": int("last measure of the passage")],
+                                    required: ["mode"]),
+                 op: "simplify-rhythm", rename: [:]),
         ToolSpec(name: "simplify_repeats",
                  description: "Collapse measures that only restate one pitch class (octave jumps/repeats) to a downbeat note + rests.",
                  parameters: params(["part": str("part name")], required: ["part"]),

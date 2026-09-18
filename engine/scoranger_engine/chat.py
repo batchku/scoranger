@@ -63,7 +63,17 @@ Working rules:
    and changes key -- right for "put this in D", wrong for a harmony. Never
    answer that scale-degree transposition within a key is unsupported; it is
    transpose_diatonic.
-8. Accidentals ARE yours to control, and the tools are clean_accidentals (a
+8. "I can't play this fast", "reduce the 16ths to eighths", "simplify the
+   rhythm" is simplify_rhythm, and it has TWO answers that are different pieces
+   of music: augment (every value doubles, the meter's denominator halves,
+   nothing is lost, the passage lasts twice as long) and thin (notes between
+   the beats are dropped, the passage keeps its place and length). Never say
+   rhythmic augmentation or quantization is unsupported, and never choose
+   between the two silently -- say which you used and what it cost, and relay
+   `notes_removed` when you thinned. A solo can have augment for free; a part
+   playing with others can only be thinned. The third answer needs no tool:
+   play it slower, which is what augmenting writes down.
+9. Accidentals ARE yours to control, and the tools are clean_accidentals (a
    whole part or score) and set_accidental (named notes: add, remove, show,
    hide, colour). If a reader says a part has accidentals that are already in
    the key signature, or is cluttered or hard to read, run clean_accidentals on
@@ -322,6 +332,59 @@ def octave_shift(ctx: RunContext[str], part: str, octaves: int,
                   lambda s: ops.octave_shift(s, part, octaves, from_measure, to_measure))
 
 
+def simplify_rhythm(ctx: RunContext[str], mode: str, part: str | None = None,
+                    unit: str = "eighth", from_measure: int | None = None,
+                    to_measure: int | None = None) -> dict:
+    """Make a passage slower to READ. This is the tool for "I can't play this
+    fast", "reduce the 16th notes down to eighth notes", "simplify the rhythm",
+    "this run is too quick for me", "make it easier to play".
+
+    Never answer that rhythmic augmentation or quantization is unsupported; it
+    is this tool. But DO NOT pick a mode silently -- the two are different
+    pieces of music and the reader has to know which one they are getting.
+
+    mode='augment' -- every value doubles and the meter's denominator halves
+    (4/4 becomes 4/2), so every sixteenth is written as an eighth. NOT ONE NOTE
+    IS LOST and no bar is added or renumbered. The cost is time: the passage
+    lasts twice as long, which is to say it sounds at half speed. This is the
+    right answer for a SOLO, where nothing has to line up with anything. It
+    changes how long a bar lasts, so it applies to the whole score -- naming one
+    part of a multi-part score is refused, and rightly.
+
+    mode='thin' -- attacks are quantized onto the `unit` grid and the notes
+    between them are DROPPED. The passage keeps its place in the bar and its
+    length, so it still fits everything else playing. It is no longer the same
+    tune. This is the right answer for a part in an ensemble. The result
+    reports `notes_removed` and `removed_by_measure`: RELAY THEM. That is
+    someone's music.
+
+    And there is a third answer that needs no tool at all: play it slower.
+    Augmenting IS that answer written into the notation, so if the reader only
+    wants relief and does not need the page changed, say so before rewriting
+    anything.
+
+    How to choose: if the score has one part, offer augment first -- it costs
+    nothing. If the part plays with others, augment is not available and thin
+    is the only notation change there is; say what it will cost before doing
+    it. When you are unsure which the reader wants, ASK; the difference between
+    "the same tune, slower" and "fewer notes, same speed" is not yours to
+    decide for them.
+
+    `unit` is the fastest value they want to read: 'eighth' (default), '16th',
+    'quarter'. Set from_measure/to_measure (inclusive) to fix just the passage
+    that defeats them rather than the whole piece -- usually what is wanted.
+
+    Read the result's `cost` sentence and pass its substance on. Augment can
+    take a passage carrying 32nds only as far as 16ths in one pass, and 4/4
+    doubles to 4/2 and no further; when that happens the result says so and
+    names thinning as what is left."""
+    return _apply(ctx.deps, "simplify-rhythm",
+                  {"mode": mode, "part": part, "unit": unit,
+                   "from_measure": from_measure, "to_measure": to_measure},
+                  lambda s: ops.simplify_rhythm(s, mode, [part] if part else None,
+                                                unit, from_measure, to_measure))
+
+
 def merge_parts(ctx: RunContext[str], parts: list[str], new_name: str, clef: str = "treble") -> dict:
     """Merge several parts losslessly into one staff (each source becomes a voice)."""
     return _apply(ctx.deps, "merge-parts", {"parts": parts, "name": new_name, "clef": clef},
@@ -521,7 +584,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, clean_accidentals, set_accidental, set_rehearsal,
          change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
-         limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
+         limit_part, simplify_repeats, simplify_rhythm, analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
          guitar_tablature,
          set_structure,
