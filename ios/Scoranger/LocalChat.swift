@@ -2,7 +2,7 @@ import Foundation
 
 /// On-device arrangement agent: an OpenAI-style tool loop over OpenRouter,
 /// dispatching tool calls into the embedded Python engine. Mirrors
-/// engine/scoranger_engine/chat.py (same instructions, same 21 tools).
+/// engine/scoranger_engine/chat.py (same instructions, same tools).
 struct LocalChat {
 
     /// Friendly alias -> OpenRouter model slug (mirror of chat.py MODELS,
@@ -51,6 +51,16 @@ struct LocalChat {
     and changes key -- right for "put this in D", wrong for a harmony. Never \
     answer that scale-degree transposition within a key is unsupported; it is \
     transpose_diatonic.
+    8. "I can't play this fast", "reduce the 16ths to eighths", "simplify the \
+    rhythm" is simplify_rhythm, and it has TWO answers that are different \
+    pieces of music: augment (every value doubles, the meter's denominator \
+    halves, nothing is lost, the passage lasts twice as long) and thin (notes \
+    between the beats are dropped, the passage keeps its place and length). \
+    Never say rhythmic augmentation or quantization is unsupported, and never \
+    choose between the two silently -- say which you used and what it cost, \
+    and relay notes_removed when you thinned. A solo can have augment for \
+    free; a part playing with others can only be thinned. The third answer \
+    needs no tool: play it slower, which is what augmenting writes down.
     Answer concisely; the user sees the score update live.
     """
 

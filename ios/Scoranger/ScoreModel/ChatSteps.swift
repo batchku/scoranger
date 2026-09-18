@@ -116,6 +116,11 @@ enum ChatSteps {
         case "consolidate_ties": return "Cleaning up ties"
         case "limit_part": return "Limiting \(s("part") ?? "part") for playability"
         case "simplify_repeats": return "Simplifying repeated bass notes"
+        // The MODE is the step: augmenting keeps every note and thinning
+        // throws some away, and a reader watching should be told which.
+        case "simplify_rhythm":
+            if s("mode") == "augment" { return "Doubling every note value" }
+            return "Thinning \(s("part") ?? "the rhythm") to \(s("unit") ?? "eighth")s"
         default:
             return name.replacingOccurrences(of: "_", with: " ").capitalized
         }

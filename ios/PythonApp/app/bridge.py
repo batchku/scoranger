@@ -549,6 +549,10 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: ops.consolidate_ties(sc, a["parts"]))
     if op == "limit-part":
         return _mutate(s, op, a, lambda sc: ops.limit_part(sc, a["part"], a.get("max_pitch"), a.get("monophonic", False)))
+    if op == "simplify-rhythm":
+        return _mutate(s, op, a, lambda sc: ops.simplify_rhythm(
+            sc, a["mode"], [a["part"]] if a.get("part") else None,
+            a.get("unit", "eighth"), a.get("from_measure"), a.get("to_measure")))
     if op == "simplify-repeats":
         return _mutate(s, op, a, lambda sc: ops.simplify_repeats(sc, a["part"]))
     if op == "strip-notes":

@@ -126,6 +126,58 @@ scor strip-notes <score> --part X         # empty a staff of notes, keep chord s
 scor octave-shift <score> --part X --octaves -1 --from-measure 55 --to-measure 69
 scor rebuild-part <score> --part X --source-version vNNN --base "Violin II" [--overlay Viola] [--rules ...]
 scor simplify-repeats <score> --part "Acc. Bass"   # 1-pitch-class measures -> downbeat quarter + rests
+scor simplify-rhythm <score> --mode augment|thin [--part X] [--unit eighth]
+                     [--from-measure N] [--to-measure M]
+  # "Make this easier to play by reducing the 16th notes down to reasonable
+  # eighth notes I can't play this fast." The agent answered that it had no tool
+  # for rhythmic augmentation or quantization and offered a transposition
+  # instead, which was CORRECT -- it refused to invent notation. The gap was an
+  # op, and the ask is two different pieces of music, so `--mode` names which
+  # one and the report says what it cost. The op does not choose; neither should
+  # the agent, silently.
+  #   AUGMENT  every value doubles and the meter's denominator halves: 4/4 ->
+  #            4/2, every sixteenth written as an eighth. NOT ONE NOTE IS LOST,
+  #            no bar is added and nothing is renumbered, so every repeat, volta
+  #            and rehearsal mark still points where it did. The cost is TIME:
+  #            the passage lasts twice as long, which is to say it sounds at
+  #            half speed. That is the third answer nobody raises -- just play
+  #            it slower -- written into the notation, and the report says so,
+  #            because a reader who only wants relief should not be handed a
+  #            rewritten score. Doubling the tempo mark back would undo it
+  #            entirely. How long a bar lasts is not a property of one staff, so
+  #            this applies to the WHOLE score: naming one part of a multi-part
+  #            score is refused by name. 4/4 doubles to 4/2 and no further --
+  #            4/1 is not a meter to hand a reader -- so a passage carrying
+  #            32nds reaches 16ths in one pass and the report names thinning as
+  #            what is left rather than suggesting a second pass that would be
+  #            refused.
+  #   THIN     attacks are quantized onto the --unit grid and what falls between
+  #            them is DROPPED. The passage keeps its place in the bar and its
+  #            length, so it still fits whatever else is playing; it is no
+  #            longer the same tune. `notes_removed` and `removed_by_measure`
+  #            are in the report and must be relayed -- that is someone's music.
+  # WHICH NOTES THINNING KEEPS is the metrical judgement: an attack survives if
+  # it lands ON the grid, counted from the bar's metrical start so a pickup's
+  # paddingLeft is in the sum, and each survivor stretches to the next. Four
+  # sixteenths keep the first and third; a dotted eighth plus a sixteenth keeps
+  # the dotted eighth as a quarter and loses the pickup sixteenth; an
+  # eighth-note syncopation is on the grid and is untouched. A note ALREADY as
+  # long as the unit is kept wherever it starts, or three quarter-note triplets
+  # -- longer than an eighth, and not what anyone means by too fast -- are
+  # two-thirds deleted for landing between the lines. Nothing is ever MOVED: a
+  # dropped note is honest and a displaced one lies about when the music sounds.
+  # A bar attacked entirely off the grid is left exactly as written and
+  # REPORTED, rather than emptied.
+  # Two things point AT a note and have to be repaired when it goes. A Spanner
+  # does not live on the staff, and a slur whose end was removed is handed to
+  # the note that swallowed it (a slur left with one end is dropped and
+  # counted); a Beam describes a group, so a thinned bar is re-beamed from the
+  # meter. The first render of real music came back with one slur arcing across
+  # a whole system and 11 beamspans Verovio could not close.
+  # Proof: engine/scripts/check_rhythm_simplify.py, which drives the BINARY --
+  # argparse wiring, flag mapping, JSON on stdout, refusals on stderr -- and
+  # asserts the judgement bar by bar against fixtures.sax_study. check_rhythm.py
+  # holds thinning to the part's LENGTH and augmentation to its factor.
 scor analyze <score> [--parts ...]        # per-bar harmony candidates (read-only) — agent adjudicates
 scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"Fm"},...] -> <harmony> symbols
 scor clean-accidentals <score> [--parts "..."]

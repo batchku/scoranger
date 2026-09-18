@@ -86,6 +86,47 @@ final class ChatDispatchTests: XCTestCase {
         XCTAssertEqual(call.args["part"] as? String, "Acc. Chords")
     }
 
+    /// `simplify-rhythm` arrived on its own branch, which put its tool spec in
+    /// `LocalChat` -- where the table used to live. Merged into a tree that had
+    /// already moved the table here, the spec had to move with it or the op
+    /// would have been another `strip-notes`: complete in the engine, in the
+    /// CLI and in the bridge, and unreachable from the iPad.
+    func testSimplifyRhythmIsReachableInBothModes() throws {
+        let augment = try dispatch("simplify_rhythm", #"{"mode": "augment"}"#)
+        XCTAssertEqual(augment.op, "simplify-rhythm")
+        XCTAssertEqual(augment.args["mode"] as? String, "augment")
+
+        let thinned = try dispatch("simplify_rhythm", #"""
+            {"mode": "thin", "part": "Violin I", "unit": "eighth", "from_measure": 12, "to_measure": 20}
+            """#)
+        XCTAssertEqual(thinned.op, "simplify-rhythm")
+        XCTAssertEqual(thinned.args["part"] as? String, "Violin I")
+        XCTAssertEqual(thinned.args["unit"] as? String, "eighth")
+        XCTAssertEqual(thinned.args["from_measure"] as? Int, 12)
+        XCTAssertEqual(thinned.args["to_measure"] as? Int, 20)
+    }
+
+    /// The two modes are different pieces of music, so the description has to
+    /// say so and the model must not be able to default into one.
+    func testSimplifyRhythmRefusesToChooseAModeForTheReader() throws {
+        let spec = try XCTUnwrap(ChatTools.all.first { $0.name == "simplify_rhythm" })
+        let required = try XCTUnwrap(spec.parameters["required"] as? [String])
+        XCTAssertEqual(required, ["mode"])
+        XCTAssertTrue(spec.description.contains("DO NOT pick a mode silently"), spec.description)
+        XCTAssertTrue(spec.description.contains("NOT ONE NOTE IS LOST"), spec.description)
+        XCTAssertTrue(spec.description.contains("DROPPED"), spec.description)
+    }
+
+    /// A reader watching the checklist is told which of the two ran.
+    func testTheStepLineSaysWhichAnswerWasTaken() {
+        XCTAssertEqual(ChatSteps.stepTitle(name: "simplify_rhythm",
+                                           argsJSON: #"{"mode": "augment"}"#),
+                       "Doubling every note value")
+        XCTAssertEqual(ChatSteps.stepTitle(name: "simplify_rhythm",
+                                           argsJSON: #"{"mode": "thin", "part": "Violin I", "unit": "16th"}"#),
+                       "Thinning Violin I to 16ths")
+    }
+
     /// Size is RELATIVE to the engraved default, and `scale` is how it is
     /// asked for. The app's chord-symbol row still holds a point value and
     /// sends `size`; both reach the same op, which refuses the two together.

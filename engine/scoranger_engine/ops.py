@@ -1402,6 +1402,551 @@ def simplify_repeats(score, name: str, note_length: float = 1.0) -> dict:
             "redundant_accidentals_hidden": cleaned.get("hidden", 0)}
 
 
+
+# -- rhythmic simplification --------------------------------------------------
+#
+# "Make this easier to play by reducing the 16th notes down to reasonable
+# eighth notes I can't play this fast." The agent answered, correctly, that it
+# had no tool for it and offered a transposition instead.
+#
+# The ask is ambiguous and the readings are not variations on each other, they
+# are different pieces of music. So the op does not choose: `--mode` does, and
+# the report says what the choice cost.
+#
+#   AUGMENT doubles every value and halves the meter's denominator, so 4/4
+#   becomes 4/2 and every sixteenth becomes an eighth. Not one note is lost and
+#   not one bar is added -- bar numbers, repeats, voltas and rehearsal marks all
+#   stay where they were. What it costs is TIME: the passage now lasts twice as
+#   long, which is the same thing as playing it half as fast. That is the point
+#   for a soloist reading off the page, and it is ruinous for a part playing
+#   with others, so a named part in a score that has more than one is refused.
+#
+#   THIN keeps the passage exactly where it sits in the bar and drops notes
+#   until nothing attacks faster than the unit. The part still fits the
+#   ensemble and still lasts the same number of beats. What it costs is NOTES,
+#   which is someone's music, so `notes_removed` is in the report with the bar
+#   each one came out of.
+#
+# And the third answer, which needs no notation at all: play it slower. Nothing
+# here writes a tempo mark -- this repo has no tempo family to hang one off
+# (see "Adding to the toolset") -- but augmenting IS that answer written down,
+# and the report says so, because a reader who would rather just take it slower
+# should not be handed a rewritten score.
+#
+# WHICH NOTES THIN KEEPS is the judgement, and it is the metrical one: an
+# attack survives if it lands ON the unit grid, counted from the bar's metrical
+# start (a pickup's `paddingLeft` is in the sum, so a pickup is counted from
+# where it really sits in the bar). Each survivor is stretched to the next
+# survivor. That is what a player does simplifying at sight, and it falls out
+# right on the figures that actually defeat people: four sixteenths keep the
+# first and third; a dotted eighth plus a sixteenth keeps the dotted eighth as
+# a quarter and loses the pickup sixteenth; an eighth-note syncopation is on the
+# grid and survives untouched. Nothing is ever MOVED -- a dropped note is honest
+# and a displaced one is a lie about when the music sounds.
+
+NOTE_UNITS = {
+    "whole": 4.0, "half": 2.0, "quarter": 1.0,
+    "eighth": 0.5, "8th": 0.5,
+    "sixteenth": 0.25, "16th": 0.25,
+    "thirtysecond": 0.125, "32nd": 0.125,
+}
+
+# Denominators a reader can be handed. Halving 4/4 gives 4/2, which is
+# uncommon but read at sight; halving 4/2 would give 4/1, which is not.
+WRITABLE_DENOMINATORS = {2, 4, 8, 16, 32}
+
+
+def parse_note_unit(text) -> float:
+    """A note value, by name ('eighth', '16th') or as a quarterLength ('0.5')."""
+    if isinstance(text, (int, float)):
+        return float(text)
+    want = str(text).strip().lower()
+    if want in NOTE_UNITS:
+        return NOTE_UNITS[want]
+    try:
+        value = float(want)
+    except ValueError:
+        raise ValueError(
+            f"'{text}' is not a note value. Use one of {sorted(NOTE_UNITS)}, "
+            f"or a quarterLength like 0.5")
+    if value <= 0:
+        raise ValueError(f"A note value must be longer than nothing (got {text})")
+    return value
+
+
+def note_value_name(ql: float) -> str:
+    """What a musician calls a duration -- for the report, never for a decision."""
+    from music21 import duration as m21duration
+    try:
+        d = m21duration.Duration(float(ql))
+    except Exception:  # noqa: BLE001 -- a report may not raise
+        return f"{float(ql):g} quarters"
+    name = d.type
+    if name in ("complex", "inexpressible", "zero"):
+        return f"{float(ql):g} quarters"
+    if d.tuplets:
+        name = f"{name} triplet" if d.tuplets[0].tupletActual[0] == 3 else f"{name} tuplet"
+    return f"{'dotted ' * d.dots}{name}"
+
+
+def _shortest_attack(measures) -> float | None:
+    """The shortest sounding value in these bars, ignoring grace notes (which
+    have no duration to shorten and are ornaments, not the tempo of the line)."""
+    values = [float(el.quarterLength)
+              for m in measures
+              for cont in (list(m.voices) or [m])
+              for el in _sounding(cont)
+              if not el.isRest and float(el.quarterLength) > 0
+              and not el.duration.isGrace]
+    return min(values) if values else None
+
+
+def _measure_grid(measure, step: float) -> float:
+    """How far the bar's first offset sits past a grid line.
+
+    A pickup's notes start at offset 0 but stand somewhere else in the bar;
+    `paddingLeft` is that distance, so the grid is counted from it.
+    """
+    return float(measure.paddingLeft or 0.0) % step
+
+
+def _repair_tie(el, forward_ok: bool, backward_ok: bool) -> None:
+    """A tie is a claim about the note next to it. When thinning removes that
+    note the claim is false, and an unresolved tie is how a sustained note
+    swallows the rest of a bar in a renderer."""
+    from music21 import tie as m21tie
+    existing = getattr(el, "tie", None)
+    if existing is None:
+        return
+    kind = existing.type
+    forward = kind in ("start", "continue") and forward_ok
+    backward = kind in ("stop", "continue") and backward_ok
+    if forward and backward:
+        el.tie = m21tie.Tie("continue")
+    elif forward:
+        el.tie = m21tie.Tie("start")
+    elif backward:
+        el.tie = m21tie.Tie("stop")
+    else:
+        el.tie = None
+
+
+def _same_sound(a, b) -> bool:
+    if a is None or b is None or a.isRest or b.isRest:
+        return False
+    return tuple(p.nameWithOctave for p in a.pitches) == tuple(
+        p.nameWithOctave for p in b.pitches)
+
+
+def _absorb_spanners(dropped, into) -> None:
+    """Hand a removed note's slurs and hairpins to the note that swallowed it.
+
+    A Spanner does not live on the staff; it POINTS at notes. Delete a note a
+    slur ends on and the slur is left reaching for something that is not there,
+    which Verovio resolves by drawing the arc to wherever it can -- a page of
+    thinned bars came back with one slur spanning a whole system.
+    """
+    for sp in list(dropped.getSpannerSites()):
+        try:
+            if into is not None and all(el is not into
+                                        for el in sp.getSpannedElements()):
+                sp.replaceSpannedElement(dropped, into)
+            else:
+                sp.spannerStorage.remove(dropped)
+        except Exception:  # noqa: BLE001 -- a stale reference is what we are clearing
+            pass
+
+
+def _prune_lone_spanners(container) -> int:
+    """A slur with one end left is not a slur."""
+    from music21 import spanner as m21spanner
+
+    gone = 0
+    for sp in list(container.recurse().getElementsByClass(m21spanner.Spanner)):
+        if len(sp.getSpannedElements()) >= 2:
+            continue
+        try:
+            container.remove(sp, recurse=True)
+            gone += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return gone
+
+
+def _thin_container(container, step: float, phase: float) -> dict | None:
+    """Quantize one voice's attacks onto the `step` grid.
+
+    Returns the tally, or None when thinning would leave the bar with no notes
+    at all -- a passage attacked entirely off the grid is left exactly as it
+    was and reported, because emptying someone's bar is not a simplification.
+    """
+    from music21 import beam as m21beam
+    from music21 import duration as m21duration
+
+    events = sorted((el for el in _sounding(container)),
+                    key=lambda el: (float(el.offset), 0 if el.isRest else 1))
+    if not events:
+        return {"removed": 0, "rests_absorbed": 0, "lengthened": 0, "graces": 0}
+
+    content_end = max(float(el.offset) + float(el.quarterLength) for el in events)
+
+    def on_grid(offset: float) -> bool:
+        if abs(offset) < 1e-6:
+            return True  # the bar's own start is always a grid line
+        pos = offset + phase
+        return abs(pos - round(pos / step) * step) < 1e-6
+
+    kept, dropped = [], []
+    for el in events:
+        # a note already as long as the unit is not one of the fast ones and is
+        # kept wherever it starts. Without this, three quarter-note TRIPLETS --
+        # each longer than an eighth, and not what anyone means by "too fast" --
+        # are two-thirds deleted for landing between the eighth lines.
+        long_enough = float(el.quarterLength) >= step - 1e-6
+        if el.duration.isGrace or not (long_enough or on_grid(float(el.offset))):
+            dropped.append(el)
+        elif kept and abs(float(el.offset) - float(kept[-1].offset)) < 1e-6:
+            dropped.append(el)  # a second attack on the same grid line
+        else:
+            kept.append(el)
+
+    if not dropped:
+        return {"removed": 0, "rests_absorbed": 0, "lengthened": 0, "graces": 0}
+    if not any(not el.isRest for el in kept) and any(not el.isRest for el in events):
+        return None
+
+    lengthened = 0
+    for index, el in enumerate(kept):
+        end = float(kept[index + 1].offset) if index + 1 < len(kept) else content_end
+        new_ql = end - float(el.offset)
+        if new_ql <= 0:
+            continue
+        if abs(new_ql - float(el.quarterLength)) > 1e-6:
+            # a fresh Duration rather than a quarterLength assignment: the old
+            # one may carry a tuplet, and 3 sixteenths of a triplet becoming one
+            # eighth is not "the same tuplet, longer"
+            el.duration = m21duration.Duration(new_ql)
+            lengthened += 1
+        if not el.isRest:
+            _repair_tie(el,
+                        forward_ok=(index + 1 >= len(kept)
+                                    or _same_sound(el, kept[index + 1])),
+                        backward_ok=(index == 0 or _same_sound(kept[index - 1], el)))
+
+    for el in dropped:
+        absorbed_into = next((k for k in reversed(kept)
+                              if float(k.offset) <= float(el.offset) + 1e-6), None)
+        _absorb_spanners(el, absorbed_into or (kept[0] if kept else None))
+        container.remove(el)
+
+    # beams describe a group that no longer exists; makeBeams re-derives them
+    # from the meter once the durations are settled
+    for el in kept:
+        if not el.isRest:
+            el.beams = m21beam.Beams()
+
+    return {"removed": sum(1 for el in dropped if not el.isRest and not el.duration.isGrace),
+            "rests_absorbed": sum(1 for el in dropped if el.isRest),
+            "graces": sum(1 for el in dropped if el.duration.isGrace),
+            "lengthened": lengthened}
+
+
+def _relayout_measures(part) -> None:
+    """Re-seat every measure at the offset its predecessors' lengths give it.
+
+    A Part holds measures at absolute offsets, so a bar that grew leaves every
+    bar after it sitting inside the one before.
+    """
+    measures = list(part.getElementsByClass(stream.Measure))
+    for m in measures:
+        part.remove(m)
+    at = 0.0
+    for m in measures:
+        part.insert(at, m)
+        at += float(m.barDuration.quarterLength) - float(m.paddingLeft or 0.0) \
+            - float(m.paddingRight or 0.0)
+
+
+def _augment_part(part, from_measure, to_measure, factor: int = 2) -> dict:
+    """Double every value in range and halve the meter's denominator to match.
+
+    The bar count does not change, so nothing is renumbered and every mark
+    hanging off a bar number stays true. What changes is how long a bar lasts.
+
+    Read first, then write. The meter in force at bar N has to be read off the
+    score as it was WRITTEN: doubling bar 1 from 4/4 to 4/2 and then carrying
+    that forward as bar 2's meter reports, wrongly, that bar 2 is already as
+    slow as doubling goes.
+    """
+    from music21 import meter as m21meter
+
+    measures = list(part.getElementsByClass(stream.Measure))
+    targets = _measures_in_range(part, from_measure, to_measure)
+    if not targets:
+        raise ValueError(f"No measures in range {from_measure or 1}-"
+                         f"{to_measure if to_measure is not None else 'end'}")
+    wanted = {m.number for m in targets}
+
+    # pass one: the meter in force at each bar, and whether the bar states it
+    in_force, states_it = {}, {}
+    current = None
+    for m in measures:
+        here = m.getElementsByClass(m21meter.TimeSignature).first()
+        if here is not None:
+            current = here
+        in_force[m.number] = current
+        states_it[m.number] = here is not None
+
+    first_in_range = targets[0].number
+    for m in targets:
+        signature = in_force[m.number]
+        if signature is None:
+            raise ValueError(
+                f"Bar {m.number} has no time signature to halve. Import the "
+                f"score with its meter, or use --mode thin, which needs none.")
+        if (signature.denominator % factor
+                or (signature.denominator // factor) not in WRITABLE_DENOMINATORS):
+            raise ValueError(
+                f"Doubling the values in bar {m.number} would put it in "
+                f"{signature.numerator}/{signature.denominator // factor}, which "
+                f"is not a meter to hand a reader. {signature.ratioString} is "
+                f"already as slow as doubling goes; use --mode thin instead.")
+
+    # pass two: the rewrite
+    meters, changed = [], []
+    for m in targets:
+        signature = in_force[m.number]
+        doubled = m21meter.TimeSignature(
+            f"{signature.numerator}/{signature.denominator // factor}")
+        m.augmentOrDiminish(float(factor), inPlace=True)
+        m.paddingLeft = float(m.paddingLeft or 0.0) * factor
+        m.paddingRight = float(m.paddingRight or 0.0) * factor
+        for ts in list(m.getElementsByClass(m21meter.TimeSignature)):
+            m.remove(ts)
+        # only where the reader needs to be told: where the score stated a
+        # meter, and at the head of the passage. A signature on every bar is
+        # printed on every bar.
+        if states_it[m.number] or m.number == first_in_range:
+            m.timeSignature = doubled
+            meters.append({"measure": m.number, "from": signature.ratioString,
+                           "to": doubled.ratioString})
+        changed.append(m.number)
+
+    # the bar after the passage goes back to the meter it was written in, or
+    # the rest of the piece silently inherits half-speed
+    after = [m for m in measures if m.number not in wanted
+             and m.number > targets[-1].number]
+    if after and not states_it[after[0].number]:
+        restored = in_force[targets[-1].number]
+        after[0].timeSignature = m21meter.TimeSignature(restored.ratioString)
+        meters.append({"measure": after[0].number,
+                       "from": f"{restored.numerator}/{restored.denominator // factor}",
+                       "to": restored.ratioString,
+                       "note": "the meter the passage came out of, put back"})
+    _relayout_measures(part)
+    return {"measures_changed": changed, "meters": meters}
+
+
+def _meters_in_range(part, from_measure, to_measure) -> set[str]:
+    """Every meter in force across the range, as written."""
+    from music21 import meter as m21meter
+
+    wanted = {m.number for m in _measures_in_range(part, from_measure, to_measure)}
+    seen, current = set(), None
+    for m in part.getElementsByClass(stream.Measure):
+        here = m.getElementsByClass(m21meter.TimeSignature).first()
+        if here is not None:
+            current = here
+        if m.number in wanted and current is not None:
+            seen.add(current.ratioString)
+    return seen
+
+
+def _can_double_again(parts, from_measure, to_measure) -> bool:
+    """Whether a second pass would be accepted, rather than refused for the
+    meter it would produce -- so the report does not send a reader back into
+    a refusal it could have predicted."""
+    for part in parts:
+        for ratio in _meters_in_range(part, from_measure, to_measure):
+            denominator = int(ratio.split("/")[1])
+            if denominator % 2 or (denominator // 2) not in WRITABLE_DENOMINATORS:
+                return False
+    return True
+
+
+def simplify_rhythm(score, mode: str, names: list[str] | None = None,
+                    unit: str = "eighth", from_measure: int | None = None,
+                    to_measure: int | None = None) -> dict:
+    """Make a passage slower to read, by one of two openly different means.
+
+    mode='augment': every value doubles and the meter's denominator halves.
+    Every note survives; the passage takes twice as long to play. Applies to
+    the WHOLE score -- the length of a bar is not a property of one staff --
+    so naming a part of a multi-part score is refused.
+
+    mode='thin': attacks are quantized onto the `unit` grid and the notes
+    between them are dropped. The passage keeps its place and its length, so it
+    still fits the other parts; it is no longer the same tune, and the report
+    says how many notes that cost and which bars they came from.
+    """
+    mode = str(mode).strip().lower()
+    if mode not in ("augment", "thin"):
+        raise ValueError(f"mode is 'augment' or 'thin', not '{mode}'")
+    step = parse_note_unit(unit)
+    all_parts = list(score.parts)
+    span = (f"{from_measure or 1}-{to_measure}" if to_measure is not None
+            else (f"{from_measure}-end" if from_measure else "all"))
+
+    if mode == "augment":
+        if names and len(all_parts) > 1:
+            chosen = find_parts(score, names)
+            if len(chosen) != len(all_parts):
+                raise ValueError(
+                    f"Doubling the note values makes every bar last twice as "
+                    f"long, so it is a change to the whole score, not to "
+                    f"{part_label(chosen[0])} alone -- that part would drift a "
+                    f"bar further from the other {len(all_parts) - len(chosen)} "
+                    f"with every bar. Run it with no --part to double them all, "
+                    f"or use --mode thin, which keeps this part in step.")
+        targets = all_parts or [score]
+    else:
+        if not names:
+            raise ValueError(
+                "Thinning drops notes, so it needs to be told whose. Name the "
+                "part with --part.")
+        targets = find_parts(score, names)
+
+    before = {}
+    for part in targets:
+        in_range = _measures_in_range(part, from_measure, to_measure)
+        before[id(part)] = _shortest_attack(in_range)
+    shortest_before = min([v for v in before.values() if v], default=None)
+
+    report = {"mode": mode, "unit": note_value_name(step),
+              "parts": [part_label(p) for p in targets], "measures": span,
+              "shortest_before": (note_value_name(shortest_before)
+                                  if shortest_before else None)}
+
+    if mode == "augment":
+        per_part, hidden = [], 0
+        for part in targets:
+            done = _augment_part(part, from_measure, to_measure)
+            per_part.append({"part": part_label(part), **done})
+            hidden += _normalize_part(part).get("hidden", 0)
+        report["notes_removed"] = 0
+        report["measures_changed"] = per_part[0]["measures_changed"]
+        report["meters"] = per_part[0]["meters"]
+        report["beats_before"] = round(
+            sum(float(m.barDuration.quarterLength)
+                for m in _measures_in_range(targets[0], from_measure, to_measure)) / 2, 4)
+        report["beats_now"] = round(report["beats_before"] * 2, 4)
+        report["cost"] = (
+            "Every note survived and no bar was added or renumbered, so every "
+            "repeat, volta and rehearsal mark still points where it did. The "
+            "passage now takes "
+            f"{report['beats_now']:g} quarter-note beats where it took "
+            f"{report['beats_before']:g}, which is to say it sounds at half "
+            "speed: this IS 'play it slower', written into the notation. "
+            "Doubling the tempo mark as well would undo the whole thing.")
+    else:
+        removed_by_measure: dict[str, int] = {}
+        totals = {"removed": 0, "rests_absorbed": 0, "graces": 0, "lengthened": 0}
+        untouched: list[int] = []
+        changed: list[int] = []
+        hidden = 0
+        for part in targets:
+            for m in _measures_in_range(part, from_measure, to_measure):
+                phase = _measure_grid(m, step)
+                bar_removed = 0
+                declined = False
+                for cont in (list(m.voices) or [m]):
+                    tally = _thin_container(cont, step, phase)
+                    if tally is None:
+                        declined = True
+                        continue
+                    for k in totals:
+                        totals[k] += tally[k]
+                    bar_removed += tally["removed"] + tally["graces"]
+                if declined:
+                    untouched.append(m.number)
+                elif bar_removed:
+                    removed_by_measure[str(m.number)] = bar_removed
+                    changed.append(m.number)
+                    try:
+                        m.makeBeams(inPlace=True)
+                    except Exception:  # noqa: BLE001 -- unbeamed reads; wrong beams do not
+                        pass
+            hidden += _normalize_part(part).get("hidden", 0)
+        report["notes_removed"] = totals["removed"] + totals["graces"]
+        report["grace_notes_removed"] = totals["graces"]
+        report["rests_absorbed"] = totals["rests_absorbed"]
+        report["notes_lengthened"] = totals["lengthened"]
+        report["removed_by_measure"] = removed_by_measure
+        report["measures_changed"] = changed
+        if untouched:
+            report["measures_left_alone"] = untouched
+        kept = sum(1 for p in targets
+                   for m in _measures_in_range(p, from_measure, to_measure)
+                   for c in (list(m.voices) or [m])
+                   for el in _sounding(c) if not el.isRest)
+        report["notes_now"] = kept
+        report["slurs_dropped"] = _prune_lone_spanners(score)
+        report["cost"] = (
+            f"{report['notes_removed']} note"
+            f"{'' if report['notes_removed'] == 1 else 's'} of the "
+            f"{report['notes_removed'] + kept} that were there are gone; "
+            f"{kept} remain. The passage keeps its place in the bar and its "
+            "length, so it still fits whatever else is playing -- but it is no "
+            "longer the same tune, and only the reader can say whether what is "
+            "left is still the melody.")
+        if untouched:
+            report["cost"] += (
+                f" Bar{'s' if len(untouched) > 1 else ''} "
+                f"{', '.join(str(n) for n in untouched)} "
+                f"{'were' if len(untouched) > 1 else 'was'} left exactly as "
+                "written: every attack there falls between the grid lines, and "
+                "thinning would have emptied the bar rather than simplified it.")
+
+    after = min([v for v in
+                 (_shortest_attack(_measures_in_range(p, from_measure, to_measure))
+                  for p in targets) if v], default=None)
+    report["shortest_now"] = note_value_name(after) if after else None
+    report["reached_unit"] = bool(after is not None and after >= step - 1e-6)
+    if not report["reached_unit"] and after is not None:
+        short = (f"the shortest value in the passage is now a "
+                 f"{note_value_name(after)}, still faster than the "
+                 f"{note_value_name(step)} you asked for")
+        if mode == "thin":
+            # name the bars, not a guess at why. Two different things leave a
+            # fast note behind: a bar left alone whole, and a grid note pinned
+            # short by an off-grid note too long to drop -- and lengthening
+            # that one would mean moving the note after it.
+            where = sorted({m.number for part in targets
+                            for m in _measures_in_range(part, from_measure,
+                                                        to_measure)
+                            for cont in (list(m.voices) or [m])
+                            for el in _sounding(cont)
+                            if not el.isRest and not el.duration.isGrace
+                            and 0 < float(el.quarterLength) < step - 1e-6})
+            report["measures_still_fast"] = where
+            report["still_faster_than_unit"] = (
+                short + f" -- in bar{'s' if len(where) > 1 else ''} "
+                f"{', '.join(str(n) for n in where)}. Lengthening those would "
+                f"mean moving the note after them, which this op will not do.")
+        elif _can_double_again(targets, from_measure, to_measure):
+            report["still_faster_than_unit"] = (
+                short + " -- run it again to double once more")
+        else:
+            stuck = _meters_in_range(targets[0], from_measure, to_measure)
+            report["still_faster_than_unit"] = (
+                short + f" -- and doubling has gone as far as the meter allows "
+                f"({'/'.join(sorted(stuck))} cannot be halved again without "
+                f"writing a whole-note beat). What is left would have to be "
+                f"thinned, which drops notes.")
+    report["redundant_accidentals_hidden"] = hidden
+    return report
+
+
 def _set_part_order(score, ordered_parts) -> None:
     """Rebuild the score's part list in the given order (music21's replace()
     appends same-offset inserts, losing position)."""

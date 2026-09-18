@@ -284,6 +284,16 @@ def cmd_simplify_repeats(a):
     _mutate(a.score, score, "simplify-repeats", {"part": a.part}, details)
 
 
+def cmd_simplify_rhythm(a):
+    score = _load(a.score, None)
+    names = _split_parts(a.part) if a.part else None
+    details = ops.simplify_rhythm(score, a.mode, names, a.unit,
+                                  a.from_measure, a.to_measure)
+    _mutate(a.score, score, "simplify-rhythm",
+            {"mode": a.mode, "part": a.part, "unit": a.unit,
+             "from_measure": a.from_measure, "to_measure": a.to_measure}, details)
+
+
 def cmd_octave_shift(a):
     score = _load(a.score, None)
     details = ops.octave_shift(score, a.part, a.octaves, a.from_measure, a.to_measure)
@@ -756,6 +766,28 @@ def main() -> None:
     s.add_argument("--part", required=True)
     s.add_argument("--note-length", type=float, default=1.0)
     s.set_defaults(fn=cmd_simplify_repeats)
+
+    s = sub.add_parser("simplify-rhythm",
+                       help="Slow a passage down to read: double the values "
+                            "(augment) or drop the notes between the beats (thin)")
+    s.add_argument("score")
+    s.add_argument("--mode", required=True, choices=["augment", "thin"],
+                   help="augment: every value doubles and the meter's "
+                        "denominator halves (4/4 -> 4/2). Nothing is lost and "
+                        "no bar is renumbered; the passage lasts twice as long, "
+                        "which is 'play it slower' written down. Whole score "
+                        "only. | thin: attacks are quantized onto the --unit "
+                        "grid and what falls between them is DROPPED. Keeps its "
+                        "place and length, so it still fits the other parts; "
+                        "the report says how many notes that cost.")
+    s.add_argument("--part", help="required for thin; for augment, only "
+                                  "meaningful on a one-part score")
+    s.add_argument("--unit", default="eighth",
+                   help="the fastest value you want to read: eighth (default), "
+                        "16th, quarter, or a quarterLength like 0.5")
+    s.add_argument("--from-measure", type=int)
+    s.add_argument("--to-measure", type=int)
+    s.set_defaults(fn=cmd_simplify_rhythm)
 
     s = sub.add_parser("octave-shift", help="Shift a part by octaves within a measure range")
     s.add_argument("score")
