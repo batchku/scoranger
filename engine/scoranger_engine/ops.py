@@ -1483,6 +1483,41 @@ def _same_sound(a, b) -> bool:
         p.nameWithOctave for p in b.pitches)
 
 
+def _absorb_spanners(dropped, into) -> None:
+    """Hand a removed note's slurs and hairpins to the note that swallowed it.
+
+    A Spanner does not live on the staff; it POINTS at notes. Delete a note a
+    slur ends on and the slur is left reaching for something that is not there,
+    which Verovio resolves by drawing the arc to wherever it can -- a page of
+    thinned bars came back with one slur spanning a whole system.
+    """
+    for sp in list(dropped.getSpannerSites()):
+        try:
+            if into is not None and all(el is not into
+                                        for el in sp.getSpannedElements()):
+                sp.replaceSpannedElement(dropped, into)
+            else:
+                sp.spannerStorage.remove(dropped)
+        except Exception:  # noqa: BLE001 -- a stale reference is what we are clearing
+            pass
+
+
+def _prune_lone_spanners(container) -> int:
+    """A slur with one end left is not a slur."""
+    from music21 import spanner as m21spanner
+
+    gone = 0
+    for sp in list(container.recurse().getElementsByClass(m21spanner.Spanner)):
+        if len(sp.getSpannedElements()) >= 2:
+            continue
+        try:
+            container.remove(sp, recurse=True)
+            gone += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return gone
+
+
 def _thin_container(container, step: float, phase: float) -> dict | None:
     """Quantize one voice's attacks onto the `step` grid.
 
@@ -1490,6 +1525,7 @@ def _thin_container(container, step: float, phase: float) -> dict | None:
     at all -- a passage attacked entirely off the grid is left exactly as it
     was and reported, because emptying someone's bar is not a simplification.
     """
+    from music21 import beam as m21beam
     from music21 import duration as m21duration
 
     events = sorted((el for el in _sounding(container)),
@@ -1538,7 +1574,16 @@ def _thin_container(container, step: float, phase: float) -> dict | None:
                         backward_ok=(index == 0 or _same_sound(kept[index - 1], el)))
 
     for el in dropped:
+        absorbed_into = next((k for k in reversed(kept)
+                              if float(k.offset) <= float(el.offset) + 1e-6), None)
+        _absorb_spanners(el, absorbed_into or (kept[0] if kept else None))
         container.remove(el)
+
+    # beams describe a group that no longer exists; makeBeams re-derives them
+    # from the meter once the durations are settled
+    for el in kept:
+        if not el.isRest:
+            el.beams = m21beam.Beams()
 
     return {"removed": sum(1 for el in dropped if not el.isRest and not el.duration.isGrace),
             "rests_absorbed": sum(1 for el in dropped if el.isRest),
@@ -1642,6 +1687,33 @@ def _augment_part(part, from_measure, to_measure, factor: int = 2) -> dict:
     return {"measures_changed": changed, "meters": meters}
 
 
+def _meters_in_range(part, from_measure, to_measure) -> set[str]:
+    """Every meter in force across the range, as written."""
+    from music21 import meter as m21meter
+
+    wanted = {m.number for m in _measures_in_range(part, from_measure, to_measure)}
+    seen, current = set(), None
+    for m in part.getElementsByClass(stream.Measure):
+        here = m.getElementsByClass(m21meter.TimeSignature).first()
+        if here is not None:
+            current = here
+        if m.number in wanted and current is not None:
+            seen.add(current.ratioString)
+    return seen
+
+
+def _can_double_again(parts, from_measure, to_measure) -> bool:
+    """Whether a second pass would be accepted, rather than refused for the
+    meter it would produce -- so the report does not send a reader back into
+    a refusal it could have predicted."""
+    for part in parts:
+        for ratio in _meters_in_range(part, from_measure, to_measure):
+            denominator = int(ratio.split("/")[1])
+            if denominator % 2 or (denominator // 2) not in WRITABLE_DENOMINATORS:
+                return False
+    return True
+
+
 def simplify_rhythm(score, mode: str, names: list[str] | None = None,
                     unit: str = "eighth", from_measure: int | None = None,
                     to_measure: int | None = None) -> dict:
@@ -1740,6 +1812,10 @@ def simplify_rhythm(score, mode: str, names: list[str] | None = None,
                 elif bar_removed:
                     removed_by_measure[str(m.number)] = bar_removed
                     changed.append(m.number)
+                    try:
+                        m.makeBeams(inPlace=True)
+                    except Exception:  # noqa: BLE001 -- unbeamed reads; wrong beams do not
+                        pass
             hidden += _normalize_part(part).get("hidden", 0)
         report["notes_removed"] = totals["removed"] + totals["graces"]
         report["grace_notes_removed"] = totals["graces"]
@@ -1754,6 +1830,7 @@ def simplify_rhythm(score, mode: str, names: list[str] | None = None,
                    for c in (list(m.voices) or [m])
                    for el in _sounding(c) if not el.isRest)
         report["notes_now"] = kept
+        report["slurs_dropped"] = _prune_lone_spanners(score)
         report["cost"] = (
             f"{report['notes_removed']} note"
             f"{'' if report['notes_removed'] == 1 else 's'} of the "
@@ -1776,11 +1853,22 @@ def simplify_rhythm(score, mode: str, names: list[str] | None = None,
     report["shortest_now"] = note_value_name(after) if after else None
     report["reached_unit"] = bool(after is not None and after >= step - 1e-6)
     if not report["reached_unit"] and after is not None:
-        report["still_faster_than_unit"] = (
-            f"the shortest value in the passage is now a {note_value_name(after)}, "
-            f"which is still faster than a {note_value_name(step)}"
-            + (" -- run it again to double once more"
-               if mode == "augment" else ""))
+        short = (f"the shortest value in the passage is now a "
+                 f"{note_value_name(after)}, still faster than the "
+                 f"{note_value_name(step)} you asked for")
+        if mode == "thin":
+            report["still_faster_than_unit"] = (
+                short + " -- the bars left alone are where it is")
+        elif _can_double_again(targets, from_measure, to_measure):
+            report["still_faster_than_unit"] = (
+                short + " -- run it again to double once more")
+        else:
+            stuck = _meters_in_range(targets[0], from_measure, to_measure)
+            report["still_faster_than_unit"] = (
+                short + f" -- and doubling has gone as far as the meter allows "
+                f"({'/'.join(sorted(stuck))} cannot be halved again without "
+                f"writing a whole-note beat). What is left would have to be "
+                f"thinned, which drops notes.")
     report["redundant_accidentals_hidden"] = hidden
     return report
 
