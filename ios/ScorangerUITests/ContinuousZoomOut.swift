@@ -62,8 +62,26 @@ final class ContinuousZoomOut: XCTestCase {
 
         // Pinch out, repeatedly. One pinch only divides the scale by about
         // 1.15 however small the factor asked for, so it is walked down.
+        //
+        // EACH PINCH WAITS FOR A CANVAS THAT CAN RECEIVE IT. Every settled
+        // zoom re-roots the page stack, and twenty pinches delivered back to
+        // back give the app no moment in which to finish doing it. XCUITest
+        // computes the gesture's points from the frame it can get at the
+        // instant it synthesises the event, so on the 0.8.2 gate, under four
+        // workers, the third pinch was handed `{{inf, inf}, {0, 0}}` --
+        // CGRectNull, what a busy app returns when it cannot answer -- and the
+        // runner died on "point.x != INFINITY" with nothing to read.
+        //
+        // The count, the factor, the floor and every assertion below are
+        // unchanged: a reader does not pinch nine times in three seconds, and
+        // a gesture aimed at a frame that is not there measures nothing. If
+        // the frame never comes back the loop stops and the assertions below
+        // fail saying what the zoom actually was, which is the answer this
+        // test exists to give.
         for _ in 0..<20 where scale(canvas) > 0.3 {
+            guard gesturableFrame(canvas) else { break }
             canvas.pinch(withScale: 0.4, velocity: -3.0)
+            settle(canvas, still: 0.2, timeout: 5)
         }
         settle(canvas, still: 1.0)
         let out = scale(canvas)
