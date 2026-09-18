@@ -137,13 +137,26 @@ flowchart LR
     VRV --> SD --> IPAD
 ```
 
-External dependencies at a glance: **Audiveris** (AGPL, isolated as an
-unmodified subprocess in its own container), **music21** (BSD, the only code
-allowed to mutate notation), **Verovio** (LGPL, engraving), **OSMD** (BSD-3,
-web rendering), **SwiftDraw** (zlib, iOS rendering), **CPython** via BeeWare's
-iOS build (PSF), and **OpenRouter** as the model gateway (the LLM is a config
-choice, not an architecture choice). The iPad app runs the entire engine
-on-device; only OMR (and the LLM) are network calls.
+External dependencies at a glance: **Audiveris** (AGPL-3.0, isolated as an
+unmodified subprocess in its own container), **music21** (BSD-3-Clause, the
+only code allowed to mutate notation), **Verovio** (LGPL-3.0, engraving, and it
+brings six SIL OFL-1.1 music fonts and seven MIT/BSD-2 C libraries with it),
+**OSMD** (BSD-3-Clause, **web viewer only** — it is not in the iPad app),
+**SwiftDraw** (zlib, iOS rendering), **CPython** via BeeWare's iOS build
+(PSF-2.0), and **OpenRouter** as the model gateway (the LLM is a config choice,
+not an architecture choice). The iPad app runs the entire engine on-device;
+only OMR (and the LLM) are network calls.
+
+The iPad bundle also carries what that engine needs and this paragraph used to
+omit: **pypdf** (BSD-3-Clause — a book is a PDF, so it is not desktop-only),
+music21's own dependencies (requests, urllib3, certifi, idna, chardet,
+charset-normalizer, joblib, jsonpickle, more-itertools, webcolors), the
+**GeneralUser GS** sound bank by S. Christian Collins under its own licence,
+three SIL OFL-1.1 typefaces, and — only for the optional account — the
+**Firebase** and **Google Sign-In** SDKs (Apache-2.0) with what they pull in.
+The app's own Settings → *How Scoranger works* carries the verified list, which
+is the one to trust: it is generated from what ships and held to it by
+`ScorangerTests/PipelineTests`.
 
 ## Design
 
