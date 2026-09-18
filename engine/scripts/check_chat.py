@@ -171,6 +171,12 @@ JIG_STEPS: list[tuple[str, dict]] = [
     ("penny_whistle_fingerings", {"part": "#0", "whistle": "D"}),
     ("guitar_tablature", {"part": "#0"}),
     ("simplify_repeats", {"part": "#0"}),
+    # thin, not augment: augment halves the meter's denominator for the
+    # whole score, and every step after this one would then be running on
+    # music in a meter it was not written for. Both modes are proved in
+    # check_rhythm_simplify.py; what this ledger asks is whether the tool
+    # the model was offered reaches the op.
+    ("simplify_rhythm", {"mode": "thin", "part": "#0", "unit": "eighth"}),
     ("consolidate_ties", {"parts": ["#0"]}),
     ("limit_part", {"part": "#0", "max_pitch": "C6"}),
     ("flatten_voices", {"part": "#0"}),

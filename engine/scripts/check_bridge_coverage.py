@@ -155,6 +155,10 @@ do("octave-shift", score=jig, part="Whistle", octaves=-1, from_measure=1, to_mea
 do("limit-part", score=jig, part="Whistle", max_pitch="C6")
 do("consolidate-ties", score=jig, parts=["Whistle"])
 do("simplify-repeats", score=jig, part="Whistle")
+# thin only, for the reason check_chat.py gives: augmenting halves the
+# meter's denominator for the whole score and every op below would then
+# be running on music in a different meter. Both modes: check_rhythm_simplify.py.
+do("simplify-rhythm", score=jig, mode="thin", part="Whistle", unit="eighth")
 do("flatten-voices", score=jig, part="Whistle")
 do("whistle-fingerings", score=jig, part="Whistle", whistle="D")
 do("guitar-tab", score=jig, part="Whistle")
