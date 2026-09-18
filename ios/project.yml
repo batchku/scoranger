@@ -230,6 +230,65 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.9.0  WHAT THE APP IS, SAID TO THE PERSON USING IT, AND ONE OP
+        #          ALI ASKED FOR BY NAME (2026-09-18). Scope written before the
+        #          work. Cut from the green 0.8.2 state (1645 tests, 0 failed).
+        #          In this build:
+        #            1. Settings -> "How Scoranger works", beside Account,
+        #               Reading, Engine, Scanning, Model, Diagnostics and
+        #               About. Three things in one section:
+        #               (a) the pipeline described for a CURIOUS MUSICIAN and
+        #                   not for an engineer -- what optical music
+        #                   recognition is and that it is a reading rather
+        #                   than a transcription; that MusicXML and MIDI skip
+        #                   it; that every arrangement operation is written-out
+        #                   music theory and none of it is written by a
+        #                   language model; that an operation writes a NEW
+        #                   version and overwrites nothing; that the chat
+        #                   agent plans and calls tools and writes no notation;
+        #                   and, plainly, that the whole engine runs on the
+        #                   iPad, so the only two things that need a network
+        #                   are scanning a PDF and asking the agent. That last
+        #                   one is for a musician on a stage with no wifi and
+        #                   is said in those words;
+        #               (b) the architecture diagram drawn NATIVELY in
+        #                   SwiftUI. README.md's is Mermaid, which nothing on
+        #                   iOS renders, and a picture of it would neither
+        #                   grow with Dynamic Type nor be readable by
+        #                   VoiceOver. Boxes, dashed arrows and drawn heads in
+        #                   the app's own tokens, one column, the agent
+        #                   indented as a BRANCH into the engine because that
+        #                   is what it is. The README's six groups are folded
+        #                   down to five steps; the shape is not touched;
+        #               (c) the open-source credit, which for several of these
+        #                   licences is an OBLIGATION and not a courtesy.
+        #                   Verified against project.yml, Package.resolved,
+        #                   the vendored trees, app_packages and each Python
+        #                   package's own metadata -- not copied from
+        #                   README.md, which was wrong in five places. What it
+        #                   got wrong is in the header of Pipeline.swift;
+        #            2. feat/rhythm-simplify merged: `scor simplify-rhythm`,
+        #               augment and thin, asked for directly. Its tool spec
+        #               ends up in ScoreModel/ChatTools.swift, where this line
+        #               moved the table, and ChatDispatchTests proves the op is
+        #               reachable from chat in both modes.
+        #          NOT in this build, and said before it starts:
+        #            - the licence TEXTS do not ship beside the Python packages
+        #              they belong to. `scripts/vendor_engine.sh` deletes every
+        #              .dist-info on the way into the bundle, which takes the
+        #              LICENSE file with it. The screen names the licence; the
+        #              text is in the repository. BACKLOG.md carries it;
+        #            - the C libraries inside BeeWare's Python build (OpenSSL,
+        #              XZ, Zstandard, bzip2, libffi, mpdecimal) carry no
+        #              licence files in this tree, so they are NAMED on the
+        #              screen with the framework that brings them and given no
+        #              identifier nobody read. BACKLOG.md carries that too;
+        #            - no change to the engine's ops beyond the merge, no
+        #              redesign, and nothing touched in playback, sync or
+        #              sharing;
+        #            - direct vector rendering is still 0.8.3 on
+        #              feat/vector-render, still deliberately not beside
+        #              feature work.
         #   0.8.2  WHAT 0.8 PROMISED AND 0.8.1 DID NOT CARRY, PLUS THE TEST
         #          DEBT. Scope written before the work; the order is in
         #          BACKLOG.md "The release plan after 0.8.1".
@@ -500,7 +559,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 197
-        MARKETING_VERSION: 0.8.2
+        MARKETING_VERSION: 0.9.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
