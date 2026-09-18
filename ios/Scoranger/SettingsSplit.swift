@@ -8,7 +8,9 @@ import SwiftUI
 // Model; the sentences that were headers are notes under the control.
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case account, reading, titles, engine, server, scanning, model, diagnostics, about
+    case account, reading, titles, engine, server, scanning, model, diagnostics
+    case howItWorks = "how-it-works"
+    case about
     var id: String { rawValue }
 
     var title: String {
@@ -21,6 +23,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .scanning:    return "Scanning"
         case .model:       return "Model"
         case .diagnostics: return "Diagnostics"
+        case .howItWorks:  return "How Scoranger works"
         case .about:       return "About"
         }
     }
@@ -146,6 +149,9 @@ struct SettingsSplit: View {
         case .scanning:    return state.omrURLString.isEmpty ? "collects PDFs in Files" : "in the cloud"
         case .model:       return state.chatModel.isEmpty ? (state.modelCatalog?.default ?? "default") : state.chatModel
         case .diagnostics: return "touch log, timing"
+        // The section's answer is the one fact a reader on a stage needs:
+        // the engine is here, and two things are not.
+        case .howItWorks:  return "on this iPad, except two things"
         case .about:       return BuildStamp.short
         }
     }

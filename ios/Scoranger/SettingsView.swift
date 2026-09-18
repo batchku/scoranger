@@ -275,6 +275,10 @@ struct SettingsView: View {
             }
             .padding(Theme.Metric.panelPadding)
 
+        case .howItWorks:
+            if section == nil { BandHeader("How Scoranger works") }
+            HowItWorksSection()
+
         case .about:
             if section == nil { BandHeader("About") }
             VStack(alignment: .leading, spacing: Theme.Metric.s8) {
