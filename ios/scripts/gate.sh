@@ -87,6 +87,10 @@ SKIP=(
   -skip-testing:ScorangerUITests/RowShot
   -skip-testing:ScorangerUITests/InkShot
   -skip-testing:ScorangerUITests/InkZoomShot
+  # ABCShot photographs an imported tune so a person can look at the page --
+  # two sharps, a repeat, two endings. It asserts nothing, and a tune that
+  # engraves as nonsense is a thing only eyes can catch.
+  -skip-testing:ScorangerUITests/ABCShot
   -skip-testing:ScorangerUITests/PerfSweep
   # TopBarShot photographs the bar before and after a change for a human to
   # compare, and one of its two shots wants an OMR service on 127.0.0.1 that a

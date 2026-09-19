@@ -1298,8 +1298,37 @@ final class AppState: ObservableObject {
         let arguments = ProcessInfo.processInfo.arguments
         let wantsScore = arguments.contains("-seedInboxFixture")
         let wantsImage = arguments.contains("-seedInboxImage")
-        guard !inboxSeeded, wantsScore || wantsImage else { return }
+        let wantsABC = arguments.contains("-seedInboxABC")
+        guard !inboxSeeded, wantsScore || wantsImage || wantsABC else { return }
         inboxSeeded = true
+        if wantsABC {
+            // A tune, dropped in the inbox the way a download from
+            // thesession.org arrives, so the photograph is of the REAL import
+            // path rather than a score placed in the library behind its back.
+            //
+            // Written here rather than shipped in samples-seed for two
+            // reasons: a bundled `.abc` would trip check_no_bundled_scores,
+            // which is right to flag music in the app's resources, and this
+            // is the only fixture in the repo that has to be ABC -- the
+            // format is text and there is no ABC writer to make one with.
+            // Eight bars, synthetic, nobody's transcription.
+            let tune = """
+            X: 1
+            T: The Shot Reel
+            R: reel
+            M: 4/4
+            L: 1/8
+            K: Edor
+            |:E2BE dEBE|E2BE AFDF|E2BE dEBE|1 BABc dAFD:|2 BABc d2 ef||
+            |:g2fg edBd|gfed BAFA|d2cd BAFA|DEFD E2 ef:|
+            """
+            try? FileManager.default.createDirectory(at: inbox,
+                                                     withIntermediateDirectories: true)
+            let dropped = inbox.appending(path: "The Shot Reel.abc")
+            try? FileManager.default.removeItem(at: dropped)
+            try? tune.write(to: dropped, atomically: true, encoding: .utf8)
+            print("SCORANGER-SEED dropped \(dropped.lastPathComponent) in the inbox")
+        }
         guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed") else { return }
         let samples = ((try? FileManager.default.contentsOfDirectory(
             at: seed, includingPropertiesForKeys: nil)) ?? [])
