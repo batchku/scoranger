@@ -26,7 +26,8 @@ guess at it. Every change makes a new version, and you can always go back.
 **[EMAIL ADDRESS]**
 
 Tell us what you were doing, what you expected and what happened, and the
-version of Scoranger you are on. The version is at the bottom of **Settings**.
+version of Scoranger you are on. The version is in **Settings**, in the About
+section, and it looks like `v0.11.0 · b200`.
 If a specific piece is involved, say which and at which bar.
 
 We answer as quickly as we can. Scoranger is a small operation, so a reply may
@@ -121,8 +122,8 @@ Your library on the iPad is not touched. Set lists you own that other people
 are in are handed to the next person who joined rather than destroyed.
 
 **How do I get my music out?**
-Export to PDF or MusicXML, per part or for the whole score. MusicXML opens in
-MuseScore, Sibelius, Dorico and Finale.
+Export to PDF, MusicXML or MIDI, per part or for the whole score. MusicXML
+opens in MuseScore, Sibelius, Dorico and Finale.
 
 ## Requirements
 
