@@ -573,6 +573,15 @@ struct RootView: View {
             // Pieces, not arrangements, and in the order the list shows them:
             // the first is the one that survives, which is what the screen
             // says before the button.
+            //
+            // Edit mode goes off here, as it does for New set list, and for a
+            // sharper reason: combining DELETES the pieces it absorbs, so a
+            // selection left standing afterwards names rows that no longer
+            // exist. The bar would keep offering Delete over them and the
+            // engine would refuse a slug it cannot find. `ids` is already
+            // copied into the route, so clearing the selection cannot take
+            // the screen's subject with it.
+            editing = false
             libraryPath.append(.combinePieces(ids))
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
