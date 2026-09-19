@@ -9,6 +9,45 @@ share-sheet import, and a Cloud Run Audiveris service for PDF→MusicXML
 (`omr-service/`). Cross-device library sync remains a follow-up (iCloud or the
 Firebase backend).
 
+## Deferred from 0.10.0 (ABC import)
+
+**ABC export.** 0.10.0 reads ABC and cannot write it, because music21 cannot:
+`ConverterABC.registerOutputExtensions` is empty, so there is no writer to
+call. Writing one means emitting headers (X, T, M, L, K with the mode), the
+unit-note-length arithmetic, barlines, repeats and endings, tuplets, grace
+notes, ties and chord symbols -- a real piece of work, not a line of wiring.
+Worth it only if Ali wants to give tunes BACK to thesession.org or to a
+session; reading them is what he asked for.
+
+**ABC ornaments.** music21's ABC reader drops `~` (the roll) and `!...!`
+decorations. They are counted and reported in the import (`abc` key) rather
+than rendered. Carrying them would mean deciding what a roll IS in MusicXML:
+it is not a turn and not a trill, and mapping it to either is a lie about the
+music. A `<other-ornament>` with a text mark is the honest option.
+
+**The `R:` tune type** (reel, jig, hornpipe, slip jig) is reported by the
+import and not stored: it is not notation and has nowhere to live in
+MusicXML. If it should be searchable, the piece's `tags` are where it belongs
+-- `set_piece_metadata` already takes them -- and the import could offer it
+rather than assume it.
+
+**`OMR DRAFT` on rows that never saw OMR.** `LibraryModel.isOMRDraft` is one
+version whose op is `"import"` or `"omr"`, so every freshly imported MusicXML,
+MIDI and ABC row carries the chip. Predates 0.10.0 and is not ABC's; an
+import the reader brought in already editable is not a draft of anything.
+Photographed in `design/shots-0.10.0/abc-the-library-after-importing-a-tune.png`.
+
+**Unfiled arrangements, now that imports all get a piece.** After 0.10.0 the
+only things in the app that make an unfiled row are the reader choosing
+"Remove from piece" and duplicating a row that is already unfiled (the copy
+inherits its source's filing, or lack of it). Audited across every bridge op
+that creates an arrangement: `import`, `import-pdf`, `duplicate` and
+`create-arrangement` all end up filed; the two that do not are `selftest` and
+`debug-orphan-arrangement`, which exist for tests. The UNFILED chip, its filter and `LibraryModel.unfiledRows`
+all still work and existing libraries are untouched -- no migration was run.
+Whether the concept should survive at all is Ali's call about data he already
+has, not a build's.
+
 ## Candidate: portable score-ops kernel (Rust → iOS/Android/WASM)
 
 Idea (2026-08-15): replace the embedded-Python slice of music21 with a small
