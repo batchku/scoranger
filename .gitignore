@@ -70,3 +70,6 @@ firebase/.firebase/
 
 firebase/functions/node_modules/
 firebase/functions/package-lock.json
+
+# device builds from scripts/install-device.sh
+.build/
