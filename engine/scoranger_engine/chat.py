@@ -640,12 +640,19 @@ def remove_element(ctx: RunContext[str], part: str, kind: str,
 
     "Take the ornament off bar 12", "lose that fermata", "clear the dynamics
     from this part". `kind` is the same set adjust_element takes: "harm",
-    "diagram", "dynamic", "text", "fermata", "articulation", "ornament".
+    "diagram", "dynamic", "text", "fermata", "articulation", "ornament",
+    "lyric".
 
     Address the one you mean with `measure` plus `ordinal` (counting from 0
     in the bar's document order), or pass all_elements=True for every one of
     that kind in the part. A tab column is refused by name: it IS the note,
-    and guitar_tablature's clear is what takes one off."""
+    and guitar_tablature's clear is what takes one off.
+
+    A LYRIC CAN BE REMOVED -- "drop that word" takes the verse off the note it
+    is sung on. It takes the sung words only: a whistle's fingerings and a
+    guitar tab's frets are verses too, and all_elements=True leaves both
+    alone. The verses left keep their numbers, so taking verse 1 off a note
+    singing two leaves the other on the second line of text."""
     return _apply(ctx.deps, "remove-element",
                   {"part": part, "kind": kind, "measure": measure,
                    "ordinal": ordinal, "all": all_elements},

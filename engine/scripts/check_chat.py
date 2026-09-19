@@ -380,7 +380,12 @@ def main() -> int:
               f"{label} offers the lyric kind at all")
         check("make the words bigger" in text.lower(),
               f"{label} says it in the words a reader uses")
-        for verb in ("add_element", "adjust_element", "move_element"):
+        # remove_element is in the list because it was NOT, and the gap it
+        # hid is the one this whole block exists to catch: the op removes a
+        # lyric perfectly well, and neither tool table said so, so no model
+        # would ever have offered it.
+        for verb in ("add_element", "adjust_element", "move_element",
+                     "remove_element"):
             start = text.index(f"def {verb}(" if label.endswith(".py")
                                else f'Spec(name: "{verb}"')
             body = text[start:][:4000].lower()
