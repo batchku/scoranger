@@ -61,6 +61,15 @@ struct LocalChat {
     and relay notes_removed when you thinned. A solo can have augment for \
     free; a part playing with others can only be thinned. The third answer \
     needs no tool: play it slower, which is what augmenting writes down.
+    10. The app can take ABC now -- the text notation thesession.org publishes
+    Irish traditional music in. If a reader asks whether they can bring a tune
+    in from there, the answer is yes: `.abc` imports like MusicXML or MIDI,
+    modal keys included (Edor, Amix). You do not import files yourself -- the
+    reader does, from Import -- so say it can be done rather than offering to
+    do it. Two things to say if it comes up: a file holding several tunes
+    imports as several ARRANGEMENTS, and ABC's `~` rolls and `!...!`
+    decorations are not carried into the notation. Scoranger cannot WRITE ABC;
+    export is MusicXML, MIDI or PDF.
     Answer concisely; the user sees the score update live.
     """
 

@@ -21,7 +21,7 @@ enum ScoreTitle {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return true }
         if let slug, value.caseInsensitiveCompare(slug) == .orderedSame { return true }
-        if value.range(of: #"\.(musicxml|xml|mxl|mid|midi|pdf)$"#,
+        if value.range(of: #"\.(musicxml|xml|mxl|mid|midi|abc|pdf)$"#,
                        options: [.regularExpression, .caseInsensitive]) != nil { return true }
         let placeholders = ["music21 fragment", "untitled", "untitled score", "score"]
         if placeholders.contains(value.lowercased()) { return true }
@@ -50,7 +50,7 @@ enum ScoreTitle {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, isSlugLike(value) else { return value }
         var spelled = value.replacingOccurrences(
-            of: #"\.(musicxml|xml|mxl|mid|midi|pdf)$"#, with: "",
+            of: #"\.(musicxml|xml|mxl|mid|midi|abc|pdf)$"#, with: "",
             options: [.regularExpression, .caseInsensitive])
         spelled = spelled.replacingOccurrences(of: #"[-_]+"#, with: " ",
                                                options: .regularExpression)

@@ -1268,7 +1268,10 @@ final class AppState: ObservableObject {
         // Notation, PDFs, and pictures of a page. The image list comes from
         // ScoreArtifact rather than being typed again, so a format added there
         // is accepted here without anyone remembering to.
-        let supported = ["musicxml", "mxl", "xml", "mid", "midi", "pdf"]
+        // Derived from ScoreArtifact rather than typed again: the notation
+        // half used to be a second copy of that list, and the comment claiming
+        // otherwise was half true. A format added there is accepted here now.
+        let supported = ScoreArtifact.notationSuffixes.sorted() + ["pdf"]
             + ScoreArtifact.imageSuffixes.sorted()
         for f in (try? FileManager.default.contentsOfDirectory(
             at: inbox, includingPropertiesForKeys: nil)) ?? []

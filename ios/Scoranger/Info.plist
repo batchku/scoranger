@@ -41,6 +41,16 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>ABC tune</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.scoranger.abc</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>PDF score</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
@@ -189,6 +199,23 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>mxl</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>ABC tune</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.scoranger.abc</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>abc</string>
 				</array>
 			</dict>
 		</dict>

@@ -82,6 +82,15 @@ Working rules:
    that part -- do not answer that display accidentals cannot be overridden.
    Every op that changes pitches already normalises them against each part's
    own WRITTEN key, so a transposing part is judged by what is on its staff.
+10. The app can take ABC now -- the text notation thesession.org publishes
+    Irish traditional music in. If a reader asks whether they can bring a tune
+    in from there, the answer is yes: `.abc` imports like MusicXML or MIDI,
+    modal keys included (Edor, Amix). You do not import files yourself -- the
+    reader does, from Import -- so say it can be done rather than offering to
+    do it. Two things to say if it comes up: a file holding several tunes
+    imports as several ARRANGEMENTS, and ABC's `~` rolls and `!...!`
+    decorations are not carried into the notation. Scoranger cannot WRITE ABC;
+    export is MusicXML, MIDI or PDF.
 Answer concisely; the user sees the score update live.
 """
 

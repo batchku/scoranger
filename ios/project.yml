@@ -230,6 +230,63 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.10.0 TUNES FROM THESESSION.ORG, AND THE FILING RULE THAT COMES
+        #          WITH THEM (2026-09-18). Scope written before the work. Cut
+        #          from the shipped 0.9.0 (build 198, gate 1664/1664 green).
+        #          In this build:
+        #            1. ABC import. thesession.org publishes Irish traditional
+        #               music as ABC and that is where Ali's tunes come from.
+        #               `.abc` joins the engine's NOTATION_SUFFIXES, the
+        #               picker's UTType list, and a `com.scoranger.abc`
+        #               declaration so the share sheet and Open-in offer this
+        #               app -- ABC has no system UTType, so it needs its own.
+        #               Modal keys are the part that matters: `K: Edor` reads
+        #               as E dorian with two sharps, and this repertoire is
+        #               full of Dorian and Mixolydian;
+        #            2. ONE FILE CAN BE SEVERAL ARRANGEMENTS. An ABC file may
+        #               hold several tunes and music21 returns an Opus for
+        #               those, which has no `.parts`. Every import path now
+        #               reads through `workspace.read_notation`, which returns
+        #               a LIST, and loops. The import REPORTS what it did --
+        #               "38 tunes found, imported as 38 arrangements of 1
+        #               piece" -- because a reader who drops in a collection
+        #               and gets one, or forty, has to be told which;
+        #            3. EVERY ARRANGEMENT BELONGS TO A PIECE. An import that
+        #               arrives without one is given a piece named after
+        #               itself. General, not an ABC branch: the bridge's
+        #               `import` and `import-pdf`, the CLI and the viewer's
+        #               /api/import could all land an arrangement unfiled
+        #               before this. Because `resolve_piece` matches an
+        #               existing name first, 38 settings of "Drowsy Maggie"
+        #               land as ONE piece of 38 arrangements and a set of
+        #               three different tunes as three pieces of one -- with
+        #               no rule that knows what ABC is;
+        #            4. COMBINING PIECES, the curation step that makes 3 safe.
+        #               On the Pieces page, in the Edit mode that already
+        #               ships, a selection of two or more pieces can be folded
+        #               into one. The survivor keeps its slug and uid so every
+        #               setlist and share still resolves; its arrangements
+        #               keep their numbers and the absorbed ones append. There
+        #               is no undo, so it asks twice under Careful rather than
+        #               using the action bar's delete-and-undo.
+        #          NOT in this build, and said before it starts:
+        #            - ABC EXPORT. music21 reads ABC and cannot write it
+        #              (`ConverterABC.registerOutputExtensions` is empty), so
+        #              this is a writer from scratch, not a line of wiring.
+        #              Import only. BACKLOG.md carries it;
+        #            - ABC ORNAMENTS. The `~` roll and `!...!` decorations are
+        #              dropped by music21's reader and are COUNTED AND
+        #              REPORTED rather than rendered. A roll is not a turn and
+        #              mapping it to one would be a lie about the music;
+        #            - the `R:` tune type (reel, jig, hornpipe) is reported,
+        #              not stored: it is not notation and has nowhere to live
+        #              in MusicXML. No new field on the score document;
+        #            - NO MIGRATION of the library Ali already has. The filing
+        #              rule is written about import and applies to imports
+        #              from here on; existing unfiled rows stay unfiled and
+        #              the UNFILED tag, its filter and its count all stay.
+        #              What to do about them is his call, not this build's;
+        #            - nothing touched in playback, sync, sharing or OMR.
         #   0.9.0  WHAT THE APP IS, SAID TO THE PERSON USING IT, AND ONE OP
         #          ALI ASKED FOR BY NAME (2026-09-18). Scope written before the
         #          work. Cut from the green 0.8.2 state (1645 tests, 0 failed).
@@ -559,7 +616,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 198
-        MARKETING_VERSION: 0.9.0
+        MARKETING_VERSION: 0.10.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -645,6 +702,12 @@ targets:
           - CFBundleTypeName: "MIDI file"
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.midi-audio]
+          # ABC: the text notation Irish traditional music is published in, and
+          # what thesession.org hands you. Owner rank because no system type
+          # exists for it -- see UTImportedTypeDeclarations below.
+          - CFBundleTypeName: "ABC tune"
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.scoranger.abc]
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
@@ -708,6 +771,15 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [mxl]
+          # ABC has NO system UTType at all, so without this declaration the
+          # share sheet and Open-in never offer this app and Files greys the
+          # file out in the picker. It conforms to plain-text because that is
+          # what it is: a tune is a few lines anyone can read.
+          - UTTypeIdentifier: com.scoranger.abc
+            UTTypeDescription: "ABC tune"
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [abc]
   # Logic tests for the score model. Deliberately has NO host application:
   # it compiles ScoreModel/ straight into the bundle, so the suite runs in a
   # second or two without booting the app or the embedded Python engine.

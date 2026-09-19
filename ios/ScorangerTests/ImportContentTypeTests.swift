@@ -39,7 +39,7 @@ final class ImportContentTypeTests: XCTestCase {
     /// list cannot quietly narrow it.
     func testTheScoreTypesItAlwaysTookAreStillThere() {
         let declared = ImportKind.file.contentTypes
-        for suffix in ["musicxml", "mxl", "xml", "mid", "midi", "pdf"] {
+        for suffix in ["musicxml", "mxl", "xml", "mid", "midi", "abc", "pdf"] {
             guard let type = UTType(filenameExtension: suffix) else { continue }
             XCTAssertTrue(declared.contains { type.conforms(to: $0) || type == $0 },
                           ".\(suffix) stopped being selectable")
@@ -75,9 +75,39 @@ final class ImportContentTypeTests: XCTestCase {
         XCTAssertFalse(ScoreArtifact.kind(ofFile: "scan.pdf").isNotation)
         // And notation is still notation, so "same pipeline" has not become
         // "one pipeline for everything".
-        for notation in ["piece.musicxml", "piece.mxl", "piece.mid"] {
+        for notation in ["piece.musicxml", "piece.mxl", "piece.mid", "reel.abc"] {
             XCTAssertTrue(ScoreArtifact.kind(ofFile: notation).isNotation)
         }
+    }
+
+    /// ABC IS NOTATION, NOT A SCAN.
+    ///
+    /// `ScoreArtifact.kind` falls through to `.scan` for anything it does not
+    /// recognise, so an unlisted `.abc` is not rejected -- it is mis-filed as
+    /// a PDF and sent to `importPDF`, which stores the text file as a picture
+    /// of music nothing can edit. That is the failure this pins.
+    func testABCTakesTheNotationPath() {
+        for tune in ["kesh.abc", "Drowsy Maggie.ABC", "set.abc"] {
+            XCTAssertEqual(ScoreArtifact.kind(ofFile: tune), .notation,
+                           "\(tune) would be stored as a scan")
+        }
+        XCTAssertTrue(ScoreArtifact.notationSuffixes.contains("abc"),
+                      "the Swift list has drifted from workspace.NOTATION_SUFFIXES")
+    }
+
+    /// The picker has to offer it, and ABC has NO system UTType -- so this
+    /// passes only because project.yml declares `com.scoranger.abc`. Without
+    /// that declaration `UTType(filenameExtension: "abc")` is a dynamic type
+    /// that matches nothing the share sheet offers.
+    func testTheAppDeclaresItsOwnABCType() {
+        guard let abc = UTType(filenameExtension: "abc") else {
+            return XCTFail("no UTType resolves for .abc at all")
+        }
+        XCTAssertFalse(abc.isDynamic,
+                       "com.scoranger.abc is not declared, so .abc resolved to "
+                       + "the dynamic type \(abc.identifier) -- Files will grey "
+                       + "tunes out and Open-in will not offer this app")
+        XCTAssertEqual(abc.identifier, "com.scoranger.abc")
     }
 
     /// The umbrella is safe because the PIPELINE normalises, not because the

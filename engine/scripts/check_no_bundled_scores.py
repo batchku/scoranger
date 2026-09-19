@@ -41,7 +41,7 @@ PROJECT = ROOT / "ios" / "project.yml"
 # of glyph outlines as copyrighted repertoire and buried the four files that
 # actually mattered. A notation FONT is not a piece of music, and a check that
 # cries wolf on its own dependencies is a check that gets switched off.
-SCORE_SUFFIXES = {".mxl", ".musicxml", ".mid", ".midi", ".pdf"}
+SCORE_SUFFIXES = {".mxl", ".musicxml", ".mid", ".midi", ".abc", ".pdf"}
 
 # Bundled resources that are NOT music and legitimately ship. The sound bank is
 # an instrument, not a piece; PrivacyInfo and plists are metadata.

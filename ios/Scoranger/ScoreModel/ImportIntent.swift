@@ -13,6 +13,11 @@ enum ImportKind: Equatable {
         UTType(filenameExtension: "xml"),
         UTType(filenameExtension: "mid"),
         UTType(filenameExtension: "midi"),
+        // ABC, which thesession.org publishes Irish traditional music as.
+        // There is no system UTType for it, so the app declares
+        // `com.scoranger.abc` in project.yml; without that declaration this
+        // line resolves to a dynamic type and Files greys the file out.
+        UTType(filenameExtension: "abc"),
     ].compactMap { $0 }) + [.pdf] + imageTypes
 
     /// The images a photographed score arrives as.
