@@ -1581,7 +1581,7 @@ ScorangerUITests/PaginationAfterAnOp/testPaginationSurvivesAddingAStaffThenTabTh
 ScorangerUITests/PaginationAfterAnOp/testPaginationSurvivesChordSymbols()	70.0
 ScorangerUITests/PaginationAfterAnOp/testTheCombinedOpThroughTheAppKeepsItsSystems()	141.0
 ScorangerUITests/PaginationAfterAnOp/testTheSameScoreWithoutThemPaginates()	71.0
-ScorangerUITests/PaginationAfterAnOp/testTheSystemCountAgreesWithTheEngine()	70.0
+ScorangerUITests/PaginationAfterAnOp/testTheSystemCountAgreesWithTheEngraving()	70.0
 ScorangerUITests/PhoneShot/testPhotographThePhoneLibrary()	24.0
 ScorangerUITests/PhoneShot/testPhotographThePhoneScore()	23.0
 ScorangerUITests/PhoneSurfaces/testASetListOnAPhoneShowsTheSetList()	20.0

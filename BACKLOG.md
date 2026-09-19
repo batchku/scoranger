@@ -1090,7 +1090,7 @@ nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
 UI test -- scroll the strip mid-performance, assert the Sync chip appears and
 the strip stays where it was put.
 
-## PaginationAfterAnOp's system count passes and fails for reasons nobody chose
+## CLOSED 2026-09-18: PaginationAfterAnOp's system count compared two different drawings
 
 `PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` compares the app's
 per-page system count against a hard-coded 25 that the engine reports for the
@@ -1194,16 +1194,49 @@ they measure two different drawings. The total system count is not invariant
 across page setups, and 25 is not a number the app can be expected to produce.
 A number to compare against would have to be measured with the APP's options.
 
-Which makes the GREEN the accident, not the red, and that fits lead 1. No lyric
-size and neither option set produces 9 pages; the test's own docstring says 9
-pages is the score AFTER the combined op (staff, tab, chords, diagrams: "5 ->
-8 -> 9"). The run that passed was reading a score that already carried an op,
-whose 25 was a coincidence.
+Which makes the GREEN the accident, not the red: 25 was never a number the app
+could produce, so every red was correct.
 
-NOT CHANGED HERE. The fix is either to compare against a number measured with
-`EngravingOptions`, or to drop the cross-setup comparison and assert what #4 is
-actually about. Both are decisions about what this test means, taken with Ali
-rather than by the branch that happened to trip over it.
+**FIXED, by making it compare like with like.** `ScorePage.drawnSystems` counts
+the `<g class="system">` groups Verovio put in the SVG THE APP JUST RENDERED,
+the probe reports it as `drawn=`, and
+`testTheSystemCountAgreesWithTheEngraving` asserts the app's inference equals
+it, per page and in total. Both numbers now come from one drawing, so no page
+setup, margin, scale or lyric size can make them differ for a reason that is
+not a defect, and there is no constant left to drift with the fixture. What the
+test now guards is what its name says: that `BarPosition.systems(of:)` finds
+the systems the engraver drew -- the `check_bar_frames.py` hazard, where one
+over-wide bar frame straddling two rows over-counts by exactly one.
+
+**The 0.6.21 line's skip, and the reasoning written into `gate.sh` beside it,
+were treating a symptom of this.** The test was not flaky-by-load; it was
+asserting something that could not be true, and the load only decided which
+engraving it happened to measure.
+
+### Still open, and now separated from the test: the app engraves this file
+### to 5 pages or to 9
+
+Measured on rel/0.10.0, same commit, same simulator, `-resetLibrary
+-seedTestLibrary` both times:
+
+    in the gate pool   pages=5  systems=5,6,6,6,3   (26)
+    run alone          pages=9  systems=3,3,3,2,3,3,3,3,2  (25)
+
+and in the second the inference matched `drawn=` exactly, so the app counted
+its own drawing correctly BOTH times. The variable is the engraving, not the
+counting.
+
+An earlier draft of this entry guessed the 9-page shape was a score carrying an
+op left by another test. **That guess is wrong** and is recorded so nobody
+repeats it: the 9-page run above was a clean, isolated, single-test launch with
+nothing before it.
+
+Three-per-page against five-or-six means the systems are TALLER, so something
+added height. The live lead is `FingeringDiagrams.meiWithFingeringsAbove`: the
+accordion solo carries fingerings, that transform rewrites the MEI and sets
+`reload`, and if it lands before the probe is read in some runs and after it in
+others, the two engravings follow. Untested. It is a rendering question, not a
+pagination-test question, and it no longer fails a gate.
 
 The 0.6.21 line SKIPPED this test in its gate for the reasons above. The 0.8
 line did not: it runs in the pool and passed in the build 196 gate (79s). A

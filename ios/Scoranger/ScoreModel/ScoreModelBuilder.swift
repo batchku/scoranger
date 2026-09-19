@@ -41,7 +41,17 @@ enum ScoreModelBuilder {
                                              pageIndex: index,
                                              frame: group.frame))
             }
-            pages.append(ScorePage(index: index, size: parsed.size, elements: elements))
+            // The engraver's own answer to "how many systems are on this
+            // page", kept beside the app's inference of it. Verovio wraps each
+            // system in <g class="system">; those groups are deliberately not
+            // INDEXED (a structural wrapper bounds half a page and would
+            // swallow every lasso) but they are still parsed, and counting
+            // them costs one pass over groups already in hand.
+            let drawn = parsed.groups.count {
+                $0.svgClass.split(separator: " ").first.map(String.init) == "system"
+            }
+            pages.append(ScorePage(index: index, size: parsed.size,
+                                   elements: elements, drawnSystems: drawn))
         }
         return ScoreGeometry(pages: pages)
     }

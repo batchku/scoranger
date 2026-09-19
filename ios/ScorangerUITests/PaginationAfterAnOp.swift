@@ -54,10 +54,15 @@ final class PaginationAfterAnOp: XCTestCase {
         return element.exists ? element.label : ""
     }
 
-    private func systems(in probe: String) -> [Int] {
+    private func systems(in probe: String) -> [Int] { field("systems=", in: probe) }
+
+    /// What the ENGRAVER drew, as opposed to what the app inferred.
+    private func drawn(in probe: String) -> [Int] { field("drawn=", in: probe) }
+
+    private func field(_ name: String, in probe: String) -> [Int] {
         guard let part = probe.split(separator: " ")
-            .first(where: { $0.hasPrefix("systems=") })?
-            .dropFirst("systems=".count) else { return [] }
+            .first(where: { $0.hasPrefix(name) })?
+            .dropFirst(name.count) else { return [] }
         return part.split(separator: ",").compactMap { Int($0) }
     }
 
@@ -188,16 +193,40 @@ final class PaginationAfterAnOp: XCTestCase {
 
     // MARK: - The observable, validated
 
-    /// The Swift system count must agree with the engine's, or every number
-    /// below it is a number about the inference rather than about the score.
+    /// The app's inference of where systems fall must agree with the
+    /// ENGRAVING THAT DREW THEM, or every number below it is a number about
+    /// the inference rather than about the score.
     ///
-    /// The engine renders the same file with the same Verovio and counts
-    /// `class="system"` in the SVG directly. On the accordion solo as
-    /// imported it reports 5 pages and 25 systems, [5, 6, 6, 5, 3]. The app
-    /// infers systems from bar frames, which is a different method on the
-    /// same drawing -- so agreement is evidence, and disagreement would mean
-    /// the observable is broken before it has said anything about #4.
-    func testTheSystemCountAgreesWithTheEngine() {
+    /// ## What this used to compare, and why it could not work
+    ///
+    /// It asserted the app's total against a hard-coded 25 that the ENGINE
+    /// reports. The engine engraves with `render.page_options()` and the app
+    /// with `EngravingOptions`, and those differ in margins, scale, breaks
+    /// and lyric size. Same file, same Verovio, one process:
+    ///
+    ///     render.page_options()   ->  5 pages, 5,6,6,5,3  = 25
+    ///     EngravingOptions (4.5)  ->  5 pages, 5,6,6,6,3  = 26
+    ///
+    /// Different margins and scale mean different horizontal room, so a
+    /// different number of bars per line, so a different number of LINES.
+    /// 25 was never a number the app could produce: every red was correct and
+    /// every green was a coincidence, which is why running it alone failed
+    /// 3 times of 3 and running it in the gate passed. The full measurement,
+    /// including the `lyricSize` range that ruled that lead out, is in
+    /// BACKLOG.md.
+    ///
+    /// ## What it compares now
+    ///
+    /// Both numbers come from ONE drawing: `drawn=` counts the
+    /// `<g class="system">` groups Verovio put in the SVG the app just
+    /// rendered, and `systems=` is `BarPosition.systems(of:)` inferring the
+    /// same thing from bar frames. No constant, nothing to drift with the
+    /// fixture, and no second engraving to disagree with. If they part, the
+    /// inference is broken -- which is exactly the hazard
+    /// `check_bar_frames.py` records: Verovio nests a slur inside the measure
+    /// it starts in, so one over-wide bar frame straddling two rows splits
+    /// one system into two and over-counts by exactly one.
+    func testTheSystemCountAgreesWithTheEngraving() {
         app = XCUIApplication()
         app.launchArguments = ["-resetLibrary", "-seedTestLibrary", "-geometryProbe"]
         app.launch()
@@ -205,15 +234,21 @@ final class PaginationAfterAnOp: XCTestCase {
         guard openTheFixture() else { return XCTFail("the fixture never opened") }
         let seen = waitForProbe()
         print("PROBE as-imported: \(seen)  counter=\"\(counter)\"")
-        // The TOTAL, not the distribution. The engine renders with
-        // render.py's page setup and the app with EngravingOptions', so the
-        // same 25 systems fall 5-6 to a page there and 2-3 here -- comparing
-        // per-page asserted a difference that is not a fault. What has to
-        // agree is how many lines the music is broken into, which is the
-        // thing the two methods both measure and the thing #4 is about.
-        XCTAssertEqual(systems(in: seen).reduce(0, +), 25,
-                       "the app and the engine disagree about how many systems "
-                       + "this file has: app \(seen), engine 25")
+
+        let inferred = systems(in: seen)
+        let engraved = drawn(in: seen)
+        XCTAssertFalse(engraved.isEmpty,
+                       "the probe carries no drawn= count: \"\(seen)\"")
+        XCTAssertEqual(inferred.count, engraved.count,
+                       "the app and the engraving disagree about the PAGE "
+                       + "count: \"\(seen)\"")
+        XCTAssertEqual(inferred, engraved,
+                       "the app's inference of where systems fall does not "
+                       + "match the engraving it drew them from: \"\(seen)\"")
+        XCTAssertEqual(inferred.reduce(0, +), engraved.reduce(0, +),
+                       "totals differ: \"\(seen)\"")
+        XCTAssertGreaterThan(engraved.reduce(0, +), 0,
+                             "nothing was engraved at all: \"\(seen)\"")
     }
 
     /// And #4 itself: the combined op, through the iOS engrave path.
