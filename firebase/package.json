@@ -4,7 +4,7 @@
   "description": "Security rules for the shared-setlist feature, and their tests. Not shipped; the app carries no JavaScript.",
   "scripts": {
     "test": "firebase emulators:exec --only firestore,storage,auth --project scoranger-rules-test 'node rules.test.mjs'",
-    "test:functions": "firebase emulators:exec --only firestore,auth,functions --project scoranger-rules-test 'node functions.test.mjs'",
+    "test:functions": "firebase emulators:exec --only firestore,storage,auth,functions --project scoranger-rules-test 'node functions.test.mjs'",
     "test:all": "npm run test:succession && npm test && npm run test:functions",
     "test:succession": "node succession.test.mjs"
   },
