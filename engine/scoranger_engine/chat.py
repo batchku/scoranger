@@ -524,8 +524,13 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
     """Change how big an added element is, or where it sits.
 
     `kind` is "harm" (a chord symbol), "diagram" (a guitar chord diagram),
-    "tab" (a tablature column), or one of the four marks add_element writes:
-    "dynamic", "text", "fermata", "articulation".
+    "tab" (a tablature column), or one of the five marks add_element writes:
+    "dynamic", "text", "fermata", "articulation", "ornament".
+
+    "MAKE THAT ROLL BIGGER" IS kind="ornament". So is a trill, a mordent, a
+    turn or a slide -- every squiggle over a notehead is that one kind, and
+    which squiggle it is is the `value` add_element took. A fermata is its
+    own kind, not an ornament.
 
     SIZE IS RELATIVE. `scale` is the interface: 1.0 is the engraved default,
     1.5 is half again, 0.75 is three quarters. "Make that dynamic bigger" is a
@@ -552,18 +557,26 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
 def add_element(ctx: RunContext[str], part: str, kind: str, measure: int,
                 value: str | None = None, offset: float = 0.0,
                 placement: str | None = None) -> dict:
-    """Put a mark on the page: a dynamic, a text mark, a fermata or an articulation.
+    """Put a mark on the page: a dynamic, words, a fermata, an articulation or an ornament.
 
-    `kind` is "dynamic", "text", "fermata" or "articulation". `value` is the
-    dynamic ("mf"), the words ("dolce"), the articulation (accent, staccato,
-    tenuto, marcato...) or the fermata's shape (normal|angled|square).
+    `kind` is "dynamic", "text", "fermata", "articulation" or "ornament".
+    `value` is the dynamic ("mf"), the words ("dolce"), the articulation
+    (accent, staccato, tenuto, marcato...), the ornament, or the fermata's
+    shape (normal|angled|square).
+
+    ORNAMENTS are what a player calls them: "roll", "trill", "mordent",
+    "turn", "inverted-turn", "inverted-mordent" (also "pralltriller" or
+    "upper-mordent"), "lower-mordent", "slide". A ROLL is the Irish
+    ornament; it is engraved as a turn sign, which is what that repertoire
+    prints, so "roll" and "turn" draw the same mark.
 
     THE DESTINATION IS A BAR PLUS AN OFFSET INSIDE IT, in quarter notes from
     the barline: 0 is the downbeat, 1.5 the second half of beat two in 4/4.
     Offset-anchored marks (dynamic, text) are inserted at that offset;
-    note-attached ones (fermata, articulation) are attached to the note that
-    STARTS there, and if nothing does the op refuses and lists the bar's real
-    onsets -- read them and pick one rather than retrying the same offset.
+    note-attached ones (fermata, articulation, ornament) are attached to the
+    note that STARTS there, and if nothing does the op refuses and lists the
+    bar's real onsets -- read them and pick one rather than retrying the same
+    offset.
     `placement` is "above" or "below".
 
     Spanners (hairpins, slurs) are refused: they have two anchors. So are the
@@ -589,8 +602,11 @@ def move_element(ctx: RunContext[str], part: str, kind: str, measure: int,
     add_element takes.
 
     Offset-anchored elements (harm, diagram, dynamic, text) land at that
-    offset; note-attached ones (fermata, articulation) attach to the note that
-    STARTS there, and the op refuses and lists the onsets rather than guessing.
+    offset; note-attached ones (fermata, articulation, ornament) attach to the
+    note that STARTS there, and the op refuses and lists the onsets rather
+    than guessing. "Move the trill onto the next note" is this op with the
+    next note's onset as `to_offset` -- read the onsets off the refusal if
+    you do not already know them.
     Spanners are refused by name: a spanner has two anchors and a destination
     names one. A move never touches pitch or rhythm."""
     return _apply(ctx.deps, "move-element",
@@ -600,6 +616,27 @@ def move_element(ctx: RunContext[str], part: str, kind: str, measure: int,
                   lambda s: ops.move_element(s, part, kind, measure, ordinal=ordinal,
                                              to_measure=to_measure,
                                              to_offset=to_offset, duplicate=False))
+
+
+def remove_element(ctx: RunContext[str], part: str, kind: str,
+                   measure: int | None = None, ordinal: int = 0,
+                   all_elements: bool = False) -> dict:
+    """Take an added mark off the page.
+
+    "Take the ornament off bar 12", "lose that fermata", "clear the dynamics
+    from this part". `kind` is the same set adjust_element takes: "harm",
+    "diagram", "dynamic", "text", "fermata", "articulation", "ornament".
+
+    Address the one you mean with `measure` plus `ordinal` (counting from 0
+    in the bar's document order), or pass all_elements=True for every one of
+    that kind in the part. A tab column is refused by name: it IS the note,
+    and guitar_tablature's clear is what takes one off."""
+    return _apply(ctx.deps, "remove-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "all": all_elements},
+                  lambda s: ops.remove_element(s, part, kind, measure,
+                                               ordinal=ordinal,
+                                               all_elements=all_elements))
 
 
 def duplicate_element(ctx: RunContext[str], part: str, kind: str, measure: int,
@@ -711,6 +748,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          guitar_tablature,
          set_structure,
          add_element, adjust_element, move_element, duplicate_element,
+         remove_element,
          assign_to_piece]
 
 

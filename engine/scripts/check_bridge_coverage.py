@@ -139,6 +139,8 @@ do("move-element", score=jig, part="#0", kind="dynamic", measure=1,
    to_measure=3, to_offset=1.5)
 do("duplicate-element", score=jig, part="#0", kind="fermata", measure=1,
    to_measure=4, to_offset=0)
+do("remove-element", score=jig, part="#0", kind="articulation", measure=1,
+   ordinal=0)
 
 do("transpose", score=jig, interval="M2")
 do("transpose-diatonic", score=jig, degrees=1)
@@ -376,7 +378,10 @@ def main() -> int:
     copied = ((by_op.get("duplicate-element") or [{}])[0] or {}).get("details", {})
     check(copied.get("op") == "duplicate" and copied.get("anchor") == "note",
           f"duplicate-element copied a note-attached mark: {copied.get('anchor')}")
-    for op in ("move-element", "duplicate-element"):
+    gone = ((by_op.get("remove-element") or [{}])[0] or {}).get("details", {})
+    check(gone.get("op") == "remove" and gone.get("removed") == 1,
+          f"remove-element took one mark off on device: {gone.get('removed')}")
+    for op in ("move-element", "duplicate-element", "remove-element"):
         versions = [(r or {}).get("version") for r in by_op.get(op) or []]
         check(all(versions), f"'{op}' made a version, like every other mutation")
 

@@ -3293,6 +3293,15 @@ ELEMENT_KINDS: dict[str, ElementKind] = {
     "text": ElementKind("text mark", "offset", True),
     "fermata": ElementKind("fermata", "note", True),
     "articulation": ElementKind("articulation", "note", True),
+    # An ORNAMENT is a note-attached mark like a fermata, and it is a
+    # SEPARATE kind from one rather than a value of it: music21 keeps
+    # ornaments in `expressions` beside the Fermata but under their own base
+    # class, `expressions.Ornament`, which Fermata is not a subclass of. The
+    # two finders below therefore never see each other's marks, and a reader
+    # who says "take the roll off bar 12" does not also lose the fermata
+    # there. ABC's decorations are where most of these arrive: see
+    # `enrich.DECORATIONS`.
+    "ornament": ElementKind("ornament", "note", True),
     "tab": ElementKind("tabbed note", "lyric", False),
 }
 
@@ -3330,6 +3339,37 @@ ARTICULATION_MARKS = {
     "breath-mark": "BreathMark", "caesura": "Caesura",
 }
 
+# The ornaments a person asks for by name -> the music21 class. Curated, like
+# ARTICULATION_MARKS above and for the same reason: `expressions.Ornament` has
+# subclasses nobody is reaching for from a chat line.
+#
+# `roll` is here because it is what Irish players call the figure, and it is
+# the same object as `turn` -- see `enrich.DECORATIONS` for why an Irish roll
+# is engraved as a turn and what that costs. Asking for either draws the ∾.
+#
+# TREMOLO IS DELIBERATELY ABSENT, and this is where someone would add it.
+# music21 WRITES a `<tremolo>` with its font-size and relative-x/y and then
+# reads it back WITHOUT them. Every op in this engine writes a version and
+# reads it back, so a resized tremolo would lose its size at the next op --
+# an adjustment that appears to work and quietly expires. The same is true of
+# `<fermata>`, which is a pre-existing gap in `adjust-element --kind fermata`
+# and not this table's to fix. The six below all round-trip all three fields.
+ORNAMENT_MARKS = {
+    "roll": "Turn", "turn": "Turn", "inverted-turn": "InvertedTurn",
+    "trill": "Trill",
+    "mordent": "Mordent", "lower-mordent": "Mordent",
+    "inverted-mordent": "InvertedMordent",
+    "upper-mordent": "InvertedMordent", "pralltriller": "InvertedMordent",
+    "slide": "Schleifer", "schleifer": "Schleifer",
+}
+
+#: the music21 classes `_elements_in_measure` will call an ornament. Named
+#: rather than `isinstance(e, expressions.Ornament)`, so the set a reader can
+#: FIND is the same set they can ADD, resize and move -- a Tremolo that could
+#: be selected but not durably adjusted is the silent half-failure the table
+#: above exists to avoid.
+ORNAMENT_CLASSES = tuple(sorted(set(ORNAMENT_MARKS.values())))
+
 # A fermata's shape, as MusicXML spells it and music21 stores it.
 FERMATA_SHAPES = ("normal", "angled", "square")
 
@@ -3352,12 +3392,21 @@ SPANNER_KINDS = {"slur", "hairpin", "crescendo", "diminuendo", "wedge",
 def _element_kind(kind: str, verb: str, allowed: set[str]) -> ElementKind:
     """The spec for an element kind, or a refusal naming what is allowed."""
     if kind in SPANNER_KINDS:
+        # The reason depends on the verb. For everything that names a
+        # DESTINATION it is that a spanner has two anchors and a destination
+        # names one bar. A removal names no destination, so that reason would
+        # be false: what is true there is that this family finds marks
+        # attached to notes and bars, and a spanner is attached to neither.
+        why = ("this family addresses marks that sit in a bar or hang off a "
+               "note, and a spanner is a score-level object attached to "
+               "neither, so it is not among the elements this op can see"
+               if verb == "remove" else
+               "a spanner names two anchors and a destination names one bar, "
+               "so where its far end lands is undefined as soon as the "
+               "destination's rhythm differs from the source's")
         raise ValueError(
-            f"'{kind}' is a spanner, and this op does not {verb} spanners: a "
-            "spanner names two anchors and a destination names one bar, so "
-            "where its far end lands is undefined as soon as the "
-            "destination's rhythm differs from the source's. Redraw it "
-            "instead.")
+            f"'{kind}' is a spanner, and this op does not {verb} spanners: "
+            f"{why}. Redraw it instead.")
     if kind not in allowed:
         raise ValueError(
             f"Cannot {verb} '{kind}'. Can {verb}: {sorted(allowed)}")
@@ -3396,7 +3445,7 @@ def _elements_in_measure(measure, kind: str) -> list[tuple]:
     if kind == "dynamic":
         return [(measure, e)
                 for e in measure.getElementsByClass(m21dynamics.Dynamic)]
-    if kind in ("fermata", "articulation", "tab"):
+    if kind in ("fermata", "articulation", "ornament", "tab"):
         # A chord SYMBOL is a Chord to music21, so it comes back from
         # `.notes` and is not on the staff at all -- the same trap
         # `whistle_fingerings` and `guitar_tab` were both written around.
@@ -3411,6 +3460,10 @@ def _elements_in_measure(measure, kind: str) -> list[tuple]:
         if kind == "fermata":
             return [(n, e) for n in notes for e in n.expressions
                     if isinstance(e, m21expressions.Fermata)]
+        if kind == "ornament":
+            wanted = tuple(getattr(m21expressions, c) for c in ORNAMENT_CLASSES)
+            return [(n, e) for n in notes for e in n.expressions
+                    if isinstance(e, wanted)]
         return [(n, e) for n in notes for e in n.articulations
                 if isinstance(e, m21articulations.Articulation)]
     raise ValueError(f"no finder for element kind {kind!r}")
@@ -3418,7 +3471,7 @@ def _elements_in_measure(measure, kind: str) -> list[tuple]:
 
 def _attached_list(owner, kind: str) -> list:
     """The list on a note that a note-attached kind lives in."""
-    if kind == "fermata":
+    if kind in ("fermata", "ornament"):
         return owner.expressions
     if kind == "articulation":
         return owner.articulations
@@ -3572,6 +3625,13 @@ def _make_element(kind: str, value: str | None, placement: str | None):
                 f"'{mark}' is not an articulation. Choices: "
                 f"{sorted(ARTICULATION_MARKS)}")
         element = getattr(m21articulations, ARTICULATION_MARKS[mark])()
+    elif kind == "ornament":
+        mark = (value or "").strip().lower()
+        if mark not in ORNAMENT_MARKS:
+            raise ValueError(
+                f"'{mark}' is not an ornament. Choices: "
+                f"{sorted(ORNAMENT_MARKS)}")
+        element = getattr(m21expressions, ORNAMENT_MARKS[mark])()
     else:
         raise ValueError(f"no constructor for element kind {kind!r}")
 
@@ -3740,6 +3800,72 @@ def move_element(score, name: str, kind: str, measure: int, ordinal: int = 0,
             "anchor": spec.anchor,
             "from": {"measure": measure, "ordinal": ordinal},
             "to": {"measure": destination_number, "offset": offset}}
+
+
+def remove_element(score, name: str, kind: str, measure: int | None = None,
+                   ordinal: int = 0, all_elements: bool = False) -> dict:
+    """Take an added mark off the page.
+
+    The verb the family was missing. `add_element` could put a mark on,
+    `move_element` could move it and `adjust_element` could resize it, and
+    nothing could take one off -- so "take the ornament off bar 12" had no op
+    behind it and the only way back from an added mark was to undo to the
+    version before it, losing everything done since.
+
+    Addressed exactly as every other verb in the family addresses one: a
+    measure plus an ordinal in that bar's document order, or `all_elements`
+    for every one of that kind in the part. The two anchors are removed by
+    the two mechanics `move_element` already uses -- an offset-anchored mark
+    comes out of the stream it sits in, a note-attached one out of the list on
+    its note, BY IDENTITY, because two fermatas on one note compare equal and
+    `list.remove` would drop whichever came first.
+
+    A TAB COLUMN IS REFUSED BY NAME. Its anchor is "lyric": the element IS
+    the note, and its six verses are what `guitar-tab --clear` exists to take
+    off. Removing it here would mean removing the note, which is not what
+    anybody asking to remove a tab column means.
+    """
+    spec = _element_kind(kind, "remove", ADJUSTABLE_KINDS)
+    if spec.anchor == "lyric":
+        raise ValueError(
+            f"A {spec.noun} is not a mark ON a note, it IS the note -- its "
+            f"verses are taken off with `guitar-tab --clear`, which is what "
+            f"removing one means. This op removes marks; it will not remove "
+            f"music.")
+
+    part = find_parts(score, [name])[0]
+    measures = {m.number: m for m in part.getElementsByClass(stream.Measure)}
+
+    if all_elements:
+        found = [(m.number, holder, element) for m in measures.values()
+                 for holder, element in _elements_in_measure(m, kind)]
+        if not found:
+            raise ValueError(f"No {spec.noun}s in part '{part_label(part)}'")
+    else:
+        if measure is None:
+            raise ValueError(
+                "Which one? Pass a measure, or --all for the whole part")
+        m = measures.get(measure)
+        in_bar = _elements_in_measure(m, kind) if m is not None else []
+        if not 0 <= ordinal < len(in_bar):
+            raise ValueError(
+                f"No {spec.noun} #{ordinal} in measure {measure} of "
+                f"'{part_label(part)}' (it has {len(in_bar)})")
+        found = [(measure, *in_bar[ordinal])]
+
+    removed = []
+    for number, holder, element in found:
+        if spec.anchor == "offset":
+            holder.remove(element)
+        else:
+            attached = _attached_list(holder, kind)
+            # by identity: two identical marks on one note compare equal
+            attached[:] = [e for e in attached if e is not element]
+        removed.append(number)
+
+    return {"part": part_label(part), "kind": kind, "op": "remove",
+            "anchor": spec.anchor, "removed": len(removed),
+            "measures": sorted(set(removed))}
 
 
 def duplicate_element(score, name: str, kind: str, measure: int,

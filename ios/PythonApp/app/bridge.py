@@ -386,6 +386,18 @@ def _dispatch(op, a):
         return _place_element(a, op, duplicate=False)
     if op == "duplicate-element":
         return _place_element(a, op, duplicate=True)
+    if op == "remove-element":
+        score = _load(a["score"], None)
+        details = ops.remove_element(score, a["part"], a["kind"],
+                                     a.get("measure"),
+                                     ordinal=int(a.get("ordinal") or 0),
+                                     all_elements=bool(a.get("all")))
+        entry = workspace.add_version(a["score"], score, "remove-element",
+                                      {"part": a["part"], "kind": a["kind"],
+                                       "measure": a.get("measure"),
+                                       "ordinal": int(a.get("ordinal") or 0),
+                                       "all": bool(a.get("all"))})
+        return {"version": entry["id"], "details": details}
     if op == "guitar-tab":
         score = _load(a["score"], None)
         part = _part(score, a["part"])

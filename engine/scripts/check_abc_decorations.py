@@ -18,6 +18,13 @@ be perfectly present in memory and absent from the file the reader keeps.
   3. The count guard: a mark is never hung on a note this module is not sure
      of. The scan numbers note events and the restore checks both the tune's
      total and each note's LETTER before attaching.
+  4. AN ORNAMENT IS EDITABLE, which is the other half of extracting one.
+     This repo's rule is that a tool which CREATES an element ships with the
+     tools that manipulate it, so `ornament` is a kind in `ops.ELEMENT_KINDS`
+     and every verb in that family -- add, move, duplicate, adjust size,
+     adjust offset, reset, remove -- is driven here through the binary and
+     read back out of the file. Where a verb genuinely does not apply it must
+     REFUSE BY NAME; a silent no-op is what this section exists to catch.
 
 WHY THE FIXTURES ARE ABC TEXT, which nothing else in this repo is: the golden
 rule is that notation is never written as text, and ABC *is* text -- music21
@@ -31,6 +38,7 @@ Run: engine/.venv/bin/python engine/scripts/check_abc_decorations.py
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -61,6 +69,16 @@ def scor(env: dict, *args: str) -> dict:
             f"scor {' '.join(args)} exited {proc.returncode}: "
             f"{(proc.stderr or proc.stdout).strip()[-400:]}")
     return json.loads(proc.stdout)
+
+
+def refusal(env: dict, *args: str) -> str:
+    """One `scor` command expected to be refused. Returns the message."""
+    proc = subprocess.run([str(SCOR), *args], capture_output=True, text=True,
+                          env=env)
+    if proc.returncode == 0:
+        raise AssertionError(
+            f"scor {' '.join(args)} was accepted: {proc.stdout[:300]}")
+    return str(json.loads(proc.stderr)["error"])
 
 
 def written(env: dict, slug: str, out: Path):
@@ -321,6 +339,143 @@ def main() -> int:
     check(first.isChord and [type(e).__name__ for e in first.expressions] == ["Turn"],
           f"the roll is on the chord: chord={first.isChord} "
           f"{[type(e).__name__ for e in first.expressions]}")
+
+    # -------------------------------------- an ornament can be edited ---
+    print("\nthe ornament kind is in the registry with the rest")
+    from scoranger_engine import ops
+
+    check("ornament" in ops.ELEMENT_KINDS, "`ornament` is an element kind")
+    spec = ops.ELEMENT_KINDS.get("ornament")
+    check(spec is not None and spec.anchor == "note",
+          f"anchored to a NOTE, like a fermata: "
+          f"{spec.anchor if spec else None}")
+    check(spec is not None and spec.movable, "and movable")
+    for family in ("ADJUSTABLE_KINDS", "MOVABLE_KINDS", "ADDABLE_KINDS"):
+        check("ornament" in getattr(ops, family),
+              f"and in {family}, so the CLI offers it")
+    # A Fermata is an Expression but NOT an Ornament, so the two finders can
+    # never see each other's marks -- which is why they are separate kinds.
+    from music21 import expressions as m21expressions
+    check(not issubclass(m21expressions.Fermata, m21expressions.Ornament),
+          "a fermata is not an ornament, so the two kinds are disjoint")
+
+    print("\nadd, resize, nudge, move, duplicate, remove -- through the binary")
+    out = scor(env, "import", str(tune(
+        root, "editable.abc", "Editable",
+        "|A2 B2 c2 d2|\n|e2 f2 g2 a2|\n|b2 a2 g2 f2|")))
+    slug = out["score"]
+    bars = [m.number for m in
+            written(env, slug, root / "editable.musicxml").parts[0]
+            .getElementsByClass(__import__("music21").stream.Measure)]
+    first = bars[0]
+
+    added = scor(env, "add-element", slug, "--part", "#0", "--kind", "ornament",
+                 "--value", "roll", "--measure", str(first), "--offset", "0")
+    check(added["details"]["ordinal"] == 0,
+          f"a roll is added and reports its ordinal: {added['details']}")
+    score = written(env, slug, root / "editable-1.musicxml")
+    check(on_each_note(score)[0] == ["Turn"],
+          f"a ROLL is engraved as a turn: {on_each_note(score)[0]}")
+
+    scor(env, "adjust-element", slug, "--part", "#0", "--kind", "ornament",
+         "--measure", str(first), "--ordinal", "0", "--scale", "1.5")
+    scor(env, "adjust-element", slug, "--part", "#0", "--kind", "ornament",
+         "--measure", str(first), "--ordinal", "0", "--offset-y", "20")
+    score = written(env, slug, root / "editable-2.musicxml")
+    got = [e for n in score.flatten().notes for e in n.expressions]
+    check(len(got) == 1 and got[0].style.fontSize == 18
+          and got[0].style.relativeY == 20,
+          f"size and offset survive the WRITE AND THE READ BACK -- every op "
+          f"round-trips the file, so an adjustment that only survives the "
+          f"write expires at the next op: "
+          f"{[(e.style.fontSize, e.style.relativeX, e.style.relativeY) for e in got]}")
+
+    moved = scor(env, "move-element", slug, "--part", "#0", "--kind", "ornament",
+                 "--measure", str(first), "--ordinal", "0",
+                 "--to-measure", str(bars[1]), "--to-offset", "0")
+    check(moved["details"]["anchor"] == "note",
+          f"it moves by the note-attached mechanic: {moved['details']['anchor']}")
+    score = written(env, slug, root / "editable-3.musicxml")
+    where = [i for i, marks in enumerate(on_each_note(score)) if marks]
+    check(where == [4], f"and is now on the first note of the second bar: {where}")
+
+    scor(env, "duplicate-element", slug, "--part", "#0", "--kind", "ornament",
+         "--measure", str(bars[1]), "--ordinal", "0",
+         "--to-measure", str(bars[2]), "--to-offset", "0")
+    score = written(env, slug, root / "editable-4.musicxml")
+    where = [i for i, marks in enumerate(on_each_note(score)) if marks]
+    check(where == [4, 8], f"a duplicate leaves the original behind: {where}")
+
+    scor(env, "adjust-element", slug, "--part", "#0", "--kind", "ornament",
+         "--all", "--reset")
+    score = written(env, slug, root / "editable-5.musicxml")
+    styles = [(e.style.fontSize, e.style.relativeX, e.style.relativeY)
+              for n in score.flatten().notes for e in n.expressions]
+    check(all(s == (None, None, None) for s in styles),
+          f"--reset puts every one back to the engraved default: {styles}")
+
+    removed = scor(env, "remove-element", slug, "--part", "#0",
+                   "--kind", "ornament", "--measure", str(bars[2]), "--ordinal", "0")
+    check(removed["details"]["removed"] == 1,
+          f"one is removed: {removed['details']}")
+    score = written(env, slug, root / "editable-6.musicxml")
+    where = [i for i, marks in enumerate(on_each_note(score)) if marks]
+    check(where == [4], f"and only that one: {where}")
+
+    scor(env, "remove-element", slug, "--part", "#0", "--kind", "ornament", "--all")
+    score = written(env, slug, root / "editable-7.musicxml")
+    check(not any(on_each_note(score)), "--all clears the part")
+
+    # An adjustment stored in the notation and not drawn is the same silent
+    # no-op as one that was never stored. Verovio honours neither MusicXML
+    # field, so render.py carries both across itself -- and until `ornament`
+    # was in ELEMENT_MEI_TAGS and ELEMENT_SVG_CLASSES, `adjust-element --kind
+    # ornament` wrote a number nothing on the page ever read.
+    print("\nand the adjustment reaches the PAGE, not just the file")
+    import verovio
+    from scoranger_engine import render
+
+    scor(env, "add-element", slug, "--part", "#0", "--kind", "ornament",
+         "--value", "trill", "--measure", str(first), "--offset", "0")
+    scor(env, "adjust-element", slug, "--part", "#0", "--kind", "ornament",
+         "--all", "--scale", "1.5", "--offset-y", "20")
+    drawn = root / "drawn.musicxml"
+    scor(env, "export", slug, "--format", "musicxml", "--out", str(drawn))
+
+    toolkit = verovio.toolkit()
+    toolkit.loadFile(str(drawn))
+    mei = toolkit.getMEI()
+    patched = render.mei_with_element_adjustments(mei, str(drawn))
+    check(patched is not None and 'vo="4"' in patched,
+          f"the offset reaches the MEI as @vo: "
+          f"{re.findall(r'<trill[^>]*>', patched or '')[:1]}")
+
+    toolkit.loadData(patched)
+    plain = toolkit.renderToSVG(1)
+    sized = render.apply_element_sizes(plain, str(drawn))
+    scales = [re.search(r"scale\(([\d.]+)", m).group(1)
+              for svg in (plain, sized)
+              for m in [re.search(r'class="trill">\s*<use[^>]*transform="[^"]*"',
+                                  svg).group(0)]]
+    check(len(scales) == 2 and float(scales[1]) > float(scales[0]) * 1.4,
+          f"and the glyph is really drawn bigger: {scales[0]} -> {scales[1]}")
+
+    print("\nand what does not apply is refused BY NAME, never a silent no-op")
+    for kind, wanted in (("slur", "spanner"), ("tab", "guitar-tab --clear")):
+        message = refusal(env, "remove-element", slug, "--part", "#0",
+                          "--kind", kind, "--measure", str(first))
+        check(wanted in message, f"remove --kind {kind}: {message[:110]}")
+    message = refusal(env, "add-element", slug, "--part", "#0",
+                      "--kind", "ornament", "--value", "squiggle",
+                      "--measure", str(first))
+    check("is not an ornament" in message and "trill" in message,
+          f"an invented ornament is refused with the list: {message[:130]}")
+    message = refusal(env, "add-element", slug, "--part", "#0",
+                      "--kind", "ornament", "--value", "roll",
+                      "--measure", str(first), "--offset", "0.5")
+    check("starts at offset" in message,
+          f"and an offset no note starts at is refused with the onsets: "
+          f"{message[:130]}")
 
     if FAILURES:
         print(f"\nFAIL: {len(FAILURES)} ABC decoration check(s) failed")

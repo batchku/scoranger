@@ -473,6 +473,15 @@ def cmd_move_element(a):
              "to_measure": a.to_measure, "to_offset": a.to_offset}, details)
 
 
+def cmd_remove_element(a):
+    score = _load(a.score, None)
+    details = ops.remove_element(score, a.part, a.kind, a.measure,
+                                 ordinal=a.ordinal, all_elements=a.all)
+    _mutate(a.score, score, "remove-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "ordinal": a.ordinal, "all": a.all}, details)
+
+
 def cmd_duplicate_element(a):
     score = _load(a.score, None)
     details = ops.duplicate_element(score, a.part, a.kind, a.measure,
@@ -1004,7 +1013,7 @@ def main() -> None:
     s = sub.add_parser("adjust-element",
                        help="size and position of an added element "
                             "(chord symbols, diagrams, dynamics, text, "
-                            "fermatas, articulations)")
+                            "fermatas, articulations, ornaments)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", default="harm",
@@ -1024,8 +1033,8 @@ def main() -> None:
     s.set_defaults(fn=cmd_adjust_element)
 
     s = sub.add_parser("add-element",
-                       help="Add a dynamic, a text mark, a fermata or an "
-                            "articulation to a bar")
+                       help="Add a dynamic, a text mark, a fermata, an "
+                            "articulation or an ornament to a bar")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", required=True,
@@ -1034,12 +1043,14 @@ def main() -> None:
                    help="the bar it goes in")
     s.add_argument("--value",
                    help="the dynamic (mf), the words (\"dolce\"), the "
-                        "articulation (accent) or the fermata's shape "
+                        "articulation (accent), the ornament "
+                        "(roll|trill|mordent|turn...) or the fermata's shape "
                         "(normal|angled|square)")
     s.add_argument("--offset", type=float, default=0.0,
                    help="quarter notes from the barline: 0 is the downbeat. "
-                        "A fermata or an articulation needs a note STARTING "
-                        "there, because that is what it hangs off.")
+                        "A fermata, an articulation or an ornament needs a "
+                        "note STARTING there, because that is what it hangs "
+                        "off.")
     s.add_argument("--placement", choices=["above", "below"],
                    help="which side of the staff it sits on")
     s.set_defaults(fn=cmd_add_element)
@@ -1063,6 +1074,19 @@ def main() -> None:
         s.add_argument("--to-offset", dest="to_offset", type=float, default=0.0,
                        help="quarter notes from that barline: 0 is the downbeat")
         s.set_defaults(fn=fn)
+
+    s = sub.add_parser("remove-element",
+                       help="Take an added mark off the page")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--kind", required=True,
+                   help="|".join(sorted(ops.ADJUSTABLE_KINDS)))
+    s.add_argument("--measure", type=int, help="the bar it is in")
+    s.add_argument("--ordinal", type=int, default=0,
+                   help="which one in that bar, in document order")
+    s.add_argument("--all", action="store_true",
+                   help="every mark of that kind in the part")
+    s.set_defaults(fn=cmd_remove_element)
 
     s = sub.add_parser("rename-slug",
                        help="Change the slug a score is filed under (moves artifacts)")

@@ -308,6 +308,7 @@ _HARM_MEI_RE = re.compile(r"<harm\b")
 _DYNAMICS_TAG_RE = re.compile(r"<dynamics\b[^>]*>")
 _FERMATA_TAG_RE = re.compile(r"<fermata\b[^>]*>")
 _ARTICULATIONS_RE = re.compile(r"<articulations\b[^>]*>(.*?)</articulations>", re.S)
+_ORNAMENTS_RE = re.compile(r"<ornaments\b[^>]*>(.*?)</ornaments>", re.S)
 _ARTIC_CHILD_RE = re.compile(r"<([a-z-]+)\b([^>]*)/?>")
 # A chord symbol's glyph carries x and y after its size, so the fingering-era
 # pattern (which expects the tag to close right after font-size) never matches
@@ -348,13 +349,27 @@ def _adjustment_tags(text: str, kind: str) -> list[str]:
         return [f"<{name}{attrs}>"
                 for block in _ARTICULATIONS_RE.findall(text)
                 for name, attrs in _ARTIC_CHILD_RE.findall(block)]
+    if kind == "ornament":
+        # An <ornaments> block holds <trill-mark>, <turn>, <mordent> and the
+        # rest as children, exactly as <articulations> does -- and Verovio
+        # emits one element per child in the same order, which is the join
+        # the two functions below rely on.
+        return [f"<{name}{attrs}>"
+                for block in _ORNAMENTS_RE.findall(text)
+                for name, attrs in _ARTIC_CHILD_RE.findall(block)]
     raise ValueError(f"no adjustment finder for element kind {kind!r}")
 
 
 # kind -> the MEI element Verovio writes it as. `diagram` is absent on purpose:
 # we draw those ourselves and `mei_with_chord_diagrams` places them.
+# `ornament` is an ALTERNATION rather than one name: MusicXML's six ornament
+# children become three different MEI elements (a schleifer arrives as a
+# <mordent> carrying a glyph override), and there is no one tag that covers
+# them. Both users below interpolate this into a regex, so a group is exactly
+# as good as a literal.
 ELEMENT_MEI_TAGS = {"harm": "harm", "dynamic": "dynam", "text": "dir",
-                    "fermata": "fermata", "articulation": "artic"}
+                    "fermata": "fermata", "articulation": "artic",
+                    "ornament": "(?:trill|turn|mordent)"}
 
 
 def element_adjustments(musicxml_path, kind: str = "harm") -> list[dict]:
@@ -533,7 +548,10 @@ def mei_with_chord_adjustments(mei: str, musicxml_path) -> str | None:
 ELEMENT_SVG_CLASSES = {"harm": ("harm", "text"), "text": ("dir", "text"),
                        "dynamic": ("dynam", "glyph"),
                        "fermata": ("fermata", "glyph"),
-                       "articulation": ("artic", "glyph")}
+                       "articulation": ("artic", "glyph"),
+                       # one <g> holding one <use> of the ornament glyph --
+                       # a LEAF, like a fermata, and sized the same way
+                       "ornament": ("(?:trill|turn|mordent)", "glyph")}
 
 _USE_SCALE_RE = re.compile(r'(transform="translate\([^)]*\)\s*scale\()'
                            r'([\d.]+),\s*([\d.]+)(\))')

@@ -158,6 +158,8 @@ JIG_STEPS: list[tuple[str, dict]] = [
                       "to_measure": 3, "to_offset": 1.5}),
     ("duplicate_element", {"part": "#0", "kind": "fermata", "measure": 5,
                            "to_measure": 4, "to_offset": 0}),
+    ("remove_element", {"part": "#0", "kind": "articulation", "measure": 5,
+                        "ordinal": 0}),
     ("set_structure", {"kind": "repeat-end", "measure": 4}),
     ("set_rehearsal", {"measure": 3, "mark": "A"}),
     ("transpose", {"interval": "M2"}),
@@ -291,6 +293,10 @@ def main() -> int:
     check(copied.get("op") == "duplicate" and copied.get("anchor") == "note",
           f"duplicate_element copied a note-attached mark: {copied.get('anchor')}")
 
+    gone = (answers.get("remove_element") or [{}])[0].get("details", {})
+    check(gone.get("op") == "remove" and gone.get("removed") == 1,
+          f"remove_element took one mark off: {gone.get('removed')}")
+
     stripped = (answers.get("strip_notes") or [{}])[0].get("details", {})
     check((stripped.get("notes_removed") or 0) > 0,
           f"strip_notes emptied the staff: {stripped.get('notes_removed')} notes")
@@ -329,25 +335,31 @@ def main() -> int:
     surfaces = {
         "the engine op (ops.py)": (ROOT / "engine/scoranger_engine/ops.py",
                                    ["def add_element(", "def move_element(",
+                                    "def remove_element(",
                                     "def strip_notes("]),
         "the CLI (cli.py)": (ROOT / "engine/scoranger_engine/cli.py",
                              ['"add-element"', '"move-element"',
-                              '"duplicate-element"', '"strip-notes"']),
+                              '"duplicate-element"', '"remove-element"',
+                              '"strip-notes"']),
         "the desktop agent (chat.py)": (ROOT / "engine/scoranger_engine/chat.py",
                                         ["def add_element(", "def move_element(",
                                          "def duplicate_element(",
+                                         "def remove_element(",
                                          "def strip_notes("]),
         "the on-device bridge (bridge.py)": (ROOT / "ios/PythonApp/app/bridge.py",
                                              ['op == "add-element"',
                                               'op == "move-element"',
                                               'op == "duplicate-element"',
+                                              'op == "remove-element"',
                                               'op == "strip-notes"']),
         "the on-device agent (ChatTools.swift)":
             (ROOT / "ios/Scoranger/ScoreModel/ChatTools.swift",
              ['name: "add_element"', 'name: "move_element"',
-              'name: "duplicate_element"', 'name: "strip_notes"',
+              'name: "duplicate_element"', 'name: "remove_element"',
+              'name: "strip_notes"',
               'op: "add-element"', 'op: "move-element"',
-              'op: "duplicate-element"', 'op: "strip-notes"']),
+              'op: "duplicate-element"', 'op: "remove-element"',
+              'op: "strip-notes"']),
     }
     for where, (path, needles) in surfaces.items():
         text = path.read_text(encoding="utf-8") if path.exists() else ""

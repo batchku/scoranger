@@ -210,11 +210,26 @@ scor piece-combine --pieces "A,B,C" [--into B] [--name "New name"]
   # arrangements keep their numbers and the absorbed ones append; a credit the
   # survivor lacks is taken from the first that has one; tags are unioned.
   # THERE IS NO UNDO -- the app confirms on its own screen before calling it.
-scor add-element <score> --part X --kind dynamic|text|fermata|articulation
+scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornament
                   --measure N [--value V] [--offset QUARTERS] [--placement above|below]
   # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
-  # the articulation (accent, staccato, tenuto, marcato...) or the fermata's
-  # shape (normal|angled|square). The destination is the same one move-element
+  # the articulation (accent, staccato, tenuto, marcato...), the ORNAMENT
+  # (roll|turn|inverted-turn|trill|mordent|lower-mordent|inverted-mordent|
+  # upper-mordent|pralltriller|slide|schleifer) or the fermata's
+  # shape (normal|angled|square).
+  # AN ORNAMENT IS ITS OWN KIND, not a value of `fermata`: music21 keeps
+  # ornaments in a note's `expressions` beside the Fermata but under
+  # `expressions.Ornament`, which a Fermata is not -- so the two finders never
+  # see each other's marks and "take the roll off bar 12" does not also take
+  # the fermata. Most of them arrive from ABC (see enrich.DECORATIONS); this
+  # is how one is added, and every verb below addresses it the same way a
+  # fermata is addressed. A `roll` and a `turn` draw the SAME mark, which is
+  # the Irish-roll decision recorded in `enrich.DECORATIONS`.
+  # TREMOLO IS ABSENT ON PURPOSE: music21 writes a <tremolo> with its
+  # font-size and relative-x/y and reads it back without them, so a resized
+  # one would lose its size at the next op -- an adjustment that appears to
+  # work and quietly expires. The same is true of <fermata>, which is a
+  # PRE-EXISTING gap in `adjust-element --kind fermata`, not a new one. The destination is the same one move-element
   # takes -- a BAR plus an offset in quarter notes from its barline -- and the
   # two element classes land by the same two mechanics: offset-anchored marks
   # are inserted at the offset, note-attached ones are attached to the note
@@ -229,7 +244,7 @@ scor add-element <score> --part X --kind dynamic|text|fermata|articulation
   # because music21 will build a Dynamic out of any string and give it a
   # loudness that then gets PLAYED.
 scor adjust-element <score> --part X
-                    [--kind harm|diagram|dynamic|text|fermata|articulation|tab]
+                    [--kind harm|diagram|dynamic|text|fermata|articulation|ornament|tab]
                     [--measure N] [--ordinal N] [--all] [--scale RATIO]
                     [--size PT] [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
   # how big an added element is and where it sits, stored in the notation
@@ -246,6 +261,14 @@ scor move-element <score> --part X --kind K --measure N [--ordinal N]
                   [--to-measure N] [--to-offset QUARTERS]
 scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
                        [--to-measure N] [--to-offset QUARTERS]
+scor remove-element <score> --part X --kind K [--measure N] [--ordinal N] [--all]
+  # take an added mark off. The verb the family was missing: a mark could be
+  # added, moved and resized and the only way back from one was to undo to the
+  # version before it, losing everything done since. Addressed like every
+  # other verb here -- a bar plus an ordinal in its document order, or --all
+  # for the whole part. A TAB COLUMN is refused by name: its anchor is the
+  # NOTE, so removing it would mean removing music, and `guitar-tab --clear`
+  # is what taking one off means.
   # the destination is a BAR plus an offset inside it (0 is the downbeat) --
   # this app has no drag. Offset-anchored elements (harm, diagram, dynamic,
   # text) are copied in at that offset; note-attached ones (fermata,
