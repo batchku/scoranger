@@ -9,6 +9,33 @@ share-sheet import, and a Cloud Run Audiveris service for PDF→MusicXML
 (`omr-service/`). Cross-device library sync remains a follow-up (iCloud or the
 Firebase backend).
 
+## Deferred from the OMR text pass (lyrics as an element kind)
+
+**A resized word overlaps the word beside it.** Verovio lays the verse line
+out at one size and has no per-verse size, so `adjust-element --kind lyric
+--scale` is applied to the drawn page afterwards, exactly as a chord symbol's
+size is. A chord symbol is one per bar and has room; syllables are set tight,
+so even 1.25x crowds its neighbour and 2x runs across it
+(`design/screenshots/lyric-resized-and-moved.png`). The global option that
+WOULD re-lay the line out, Verovio's `lyricSize`, also sizes `<harm>` -- that
+is the whole reason `engine/scripts/check_render.py` exists -- so raising it
+for the words would shrink or grow every chord name with them. A real fix
+means per-verse layout, which is upstream work, or accepting a whole-part
+size that re-engraves the line and compensating the chord symbols back, which
+is the kind of cleverness that breaks quietly.
+
+**A word resized on the iPad does not redraw there.** The engine writes the
+size into the verse NAME (`ly@1.5`) and `render.apply_lyric_sizes` applies it
+in the PDF export; the app draws its own pages, and
+`ios/Scoranger/ScoreModel/ChordAdjustments.swift` knows five kinds, none of
+them a verse. The pattern to copy is `FingeringDiagrams.swift`, which already
+reads a verse's labelAttr title out of the SVG and rescales its tspan.
+
+**The app cannot point at a word.** `AddedMarks.ScoreElementKind` lists harm,
+dynam, text, fermata and articulation, so tap-to-select and the adjust row do
+not reach a lyric; the chat tools do, on both surfaces. Adding it means a
+selection story for something drawn in a line rather than as a mark.
+
 ## Deferred from 0.10.0 (ABC import)
 
 **ABC export.** 0.10.0 reads ABC and cannot write it, because music21 cannot:
