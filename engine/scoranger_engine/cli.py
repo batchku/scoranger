@@ -624,7 +624,10 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="scor", description="Scoranger score engine")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("import", help="Import a score file into the workspace")
+    s = sub.add_parser("import",
+                       help="Import a notation file (.musicxml/.xml/.mxl/.mid/"
+                            ".abc) -- several tunes in one file become several "
+                            "arrangements")
     s.add_argument("file")
     s.add_argument("--name")
     s.set_defaults(fn=cmd_import)
