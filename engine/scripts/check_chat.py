@@ -355,6 +355,32 @@ def main() -> int:
         check(not missing, f"{where} offers them"
                            + (f" -- missing {missing}" if missing else ""))
 
+    print("\nboth agents know a word is an element, and what it cannot do")
+    # Lyrics come off the scanner now, and an element the app can produce is
+    # one a reader will ask to change. The two tool tables are written twice
+    # -- once for the desktop agent and once for the on-device one -- so the
+    # vocabulary has to be asserted in both or one of them goes quiet.
+    for label, path in (("chat.py", ROOT / "engine/scoranger_engine/chat.py"),
+                        ("ChatTools.swift",
+                         ROOT / "ios/Scoranger/ScoreModel/ChatTools.swift")):
+        text = path.read_text(encoding="utf-8")
+        check("lyric" in text.lower(),
+              f"{label} offers the lyric kind at all")
+        check("make the words bigger" in text.lower(),
+              f"{label} says it in the words a reader uses")
+        for verb in ("add_element", "adjust_element", "move_element"):
+            start = text.index(f"def {verb}(" if label.endswith(".py")
+                               else f'Spec(name: "{verb}"')
+            body = text[start:][:4000].lower()
+            check("lyric" in body, f"{label}'s {verb} names the lyric kind")
+        start = text.index("def adjust_element(" if label.endswith(".py")
+                           else 'Spec(name: "adjust_element"')
+        adjust = text[start:][:4000].lower()
+        sentence = adjust[adjust.index("lyric"):]
+        check("refus" in sentence and "offset" in sentence,
+              f"{label} says a lyric REFUSES an offset, so the model asks for "
+              "something else rather than sending a nudge nothing draws")
+
     print("\nand what the size argument SAYS, because that is what a model acts on")
     for label, path in (("chat.py", ROOT / "engine/scoranger_engine/chat.py"),
                         ("ChatTools.swift",

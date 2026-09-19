@@ -261,6 +261,57 @@ for kind, css, leaf in (("harm", "harm", False), ("dynamic", "dynam", True),
             f"{kind}: --scale 2 did not make it bigger "
             f"({before_size} -> {bigger[0][2]})")
 
+# -- a word's size reaches the page too, by a different road ------------------
+#
+# A lyric is not sized the way the five above are. MusicXML has no font on a
+# <lyric> -- the font belongs on the <text> inside it, which music21 neither
+# writes nor reads -- so the size rides in the verse NAME, and Verovio carries
+# that name onto the page as a labelAttr title. `apply_lyric_sizes` reads the
+# page rather than the file and so needs no nth-element alignment, which is
+# what a page break would break on a score with four hundred syllables.
+def sung(word="la"):
+    from music21 import harmony
+
+    score = fixtures.jig(bars=4)
+    bar = score.parts[0].measure(2)
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.lyric = word
+    return score
+
+
+def engrave_words(path):
+    toolkit = verovio.toolkit()
+    toolkit.setOptions({"scale": 45, "footer": "none", "adjustPageHeight": True,
+                        "lyricSize": render.DEFAULT_LYRIC_SIZE})
+    toolkit.loadFile(path)
+    return render.apply_lyric_sizes(toolkit.renderToSVG(1))
+
+
+def verse_sizes(svg):
+    return [float(m) for block in re.findall(
+                r'<g[^>]*class="verse">.*?</g>\s*</g>', svg, re.S)
+            for m in re.findall(r'<tspan font-size="([\d.]+)px"', block)[:1]]
+
+
+plain_words = verse_sizes(engrave_words(written(sung())))
+bigger_score = sung()
+ops.adjust_element(bigger_score, "#0", kind="lyric", measure=2, scale=2.0)
+bigger_words = verse_sizes(engrave_words(written(bigger_score)))
+if len(plain_words) != 1 or len(bigger_words) != 1:
+    FAILURES.append(f"lyric: engraved {len(plain_words)} then "
+                    f"{len(bigger_words)} verses -- nothing to measure")
+elif bigger_words[0] <= plain_words[0]:
+    FAILURES.append(f"lyric: --scale 2 did not make the word bigger "
+                    f"({plain_words[0]} -> {bigger_words[0]})")
+
+# And an offset is REFUSED rather than written into a file nothing honours.
+try:
+    ops.adjust_element(sung(), "#0", kind="lyric", measure=2, offset_y=8)
+    FAILURES.append("lyric: an offset was accepted, and nothing draws one")
+except ValueError as e:
+    if "cannot be nudged" not in str(e):
+        FAILURES.append(f"lyric: the offset refusal does not say why: {e}")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} adjustment check(s) failed")
     for line in FAILURES:
@@ -268,4 +319,5 @@ if FAILURES:
     sys.exit(1)
 print("OK: size and position are written to the notation, survive the file, "
       "and reach the page -- right is right and up is up, for a chord symbol, "
-      "a dynamic, a text mark, a fermata and an articulation alike")
+      "a dynamic, a text mark, a fermata and an articulation alike; and a "
+      "word grows by its verse name, or refuses the nudge nothing would draw")

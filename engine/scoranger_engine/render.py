@@ -616,6 +616,41 @@ def apply_chord_sizes(svg: str, musicxml_path) -> str:
     return apply_element_sizes(svg, musicxml_path)
 
 
+def apply_lyric_sizes(svg: str) -> str:
+    """Resize each word whose verse name asks for it.
+
+    Read off the PAGE rather than out of the file, unlike the five kinds
+    above. Verovio carries a verse's name into the SVG as its labelAttr title,
+    so a syllable arrives here holding its own size and nothing has to be
+    counted: `ly@1.5` on this verse resizes this word. The kinds that go
+    through `apply_element_sizes` match the nth block on the page to the nth
+    element in the file, which is an alignment a page break can break, and
+    lyrics are the one kind that runs to hundreds per score.
+
+    A tab column's `gt@...` is left alone -- `_tab_staff` redraws those
+    entirely -- and so is a verse with a plain name, which is every word
+    nobody has resized.
+    """
+    from . import ops
+
+    if 'class="verse"' not in svg:
+        return svg
+    pieces, cursor = [], 0
+    for match in _VERSE_RE.finditer(svg):
+        block = match.group(0)
+        label = _LABEL_RE.search(block)
+        ratio = ops.parse_lyric_label(label.group(1)) if label else None
+        if ratio is None or ratio <= 0:
+            continue
+        pieces.append(svg[cursor:match.start()])
+        pieces.append(_resize_text(block, ratio))
+        cursor = match.end()
+    if not pieces:
+        return svg
+    pieces.append(svg[cursor:])
+    return "".join(pieces)
+
+
 def _fingering_diagrams(svg: str) -> str:
     """Replace whistle-fingering glyphs with drawn circles.
 
@@ -1487,9 +1522,9 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
                 raise RuntimeError("Verovio could not reload MEI with deduped rehearsals")
         n_pages = tk.getPageCount()
         svgs = [_tab_staff(_chord_diagrams(_fingering_diagrams(
-                    apply_element_sizes(
+                    apply_lyric_sizes(apply_element_sizes(
                         _style_chart_svg(_sanitize_svg(tk.renderToSVG(p)), harm_staves),
-                        src))))
+                        src)))))
                 for p in range(1, n_pages + 1)]
     for svg in svgs:
         # the page's PHYSICAL size, which is not the size Verovio drew it at

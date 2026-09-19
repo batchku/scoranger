@@ -524,8 +524,15 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
     """Change how big an added element is, or where it sits.
 
     `kind` is "harm" (a chord symbol), "diagram" (a guitar chord diagram),
-    "tab" (a tablature column), or one of the four marks add_element writes:
-    "dynamic", "text", "fermata", "articulation".
+    "tab" (a tablature column), "lyric" (a word under a note -- "make the
+    words bigger"), or one of the four marks add_element writes: "dynamic",
+    "text", "fermata", "articulation".
+
+    A LYRIC TAKES A SIZE AND NOTHING ELSE. "Make the words bigger" is a scale
+    and works; "move the lyric to the left" is refused by name, because a word
+    is drawn under the note it belongs to and no renderer here honours an
+    offset on one. A word that belongs somewhere else belongs under another
+    NOTE: that is move_element, not an offset.
 
     SIZE IS RELATIVE. `scale` is the interface: 1.0 is the engraved default,
     1.5 is half again, 0.75 is three quarters. "Make that dynamic bigger" is a
@@ -552,11 +559,18 @@ def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
 def add_element(ctx: RunContext[str], part: str, kind: str, measure: int,
                 value: str | None = None, offset: float = 0.0,
                 placement: str | None = None) -> dict:
-    """Put a mark on the page: a dynamic, a text mark, a fermata or an articulation.
+    """Put a mark on the page: a dynamic, a text mark, a fermata, an articulation or a word.
 
-    `kind` is "dynamic", "text", "fermata" or "articulation". `value` is the
-    dynamic ("mf"), the words ("dolce"), the articulation (accent, staccato,
-    tenuto, marcato...) or the fermata's shape (normal|angled|square).
+    `kind` is "dynamic", "text", "fermata", "articulation" or "lyric". `value`
+    is the dynamic ("mf"), the words ("dolce"), the articulation (accent,
+    staccato, tenuto, marcato...), the fermata's shape (normal|angled|square)
+    or the syllable to sing ("la").
+
+    A LYRIC hangs off the note that starts at the offset, like a fermata, and
+    lands in the lowest verse that note has free -- verse 1 under a note with
+    no words, verse 2 under one already singing. It takes no `placement`:
+    verses are drawn below the staff and asking for "above" is refused rather
+    than written down and ignored.
 
     THE DESTINATION IS A BAR PLUS AN OFFSET INSIDE IT, in quarter notes from
     the barline: 0 is the downbeat, 1.5 the second half of beat two in 4/4.
@@ -589,8 +603,12 @@ def move_element(ctx: RunContext[str], part: str, kind: str, measure: int,
     add_element takes.
 
     Offset-anchored elements (harm, diagram, dynamic, text) land at that
-    offset; note-attached ones (fermata, articulation) attach to the note that
-    STARTS there, and the op refuses and lists the onsets rather than guessing.
+    offset; note-attached ones (fermata, articulation, lyric) attach to the
+    note that STARTS there, and the op refuses and lists the onsets rather
+    than guessing. THIS IS THE ONLY WAY A LYRIC MOVES -- off one note and onto
+    another, keeping its verse. If the destination note already sings that
+    verse the op says whose word is in the way instead of stacking two on one
+    notehead.
     Spanners are refused by name: a spanner has two anchors and a destination
     names one. A move never touches pitch or rhythm."""
     return _apply(ctx.deps, "move-element",

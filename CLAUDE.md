@@ -210,11 +210,14 @@ scor piece-combine --pieces "A,B,C" [--into B] [--name "New name"]
   # arrangements keep their numbers and the absorbed ones append; a credit the
   # survivor lacks is taken from the first that has one; tags are unioned.
   # THERE IS NO UNDO -- the app confirms on its own screen before calling it.
-scor add-element <score> --part X --kind dynamic|text|fermata|articulation
+scor add-element <score> --part X --kind dynamic|text|fermata|articulation|lyric
                   --measure N [--value V] [--offset QUARTERS] [--placement above|below]
   # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
-  # the articulation (accent, staccato, tenuto, marcato...) or the fermata's
-  # shape (normal|angled|square). The destination is the same one move-element
+  # the articulation (accent, staccato, tenuto, marcato...), the fermata's
+  # shape (normal|angled|square) or the syllable to sing ("la"). A LYRIC hangs
+  # off the note at the offset, like a fermata, and lands in the lowest verse
+  # that note has free; it takes no --placement, because verses are drawn
+  # below the staff and "above" would be written down and ignored. The destination is the same one move-element
   # takes -- a BAR plus an offset in quarter notes from its barline -- and the
   # two element classes land by the same two mechanics: offset-anchored marks
   # are inserted at the offset, note-attached ones are attached to the note
@@ -229,7 +232,7 @@ scor add-element <score> --part X --kind dynamic|text|fermata|articulation
   # because music21 will build a Dynamic out of any string and give it a
   # loudness that then gets PLAYED.
 scor adjust-element <score> --part X
-                    [--kind harm|diagram|dynamic|text|fermata|articulation|tab]
+                    [--kind harm|diagram|dynamic|text|fermata|articulation|tab|lyric]
                     [--measure N] [--ordinal N] [--all] [--scale RATIO]
                     [--size PT] [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
   # how big an added element is and where it sits, stored in the notation
@@ -242,6 +245,13 @@ scor adjust-element <score> --part X
   # caller that already holds one, and the two together are refused. Verovio
   # honours none of the three fields, so each renderer carries them across
   # itself.
+  # A LYRIC takes a size and refuses an offset by name: a word is drawn under
+  # the note it belongs to and nothing here honours a nudge on one. Its size
+  # rides in the verse NAME (`ly@1.5`), because MusicXML puts no font on a
+  # <lyric> and music21 drops one written on the <text> inside it -- the same
+  # reason a tab column's size rides in `gt@...`. Words only: a whistle's
+  # fingerings and a tab's frets are verses too and are addressed by
+  # --kind tab, not by --kind lyric.
 scor move-element <score> --part X --kind K --measure N [--ordinal N]
                   [--to-measure N] [--to-offset QUARTERS]
 scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
@@ -249,8 +259,10 @@ scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
   # the destination is a BAR plus an offset inside it (0 is the downbeat) --
   # this app has no drag. Offset-anchored elements (harm, diagram, dynamic,
   # text) are copied in at that offset; note-attached ones (fermata,
-  # articulation) are attached to the note that STARTS there, and the op
-  # refuses rather than guess if nothing does. SPANNERS (slurs, hairpins) are
+  # articulation, lyric) are attached to the note that STARTS there, and the
+  # op refuses rather than guess if nothing does. Re-attaching is the ONLY way
+  # a word moves, and it keeps its verse -- if the destination note already
+  # sings that verse the op names the word in the way. SPANNERS (slurs, hairpins) are
   # refused by name: a spanner has two anchors and a destination names one.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:

@@ -1004,7 +1004,7 @@ def main() -> None:
     s = sub.add_parser("adjust-element",
                        help="size and position of an added element "
                             "(chord symbols, diagrams, dynamics, text, "
-                            "fermatas, articulations)")
+                            "fermatas, articulations, lyrics)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", default="harm",
@@ -1024,8 +1024,8 @@ def main() -> None:
     s.set_defaults(fn=cmd_adjust_element)
 
     s = sub.add_parser("add-element",
-                       help="Add a dynamic, a text mark, a fermata or an "
-                            "articulation to a bar")
+                       help="Add a dynamic, a text mark, a fermata, an "
+                            "articulation or a word to a bar")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", required=True,
@@ -1034,12 +1034,12 @@ def main() -> None:
                    help="the bar it goes in")
     s.add_argument("--value",
                    help="the dynamic (mf), the words (\"dolce\"), the "
-                        "articulation (accent) or the fermata's shape "
-                        "(normal|angled|square)")
+                        "articulation (accent), the fermata's shape "
+                        "(normal|angled|square) or the syllable (\"la\")")
     s.add_argument("--offset", type=float, default=0.0,
                    help="quarter notes from the barline: 0 is the downbeat. "
-                        "A fermata or an articulation needs a note STARTING "
-                        "there, because that is what it hangs off.")
+                        "A fermata, an articulation or a lyric needs a note "
+                        "STARTING there, because that is what it hangs off.")
     s.add_argument("--placement", choices=["above", "below"],
                    help="which side of the staff it sits on")
     s.set_defaults(fn=cmd_add_element)
