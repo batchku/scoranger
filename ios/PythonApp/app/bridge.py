@@ -338,6 +338,13 @@ def _dispatch(op, a):
                                                create_if_missing=True)
     if op == "unassign-piece":
         return workspace.assign_score_to_piece(a["score"], None)
+    if op == "combine-pieces":
+        # ONE op rather than the app making N assign-piece calls: each of those
+        # rebuilds the manifest and sweeps empty pieces, so a combine done
+        # client-side is N round-trips racing the 2-second poll -- and a report
+        # of what it did is the thing worth showing back.
+        return workspace.combine_pieces(a["pieces"], into=a.get("into"),
+                                        name=a.get("name"))
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
     if op == "set-structure":
@@ -495,9 +502,13 @@ def _dispatch(op, a):
         workspace.assign_score_to_piece(slug, a["piece"])
         return {"score": slug, "version": entry["id"]}
     if op == "add-source":
-        from music21 import converter
-        score = converter.parse(a["path"], forceSource=True)
-        return workspace.add_source(a["score"], score, a.get("name") or "source", a["path"])
+        # a source is ONE reference edition; read_notation so a multi-tune ABC
+        # cannot hand an Opus to add_source
+        tunes = workspace.read_notation(a["path"])
+        if not tunes:
+            raise ValueError("that file holds no music")
+        return workspace.add_source(a["score"], tunes[0],
+                                    a.get("name") or "source", a["path"])
     if op == "analyze":
         return ops.analyze_harmony(_load(a["score"], a.get("version")), a.get("parts"))
     if op == "check-range":

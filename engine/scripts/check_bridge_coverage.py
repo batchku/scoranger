@@ -201,6 +201,12 @@ do("set-piece-metadata", piece=piece, composer="Trad.", tags="session,jig",
 do("unassign-piece", score=jig)
 do("assign-piece", score=jig, piece=piece)
 
+# combining is the curation step that makes "every import mints a piece" safe:
+# two pieces for one tune become one, and the arrangements come across.
+spare = do("create-piece", name="Spare Reels")["slug"]
+do("create-arrangement", name="Stray", piece=spare)
+do("combine-pieces", pieces=[piece, spare])
+
 setlist = do("create-setlist", name="Friday")["slug"]
 do("assign-setlist", setlist=setlist, score=jig)
 do("reorder-setlist", setlist=setlist, order=[jig])

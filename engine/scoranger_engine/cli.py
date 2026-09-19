@@ -304,11 +304,17 @@ def cmd_strip_notes(a):
 
 
 def cmd_add_source(a):
-    from music21 import converter
     src = Path(a.file).expanduser()
     if not src.exists():
         raise FileNotFoundError(f"No such file: {src}")
-    m21_score = converter.parse(str(src), forceSource=True)
+    # A source is ONE reference edition of the piece. An ABC file holding
+    # several tunes is not one, so the first is what was meant -- and reading
+    # through read_notation is what stops an Opus reaching add_source, where it
+    # would fail with no `.parts` several frames down.
+    tunes = workspace.read_notation(src)
+    if not tunes:
+        raise ValueError(f"{src.name} holds no music")
+    m21_score = tunes[0]
     name = a.name or src.stem
     doc = workspace.add_source(a.score, m21_score, name, origin=str(src))
     _emit({"score": a.score, "source": doc["id"], "name": name,
@@ -436,6 +442,10 @@ def cmd_piece_assign(a):
 
 def cmd_piece_rename(a):
     _emit(workspace.rename_piece(a.piece, a.name))
+
+
+def cmd_piece_combine(a):
+    _emit(workspace.combine_pieces(_split_parts(a.pieces), into=a.into, name=a.name))
 
 
 def cmd_rename_score(a):
@@ -931,6 +941,14 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("piece-combine",
+                       help="Fold several pieces into one (there is no undo)")
+    s.add_argument("--pieces", required=True,
+                   help="comma-separated piece names or slugs, two or more")
+    s.add_argument("--into", help="which of them survives (default: the first)")
+    s.add_argument("--name", help="rename the survivor while combining")
+    s.set_defaults(fn=cmd_piece_combine)
 
     s = sub.add_parser("set-structure",
                        help="Repeats, voltas and navigation marks (add/remove/move)")

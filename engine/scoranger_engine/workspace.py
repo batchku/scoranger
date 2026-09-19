@@ -1171,6 +1171,103 @@ def rename_piece(name_or_slug: str, new_name: str) -> dict:
     return doc
 
 
+def combine_pieces(names: list, into: str | None = None,
+                   name: str | None = None) -> dict:
+    """Fold several pieces into one. The curation step `ensure_own_piece` needs.
+
+    Every import now mints a piece, which is right -- an arrangement with no
+    shelf to sit on is a hole in the model -- but it means a reader who brings
+    the same tune in twice under two spellings ends up with two pieces for one
+    piece of music. This is how they fix it, and the two features only make
+    sense together.
+
+    WHAT SURVIVES, all four decided here rather than left to the caller:
+
+    - THE PIECE. The first one named, unless `into` names another of them. Its
+      slug AND its uid survive, so every setlist, share and sync record that
+      already points at it still resolves. The others are gone afterwards and
+      the engine cannot bring them back -- there is no undo for this, which is
+      why the app asks twice.
+    - THE NAME. The survivor's, unless `name` gives a new one. Combining is not
+      a rename and must not silently perform one.
+    - THE METADATA. The survivor's own values win. A field the survivor leaves
+      EMPTY is filled from the first absorbed piece that has one, and tags are
+      unioned in the order they were first seen. Combining two records of one
+      tune usually means one of them was credited and the other was not;
+      dropping that credit is the wrong default, and overwriting a value
+      somebody deliberately typed is a worse one.
+    - THE NUMBERING, which is what a reader notices first. Arrangements are
+      numbered from the piece's `order`, so the survivor's own keep the numbers
+      they had -- #1 stays #1 -- and the absorbed arrangements APPEND, piece by
+      piece in the order named and keeping each piece's internal order. Nothing
+      a reader had already learned to call #2 becomes #5.
+
+    Returns what it did, including the resulting order, because that is the
+    part worth showing back.
+    """
+    repo = _repo()
+    docs, seen = [], set()
+    for n in names:
+        doc = resolve_piece(str(n))
+        if doc["slug"] not in seen:
+            seen.add(doc["slug"])
+            docs.append(doc)
+    if len(docs) < 2:
+        raise ValueError(
+            f"combine needs at least two different pieces, got {len(docs)}")
+
+    survivor = resolve_piece(into) if into else docs[0]
+    if survivor["slug"] not in seen:
+        raise ValueError(
+            f"'{survivor['slug']}' is not one of the pieces being combined: "
+            f"{[d['slug'] for d in docs]}")
+    absorbed = [d for d in docs if d["slug"] != survivor["slug"]]
+
+    def members(doc):
+        held = [s["slug"] for s in repo.list_scores() if s.get("piece") == doc["slug"]]
+        order = [s for s in (doc.get("order") or []) if s in held]
+        return order + [s for s in held if s not in order]
+
+    moved = []
+    for doc in absorbed:
+        for slug in members(doc):
+            assign_score_to_piece(slug, survivor["slug"], create_if_missing=False)
+            moved.append(slug)
+
+    doc = repo.get_piece(survivor["slug"])
+    filled = {}
+    for field in ("composer", "arranger"):
+        if not doc.get(field):
+            for other in absorbed:
+                if other.get(field):
+                    doc[field] = other[field]
+                    filled[field] = other[field]
+                    break
+    tags, lower = list(doc.get("tags") or []), {str(x).lower() for x in (doc.get("tags") or [])}
+    for other in absorbed:
+        for tag in other.get("tags") or []:
+            if str(tag).lower() not in lower:
+                lower.add(str(tag).lower())
+                tags.append(tag)
+    if tags:
+        doc["tags"] = tags
+    if name:
+        doc["name"] = name
+    repo.set_piece(doc["slug"], doc)
+    # the absorbed pieces hold nothing now, and a piece holding nothing is not
+    # allowed to exist
+    _drop_empty_pieces(keep=doc["slug"])
+    rebuild_manifest()
+
+    final = repo.get_piece(doc["slug"]) or doc
+    return {"piece": doc["slug"], "name": doc["name"],
+            "absorbed": [{"slug": d["slug"], "name": d["name"]} for d in absorbed],
+            "arrangements_moved": moved,
+            "order": members(final),
+            "metadata_filled": filled,
+            "tags": final.get("tags") or []}
+
+
 def tidy_pieces() -> list[str]:
     """Drop pieces left holding nothing by an older build. Returns their names."""
     repo = _repo()
