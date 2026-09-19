@@ -1013,7 +1013,7 @@ def main() -> None:
     s = sub.add_parser("adjust-element",
                        help="size and position of an added element "
                             "(chord symbols, diagrams, dynamics, text, "
-                            "fermatas, articulations, ornaments)")
+                            "fermatas, articulations, ornaments, lyrics)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", default="harm",
@@ -1034,7 +1034,7 @@ def main() -> None:
 
     s = sub.add_parser("add-element",
                        help="Add a dynamic, a text mark, a fermata, an "
-                            "articulation or an ornament to a bar")
+                            "articulation, an ornament or a word to a bar")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", required=True,
@@ -1044,13 +1044,13 @@ def main() -> None:
     s.add_argument("--value",
                    help="the dynamic (mf), the words (\"dolce\"), the "
                         "articulation (accent), the ornament "
-                        "(roll|trill|mordent|turn...) or the fermata's shape "
-                        "(normal|angled|square)")
+                        "(roll|trill|mordent|turn...), the fermata's shape "
+                        "(normal|angled|square) or the syllable (\"la\")")
     s.add_argument("--offset", type=float, default=0.0,
                    help="quarter notes from the barline: 0 is the downbeat. "
-                        "A fermata, an articulation or an ornament needs a "
-                        "note STARTING there, because that is what it hangs "
-                        "off.")
+                        "A fermata, an articulation, an ornament or a lyric "
+                        "needs a note STARTING there, because that is what it "
+                        "hangs off.")
     s.add_argument("--placement", choices=["above", "below"],
                    help="which side of the staff it sits on")
     s.set_defaults(fn=cmd_add_element)

@@ -230,6 +230,94 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.11.0 EVERY MARK ON THE PAGE REACHES THE NOTATION: THE ONES ABC
+        #          WRITES, AND THE ONES A SCANNER READS (2026-09-19). Scope
+        #          written before the merge. Cut from the shipped 0.10.0
+        #          (build 199). TWO features, so the minor bumps once: see the
+        #          versioning rule in CLAUDE.md.
+        #          In this build:
+        #            1. ABC DECORATIONS REACH THE NOTATION. music21's ABC
+        #               reader drops `~` and every `!...!` decoration -- the
+        #               gap 0.10.0 named and deferred. A new
+        #               `engine/scoranger_engine/enrich.py` stage puts them
+        #               back after the reader runs: 33 marks over 56
+        #               spellings. THE ROLL IS DECIDED, not deferred: an Irish
+        #               roll is engraved as a TURN, because that is the glyph
+        #               the repertoire prints and the `<other-ornament>` the
+        #               backlog proposed draws nothing in any engraver here.
+        #               The judgement is written at `enrich.DECORATIONS`. Also
+        #               fixed: a music21 bug where an `H` decoration DELETED
+        #               the note it was written on;
+        #            2. `ornament` IS AN ELEMENT KIND. Anchored to a note and
+        #               movable, like a fermata -- and a SEPARATE kind from
+        #               one, because music21 keeps ornaments under
+        #               `expressions.Ornament`, which Fermata is not a
+        #               subclass of. So "take the roll off bar 12" does not
+        #               also take the fermata there;
+        #            3. `remove-element`, WHICH DID NOT EXIST FOR ANY KIND. A
+        #               mark could be added, moved and resized, and the only
+        #               way back from one was to undo to the version before
+        #               it, losing everything done since;
+        #            4. THE SCANNER READS WORDS AGAIN. Chord symbols, lyrics,
+        #               titles and part names were never lost to Audiveris's
+        #               processing switches, which is where three earlier
+        #               passes looked. Audiveris 5.11 drives Tesseract in
+        #               LEGACY mode and Debian's tesseract-ocr-eng ships
+        #               tessdata_fast, which carries no legacy components --
+        #               so the TEXTS step read NOTHING and every word on the
+        #               page was lost. Language data that has them is now
+        #               pinned by tag and checked by DIGEST, and the image
+        #               build fails if what landed cannot drive the legacy
+        #               recogniser. Measured on a 32-bar lead sheet: 0 chord
+        #               symbols and 0 lyrics before, 28 and 124 after -- and
+        #               the unread words had been coming back as 19 dynamics,
+        #               50 articulations and 22 fermatas that are not on the
+        #               page. It is FASTER, not slower: 157s against 186s on a
+        #               12-page quartet, because misreading text as symbols
+        #               costs more than reading it. The two switches the
+        #               service depends on are now stated on the command line
+        #               rather than assumed, and a check asserts they are
+        #               there;
+        #            5. `lyric` IS AN ELEMENT KIND. Now that scans carry words,
+        #               a word is a thing a reader will ask to change. Anchored
+        #               to a note, and MOVING ONE MEANS RE-ATTACHING IT to
+        #               another note -- a word that slid sideways from its note
+        #               would be a lie about which note it is sung on. Its size
+        #               rides in the verse NAME because MusicXML has nowhere
+        #               else to put it: there is no font on a `<lyric>`. An
+        #               offset is REFUSED by name rather than written into a
+        #               file nothing honours. Removing one drops that verse
+        #               from the note, takes the sung words only (a whistle
+        #               fingering and a tab fret are verses too), and does NOT
+        #               renumber what is left.
+        #          NOT in this build, and said before it starts:
+        #            - THE OMR FIX IS IN THE SERVICE IMAGE, NOT THIS BINARY.
+        #              It reaches a reader only when `omr-service/` is built
+        #              and deployed to Cloud Run. Shipping this build alone
+        #              changes no scan. The image has NOT been built or pushed
+        #              here, and the measurements above are the feature
+        #              branch's, not this worktree's;
+        #            - THE IPAD CANNOT POINT AT AN ORNAMENT OR AT A WORD.
+        #              `ScoreElementKind` has no case for either, so neither is
+        #              tap-selectable and the adjust row offers neither; and
+        #              `ChordAdjustments.Kind` still knows its five, so a
+        #              resized ornament or word reaches the PDF export and does
+        #              NOT redraw on the app's own pages. CHAT REACHES BOTH, on
+        #              both surfaces, which is the whole of the UI they have in
+        #              0.11.0. BACKLOG.md carries both halves;
+        #            - A RESIZED WORD OVERLAPS THE WORD BESIDE IT. Verovio lays
+        #              the verse line out at one size and has no per-verse
+        #              size, so even 1.25x crowds its neighbour. The global
+        #              option that would re-lay it out also sizes `<harm>`. Not
+        #              fixable without per-verse layout, which is upstream work;
+        #            - ABC EXPORT, still. music21 cannot write ABC and 0.11.0
+        #              does not add a writer. Import only;
+        #            - TREMOLO is absent from `add-element` ON PURPOSE: music21
+        #              writes a `<tremolo>` with its size and reads it back
+        #              without, so a resized one would silently expire at the
+        #              next op. The same is true of `<fermata>`, which is a
+        #              PRE-EXISTING gap in `adjust-element --kind fermata`;
+        #            - nothing touched in playback, sync, sharing or set lists.
         #   0.10.0 TUNES FROM THESESSION.ORG, AND THE FILING RULE THAT COMES
         #          WITH THEM (2026-09-18). Scope written before the work. Cut
         #          from the shipped 0.9.0 (build 198, gate 1664/1664 green).
@@ -621,7 +709,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 199
-        MARKETING_VERSION: 0.10.0
+        MARKETING_VERSION: 0.11.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

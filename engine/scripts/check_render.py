@@ -343,6 +343,61 @@ else:
             "glyph and the digits are engraved at different sizes and the "
             "export must keep them apart")
 
+# -- a resized WORD reaches the exported page -------------------------------
+#
+# Measured in the PDF, not in the SVG, because the SVG pass and the export
+# chain are two different things: `apply_lyric_sizes` was written, checked in
+# isolation and not called from `render_pdf` at first, which is the same fault
+# `mei_with_element_adjustments` had -- an adjustment that showed on screen
+# and vanished from the export.
+#
+# cairosvg writes a glyph run's size into its text matrix and leaves `Tf` at
+# 1, so the first number of the Tm IS the point size of the word that follows.
+_PDF_WORD = re.compile(rb"BT\n([\d.-]+) 0 0 [\d.-]+ [\d.-]+ [\d.-]+ Tm\n"
+                       rb"/[\w-]+ 1 Tf\n\((.*?)\)Tj", re.S)
+
+
+def engraved_words(pdf_path):
+    """Every text run on page 1 of a PDF, with the size it was drawn at."""
+    data = PdfReader(pdf_path).pages[0].get_contents().get_data()
+    return {m.group(2).decode("latin-1"): round(float(m.group(1)), 2)
+            for m in _PDF_WORD.finditer(data)}
+
+
+def sung_pdf(scale=None):
+    from music21 import harmony
+
+    score = fixtures.jig(bars=4)
+    bar = score.parts[0].measure(2)
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.lyric = "la"
+    if scale is not None:
+        ops.adjust_element(score, "#0", kind="lyric", measure=2, scale=scale)
+    src = tempfile.mktemp(suffix=".musicxml")
+    score.write("musicxml", fp=src)
+    out = tempfile.mktemp(suffix=".pdf")
+    render.render_pdf(src, out)
+    return engraved_words(out)
+
+
+plain_page, big_page = sung_pdf(), sung_pdf(scale=2.0)
+if "la" not in plain_page or "la" not in big_page:
+    FAILURES.append(f"the word was not engraved in the PDF at all: "
+                    f"{sorted(plain_page)} then {sorted(big_page)}")
+else:
+    grew = big_page["la"] / plain_page["la"]
+    if not 1.9 <= grew <= 2.1:
+        FAILURES.append(
+            f"--scale 2 on a lyric engraved at {big_page['la']}pt against "
+            f"{plain_page['la']}pt ({grew:.2f}x): the size is in the notation "
+            "but render_pdf is not carrying it to the page")
+    if plain_page.get("Pennywhistle") != big_page.get("Pennywhistle"):
+        FAILURES.append(
+            "resizing one word changed the part name too "
+            f"({plain_page.get('Pennywhistle')} -> "
+            f"{big_page.get('Pennywhistle')}): the pass is matching more than "
+            "the verse it was asked for")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} rendering size check(s) failed")
     for line in FAILURES:

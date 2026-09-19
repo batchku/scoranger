@@ -2837,26 +2837,83 @@ def tab_label(size: float | None = None, dx: float | None = None,
     means for them, so an export to another program still carries the nudge --
     but the renderers read this, because this is what reaches them.
     """
-    if size is None and dx is None and dy is None:
-        return TAB_LYRIC_TAG
-    parts = [f"{size:g}" if size is not None else ""]
-    if dx is not None or dy is not None:
-        parts += [f"{dx:g}" if dx is not None else "",
-                  f"{dy:g}" if dy is not None else ""]
-    return f"{TAB_LYRIC_TAG}@" + ",".join(parts)
+    return _verse_label(TAB_LYRIC_TAG, size, dx, dy)
 
 
 def parse_tab_label(label: str) -> tuple[float | None, float | None, float | None] | None:
     """(size ratio, dx, dy) from a tab verse's name, or None if it is not one."""
-    if not label or not label.startswith(TAB_LYRIC_TAG):
+    return _parse_verse_label(TAB_LYRIC_TAG, label)
+
+
+def _verse_label(tag: str, size: float | None, dx: float | None,
+                 dy: float | None) -> str:
+    """`gt`, `gt@1.5`, `ly@1.5,20,-30` -- one encoding, two tags."""
+    if size is None and dx is None and dy is None:
+        return tag
+    parts = [f"{size:g}" if size is not None else ""]
+    if dx is not None or dy is not None:
+        parts += [f"{dx:g}" if dx is not None else "",
+                  f"{dy:g}" if dy is not None else ""]
+    return f"{tag}@" + ",".join(parts)
+
+
+def _parse_verse_label(tag: str, label: str):
+    """The numbers back out of a verse name, or None if it carries none."""
+    if not label or not label.startswith(tag):
         return None
-    rest = label[len(TAB_LYRIC_TAG):]
+    rest = label[len(tag):]
     if not rest:
         return None, None, None
     if not rest.startswith("@"):
         return None
     fields = (rest[1:].split(",") + ["", ""])[:3]
     return tuple(float(f) if f else None for f in fields)
+
+
+#: What a WORD's verse name says when it has been resized: `ly@1.5`.
+#:
+#: MusicXML has nowhere else to put it. `<lyric>` takes a position and a
+#: placement but no font: the size belongs on the `<text>` inside it, which
+#: music21 neither writes nor reads, so a size stored there would vanish the
+#: next time any op rewrote the file. The NAME survives -- music21 round-trips
+#: it as `Lyric.identifier` and Verovio carries it to the page -- which is the
+#: same reason a tab column's size rides in `tab_label`. The verse NUMBER is
+#: untouched, so which verse a syllable belongs to still comes from the
+#: `number` attribute where it always did.
+LYRIC_LABEL_TAG = "ly"
+
+
+def lyric_label(size: float | None = None) -> str:
+    """The verse name a resized word carries: `ly`, or `ly@1.5`."""
+    return _verse_label(LYRIC_LABEL_TAG, size, None, None)
+
+
+def parse_lyric_label(label: str) -> float | None:
+    """The size ratio written on a word's verse name, or None if it has none."""
+    parsed = _parse_verse_label(LYRIC_LABEL_TAG, str(label or ""))
+    return None if parsed is None else parsed[0]
+
+
+def word_verses(note) -> list:
+    """The verses on a note that are WORDS -- not fingerings, not tab.
+
+    A whistle's fingerings are verses 1-7 and a guitar tab's frets are verses
+    1-6, written as lyrics because that is what puts them under the notehead.
+    They are addressed by ops of their own, and a lyric op that swept them up
+    would resize a tab column by being asked to resize the words.
+    """
+    return [ly for ly in note.lyrics
+            if str(ly.identifier or "") != WHISTLE_LYRIC_TAG
+            and parse_tab_label(str(ly.identifier or "")) is None]
+
+
+def _free_verse(note) -> int:
+    """The lowest verse number nothing on this note is already using."""
+    taken = {int(ly.number) for ly in note.lyrics if ly.number}
+    verse = 1
+    while verse in taken:
+        verse += 1
+    return verse
 # A string that is not played on this beat. It is a character every font has,
 # unlike the box glyphs a tab staff would otherwise want.
 TAB_REST = "-"
@@ -3280,8 +3337,12 @@ class ElementKind(NamedTuple):
     #: "note"   -- it hangs off a note and has no offset of its own, so it
     #:             moves by being detached from one note and attached to
     #:             another;
-    #: "lyric"  -- it IS a note, adjusted through the verses written onto it.
+    #: "lyric"  -- it IS a note, adjusted through the whole COLUMN of verses
+    #:             written onto it (a tab column, a whistle fingering).
     #:             Nothing about it can be moved without moving the music.
+    #:             A single sung WORD is not this: one verse of one note is a
+    #:             thing of its own, so `lyric` is anchored "note" and moves
+    #:             by re-attaching, like a fermata.
     anchor: str
     movable: bool
 
@@ -3302,6 +3363,13 @@ ELEMENT_KINDS: dict[str, ElementKind] = {
     # there. ABC's decorations are where most of these arrive: see
     # `enrich.DECORATIONS`.
     "ornament": ElementKind("ornament", "note", True),
+    # A WORD. It hangs off a note like a fermata does, so it moves the way a
+    # fermata moves -- off one note and onto another -- and that is the only
+    # motion a syllable has: a verse is drawn under the notehead it belongs
+    # to, and a word that slid sideways from its note would be a word under
+    # a different note, spelt as a lie about where it is. See `adjust_element`
+    # for why it refuses an offset and takes a size.
+    "lyric": ElementKind("lyric", "note", True),
     "tab": ElementKind("tabbed note", "lyric", False),
 }
 
@@ -3445,7 +3513,7 @@ def _elements_in_measure(measure, kind: str) -> list[tuple]:
     if kind == "dynamic":
         return [(measure, e)
                 for e in measure.getElementsByClass(m21dynamics.Dynamic)]
-    if kind in ("fermata", "articulation", "ornament", "tab"):
+    if kind in ("fermata", "articulation", "ornament", "tab", "lyric"):
         # A chord SYMBOL is a Chord to music21, so it comes back from
         # `.notes` and is not on the staff at all -- the same trap
         # `whistle_fingerings` and `guitar_tab` were both written around.
@@ -3457,6 +3525,12 @@ def _elements_in_measure(measure, kind: str) -> list[tuple]:
             return [(n, n) for n in notes
                     if any(parse_tab_label(str(ly.identifier or "")) is not None
                            for ly in n.lyrics)]
+        if kind == "lyric":
+            # In verse order within each note, so ordinal 0 of a bar is the
+            # first syllable of the first verse -- what a reader counting
+            # words along the line would point at.
+            return [(n, ly) for n in notes
+                    for ly in sorted(word_verses(n), key=lambda l: l.number or 0)]
         if kind == "fermata":
             return [(n, e) for n in notes for e in n.expressions
                     if isinstance(e, m21expressions.Fermata)]
@@ -3475,6 +3549,8 @@ def _attached_list(owner, kind: str) -> list:
         return owner.expressions
     if kind == "articulation":
         return owner.articulations
+    if kind == "lyric":
+        return owner.lyrics
     raise ValueError(f"{kind!r} is not attached to a note")
 
 
@@ -3512,6 +3588,19 @@ def adjust_element(score, name: str, kind: str = "harm",
     """
     spec = _element_kind(kind, "adjust", ADJUSTABLE_KINDS)
 
+    if kind == "lyric" and (offset_x is not None or offset_y is not None):
+        # Refused by name rather than written and ignored. A verse is laid out
+        # under its own notehead, in a line whose spacing the engraver owns;
+        # Verovio takes no offset on one, and MusicXML's relative-x/y on a
+        # <lyric> would ride in the file, change nothing on any page this app
+        # draws, and read back as an adjustment that had been made.
+        raise ValueError(
+            "A lyric cannot be nudged: the word sits under the note it "
+            "belongs to, and nothing this app renders honours an offset on "
+            "one. To put a word somewhere else, move it to the note it "
+            "belongs under (`move-element --kind lyric`); to change how it "
+            "looks, pass a size.")
+
     if size is not None and scale is not None:
         raise ValueError("Pass a scale or a size, not both")
     if scale is not None:
@@ -3542,6 +3631,13 @@ def adjust_element(score, name: str, kind: str = "harm",
         targets = [found[ordinal][1]]
 
     for element in targets:
+        if kind == "lyric":
+            # The size rides in the verse NAME (see LYRIC_LABEL_TAG); a reset
+            # puts the plain verse number back, which is what the name said
+            # before anybody resized anything.
+            element.identifier = (str(element.number or 1) if reset
+                                  else lyric_label(size / DEFAULT_ELEMENT_POINTS))
+            continue
         if spec.anchor == "lyric":
             # A tab column's size and offset ride in the lyric NAME as well as
             # in the style: Verovio carries the name to the page and drops the
@@ -3632,6 +3728,25 @@ def _make_element(kind: str, value: str | None, placement: str | None):
                 f"'{mark}' is not an ornament. Choices: "
                 f"{sorted(ORNAMENT_MARKS)}")
         element = getattr(m21expressions, ORNAMENT_MARKS[mark])()
+    elif kind == "lyric":
+        from music21 import note as m21note
+
+        word = (value or "").strip()
+        if not word:
+            raise ValueError('A lyric needs a word: pass --value "la"')
+        if placement is not None:
+            # Same refusal as the offset in `adjust_element`, for the same
+            # reason: MusicXML takes a placement on a <lyric> and every
+            # renderer here draws verses below the staff regardless.
+            raise ValueError(
+                "A lyric takes no placement: verses are drawn below the "
+                "staff, and asking for 'above' would be written down and "
+                "ignored. (Whistle fingerings are the exception, and the "
+                "renderer moves those itself.)")
+        # The verse it lands in is decided when it is attached, by the note
+        # it is attached TO -- see `add_element`.
+        element = m21note.Lyric(text=word, applyRaw=True)
+        return element
     else:
         raise ValueError(f"no constructor for element kind {kind!r}")
 
@@ -3704,6 +3819,11 @@ def add_element(score, name: str, kind: str, measure: int,
                 f"'{part_label(part)}'. {spec.noun.capitalize()}s hang off a "
                 f"note, so that is what the destination has to be; that bar "
                 f"starts notes at {_onsets(destination)}")
+        if kind == "lyric":
+            # A note carries one syllable per verse, so the new word takes the
+            # lowest verse nothing is using -- verse 1 on a note with no words
+            # under it, verse 2 on a note that already sings one.
+            element.number = _free_verse(target)
         _attached_list(target, kind).append(element)
 
     landed = [e for _holder, e in _elements_in_measure(destination, kind)]
@@ -3789,6 +3909,23 @@ def move_element(score, name: str, kind: str, measure: int, ordinal: int = 0,
                 f"destination has to be one; that bar starts notes at "
                 f"{_onsets(destination)}")
         landed = copy.deepcopy(element)
+        if kind == "lyric":
+            # One syllable per verse per note. Landing a word on a note that
+            # already sings that verse would draw two words on top of each
+            # other; landing it in the next free verse instead would silently
+            # start a second line of text under the staff. Neither is what
+            # anybody asked for, so the word goes where it was asked to go if
+            # the verse is free and the op says so plainly if it is not.
+            taken = {int(ly.number) for ly in word_verses(target)
+                     if ly.number and ly is not element}
+            wanted = int(landed.number or 1)
+            if wanted in taken:
+                sung = next(ly.text for ly in word_verses(target)
+                            if ly.number and int(ly.number) == wanted)
+                raise ValueError(
+                    f"The note at offset {offset} of measure "
+                    f"{destination_number} already sings '{sung}' in verse "
+                    f"{wanted}. Move that one first, or pick another note.")
         _attached_list(target, kind).append(landed)
         if not duplicate:
             source_list = _attached_list(holder, kind)
@@ -3824,6 +3961,24 @@ def remove_element(score, name: str, kind: str, measure: int | None = None,
     the note, and its six verses are what `guitar-tab --clear` exists to take
     off. Removing it here would mean removing the note, which is not what
     anybody asking to remove a tab column means.
+
+    A WORD IS REMOVED, AND HAS NO BRANCH OF ITS OWN ON PURPOSE. `lyric` is
+    anchored "note", so it comes out through the same two lines every
+    note-attached kind comes out through: `_attached_list` hands back
+    `note.lyrics` and the verse is dropped from it by identity. That is the
+    whole meaning of removing a word, so a branch here would only be a second
+    spelling of it. Two things make the generic path correct rather than
+    merely quiet, and both are asserted in `check_adjust.py`:
+      - `_elements_in_measure` finds words through `word_verses`, which
+        excludes a whistle's fingerings and a tab's frets. `--all` on a part
+        that also carries fingerings takes the SUNG words and leaves the
+        fingerings, and an empty bar refuses with a count rather than
+        reporting a removal it did not make.
+      - THE REMAINING VERSES ARE NOT RENUMBERED. Take verse 1 off a note
+        singing two and verse 2 stays verse 2, sitting on the second line of
+        text. Closing the gap would pull this note's word up into the first
+        line while every other note in the phrase kept theirs there -- one
+        word out of step with its own line, which is worse than a hole.
     """
     spec = _element_kind(kind, "remove", ADJUSTABLE_KINDS)
     if spec.anchor == "lyric":

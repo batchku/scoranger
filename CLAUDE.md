@@ -66,6 +66,32 @@ So:
   repository journals nothing, the library's own id costs nothing, and the
   engine the app ships imports no network client -- design/FIREBASE.md §0.2).
 
+## Releases and version numbers
+
+**The rule Ali set on 2026-09-18, and it binds whoever is doing the release,
+not just the session it was said in:**
+
+- **A substantive feature bumps the MINOR.** 0.10.0 -> 0.11.0.
+- **A bug fix bumps the PATCH.** 0.11.0 -> 0.11.1.
+- **A build carrying both is a FEATURE build** -- the minor bumps and the
+  patch goes back to 0. A release does not get two numbers for carrying two
+  kinds of change.
+- **Two features in one build still bump the minor ONCE.** 0.11.0 carried the
+  ABC decorations and the OMR text pass and is one minor, not two.
+
+`MARKETING_VERSION` lives in `ios/project.yml` and is edited BY HAND when the
+feature starts -- before the work, not after it. `CURRENT_PROJECT_VERSION`
+counts builds, never goes backwards whatever the marketing version does, and
+is bumped by `ios/scripts/bump_build.sh` from the deploy script. **Leave the
+build number alone when you bump the version**; the deploy run takes it.
+
+**The scope comment comes first.** Above the version in `ios/project.yml`,
+every release since 0.6.9 carries a block saying what the build HAS and, under
+`NOT in this build, and said before it starts:`, what it does NOT -- written
+before the work, so a feature cannot quietly grow or quietly shrink. Match
+that form. A gap the build is knowingly shipping with belongs there AND in
+`BACKLOG.md`; one that is only in a commit message is one nobody finds.
+
 ## The engine CLI
 
 Always use the venv binary: `engine/.venv/bin/scor` (from the repo root).
@@ -210,13 +236,13 @@ scor piece-combine --pieces "A,B,C" [--into B] [--name "New name"]
   # arrangements keep their numbers and the absorbed ones append; a credit the
   # survivor lacks is taken from the first that has one; tags are unioned.
   # THERE IS NO UNDO -- the app confirms on its own screen before calling it.
-scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornament
+scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornament|lyric
                   --measure N [--value V] [--offset QUARTERS] [--placement above|below]
   # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
   # the articulation (accent, staccato, tenuto, marcato...), the ORNAMENT
   # (roll|turn|inverted-turn|trill|mordent|lower-mordent|inverted-mordent|
-  # upper-mordent|pralltriller|slide|schleifer) or the fermata's
-  # shape (normal|angled|square).
+  # upper-mordent|pralltriller|slide|schleifer), the fermata's
+  # shape (normal|angled|square), or the syllable to sing ("la").
   # AN ORNAMENT IS ITS OWN KIND, not a value of `fermata`: music21 keeps
   # ornaments in a note's `expressions` beside the Fermata but under
   # `expressions.Ornament`, which a Fermata is not -- so the two finders never
@@ -229,7 +255,11 @@ scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornam
   # font-size and relative-x/y and reads it back without them, so a resized
   # one would lose its size at the next op -- an adjustment that appears to
   # work and quietly expires. The same is true of <fermata>, which is a
-  # PRE-EXISTING gap in `adjust-element --kind fermata`, not a new one. The destination is the same one move-element
+  # PRE-EXISTING gap in `adjust-element --kind fermata`, not a new one.
+  # A LYRIC hangs off the note at the offset, like a fermata, and lands in the
+  # lowest verse that note has free; it takes no --placement, because verses
+  # are drawn below the staff and "above" would be written down and ignored.
+  # The destination is the same one move-element
   # takes -- a BAR plus an offset in quarter notes from its barline -- and the
   # two element classes land by the same two mechanics: offset-anchored marks
   # are inserted at the offset, note-attached ones are attached to the note
@@ -244,7 +274,7 @@ scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornam
   # because music21 will build a Dynamic out of any string and give it a
   # loudness that then gets PLAYED.
 scor adjust-element <score> --part X
-                    [--kind harm|diagram|dynamic|text|fermata|articulation|ornament|tab]
+                    [--kind harm|diagram|dynamic|text|fermata|articulation|ornament|lyric|tab]
                     [--measure N] [--ordinal N] [--all] [--scale RATIO]
                     [--size PT] [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
   # how big an added element is and where it sits, stored in the notation
@@ -257,6 +287,13 @@ scor adjust-element <score> --part X
   # caller that already holds one, and the two together are refused. Verovio
   # honours none of the three fields, so each renderer carries them across
   # itself.
+  # A LYRIC takes a size and refuses an offset by name: a word is drawn under
+  # the note it belongs to and nothing here honours a nudge on one. Its size
+  # rides in the verse NAME (`ly@1.5`), because MusicXML puts no font on a
+  # <lyric> and music21 drops one written on the <text> inside it -- the same
+  # reason a tab column's size rides in `gt@...`. Words only: a whistle's
+  # fingerings and a tab's frets are verses too and are addressed by
+  # --kind tab, not by --kind lyric.
 scor move-element <score> --part X --kind K --measure N [--ordinal N]
                   [--to-measure N] [--to-offset QUARTERS]
 scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
@@ -269,11 +306,20 @@ scor remove-element <score> --part X --kind K [--measure N] [--ordinal N] [--all
   # for the whole part. A TAB COLUMN is refused by name: its anchor is the
   # NOTE, so removing it would mean removing music, and `guitar-tab --clear`
   # is what taking one off means.
+  # A WORD is removed -- `--kind lyric` drops that verse from the note, by the
+  # same note-attached path a fermata comes off by, and it has no branch of
+  # its own because that IS the whole meaning of removing a word. It takes the
+  # sung words only: a whistle fingering and a tab fret are verses too, and
+  # `--all` leaves both. The verses left are NOT renumbered -- take verse 1 off
+  # a note singing two and verse 2 stays on the second line of text, because
+  # closing the gap would pull that one word up out of step with its own line.
   # the destination is a BAR plus an offset inside it (0 is the downbeat) --
   # this app has no drag. Offset-anchored elements (harm, diagram, dynamic,
   # text) are copied in at that offset; note-attached ones (fermata,
-  # articulation) are attached to the note that STARTS there, and the op
-  # refuses rather than guess if nothing does. SPANNERS (slurs, hairpins) are
+  # articulation, lyric) are attached to the note that STARTS there, and the
+  # op refuses rather than guess if nothing does. Re-attaching is the ONLY way
+  # a word moves, and it keeps its verse -- if the destination note already
+  # sings that verse the op names the word in the way. SPANNERS (slurs, hairpins) are
   # refused by name: a spanner has two anchors and a destination names one.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
   # penny-whistle fingerings engraved under the part as stacked lyric verses:

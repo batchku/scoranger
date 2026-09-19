@@ -332,6 +332,72 @@ def main() -> int:
                                 "--to-measure", "2"),
           "and moving one is refused: moving it would mean moving the music")
 
+    print("\na word is an element like the others: added, sized, moved")
+    # Lyrics arrive by the scanner now that the OMR service reads text again,
+    # and an element this app can produce is an element it has to be able to
+    # edit. What a lyric CANNOT do it refuses by name; see below.
+    first = scor(env, "add-element", blank, "--part", "#0", "--kind", "lyric",
+                 "--measure", "2", "--value", "la")["details"]
+    check(first["anchor"] == "note" and first["ordinal"] == 0,
+          f"a word hangs off the note at the offset: {first['anchor']}")
+    second = scor(env, "add-element", blank, "--part", "#0", "--kind", "lyric",
+                  "--measure", "2", "--value", "di")["details"]
+    check(second["in_measure"] == 2 and second["ordinal"] == 1,
+          f"a second word on the same note is the next verse down, #"
+          f"{second['ordinal']} of {second['in_measure']}")
+    sized = scor(env, "adjust-element", blank, "--part", "#0", "--kind",
+                 "lyric", "--measure", "2", "--ordinal", "0",
+                 "--scale", "1.5")["details"]
+    check(sized["adjusted"] == 1 and sized["size"] == 18.0,
+          f"'make that word half again bigger' wrote {sized['size']}pt")
+    xml = exported(env, blank, root / "worded.musicxml")
+    check("<text>la</text>" in xml, "the word reached the exported notation")
+    check('name="ly@1.5"' in xml,
+          "and so did its size -- in the verse NAME, because MusicXML has no "
+          "font on a <lyric> and music21 would drop one written on its <text>")
+    moved = scor(env, "move-element", blank, "--part", "#0", "--kind", "lyric",
+                 "--measure", "2", "--ordinal", "0", "--to-measure", "3",
+                 "--to-offset", "0")["details"]
+    check(moved["anchor"] == "note" and moved["to"] == {"measure": 3, "offset": 0.0},
+          f"a word moves by re-attaching to another note: {moved['to']}")
+    check(scor(env, "adjust-element", blank, "--part", "#0", "--kind", "lyric",
+               "--measure", "3", "--reset")["details"]["reset"],
+          "and a reset takes the size back off it")
+    xml = exported(env, blank, root / "reset.musicxml")
+    check('name="ly@' not in xml,
+          "the verse name is a plain number again, not a stale adjustment")
+    copied = scor(env, "duplicate-element", blank, "--part", "#0", "--kind",
+                  "lyric", "--measure", "3", "--to-measure", "4",
+                  "--to-offset", "0")["details"]
+    check(copied["op"] == "duplicate", "a word can be echoed onto another note")
+
+    print("\nand what a word cannot do, it refuses by name")
+    check("cannot be nudged" in refusal(env, "adjust-element", blank, "--part",
+                                        "#0", "--kind", "lyric", "--measure",
+                                        "3", "--offset-y", "-8"),
+          "a lyric refuses an offset instead of writing one nothing draws")
+    check("no placement" in refusal(env, "add-element", blank, "--part", "#0",
+                                    "--kind", "lyric", "--measure", "5",
+                                    "--value", "oh", "--placement", "above"),
+          "and refuses a placement instead of accepting one it would ignore")
+    check("needs a word" in refusal(env, "add-element", blank, "--part", "#0",
+                                    "--kind", "lyric", "--measure", "5"),
+          "a lyric with nothing to sing is refused")
+    check("already sings" in refusal(env, "duplicate-element", blank, "--part",
+                                     "#0", "--kind", "lyric", "--measure", "4",
+                                     "--to-measure", "3", "--to-offset", "0"),
+          "and a word landing on a verse another word already holds names the "
+          "one in the way, rather than stacking two on one notehead")
+
+    print("\nfingerings and tab are verses too, and are NOT words")
+    # Both write lyrics onto notes -- that is what puts them under the
+    # notehead -- so a lyric op that swept up every verse would resize a tab
+    # column when asked to resize the singing. `slug` carries both by now.
+    check(refusal(env, "adjust-element", slug, "--part", "#0", "--kind",
+                  "lyric", "--measure", "1", "--scale", "1.5")
+          .endswith("(it has 0)"),
+          "a part full of fingerings and frets has no words in it")
+
     print("\nstrip-notes leaves the chart and takes the music")
     # The op the app could not ask for: the engine has had it and the CLI
     # reference has documented it since before `bridge.py` existed, and there

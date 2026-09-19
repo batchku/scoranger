@@ -9,6 +9,48 @@ share-sheet import, and a Cloud Run Audiveris service for PDF→MusicXML
 (`omr-service/`). Cross-device library sync remains a follow-up (iCloud or the
 Firebase backend).
 
+## Deferred from 0.11.0 (lyrics and ornaments as element kinds)
+
+**A resized word overlaps the word beside it.** Verovio lays the verse line
+out at one size and has no per-verse size, so `adjust-element --kind lyric
+--scale` is applied to the drawn page afterwards, exactly as a chord symbol's
+size is. A chord symbol is one per bar and has room; syllables are set tight,
+so even 1.25x crowds its neighbour and 2x runs across it
+(`design/screenshots/lyric-resized-and-moved.png`). The global option that
+WOULD re-lay the line out, Verovio's `lyricSize`, also sizes `<harm>` -- that
+is the whole reason `engine/scripts/check_render.py` exists -- so raising it
+for the words would shrink or grow every chord name with them. A real fix
+means per-verse layout, which is upstream work, or accepting a whole-part
+size that re-engraves the line and compensating the chord symbols back, which
+is the kind of cleverness that breaks quietly.
+
+**A word resized on the iPad does not redraw there.** The engine writes the
+size into the verse NAME (`ly@1.5`) and `render.apply_lyric_sizes` applies it
+in the PDF export; the app draws its own pages, and
+`ios/Scoranger/ScoreModel/ChordAdjustments.swift` knows five kinds, none of
+them a verse. The pattern to copy is `FingeringDiagrams.swift`, which already
+reads a verse's labelAttr title out of the SVG and rescales its tspan.
+
+**The app cannot point at a word.** `ScoreElementKind` (in
+`ios/Scoranger/ScoreModel/ScoreAddress.swift`) lists harm, dynam, text,
+fermata and articulation, so tap-to-select and the adjust row do not reach a
+lyric; the chat tools do, on both surfaces. Adding it means a selection story
+for something drawn in a line rather than as a mark.
+
+**The app cannot point at an ornament either, and does not redraw a resized
+one.** The exact twin of the two entries above, for the kind 0.11.0's other
+half added. `ScoreElementKind` has no `ornament` case, so a trill or a roll is
+not tap-selectable and the adjust row does not offer it; and
+`ChordAdjustments.Kind` knows the same five kinds it has always known (harm,
+dynamic, text, fermata, articulation), so a resized ornament reaches the PDF
+export through `render.apply_element_sizes` and does NOT redraw on the iPad's
+own pages. Chat reaches ornaments on both surfaces today. This was found
+during the 0.11.0 merge rather than on either feature branch, which is why it
+is written here late: `feat/abc-decorations` changed no BACKLOG entry.
+Unlike a lyric, an ornament IS drawn as a mark over one notehead, so it needs
+no new selection story -- it is the same shape of work as `fermata`, which is
+already wired end to end, and is the cheaper of the two to close.
+
 ## Deferred from 0.10.0 (ABC import)
 
 **ABC export.** 0.10.0 reads ABC and cannot write it, because music21 cannot:
@@ -19,11 +61,14 @@ notes, ties and chord symbols -- a real piece of work, not a line of wiring.
 Worth it only if Ali wants to give tunes BACK to thesession.org or to a
 session; reading them is what he asked for.
 
-**ABC ornaments.** music21's ABC reader drops `~` (the roll) and `!...!`
-decorations. They are counted and reported in the import (`abc` key) rather
-than rendered. Carrying them would mean deciding what a roll IS in MusicXML:
-it is not a turn and not a trill, and mapping it to either is a lie about the
-music. A `<other-ornament>` with a text mark is the honest option.
+**ABC ornaments -- DONE in 0.11.0, entry kept for the decision it records.**
+music21's ABC reader still drops `~` (the roll) and `!...!` decorations;
+`engine/scoranger_engine/enrich.py` now puts them back after the reader runs,
+covering 33 marks over 56 spellings. The open question here -- what a roll IS
+in MusicXML -- was decided rather than deferred: a roll is engraved as a TURN,
+because the turn sign is what Irish repertoire actually prints and the
+`<other-ornament>` this entry proposed draws nothing in any engraver we use.
+The judgement is written down at `enrich.DECORATIONS`, not here.
 
 **The `R:` tune type** (reel, jig, hornpipe, slip jig) is reported by the
 import and not stored: it is not notation and has nowhere to live in
