@@ -1,0 +1,221 @@
+# Scoranger privacy policy
+
+*Draft for the App Store Privacy Policy URL. Not published by this document.
+Before it goes live, fill in the three bracketed placeholders and resolve the
+two unknowns flagged at the bottom of `design/APP_STORE_PRIVACY.md`. Every
+factual claim below is traceable to that inventory.*
+
+---
+
+**Last updated: [DATE]**
+
+Scoranger is made by IRL Labs LLC. This page says what Scoranger does with your
+music and your information. It is short because Scoranger does very little with
+either.
+
+## The short version
+
+Your music lives on your iPad. Scoranger arranges it there, on the device, with
+no account and no server. Three things leave your iPad, and all three are
+things you asked for:
+
+1. **When you use the chat**, what you type and a description of your score go
+   to a language model run by another company.
+2. **When you tap "Make editable" on a scan**, that page goes to our server to
+   be read.
+3. **When you sign in and share a set list**, that set list's music and the
+   marks you make on it go to Google's Firebase.
+
+If you never sign in, never use the chat and never convert a scan, nothing
+about you or your music ever leaves the iPad. Signed out, Scoranger does not
+contact our servers or Google's at all. Not once, not even to say hello.
+
+Scoranger has no analytics. It does not count your taps, it does not know how
+often you open it, and it does not report crashes to us. There is no
+advertising, no tracking, and nothing is ever sold or shared with a data broker.
+
+## The chat, and the part people are surprised by
+
+Scoranger's chat is a language model, and **it is not ours**. When you send a
+chat message, your iPad sends it straight to a company called OpenRouter, which
+passes it to whichever model you have chosen in Settings. The default is
+Google's Gemini. The other choices are models from Anthropic, Moonshot AI,
+Alibaba and DeepSeek. OpenRouter decides which of that company's servers
+actually handles the request.
+
+**What goes with your message:**
+
+- what you typed, exactly as you typed it;
+- the title, composer and arranger of the arrangement you have open;
+- the name of the piece and the names of your other arrangements of it;
+- the structure of the score: the parts, their instruments, their clefs, how
+  high and low each one goes, how many bars and how many notes;
+- the key and time signatures;
+- if you have selected something on the page, what you selected;
+- the rest of that conversation, so the model can follow it;
+- and, when the model looks up your arrangement's history, the names of the
+  files behind it and the first 200 characters of things you asked earlier.
+
+**What does not go:** the notation itself. No MusicXML, no MEI, no PDF, no
+image of a page, no audio, and none of your pencil marks. The model is told
+about your score; it is never given it.
+
+**Nothing identifies you.** No name, no email address, no account number, no
+device identifier is sent with a chat message. OpenRouter sees a request from
+your internet connection, on an account belonging to us, and that is all.
+
+We do not control what OpenRouter or the model company behind it keeps. Their
+privacy policies govern that, not this one.
+*[Before publishing: confirm the retention and training settings on the
+OpenRouter account and state them here plainly. If logging is on, say so.]*
+
+**Dictation.** The microphone button in the chat uses Apple's speech
+recognition. Apple's speech recognition can send what you say to Apple's
+servers to turn it into text. That is Apple's system and Apple's policy, and
+nothing about your Scoranger account goes with it. Once it is text, it goes
+wherever your typed messages go.
+
+## Scanning a page
+
+Scoranger can read a photograph or a PDF scan of printed music and turn it into
+notation you can edit. That reading happens on our server, not on your iPad,
+because the software that does it is too large to carry.
+
+**Importing a scan sends nothing anywhere.** The page only leaves your iPad
+when you tap **Make editable**.
+
+When you do, your iPad uploads the page itself and nothing else. No file name,
+no title, no device identifier. The server reads it and sends back the
+notation. The uploaded page is held in temporary storage for up to an hour and
+then deleted, and it is never written to any permanent store.
+
+**If you are signed in, we log who asked.** Every conversion writes one line to
+our server log recording your account's identifier, **your email address**, how
+many pages, how long it took and whether it worked. We do this to know what
+scanning costs us per person, because it is the only part of Scoranger we pay
+for by the page. If you are signed out, that line says "unattributed" and
+carries no address.
+
+Be aware of two things about that log. First, when a page cannot be read, the
+last part of the reader's own output is written to the log too, and that output
+can contain words the reader recognised on your page. Second, **deleting your
+account does not erase these log lines.** They live in a different system from
+your account data. We are working on that; until it is fixed, this page says so
+rather than implying otherwise.
+
+*[Before publishing: state how long these logs are kept. It is a Google Cloud
+setting and it needs a number here.]*
+
+## An account, and sharing with your band
+
+You never need an account. Sign in only if you want to share a set list with
+other people.
+
+**Signing in.** You can use Sign in with Apple or a Google account. Firebase
+Authentication, which is Google's, then holds your account identifier, your
+email address and the name your provider supplied. If you use Apple's Hide My
+Email, we get the relay address and keep it, because that is the address your
+bandmates have to send an invitation to.
+
+**Sharing a set list.** When you share one, the following goes to Google's
+Firebase:
+
+- the set list's name, and who its members are, recorded as account identifiers
+  and nothing more;
+- for each arrangement in it: the title, the composer, the version label, its
+  size and a checksum, and **a copy of the music file itself**;
+- the pencil marks you draw on those pages, stored under your account
+  identifier so the others can see whose marks are whose;
+- when you invite somebody, **the email address you typed for them**, so the
+  invitation can find them. Invitations expire after seven days.
+
+**What is never shared.** Your own library stays on your iPad. Books never
+share. Sources, meaning other editions you have imported for reference, never
+share. There is no public link and there never will be: a share is an
+invitation to a named person's account, and a set list holds at most twelve
+people. Nothing in our storage is readable by anyone outside the set list it
+belongs to.
+
+## What Scoranger does not do
+
+- No analytics. Scoranger does not link Firebase Analytics, Google Analytics,
+  or any measurement library. We do not know how many times you open it.
+- No crash reporting to us. No Crashlytics, no third-party diagnostics.
+- No advertising. No advertising identifier, no ad network, no tracking prompt.
+- No tracking across apps or websites, and no sharing with data brokers, ever.
+- No location. Scoranger contains no location code at all.
+- No access to your contacts, your calendar, your health data or your photo
+  library. When you pick a photo, iOS shows you the picker and hands us only
+  the picture you chose. Scoranger never sees the rest.
+- No purchases. There is nothing to buy inside the app.
+
+## How long things are kept
+
+| What | How long |
+|---|---|
+| Your library on the iPad | Until you delete it. It is yours and it is local. |
+| A page uploaded for scanning | Up to one hour in temporary storage, then deleted. |
+| Scan cost log lines (identifier, email address) | *[state the Google Cloud Logging retention here]* |
+| Your account, set lists, shared files and marks | Until you delete your account or leave the set list. |
+| An invitation you sent | Seven days, then it expires. |
+| Chat messages | We keep none. What OpenRouter and the model company keep is theirs to say. |
+
+## Deleting your account
+
+**Settings → Account → Delete my account.** It is in the app, it takes two
+taps, and there is nobody to email.
+
+What happens:
+
+- Set lists you own **that other people are in** are handed on to the next
+  person who joined. The band keeps its set list; you leave it.
+- Set lists you own **that nobody else is in** are deleted outright, with their
+  music files.
+- Set lists you only belonged to carry on without you.
+- **Your pencil marks are removed from every shared set list**, and nobody
+  else's are touched.
+- Your account record, your memberships and your profile are deleted.
+- Your Apple sign-in token is revoked with Apple.
+- Finally, your account itself is deleted from Firebase Authentication.
+
+**The music on your iPad is not touched.** Deleting your account deletes the
+account, not your library.
+
+Two things we keep, and we would rather tell you than not:
+
+- **Invitations you sent to set lists that still exist** are switched off but
+  not deleted, so the person who owns that set list keeps the record of who was
+  invited and who used it. Those records still carry your old account
+  identifier.
+- **The scan cost log lines described above**, which include your email
+  address. Account deletion does not currently reach them.
+
+## Children
+
+Scoranger is not designed for children and is not in the App Store's Kids
+category. It does not ask for anyone's age.
+
+*[This section is a placeholder. Do not publish it as written. The under-13
+question is set out with its facts in `design/APP_STORE_PRIVACY.md` section 9
+and is for a lawyer to answer. What this section says depends on that answer
+and on the age rating chosen for the listing.]*
+
+## Where things are stored
+
+Accounts, set lists, shared files and marks are held by Google Firebase.
+Scanning runs on Google Cloud Run in the United States. Chat goes to OpenRouter
+and on to the model company you selected, wherever they run. Using Scoranger's
+account and sharing features means your data is processed in the United States.
+
+## Changes
+
+If this policy changes in a way that affects what leaves your iPad, the app
+will say so. The date at the top is the last time it changed.
+
+## Getting in touch
+
+Questions about anything on this page, or a request about your data:
+
+**[EMAIL ADDRESS]**
+
+IRL Labs LLC
