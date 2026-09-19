@@ -139,7 +139,8 @@ def _dispatch(op, a):
         slug, entry = workspace.extract_from_book(
             a["book"], int(a["from_page"]), int(a["to_page"]),
             a["name"], a.get("piece"))
-        return {"score": slug, "version": entry["id"], "piece": a.get("piece")}
+        piece = a.get("piece") or workspace.ensure_own_piece(slug)["piece"]
+        return {"score": slug, "version": entry["id"], "piece": piece}
     if op == "book-file":
         # Where the book's own PDF is, so the reader can LOOK through it before
         # naming a page range. Asking someone for pages 137-139 of a fake book
@@ -196,28 +197,51 @@ def _dispatch(op, a):
         name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
         slug, entry = workspace.create_pdf_score(name, a["path"], op="import-pdf",
                                                  args={"source": a["path"]})
-        piece = None
         if a.get("piece"):
             piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+        else:
+            # a scan is an arrangement too, and the rule is about arrangements
+            piece = workspace.ensure_own_piece(slug)["piece"]
         return {"score": slug, "version": entry["id"], "piece": piece, "kind": "pdf"}
     if op == "import":
-        from music21 import converter
-        score = converter.parse(a["path"], forceSource=True)
-        name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
-        # music21 seeds the movement title with the file name, extension and
-        # all, and that is what engraves; normalize before the first version
+        # read_notation, never converter.parse: an ABC file can hold several
+        # tunes and music21 returns an Opus for those, which has no `.parts`
+        # and takes down everything that follows
+        tunes = workspace.read_notation(a["path"])
+        if not tunes:
+            raise ValueError("that file holds no music")
         stem = os.path.splitext(os.path.basename(a["path"]))[0]
-        name = ops.clean_imported_metadata(score, name, source_stem=stem)["title"]
-        slug, entry = workspace.create_score(name, score, op="import", args={"source": a["path"]})
-        piece = None
-        if a.get("piece"):
-            piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
-        # Odd bars in an imported score are reported, never fatal. OMR output is
-        # imperfect by nature and the user brings the score in so they can fix
-        # it; refusing the import left them unable to open their own music.
-        out = {"score": slug, "version": entry["id"], "piece": piece}
-        if entry.get("rhythm_warnings"):
-            out["rhythm_warnings"] = entry["rhythm_warnings"]
+        rows = []
+        for score in tunes:
+            # music21 seeds the movement title with the file name, extension
+            # and all, and that is what engraves; normalize before the first
+            # version. `name` is the FALLBACK, so a tune that names itself
+            # keeps its own name and a file of tunes imports as the tunes.
+            name = a.get("name") or stem
+            name = ops.clean_imported_metadata(score, name, source_stem=stem)["title"]
+            slug, entry = workspace.create_score(name, score, op="import",
+                                                 args={"source": a["path"]})
+            if a.get("piece"):
+                piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+            else:
+                # EVERY arrangement belongs to a piece. Without this the app's
+                # own import was the thing that made UNFILED rows.
+                piece = workspace.ensure_own_piece(slug)["piece"]
+            # Odd bars in an imported score are reported, never fatal. OMR
+            # output is imperfect by nature and the user brings the score in so
+            # they can fix it; refusing the import left them unable to open
+            # their own music.
+            row = {"score": slug, "version": entry["id"], "piece": piece}
+            if entry.get("rhythm_warnings"):
+                row["rhythm_warnings"] = entry["rhythm_warnings"]
+            rows.append(row)
+        out = dict(rows[0])
+        out["tunes_found"] = len(rows)
+        out["arrangements"] = rows
+        losses = workspace.abc_losses(a["path"]) if os.path.splitext(
+            a["path"])[1].lower() in workspace.ABC_SUFFIXES else {}
+        if losses:
+            out["abc"] = losses
         return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))

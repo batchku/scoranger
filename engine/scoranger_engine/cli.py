@@ -51,22 +51,72 @@ def _mutate(slug: str, score, op: str, args: dict, details) -> None:
 
 
 def cmd_import(a):
-    from music21 import converter
+    """Import every piece of music a file holds.
+
+    ONE FILE CAN BE SEVERAL ARRANGEMENTS. That is not an ABC curiosity it is
+    worth branching on -- it is the general rule, and the loop below is the
+    whole of it. Each tune becomes its own arrangement, and each arrangement
+    that arrives without a piece is given one named after itself
+    (`workspace.ensure_own_piece`), so a file of 38 settings of "Drowsy Maggie"
+    lands as 38 arrangements of ONE piece and a set of three different tunes
+    lands as three pieces of one. Neither case is written down anywhere.
+
+    The report SAYS which happened. A reader who drops in a collection and gets
+    one arrangement, or forty, has to be told which -- the counts are the first
+    thing in the output and `summary` says it in a sentence.
+
+    The single-score keys (`score`, `name`, `version`, `info`) still describe
+    the FIRST arrangement, because every existing caller reads them.
+    """
     src = Path(a.file).expanduser()
     if not src.exists():
         raise FileNotFoundError(f"No such file: {src}")
-    score = converter.parse(str(src), forceSource=True)
-    name = a.name or ops.engraved_title(score) or src.stem
-    # music21 seeds the movement title with the file name, extension and all,
-    # and that is what Verovio engraves -- so the title is normalized on the way
-    # in rather than surfacing as "my-score.mxl" at the top of the page.
-    name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
-    slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
-    out = {"score": slug, "name": name, "version": entry["id"],
-           "version_label": workspace.version_label(entry), "info": ops.info(score)}
-    # imperfect sources import and say so; they are never refused
-    if entry.get("rhythm_warnings"):
-        out["rhythm_warnings"] = entry["rhythm_warnings"]
+    scores = workspace.read_notation(src)
+    if not scores:
+        raise ValueError(f"{src.name} holds no music")
+
+    arrangements, pieces = [], []
+    for i, score in enumerate(scores):
+        # music21 seeds the movement title with the file name, extension and
+        # all, and that is what Verovio engraves -- so the title is normalized
+        # on the way in rather than surfacing as "my-score.mxl" at the top of
+        # the page. `--name` is only ever the FALLBACK: a tune that names
+        # itself keeps its own name, which is what makes a multi-tune file
+        # import as the tunes it holds rather than 38 copies of one label.
+        name = a.name or ops.engraved_title(score) or src.stem
+        name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
+        args = {"source": str(src)}
+        if len(scores) > 1:
+            args["tune"] = i + 1
+        slug, entry = workspace.create_score(name, score, op="import", args=args)
+        filed = workspace.ensure_own_piece(slug)
+        if filed["created"]:
+            pieces.append(filed["piece"])
+        row = {"score": slug, "name": name, "version": entry["id"],
+               "version_label": workspace.version_label(entry),
+               "piece": filed["piece"]}
+        # imperfect sources import and say so; they are never refused
+        if entry.get("rhythm_warnings"):
+            row["rhythm_warnings"] = entry["rhythm_warnings"]
+        arrangements.append(row)
+
+    first = arrangements[0]
+    n, p = len(arrangements), len({r["piece"] for r in arrangements})
+    out = dict(first)
+    out["info"] = ops.info(scores[0])
+    out["tunes_found"] = len(scores)
+    out["arrangements"] = arrangements
+    out["pieces_created"] = pieces
+    out["summary"] = (
+        f"{n} tune{'s' if n != 1 else ''} found, imported as "
+        f"{n} arrangement{'s' if n != 1 else ''} of "
+        f"{p} piece{'s' if p != 1 else ''}")
+    # what the file said that the notation cannot carry -- counted, never
+    # silently swallowed (workspace.abc_losses)
+    if src.suffix.lower() in workspace.ABC_SUFFIXES:
+        losses = workspace.abc_losses(src)
+        if losses:
+            out["abc"] = losses
     _emit(out)
 
 

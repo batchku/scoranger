@@ -16,7 +16,10 @@ from urllib.parse import parse_qs, urlparse
 
 from . import ops, workspace
 
-ALLOWED_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
+# Read from the engine rather than typed again: this list was a copy, and a
+# format added to the engine was rejected by the viewer until someone
+# remembered this line. `.abc` is in it now because that is where it belongs.
+ALLOWED_SUFFIXES = set(workspace.NOTATION_SUFFIXES)
 MAX_UPLOAD = 50 * 1024 * 1024
 
 
@@ -157,20 +160,38 @@ class Handler(BaseHTTPRequestHandler):
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp.write(data)
                 tmp_path = tmp.name
-            m21_score = converter.parse(tmp_path, forceSource=True)
+            # read_notation, not converter.parse: one ABC upload can hold
+            # several tunes and music21 hands those back as an Opus, which has
+            # no `.parts` and crashes everything downstream
+            tunes = workspace.read_notation(tmp_path)
+            if not tunes:
+                raise ValueError(f"{filename} holds no music")
             from . import ops as _ops
-            name = _ops.clean_imported_metadata(m21_score, name)["title"]
             source_of = (q.get("source_of") or [None])[0]
             if source_of:
+                # a source is one reference edition; several tunes in one file
+                # is not a thing to attach, so the first is what is meant
+                m21_score = tunes[0]
+                name = _ops.clean_imported_metadata(m21_score, name)["title"]
                 doc = workspace.add_source(source_of, m21_score, name,
                                            origin=f"upload:{filename}")
                 self._json(200, {"score": source_of, "source": doc["id"], "name": name,
                                  "parts": doc.get("parts")})
                 return
-            slug, entry = workspace.create_score(name, m21_score, op="import",
-                                                 args={"source": f"upload:{filename}"})
-            self._json(200, {"score": slug, "name": name, "version": entry["id"],
-                             "parts": entry.get("parts")})
+            rows = []
+            for m21_score in tunes:
+                one = _ops.clean_imported_metadata(m21_score, name)["title"]
+                slug, entry = workspace.create_score(
+                    one, m21_score, op="import",
+                    args={"source": f"upload:{filename}"})
+                # every arrangement belongs to a piece, this path included
+                filed = workspace.ensure_own_piece(slug)
+                rows.append({"score": slug, "name": one, "version": entry["id"],
+                             "piece": filed["piece"], "parts": entry.get("parts")})
+            out = dict(rows[0])
+            out["tunes_found"] = len(rows)
+            out["arrangements"] = rows
+            self._json(200, out)
         except Exception as e:
             self._json(400, {"error": f"{type(e).__name__}: {e}"})
 

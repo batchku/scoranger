@@ -311,9 +311,15 @@ class NotNotationError(Exception):
     """Notation was asked of an arrangement whose artifact is not notation."""
 
 
+#: ABC: the text notation Irish traditional music is published in, and what
+#: thesession.org hands you when you download a tune. One file can hold SEVERAL
+#: tunes, each opened by its own `X:` header -- see `read_notation`, which is
+#: why nothing may call `converter.parse` on an import path directly any more.
+ABC_SUFFIXES = {".abc"}
+
 #: Artifact suffixes the engine can actually operate on. Everything else is
 #: something a reader can look at but no op can touch.
-NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
+NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"} | ABC_SUFFIXES
 
 #: Pictures of music. The SAME kind of thing as a PDF -- readable,
 #: annotatable, OMR-able, editable by nothing until OMR has read it -- so they
@@ -328,6 +334,82 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic"}
 
 #: Everything that is a scan rather than notation.
 SCAN_SUFFIXES = {".pdf"} | IMAGE_SUFFIXES
+
+
+def read_notation(path) -> list:
+    """Every piece of music a notation file holds, in the order it holds them.
+
+    A MusicXML or MIDI file is one score, so this is a list of one and every
+    caller that used to say `converter.parse` reads the same thing. ABC is not:
+    one `.abc` file may open several tunes, each with its own `X:` header, and
+    music21 hands back an **Opus** for those -- a container with no `.parts`,
+    on which anything written for a Score raises `AttributeError`. That is the
+    whole reason this function exists rather than a suffix check at each call
+    site; an Opus reaching `create_score` is a crash, not a bad import.
+
+    thesession.org produces both shapes routinely and they mean DIFFERENT
+    things, which the import rule (see `cli.cmd_import`) turns out to handle
+    without ever having to tell them apart:
+
+    - a tune's page (`/tunes/27/abc`) downloads every SETTING of one tune --
+      38 of "Drowsy Maggie" -- as 38 `X:` blocks that all carry the same `T:`.
+    - a set downloads as ONE `X:` block holding several tunes joined by a
+      second `T:`/`K:` mid-body. music21 reads that as a single continuous
+      score with a key change, which is what a set IS and what it sounds like,
+      so it stays one arrangement and nothing here has to special-case it.
+    """
+    from music21 import converter, stream
+
+    parsed = converter.parse(str(Path(path)), forceSource=True)
+    if isinstance(parsed, stream.Opus):
+        return list(parsed.scores)
+    return [parsed]
+
+
+#: Ornament marks ABC carries that music21's reader drops on the floor: the
+#: roll/ornament squiggle, and the `!...!` and `+...+` decorations.
+_ABC_ROLL = "~"
+
+
+def abc_losses(path) -> dict:
+    """What an ABC file says that the import cannot carry, counted.
+
+    music21 reads ABC well -- pitches, meter, modal keys, repeats, first and
+    second endings, triplets, grace notes, slurs, staccato, chord symbols, the
+    `Q:` tempo and a pickup bar all survive. Three things do not, and this
+    counts them so the import can SAY so rather than quietly hand back less
+    music than the file described:
+
+    - `~`, the roll, which is on nearly every bar of Irish repertoire (120 of
+      them in thesession.org's 21 settings of "The Silver Spear");
+    - `!trill!`-style decorations;
+    - `R:`, the rhythm field, which names the tune type -- reel, jig,
+      hornpipe. It is not notation and has nowhere to live in MusicXML, so it
+      is REPORTED and not stored. A reader who wants it in the title can put
+      it there.
+
+    Text-scanned rather than read off the parsed score, because a mark music21
+    discards leaves nothing behind to count.
+    """
+    import re
+
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    body = "\n".join(line for line in text.splitlines()
+                      if not re.match(r"^[A-Za-z]:", line))
+    out = {}
+    if body.count(_ABC_ROLL):
+        out["ornament_marks_dropped"] = body.count(_ABC_ROLL)
+    decorations = len(re.findall(r"![^!\s]+!", body))
+    if decorations:
+        out["decorations_dropped"] = decorations
+    kinds = [m.strip() for m in re.findall(r"(?m)^R:\s*(.+?)\s*$", text)]
+    if kinds:
+        out["tune_types"] = sorted(set(kinds))
+    return out
+
 
 
 def list_versions(slug: str) -> list:
@@ -832,6 +914,42 @@ def assign_score_to_piece(slug: str, piece: str | None,
             repo.set_piece(p["slug"], p)
     rebuild_manifest()
     return {"score": slug, "piece": piece_slug}
+
+
+def ensure_own_piece(slug: str) -> dict:
+    """Give an arrangement a piece if it has none, named after the arrangement.
+
+    **Every arrangement belongs to a piece.** An import that landed without one
+    left a row the library could only tag UNFILED, which is a hole in the model
+    rather than a state anybody chose: the app's own idea of itself is pieces
+    holding arrangements, and a thing outside that has no shelf to sit on.
+
+    Named from the arrangement's TITLE, which is a projection of the notation,
+    so the piece is called what the music is called. `resolve_piece` matches an
+    existing name case-insensitively BEFORE creating, and that one line is what
+    makes the rule behave correctly on real material instead of littering:
+
+        thesession.org/tunes/27/abc downloads 38 SETTINGS of "Drowsy Maggie".
+        Each is its own arrangement -- they are genuinely different music --
+        and all 38 carry the same `T:`, so the first mints the piece and the
+        other 37 find it. One piece, 38 arrangements, numbered in file order.
+
+        A set file holds three DIFFERENT tunes, so it makes three pieces of one
+        arrangement each. Same rule, no branch, no knowledge of ABC.
+
+    Idempotent, and never moves an arrangement that is already filed -- an
+    import into a piece the reader chose has already said where it goes.
+    """
+    doc = _repo().get_score(slug)
+    if doc is None:
+        raise FileNotFoundError(f"No score '{slug}'")
+    if doc.get("piece"):
+        return {"score": slug, "piece": doc["piece"], "created": False}
+    name = doc.get("title") or doc.get("name") or slug
+    existed = any(p["name"].lower() == name.lower() for p in _repo().list_pieces())
+    assign_score_to_piece(slug, name, create_if_missing=True)
+    return {"score": slug, "piece": (_repo().get_score(slug) or {}).get("piece"),
+            "created": not existed}
 
 
 def set_piece_order(name_or_slug: str, order: list) -> dict:
