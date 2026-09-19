@@ -122,14 +122,32 @@ enum LibrarySelectionKind: Equatable {
 enum LibraryActions {
 
     /// The bar, in fixed order, destructive last.
-    static func bar(for kind: LibrarySelectionKind) -> [LibraryAction] {
+    ///
+    /// `count` is how many rows are checked, and the PIECES bar reads it:
+    /// New arrangement and Combine are mutually exclusive -- one needs
+    /// exactly one piece, the other needs two or more -- so the bar shows
+    /// whichever the selection can actually use, and always THREE capsules.
+    ///
+    /// This is the one place the "grey rather than vanish" rule gives way,
+    /// and it gives way to measurement. That rule exists so the bar does not
+    /// re-flow under a finger as a selection grows; here the capsule COUNT
+    /// never changes, only the first capsule's word. Carrying both as a
+    /// fourth capsule made the bar need TWO ROWS at a phone's 353pt
+    /// (LibraryActionBarLayoutTests), which costs every phone reader the
+    /// one-line bar -- and it bought a permanently dead button, because the
+    /// one that is greyed can never become usable without the other becoming
+    /// unusable. Ali reported the piece row's strip clipping on 2026-09-14;
+    /// a seventh verb is not the way to answer that.
+    static func bar(for kind: LibrarySelectionKind, count: Int) -> [LibraryAction] {
         switch kind {
         case .pieces:
-            // a folder: rename it, put something in it, fold it into another
-            // one, or throw it away. Combine is here because every import
-            // mints a piece now, so two pieces for one tune is a thing a
-            // reader will accumulate and has to be able to fix.
-            return [.newArrangement, .newSetlist, .combine, .delete]
+            // a folder: put something in it, make a set list of it, fold it
+            // into another one, or throw it away. Combine is here because
+            // every import mints a piece now, so two pieces for one tune is
+            // something a reader accumulates and has to be able to fix.
+            return count > 1
+                ? [.combine, .newSetlist, .delete]
+                : [.newArrangement, .newSetlist, .delete]
         case .setlists:
             return [.delete]
         case .arrangements:

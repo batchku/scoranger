@@ -129,12 +129,19 @@ final class CombinePiecesTests: XCTestCase {
     /// The bar must offer it only for several pieces, and grey rather than
     /// hide it for one -- the bar may not re-flow as the selection changes.
     func testTheBarOffersCombineForPiecesAndOnlyWithSeveral() {
-        XCTAssertTrue(LibraryActions.bar(for: .pieces).contains(.combine))
-        XCTAssertFalse(LibraryActions.bar(for: .arrangements).contains(.combine))
-        XCTAssertFalse(LibraryActions.bar(for: .setlists).contains(.combine))
-        XCTAssertFalse(LibraryActions.bar(for: .mixed).contains(.combine))
+        XCTAssertTrue(LibraryActions.bar(for: .pieces, count: 2).contains(.combine))
+        // ...and only where a selection of several pieces is what is checked
+        XCTAssertFalse(LibraryActions.bar(for: .pieces, count: 1).contains(.combine))
+        for kind in [LibrarySelectionKind.arrangements, .setlists, .mixed] {
+            for count in [1, 2, 5] {
+                XCTAssertFalse(LibraryActions.bar(for: kind, count: count).contains(.combine),
+                               "\(kind) offers Combine")
+            }
+        }
         XCTAssertFalse(LibraryActions.isEnabled(.combine, count: 1))
         XCTAssertTrue(LibraryActions.isEnabled(.combine, count: 2))
         XCTAssertFalse(LibraryActions.isEnabled(.combine, count: 0))
+        // New arrangement is not lost -- it is there whenever it can be used.
+        XCTAssertTrue(LibraryActions.bar(for: .pieces, count: 1).contains(.newArrangement))
     }
 }

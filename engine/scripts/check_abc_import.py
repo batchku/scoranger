@@ -333,6 +333,48 @@ def main() -> int:  # noqa: C901 -- a checklist reads better whole
     check("two different pieces" in message,
           f"combining one piece is refused by name: {message!r}")
 
+    # ------------------------------------------- the app can be offered it ---
+    #
+    # Asserted against the generated Info.plist, because the place it belongs
+    # -- a unit test -- cannot do it: ScorangerTests has no host app, so
+    # whether `com.scoranger.abc` resolves there depends on whether the UI
+    # bundle happened to install the app first. This file is deterministic.
+    print("\nthe app declares what it needs to be handed a tune")
+    import plistlib
+
+    plist_path = ROOT / "ios" / "Scoranger" / "Info.plist"
+    check(plist_path.exists(), f"Info.plist is at {plist_path}")
+    if plist_path.exists():
+        plist = plistlib.loads(plist_path.read_bytes())
+        imported = {d.get("UTTypeIdentifier"): d
+                    for d in plist.get("UTImportedTypeDeclarations", [])}
+        ours = imported.get("com.scoranger.abc")
+        check(ours is not None, "com.scoranger.abc is declared")
+        if ours:
+            check("public.plain-text" in (ours.get("UTTypeConformsTo") or []),
+                  f"it conforms to plain-text -- a tune is text, which is "
+                  f"exactly what Alembic is not: {ours.get('UTTypeConformsTo')}")
+            exts = (ours.get("UTTypeTagSpecification")
+                    or {}).get("public.filename-extension") or []
+            check("abc" in exts, f"and it claims the .abc extension: {exts}")
+        # `.abc` is NOT a free extension: the system declares it as Alembic,
+        # Pixar's 3D scene cache, and that is what a downloaded tune is
+        # TAGGED as. Claiming only our own type greys every real tune out in
+        # Files, so public.alembic has to be on the document type. This is
+        # the assertion that stops someone tidying away a wrong-looking entry.
+        types = [d for d in plist.get("CFBundleDocumentTypes", [])
+                 if "com.scoranger.abc" in (d.get("LSItemContentTypes") or [])]
+        check(bool(types), "a document type accepts com.scoranger.abc")
+        if types:
+            accepted = types[0].get("LSItemContentTypes") or []
+            check("public.alembic" in accepted,
+                  f"and public.alembic beside it, which is what the system "
+                  f"actually tags a .abc file as: {accepted}")
+            check(types[0].get("LSHandlerRank") == "Alternate",
+                  f"at Alternate rank, because this app does not own an "
+                  f"extension it shares with Alembic: "
+                  f"{types[0].get('LSHandlerRank')}")
+
     if FAILURES:
         print(f"\nFAIL: {len(FAILURES)} ABC import check(s) failed")
         for f in FAILURES:

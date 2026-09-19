@@ -139,9 +139,14 @@ struct LibraryView: View {
     /// piece is a folder and cannot be duplicated or put in a set list. Actions
     /// needing exactly one row grey to 42% rather than vanishing, so the bar
     /// never re-flows under a finger.
+    ///
+    /// The COUNT is passed too, and the pieces bar is the only one that reads
+    /// it: New arrangement and Combine cannot both apply, so it shows the one
+    /// this selection can use rather than a fourth capsule that would push a
+    /// phone's bar onto two rows.
     private var actionBar: some View {
         let kind = selectionKind
-        let actions = LibraryActions.bar(for: kind)
+        let actions = LibraryActions.bar(for: kind, count: selected.count)
         return GeometryReader { geo in
             let labels = LibraryActionBarMetrics.labels(count: selected.count, kind: kind, size: typeSize)
             let rung = LibraryActionBarLayout.rung(width: geo.size.width, actions: actions, labels: labels)

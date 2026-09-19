@@ -125,21 +125,18 @@ final class ImportContentTypeTests: XCTestCase {
 
     /// THE APP'S OWN TYPE IS NOT ASSERTED HERE, AND CANNOT BE.
     ///
-    /// `com.scoranger.abc` is declared in the app's Info.plist, and this test
-    /// bundle has no host app -- so `UTType("com.scoranger.abc")` is nil in
-    /// this process and `scoreTypes` drops it through its own compactMap.
-    /// Asserting it would be asserting the test runner, not the product.
+    /// `com.scoranger.abc` is declared in the app's Info.plist and this
+    /// bundle has no host app, so whether it resolves in THIS process depends
+    /// on whether something else has already installed the app on the
+    /// simulator. Run alone it is absent; run in the gate, after the UI
+    /// bundle has installed the app, it is present. An assertion either way
+    /// pins the run order rather than the product, and the first version of
+    /// this test asserted the absence and duly failed in the gate only.
     ///
-    /// What IS asserted above is the one that decides whether a reader can
-    /// open a tune at all: the picker accepts the type a downloaded `.abc`
-    /// file actually carries. Our own type is the second string in the same
-    /// list and is there for a sender that tags a tune as text; if it were
-    /// dropped from the plist, nothing a reader does would change.
-    func testTheAppsOwnTypeIsAbsentFromThisProcessAndThatIsExpected() {
-        XCTAssertNil(UTType("com.scoranger.abc"),
-                     "this suite gained a host app -- the Info.plist type is "
-                     + "now reachable and worth asserting properly")
-    }
+    /// The declaration is checked where it is deterministic instead: against
+    /// the generated Info.plist itself, in engine/scripts/check_abc_import.py.
+    /// What IS asserted above is the one a reader feels -- the picker accepts
+    /// the type a downloaded `.abc` file actually carries.
 
     /// The umbrella is safe because the PIPELINE normalises, not because the
     /// picker narrows. Anything the engine will not take is converted at the
