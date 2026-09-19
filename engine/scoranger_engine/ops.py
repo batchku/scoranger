@@ -3337,8 +3337,12 @@ class ElementKind(NamedTuple):
     #: "note"   -- it hangs off a note and has no offset of its own, so it
     #:             moves by being detached from one note and attached to
     #:             another;
-    #: "lyric"  -- it IS a note, adjusted through the verses written onto it.
+    #: "lyric"  -- it IS a note, adjusted through the whole COLUMN of verses
+    #:             written onto it (a tab column, a whistle fingering).
     #:             Nothing about it can be moved without moving the music.
+    #:             A single sung WORD is not this: one verse of one note is a
+    #:             thing of its own, so `lyric` is anchored "note" and moves
+    #:             by re-attaching, like a fermata.
     anchor: str
     movable: bool
 
