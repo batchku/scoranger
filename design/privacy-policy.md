@@ -129,12 +129,17 @@ Firebase:
 - when you invite somebody, **the email address you typed for them**, so the
   invitation can find them. Invitations expire after seven days.
 
+**Two kinds of invitation.** When you share a set list, Scoranger gives you a
+link to send. That link can be used by **anyone who has it and is signed in to
+Scoranger with a confirmed email address**, up to the twelve-person limit, for
+seven days, after which it stops working. You can also invite one specific
+address, and that invitation can only be claimed by that address. Either way
+the person has to have a Scoranger account: there is no way to read a shared
+set list without one, and nothing in our storage is ever public.
+
 **What is never shared.** Your own library stays on your iPad. Books never
 share. Sources, meaning other editions you have imported for reference, never
-share. There is no public link and there never will be: a share is an
-invitation to a named person's account, and a set list holds at most twelve
-people. Nothing in our storage is readable by anyone outside the set list it
-belongs to.
+share. Nothing is readable by anyone outside the set list it belongs to.
 
 ## What Scoranger does not do
 
@@ -157,7 +162,7 @@ belongs to.
 | A page uploaded for scanning | Up to one hour in temporary storage, then deleted. |
 | Scan cost log lines (identifier, email address) | *[state the Google Cloud Logging retention here]* |
 | Your account, set lists, shared files and marks | Until you delete your account or leave the set list. |
-| An invitation you sent | Seven days, then it expires. |
+| An invitation you sent | Seven days, then it expires. A used one is kept as a record of who joined. |
 | Chat messages | We keep none. What OpenRouter and the model company keep is theirs to say. |
 
 ## Deleting your account

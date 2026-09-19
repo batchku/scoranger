@@ -287,6 +287,27 @@ Apple counts data a user provides about other people as collected data. It is
 the invitee's address, normalised to lower case, and it persists in the invite
 document. Invites expire after seven days (`functions/index.js`, `WEEK_MS`).
 
+**An invitation can be an open link, and the design document says it cannot.**
+`design/FIREBASE.md` §8.2 guard rail 1 states "Sharing is to named people,
+never to a link. No 'anyone with the link' mode, in v1 or later." The shipped
+code does not match that. `SharedSetlists.invite(to:email:)`
+(`SharedSetlists.swift:406-410`) sends `claim: "open"` when no address is
+given, and two UI paths do exactly that: the main share action
+(`ShareSetlistAction.swift:45` → `promote()` → `invite(to:email: nil)`) and the
+"copy link" control (`SharedSetlistScreen.swift:245`). The addressed form is
+the *other* button (`SharedSetlistScreen.swift:344`).
+
+`claimInvite` (`functions/index.js`) does constrain an open link: the claimant
+must be signed in with a **verified** email address, the link expires after
+seven days against the server clock, it is refused once the set list reaches
+twelve members, and it can be revoked. So it is not public redistribution. But
+it is "anyone with the link who has an account", not "a named person", and the
+privacy policy and support page have to describe what the code does. Both do.
+
+This is a documentation-versus-code divergence, not a defect found in this
+work, and it is recorded rather than fixed. It bears on the copyright posture
+that §8.2 says rests on guard rail 1.
+
 `libraries/{libraryId}` rules exist in both `firestore.rules:54` and
 `storage.rules` for a future private-library backup. **No client code reads or
 writes them today** (grep across `ios/Scoranger/` and `engine/` finds nothing).
