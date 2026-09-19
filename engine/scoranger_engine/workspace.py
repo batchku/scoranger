@@ -357,10 +357,25 @@ def read_notation(path) -> list:
       second `T:`/`K:` mid-body. music21 reads that as a single continuous
       score with a key change, which is what a set IS and what it sounds like,
       so it stays one arrangement and nothing here has to special-case it.
+
+    ABC IS NOT HANDED STRAIGHT TO music21 either. Its reader drops decorations
+    -- and for `H`, the fermata, drops the NOTE the decoration was on -- so an
+    ABC path goes through `enrich.read_abc`, which strips the marks before the
+    parse and attaches them afterwards. `abc_report` is where what it managed
+    is kept for the import to relay.
     """
     from music21 import converter, stream
 
-    parsed = converter.parse(str(Path(path)), forceSource=True)
+    source = Path(path)
+    if source.suffix.lower() in ABC_SUFFIXES:
+        from . import enrich
+
+        scores, report = enrich.read_abc(source)
+        for score in scores:
+            score.scoranger_abc = report
+        return scores
+
+    parsed = converter.parse(str(source), forceSource=True)
     if isinstance(parsed, stream.Opus):
         return list(parsed.scores)
     return [parsed]
