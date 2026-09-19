@@ -43,10 +43,11 @@
 			<key>CFBundleTypeName</key>
 			<string>ABC tune</string>
 			<key>LSHandlerRank</key>
-			<string>Owner</string>
+			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.scoranger.abc</string>
+				<string>public.alembic</string>
 			</array>
 		</dict>
 		<dict>

@@ -14,10 +14,13 @@ enum ImportKind: Equatable {
         UTType(filenameExtension: "mid"),
         UTType(filenameExtension: "midi"),
         // ABC, which thesession.org publishes Irish traditional music as.
-        // There is no system UTType for it, so the app declares
-        // `com.scoranger.abc` in project.yml; without that declaration this
-        // line resolves to a dynamic type and Files greys the file out.
+        // BOTH types, and the reason is worth knowing: `.abc` is already
+        // taken. The system declares it as Alembic, Pixar's 3D scene cache,
+        // so `UTType(filenameExtension: "abc")` resolves to `public.alembic`
+        // and that is what a downloaded tune is tagged as. Offering only our
+        // own type would grey every real tune out.
         UTType(filenameExtension: "abc"),
+        UTType("com.scoranger.abc"),
     ].compactMap { $0 }) + [.pdf] + imageTypes
 
     /// The images a photographed score arrives as.

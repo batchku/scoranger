@@ -576,3 +576,87 @@ struct DetailsScreen: View {
         }
     }
 }
+
+/// What combining the checked pieces will do, said before it is done.
+///
+/// A screen rather than the action bar's delete-and-undo, because combining
+/// CANNOT be undone: the absorbed pieces stop existing and the engine has no
+/// record to restore them from. The bar's destructive verb can be casual
+/// because the row comes back; this one cannot.
+///
+/// A screen rather than a `ConfirmDeleteStrip`, because the consequences are
+/// several sentences and one of them is about numbering, which is the thing a
+/// reader notices first and would otherwise discover afterwards. The strip
+/// holds one.
+///
+/// `CombinePieces.plan` works all of it out; this only draws it.
+struct CombinePiecesScreen: View {
+    @EnvironmentObject var state: AppState
+    let combining: [String]
+    var onBack: () -> Void
+
+    var body: some View {
+        Screen(title: "Combine pieces", backLabel: "Back",
+               subtitle: subject, onBack: onBack) {
+            VStack(alignment: .leading, spacing: 0) {
+                if plan.isPossible {
+                    // The consequences, stated before the choice rather than
+                    // discovered after it.
+                    VStack(alignment: .leading, spacing: Theme.Metric.s8) {
+                        ForEach(plan.consequences, id: \.self) { line in
+                            Text(line)
+                                .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, Theme.Metric.s20)
+                    .padding(.vertical, Theme.Metric.s12)
+                    .accessibilityIdentifier("combine-consequences")
+
+                    PanelLabel(text: "Keeping", ruled: false)
+                    ScreenRow(title: plan.survivorName,
+                              value: plan.total == 1 ? "1 arrangement"
+                                                     : "\(plan.total) arrangements",
+                              leads: false, isSelected: true,
+                              identifier: "combine-keeping-\(plan.survivor)") {}
+
+                    PanelLabel(text: "Folding in")
+                    ForEach(Array(plan.absorbed.enumerated()), id: \.offset) { index, slug in
+                        ScreenRow(title: plan.absorbedNames[index], leads: false,
+                                  identifier: "combine-absorbing-\(slug)") {}
+                    }
+
+                    PanelLabel(text: "Careful")
+                    ScreenRow(title: "Combine into \(plan.survivorName)",
+                              leads: false, isDestructive: true,
+                              identifier: "combine-confirm") {
+                        Task {
+                            _ = await state.combinePieces(
+                                [plan.survivor] + plan.absorbed)
+                            state.notice = plan.consequences.first
+                            onBack()
+                        }
+                    }
+                } else {
+                    Text("Combining needs two pieces or more.")
+                        .typeRole(.body).foregroundStyle(Theme.Ink.ink2)
+                        .padding(Theme.Metric.s20)
+                        .accessibilityIdentifier("combine-needs-two")
+                }
+            }
+            .padding(.bottom, Theme.Metric.s32)
+        }
+    }
+
+    /// The pieces in the order the library listed them; the first survives.
+    private var chosen: [PieceDoc] {
+        let pieces = state.manifest?.pieces ?? []
+        return combining.compactMap { slug in pieces.first { $0.slug == slug } }
+    }
+
+    private var plan: CombinePieces.Plan { CombinePieces.plan(pieces: chosen) }
+
+    private var subject: String {
+        combining.count == 1 ? "one piece" : "\(combining.count) pieces"
+    }
+}

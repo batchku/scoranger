@@ -421,6 +421,9 @@ struct RootView: View {
         case .moveToPiece(let slugs):
             MoveToPieceScreen(moving: slugs, onBack: pop)
                 .navigationBarHidden(true)
+        case .combinePieces(let slugs):
+            CombinePiecesScreen(combining: slugs, onBack: pop)
+                .navigationBarHidden(true)
         case .setlistsFor(let slug):
             SetlistsForScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
@@ -566,6 +569,11 @@ struct RootView: View {
             Task { _ = await state.createArrangement(pieceSlug: id) }
         case .moveToPiece:
             libraryPath.append(.moveToPiece(scores.map(\.slug)))
+        case .combine:
+            // Pieces, not arrangements, and in the order the list shows them:
+            // the first is the one that survives, which is what the screen
+            // says before the button.
+            libraryPath.append(.combinePieces(ids))
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
         case .newSetlist:

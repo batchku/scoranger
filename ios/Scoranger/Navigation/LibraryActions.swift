@@ -13,16 +13,23 @@ import Foundation
 /// item's own screen -- the value is the control, so a button whose only job
 /// was to make it editable has nothing left to do.
 enum LibraryAction: String, CaseIterable, Equatable {
-    case newArrangement, moveToPiece, addToSetlist, newSetlist, duplicate, delete
+    case newArrangement, moveToPiece, addToSetlist, newSetlist, combine, duplicate, delete
 
     /// Actions that only make sense on exactly one row. They grey to 42% rather
     /// than disappearing, so the bar never re-flows as the selection changes.
     var needsExactlyOne: Bool {
         switch self {
         case .newArrangement: return true
-        case .moveToPiece, .addToSetlist, .newSetlist, .duplicate, .delete: return false
+        case .moveToPiece, .addToSetlist, .newSetlist, .combine,
+             .duplicate, .delete: return false
         }
     }
+
+    /// Actions that need SEVERAL rows. Combining one piece is not an
+    /// operation, so the button greys until there is a second -- the same
+    /// 42% the one-row verbs grey to, and for the same reason: the bar must
+    /// not re-flow as the selection changes.
+    var needsSeveral: Bool { self == .combine }
 
     var isDestructive: Bool { self == .delete }
 
@@ -32,6 +39,7 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .moveToPiece:    return "bar-move"
         case .addToSetlist:   return "bar-setlists"
         case .newSetlist:     return "bar-new-setlist"
+        case .combine:        return "bar-combine"
         case .duplicate:      return "bar-duplicate"
         case .delete:         return "bar-delete"
         }
@@ -43,6 +51,7 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .moveToPiece:    return "Move to piece…"
         case .addToSetlist:   return "Add to set list…"
         case .newSetlist:     return "New set list"
+        case .combine:        return "Combine…"
         case .duplicate:      return "Duplicate"
         case .delete:         return deleteTitle(count: count, kind: kind, counted: true)
         }
@@ -57,6 +66,7 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .moveToPiece:    return "Move…"
         case .addToSetlist:   return "Set list…"
         case .newSetlist:     return "Set list"
+        case .combine:        return "Combine…"
         case .duplicate:      return "Duplicate"
         case .delete:         return deleteTitle(count: count, kind: kind, counted: true)
         }
@@ -76,6 +86,9 @@ enum LibraryAction: String, CaseIterable, Equatable {
         case .newSetlist:
             guard count > 1 else { return "New set list from this \(kind.singular)" }
             return "New set list from \(count) \(kind.plural)"
+        case .combine:
+            guard count > 1 else { return "Combine pieces" }
+            return "Combine \(count) pieces into one"
         default:
             return title(count: count, kind: kind)
         }
@@ -112,8 +125,11 @@ enum LibraryActions {
     static func bar(for kind: LibrarySelectionKind) -> [LibraryAction] {
         switch kind {
         case .pieces:
-            // a folder: rename it, put something in it, or throw it away
-            return [.newArrangement, .newSetlist, .delete]
+            // a folder: rename it, put something in it, fold it into another
+            // one, or throw it away. Combine is here because every import
+            // mints a piece now, so two pieces for one tune is a thing a
+            // reader will accumulate and has to be able to fix.
+            return [.newArrangement, .newSetlist, .combine, .delete]
         case .setlists:
             return [.delete]
         case .arrangements:
@@ -131,7 +147,9 @@ enum LibraryActions {
     /// means greyed, not absent.
     static func isEnabled(_ action: LibraryAction, count: Int) -> Bool {
         guard count > 0 else { return false }
-        return action.needsExactlyOne ? count == 1 : true
+        if action.needsExactlyOne { return count == 1 }
+        if action.needsSeveral { return count > 1 }
+        return true
     }
 
     /// What is highlighted, from what the library knows about each row.

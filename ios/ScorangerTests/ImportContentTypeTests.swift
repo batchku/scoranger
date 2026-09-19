@@ -95,19 +95,50 @@ final class ImportContentTypeTests: XCTestCase {
                       "the Swift list has drifted from workspace.NOTATION_SUFFIXES")
     }
 
-    /// The picker has to offer it, and ABC has NO system UTType -- so this
-    /// passes only because project.yml declares `com.scoranger.abc`. Without
-    /// that declaration `UTType(filenameExtension: "abc")` is a dynamic type
-    /// that matches nothing the share sheet offers.
-    func testTheAppDeclaresItsOwnABCType() {
+    /// `.abc` IS ALREADY TAKEN, and the picker has to know it.
+    ///
+    /// The premise this was built on -- that ABC has no system UTType and
+    /// needs its own -- is false. The system declares `.abc` as Alembic,
+    /// Pixar's 3D scene cache, so `UTType(filenameExtension: "abc")` is
+    /// `public.alembic`, and that is what a tune downloaded from
+    /// thesession.org is tagged as. An app offering only `com.scoranger.abc`
+    /// would grey out every real tune.
+    ///
+    /// One extension, two formats, one system type. This pins the resolution
+    /// so a change that drops `public.alembic` from the list -- which reads
+    /// like tidying up a wrong-looking entry -- fails here rather than in a
+    /// reader's Files app.
+    func testABCResolvesToAlembicAndThePickerTakesItAnyway() {
         guard let abc = UTType(filenameExtension: "abc") else {
             return XCTFail("no UTType resolves for .abc at all")
         }
-        XCTAssertFalse(abc.isDynamic,
-                       "com.scoranger.abc is not declared, so .abc resolved to "
-                       + "the dynamic type \(abc.identifier) -- Files will grey "
-                       + "tunes out and Open-in will not offer this app")
-        XCTAssertEqual(abc.identifier, "com.scoranger.abc")
+        XCTAssertFalse(abc.isDynamic, "\(abc.identifier) is dynamic")
+        XCTAssertEqual(abc.identifier, "public.alembic",
+                       "the system no longer claims .abc for Alembic -- if it "
+                       + "claims nothing, com.scoranger.abc can own the "
+                       + "extension and Alternate rank should become Owner")
+        let declared = ImportKind.file.contentTypes
+        XCTAssertTrue(declared.contains(abc),
+                      "the picker does not accept what a downloaded tune is "
+                      + "actually tagged as: \(declared.map(\.identifier))")
+    }
+
+    /// THE APP'S OWN TYPE IS NOT ASSERTED HERE, AND CANNOT BE.
+    ///
+    /// `com.scoranger.abc` is declared in the app's Info.plist, and this test
+    /// bundle has no host app -- so `UTType("com.scoranger.abc")` is nil in
+    /// this process and `scoreTypes` drops it through its own compactMap.
+    /// Asserting it would be asserting the test runner, not the product.
+    ///
+    /// What IS asserted above is the one that decides whether a reader can
+    /// open a tune at all: the picker accepts the type a downloaded `.abc`
+    /// file actually carries. Our own type is the second string in the same
+    /// list and is there for a sender that tags a tune as text; if it were
+    /// dropped from the plist, nothing a reader does would change.
+    func testTheAppsOwnTypeIsAbsentFromThisProcessAndThatIsExpected() {
+        XCTAssertNil(UTType("com.scoranger.abc"),
+                     "this suite gained a host app -- the Info.plist type is "
+                     + "now reachable and worth asserting properly")
     }
 
     /// The umbrella is safe because the PIPELINE normalises, not because the

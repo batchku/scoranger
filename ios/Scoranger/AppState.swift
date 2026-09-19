@@ -3647,6 +3647,30 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Fold several pieces into one. ONE engine call, not N.
+    ///
+    /// Doing it client-side would be one `assign-piece` per arrangement, each
+    /// rebuilding the manifest and sweeping empty pieces, all of it racing the
+    /// manifest poll -- the same trap `placeInPiece` documents for filing and
+    /// ordering. The engine does it in one step and reports what it did.
+    ///
+    /// There is no undo, which is why the only route to here is a screen that
+    /// says so.
+    @discardableResult
+    func combinePieces(_ slugs: [String], name: String? = nil) async -> String? {
+        guard slugs.count > 1 else { return nil }
+        do {
+            var args: [String: Any] = ["pieces": slugs]
+            if let name { args["name"] = name }
+            let r = try await local.call(op: "combine-pieces", args: args)
+            await refresh()
+            return r["piece"] as? String
+        } catch {
+            report("combine those pieces", error)
+        }
+        return nil
+    }
+
     /// What was just deleted and can still be put back (§5.2).
     ///
     /// The engine marks rather than unlinks, so undo is a restore rather than a

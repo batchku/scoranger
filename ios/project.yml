@@ -236,10 +236,15 @@ targets:
         #          In this build:
         #            1. ABC import. thesession.org publishes Irish traditional
         #               music as ABC and that is where Ali's tunes come from.
-        #               `.abc` joins the engine's NOTATION_SUFFIXES, the
-        #               picker's UTType list, and a `com.scoranger.abc`
-        #               declaration so the share sheet and Open-in offer this
-        #               app -- ABC has no system UTType, so it needs its own.
+        #               `.abc` joins the engine's NOTATION_SUFFIXES and the
+        #               picker's UTType list. `.abc` turned out NOT to be a
+        #               free extension, which the scope assumed it was: the
+        #               system declares it as Alembic, Pixar's 3D scene cache,
+        #               and that is what a downloaded tune is TAGGED as. So
+        #               the app accepts `public.alembic` as well as its own
+        #               `com.scoranger.abc`, at Alternate rank because it does
+        #               not own the extension, and a real 3D file is refused
+        #               by the engine the way anything unreadable is.
         #               Modal keys are the part that matters: `K: Edor` reads
         #               as E dorian with two sharps, and this repertoire is
         #               full of Dorian and Mixolydian;
@@ -702,12 +707,24 @@ targets:
           - CFBundleTypeName: "MIDI file"
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.midi-audio]
-          # ABC: the text notation Irish traditional music is published in, and
-          # what thesession.org hands you. Owner rank because no system type
-          # exists for it -- see UTImportedTypeDeclarations below.
+          # ABC: the text notation Irish traditional music is published in,
+          # and what thesession.org hands you.
+          #
+          # `public.alembic` IS NOT A MISTAKE. `.abc` is not a free extension:
+          # the system already declares it as Alembic, Pixar's 3D scene cache
+          # ("Alembic 3D Scene", conforming to public.3d-content), and
+          # `UTType(filenameExtension: "abc")` resolves to THAT -- so a tune
+          # downloaded from thesession.org arrives tagged public.alembic, and
+          # an app claiming only its own type is never offered one.
+          #
+          # One extension, two formats, one system type: there is no way to
+          # claim the tune and not the 3D cache. Open-in will offer Scoranger
+          # for an Alembic file, and the engine refuses it the way it refuses
+          # anything music21 cannot read. Alternate rank, not Owner, because
+          # this app does not own the extension.
           - CFBundleTypeName: "ABC tune"
-            LSHandlerRank: Owner
-            LSItemContentTypes: [com.scoranger.abc]
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.scoranger.abc, public.alembic]
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
@@ -771,10 +788,12 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [mxl]
-          # ABC has NO system UTType at all, so without this declaration the
-          # share sheet and Open-in never offer this app and Files greys the
-          # file out in the picker. It conforms to plain-text because that is
-          # what it is: a tune is a few lines anyone can read.
+          # Our own name for the format, for a sender that tags a tune as
+          # text rather than as a 3D cache. It does NOT win the extension --
+          # public.alembic does, see the document type above -- so this is the
+          # second of the two types the picker accepts, never the only one.
+          # plain-text because that is what a tune is: a few lines anyone can
+          # read, which is exactly what Alembic is not.
           - UTTypeIdentifier: com.scoranger.abc
             UTTypeDescription: "ABC tune"
             UTTypeConformsTo: [public.plain-text]

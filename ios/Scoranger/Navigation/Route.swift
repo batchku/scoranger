@@ -16,6 +16,10 @@ enum Route: Hashable {
     case arrangement(String)
     /// Where an arrangement (or a selection) should be filed (§3.3).
     case moveToPiece([String])
+    /// Which pieces are about to become one, and what that costs. A screen
+    /// rather than a confirm strip because combining cannot be undone and the
+    /// consequences are several sentences, not one.
+    case combinePieces([String])
     /// Which set lists an arrangement belongs to (§3.4).
     case setlistsFor(String)
     /// A set list, its running order, and what can be done to it (§3.5).
@@ -65,7 +69,8 @@ enum Route: Hashable {
         switch self {
         case .piece, .setlist, .sharedSetlist, .book, .settings, .settingsSection:
             return .page
-        case .arrangement, .moveToPiece, .setlistsFor, .addArrangements, .versions,
+        case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
+             .addArrangements, .versions,
              .parts, .details, .folderImport, .joinSetlist, .sort, .filter,
              .importMenu, .pieceArrangements, .thisPiece, .thisSetlist, .setlistInvite:
             return .panel
@@ -81,6 +86,7 @@ enum Route: Hashable {
         case .piece:            return "Piece"
         case .arrangement:      return "Arrangement"
         case .moveToPiece:      return "Move to piece"
+        case .combinePieces:    return "Combine"
         case .setlistsFor:      return "Set lists"
         case .setlist:          return "Set list"
         case .sharedSetlist:    return "People"
@@ -109,7 +115,8 @@ enum Route: Hashable {
         switch self {
         case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings:
             return "Library"
-        case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
+        case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
+             .addArrangements,
              .versions, .parts, .details, .settingsSection, .folderImport, .book,
              .sort, .filter, .importMenu, .pieceArrangements, .thisPiece,
              .thisSetlist, .setlistInvite:
@@ -154,6 +161,9 @@ extension Route {
         switch self {
         case .arrangement(let s):     return .arrangement(now(s))
         case .moveToPiece(let s):     return .moveToPiece(s.map { now($0) })
+        // pieces, not arrangements: a piece slug is not rewritten by a
+        // rename, so these follow nothing
+        case .combinePieces:          return self
         case .setlistsFor(let s):     return .setlistsFor(now(s))
         case .addArrangements(let s): return .addArrangements(now(s))
         case .versions(let s):        return .versions(now(s))

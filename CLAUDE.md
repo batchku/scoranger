@@ -73,7 +73,16 @@ Every command prints JSON. Every mutating command creates a **new immutable
 version** — nothing is edited in place, so operations are always safe to try.
 
 ```
-scor import <file> [--name NAME]        # .musicxml/.xml/.mxl/.mid → new score in workspace
+scor import <file> [--name NAME]        # .musicxml/.xml/.mxl/.mid/.abc → arrangements
+  # ONE FILE CAN BE SEVERAL ARRANGEMENTS, and the report says which happened:
+  # "38 tunes found, imported as 38 arrangements of 1 piece". Read it and relay
+  # it -- a reader who drops in a collection and gets one, or forty, has to be
+  # told. `tunes_found`, `arrangements` and `pieces_created` are in the JSON;
+  # `score`/`name`/`version`/`info` still describe the FIRST one.
+  # EVERY ARRANGEMENT GETS A PIECE. An import that arrives without one is filed
+  # under a piece named after itself, and the name is matched before it is
+  # created -- so tunes that share a title share a piece. Not an ABC rule: it
+  # applies to MusicXML, MIDI and scans on every import path.
 scor list                               # all scores + versions
 scor info <score> [--version vNNN]      # parts, instruments, clefs, ranges, keys, meters
 scor versions <score>                   # version history with the op that made each
@@ -194,6 +203,13 @@ scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natu
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
+scor piece-combine --pieces "A,B,C" [--into B] [--name "New name"]
+  # fold several pieces into one. The curation step that makes "every import
+  # mints a piece" safe: two pieces for one tune become one. The FIRST named
+  # survives (slug and uid, so setlists and shares still resolve); its
+  # arrangements keep their numbers and the absorbed ones append; a credit the
+  # survivor lacks is taken from the first that has one; tags are unioned.
+  # THERE IS NO UNDO -- the app confirms on its own screen before calling it.
 scor add-element <score> --part X --kind dynamic|text|fermata|articulation
                   --measure N [--value V] [--offset QUARTERS] [--placement above|below]
   # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
@@ -432,6 +448,36 @@ parts snapshot in the manifest), compare against the arrangement, then pull.
 Watch for key mismatches — sources may be in a different key than the
 arrangement; transpose the pulled material to match (pull, then transpose the
 target part/measures). Sources are read-only; pulls only mutate the arrangement.
+
+## ABC (thesession.org)
+
+thesession.org publishes Irish traditional music as ABC, and `scor import`
+takes `.abc` like any other notation. What matters about it:
+
+- **Modal keys work.** `K: Edor` is E dorian with two sharps, `K: Amix` A
+  mixolydian. This repertoire is full of them and reading them as major would
+  make the feature useless rather than merely lossy.
+- **A tune's page is many SETTINGS of one tune.** `/tunes/27/abc` downloads 38
+  settings of "Drowsy Maggie", each its own `X:` block and all carrying the
+  same `T:`. They import as 38 arrangements of ONE piece, because the piece
+  rule matches an existing name before creating.
+- **A set is ONE `X:` block** holding several tunes joined by a mid-body
+  `T:`/`K:`. music21 reads it as one continuous score with a key change, which
+  is what a set is, so it stays one arrangement. A file of several `X:` blocks
+  with different titles is several pieces.
+- **What survives**: repeats, first and second endings, pickup bars, triplets,
+  grace notes, slurs, staccato, chord symbols, `Q:` tempo, `C:` composer,
+  unicode titles. All of it proven to the written FILE in
+  `engine/scripts/check_abc_import.py`.
+- **What does not**: `~` rolls and `!...!` decorations are dropped by music21's
+  reader, and `R:` (reel/jig/hornpipe) has nowhere to live in MusicXML. All
+  three are COUNTED in the import report's `abc` key. **Relay them** -- a tune
+  whose 120 roll marks vanished is a tune the reader will not recognise.
+- **There is no ABC export.** music21 reads ABC and cannot write it
+  (`ConverterABC.registerOutputExtensions` is empty). Export is MusicXML, MIDI
+  or PDF.
+- `.abc` is not a free extension: the system tags it `public.alembic` (Pixar's
+  3D scene cache), which is why the app claims that type too.
 
 ## PDF ingestion (OMR)
 
