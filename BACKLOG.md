@@ -1149,6 +1149,62 @@ Where to look, in order:
    two, which is an over-count of exactly one. The fragility is worse at 5-6
    systems per page than at 3, which fits both observations.
 
+**Lead 2, `lyricSize`, is CROSSED OFF (2026-09-18, on rel/0.10.0). It is not
+the cause and nobody should chase it again.**
+
+- In code it cannot vary. `render.lyric_size_for(fingerings:)` ignores its
+  argument and returns `DEFAULT_LYRIC_SIZE`; its docstring says so outright
+  ("it used to return something smaller for fingered scores, and the whole
+  point of the fix is that it no longer does"). On the app side
+  `FingeringDiagrams.defaultLyricSize` is a `static let` of 4.5 and ALL THREE
+  `VerovioRenderer` call sites pass exactly that -- only `continuous` varies.
+- Measured, it cannot produce the passing shape either. Rendering the imported
+  accordion solo through the APP's option set and varying only lyricSize
+  across Verovio's whole legal range (2.0-8.0; 12.0 is refused and falls back):
+
+      2.2  pages=5  6,6,6,5,3  = 26
+      3.0  pages=5  5,6,6,6,3  = 26
+      4.5  pages=5  5,6,6,6,3  = 26   <- the app's actual constant
+      6.0  pages=5  5,6,6,6,4  = 27
+      8.0  pages=6  4,5,6,6,5,2 = 28
+
+  Nothing yields 9 pages or 25.
+
+**And the measurement above answers the question the entry was really asking.**
+At 4.5 -- the value the app actually uses -- the app's own option set gives
+`pages=5 systems=5,6,6,6,3`, which is the FAILING observation exactly. The app
+is not miscounting. It is engraving correctly for its own page setup, and that
+page setup breaks this music into 26 systems.
+
+The engine breaks it into 25 because it engraves with a DIFFERENT setup. Same
+file, same Verovio, one process:
+
+    render.page_options()   ->  5 pages, 5,6,6,5,3  = 25
+    EngravingOptions (4.5)  ->  5 pages, 5,6,6,6,3  = 26
+
+`render.page_options()` sets neither margins, nor scale, nor breaks, nor
+lyricSize; `EngravingOptions` sets all four. Different margins and scale mean
+different horizontal room, which means a different number of bars per line --
+so a different number of LINES.
+
+So the assertion's premise is false. Its comment says "what has to agree is how
+many lines the music is broken into, which is the thing the two methods both
+measure" -- but the two methods do not measure one drawing with two rulers,
+they measure two different drawings. The total system count is not invariant
+across page setups, and 25 is not a number the app can be expected to produce.
+A number to compare against would have to be measured with the APP's options.
+
+Which makes the GREEN the accident, not the red, and that fits lead 1. No lyric
+size and neither option set produces 9 pages; the test's own docstring says 9
+pages is the score AFTER the combined op (staff, tab, chords, diagrams: "5 ->
+8 -> 9"). The run that passed was reading a score that already carried an op,
+whose 25 was a coincidence.
+
+NOT CHANGED HERE. The fix is either to compare against a number measured with
+`EngravingOptions`, or to drop the cross-setup comparison and assert what #4 is
+actually about. Both are decisions about what this test means, taken with Ali
+rather than by the branch that happened to trip over it.
+
 The 0.6.21 line SKIPPED this test in its gate for the reasons above. The 0.8
 line did not: it runs in the pool and passed in the build 196 gate (79s). A
 green here is still not evidence until the two engravings are explained.
