@@ -37,10 +37,11 @@ WHAT IS ASSERTED
      than inspected in a stream: repeats, first and second endings, the
      pickup bar, triplets, grace notes, slurs, staccato, chord symbols and
      the `Q:` tempo.
-  5. What does NOT survive is COUNTED AND REPORTED rather than silently
-     dropped: `~` rolls, `!...!` decorations, and the `R:` tune type, which
-     has nowhere to live in MusicXML. A reader whose 120 roll marks vanished
-     is owed the number.
+  5. Decorations are CARRIED and counted -- `~` rolls and `!...!` marks
+     reach the written file through `enrich.read_abc`, and the report says
+     how many did. Only the `R:` tune type is still reported rather than
+     stored: it has nowhere to live in MusicXML. check_abc_decorations.py
+     proves the marks one at a time; this proves the report on a download.
   6. `piece-combine`, the curation step that makes rule 2 safe: the survivor
      keeps its slug, its own arrangements keep their numbers, the absorbed
      ones append, and the emptied piece is gone.
@@ -168,7 +169,7 @@ K: Gmaj
 """
 
 # Everything a real download throws at the reader at once, and a unicode title.
-# `~` and `!trill!` are here to be LOST and counted, not to survive.
+# `~`, `!trill!` and `.` are here to be CARRIED and counted.
 FEATURES = """X: 1
 T: Sí Beag Féatúr
 C: Trad.
@@ -296,17 +297,26 @@ def main() -> int:  # noqa: C901 -- a checklist reads better whole
                   score.flatten().getElementsByClass("MetronomeMark")),
           "Q: 1/4=180 survives as a tempo mark")
 
-    # ------------------------------------------ and what does NOT, said ---
-    print("\nand what is lost is counted, not swallowed")
-    losses = out.get("abc") or {}
-    check(losses.get("ornament_marks_dropped") == 1,
-          f"the ~ roll is reported as dropped: {losses.get('ornament_marks_dropped')}")
-    check(losses.get("decorations_dropped") == 1,
-          f"!trill! is reported as dropped: {losses.get('decorations_dropped')}")
-    check(losses.get("tune_types") == ["hornpipe"],
-          f"`R:` is reported rather than stored: {losses.get('tune_types')}")
-    check(not any(n.expressions for n in score.flatten().notes),
-          "the marks really are absent from the score -- the count is not a guess")
+    # --------------------------------------- what is carried, and said ---
+    #
+    # The decorations used to be LOST here and counted on the way out. They
+    # are carried now -- `enrich.read_abc` strips them before music21 sees
+    # them and attaches the music21 objects afterwards -- so the count in the
+    # report is of marks that ARRIVED. What check_abc_decorations.py proves
+    # mark by mark, this proves is reported on a real-shaped download.
+    print("\nand the decorations are carried, and counted")
+    said = out.get("abc") or {}
+    check(said.get("decorations_carried") == 3,
+          f"the ~ roll, the !trill! and the . staccato are all carried: "
+          f"{said.get('decorations_carried')}")
+    check(not said.get("decorations_misplaced"),
+          f"none of them was declined: {said.get('decorations_misplaced')}")
+    check(said.get("tune_types") == ["hornpipe"],
+          f"`R:` is reported rather than stored: {said.get('tune_types')}")
+    marks = sorted(type(e).__name__
+                   for n in score.flatten().notes for e in n.expressions)
+    check(marks == ["Trill", "Turn"],
+          f"and they are really in the written file, not just counted: {marks}")
 
     # ---------------------------------------------------- combine-pieces ---
     print("\ncombining two pieces that are really one tune")

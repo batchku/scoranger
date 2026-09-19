@@ -28,7 +28,7 @@ Either disagreeing means this module has mis-read some ABC construct, and a
 mark hung on the wrong note is worse than a mark reported as lost -- so on a
 mismatch nothing is attached to that tune and the count is REPORTED. The
 report is the point: a reader whose rolls vanished is owed the number, which
-is what `workspace.abc_losses` has always said and this keeps true.
+is what `workspace.abc_report` says, and it now says how many arrived too.
 
 WHY THE TEXT IS STRIPPED FIRST. music21's ABC tokenizer treats a decoration as
 part of the note event's string and then throws several of those strings away
@@ -74,22 +74,92 @@ _M21_SPANNER_DECORATIONS = {"!crescendo(!", "!crescendo)!",
 
 #: canonical name -> every way ABC spells it. The shorthand letters are the
 #: ABC 2.2 standard's decoration set plus `J` (slide), which abcm2ps defines
-#: and thesession.org's transcriptions use. The `!...!` long forms are the
-#: standard's, with the aliases real files carry.
+#: and thesession.org's transcriptions use -- 16 times across the 541 tunes
+#: surveyed for this table, against 2034 rolls, 50 staccatos, 4 trills and a
+#: handful of bowings. The `!...!` long forms are the standard's, with the
+#: aliases real files carry.
 #:
 #: Spelled this way round because one mark has several spellings and the
 #: reverse index is built from it -- two tables would drift.
 _SPELLINGS: dict[str, tuple[str, ...]] = {
+    # -- what hangs off a note ------------------------------------------
+    "roll": ("~", "!roll!"),
+    "trill": ("T", "!trill!"),
+    "mordent": ("M", "!mordent!", "!lowermordent!"),
+    "pralltriller": ("P", "!pralltriller!", "!uppermordent!"),
+    "turn": ("!turn!",),
+    "inverted-turn": ("!invertedturn!",),
+    "slide": ("J", "!slide!"),
     "fermata": ("H", "!fermata!", "!H!"),
+    "staccato": (".", "!staccato!"),
+    "staccatissimo": ("!staccatissimo!", "!wedge!"),
+    "accent": ("L", "!accent!", "!emphasis!", "!>!"),
+    "marcato": ("!marcato!", "!^!"),
+    "tenuto": ("!tenuto!",),
+    "up-bow": ("u", "!upbow!", "!u!"),
+    "down-bow": ("v", "!downbow!", "!v!"),
+    "breath": ("!breath!",),
+    # -- what marks a place in the form ---------------------------------
+    "segno": ("S", "!segno!"),
+    "coda": ("O", "!coda!"),
+    "fine": ("!fine!",),
+    "da-capo": ("!D.C.!", "!dacapo!"),
+    "dal-segno": ("!D.S.!", "!dalsegno!"),
+    # -- what sits under the staff --------------------------------------
+    **{f"dynamic:{d}": (f"!{d}!",) for d in
+       ("pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff",
+        "sfz", "fp")},
 }
 
 #: what each canonical mark BECOMES: (family, music21 class name).
-#: "articulation" hangs off a note's `.articulations`, "expression" off its
-#: `.expressions`, "navigation" is inserted into the note's MEASURE because it
-#: marks a place in the form rather than a note (see `ops.NAVIGATION_MARKS`),
-#: and "dynamic" is inserted at the note's offset.
+#:
+#:   "articulation"  hangs off a note's `.articulations`
+#:   "expression"    hangs off a note's `.expressions`
+#:   "navigation"    is inserted into the note's MEASURE at the barline,
+#:                   exactly where `ops._navigation_mark` puts one, so
+#:                   `set-structure --remove` can still find it. It marks a
+#:                   place in the form, not a note.
+#:   "dynamic"       is inserted into the measure at the NOTE's offset, the
+#:                   same anchor `ops.ELEMENT_KINDS["dynamic"]` declares.
+#:
+#: THE ROLL IS A JUDGEMENT AND IT IS WRITTEN DOWN HERE. An Irish roll is not a
+#: turn, a trill or a mordent; it is a five-note figure -- the note, the note
+#: above, the note, the note below, the note -- with its own name and no glyph
+#: of its own in MusicXML or SMuFL. Engravers print it variously. It is mapped
+#: to a TURN (`<turn/>`, the ∾ sign above the notehead) because the turn is
+#: the standard glyph whose shape the roll's five notes actually describe, it
+#: is what most printed Irish collections use, and it is a mark every other
+#: program can read. `~` and `!turn!` therefore engrave identically, which is
+#: the honest cost of using a borrowed glyph and is stated rather than hidden.
+#: Changing this line changes what the page shows; nothing else depends on it.
 DECORATIONS: dict[str, tuple[str, str]] = {
+    "roll": ("expression", "Turn"),
+    "trill": ("expression", "Trill"),
+    "mordent": ("expression", "Mordent"),
+    "pralltriller": ("expression", "InvertedMordent"),
+    "turn": ("expression", "Turn"),
+    "inverted-turn": ("expression", "InvertedTurn"),
+    # MusicXML's name for the slide ornament is `schleifer`, and that is the
+    # figure ABC's `J` draws: a short run INTO the note. `<glissando>` and
+    # `<slide>` are spanners with a far end nothing here can know.
+    "slide": ("expression", "Schleifer"),
     "fermata": ("expression", "Fermata"),
+    "staccato": ("articulation", "Staccato"),
+    "staccatissimo": ("articulation", "Staccatissimo"),
+    "accent": ("articulation", "Accent"),
+    "marcato": ("articulation", "StrongAccent"),
+    "tenuto": ("articulation", "Tenuto"),
+    "up-bow": ("articulation", "UpBow"),
+    "down-bow": ("articulation", "DownBow"),
+    "breath": ("articulation", "BreathMark"),
+    "segno": ("navigation", "Segno"),
+    "coda": ("navigation", "Coda"),
+    "fine": ("navigation", "Fine"),
+    "da-capo": ("navigation", "DaCapo"),
+    "dal-segno": ("navigation", "DalSegno"),
+    **{f"dynamic:{d}": ("dynamic", d) for d in
+       ("pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff",
+        "sfz", "fp")},
 }
 
 #: shorthand/long spelling -> canonical name, built from `_SPELLINGS`.
@@ -205,15 +275,24 @@ def _scan_line(line: str, tune: int, events: int
             continue
 
         if c == "[":
-            if re.match(r"\[[A-Za-z]:", line[i:]):   # inline field, not a chord
+            # `[` opens four different things and only one of them is music.
+            if re.match(r"\[[A-Za-z]:", line[i:]):   # inline field: [K:G]
                 close = line.find("]", i + 1)
                 close = n if close < 0 else close + 1
                 kept.append(line[i:close])
                 i = close
                 continue
-            close = line.find("]", i + 1)            # a chord: ONE event
-            close = n - 1 if close < 0 else close
-            kept.append(line[i:close + 1])
+            nxt = line[i + 1:i + 2]
+            close = line.find("]", i + 1)
+            if nxt.isdigit() or nxt in "|]" or close < 0:
+                # `[1`/`[2` open a volta and `[|` a barline -- neither is a
+                # chord and neither is an event. An unclosed `[` is neither
+                # either: swallowing the rest of the line as one chord put
+                # every later mark in a 541-tune download on the wrong note.
+                kept.append(c)
+                i += 1
+                continue
+            kept.append(line[i:close + 1])           # a chord: ONE event
             i = close + 1
             attach(None)
             continue
@@ -248,18 +327,77 @@ def _scan_line(line: str, tune: int, events: int
     return "".join(kept), events, found, unknown
 
 
+def _events(score) -> list[tuple]:
+    """(element, holder) for every note event, in the order ABC writes them.
+
+    Walked through the hierarchy rather than taken off `score.flatten()`,
+    because a navigation mark and a dynamic are inserted into a STREAM at an
+    offset and a flattened note has no stream left to ask for. The holder is
+    that stream.
+
+    Usually it is a Measure. It is the PART itself for a tune of a single bar,
+    which music21's ABC reader hands back as loose notes on the part with no
+    measure around them at all -- `workspace._write_musicxml` bars it up on
+    the way to the file, and a mark inserted at the right offset is in the
+    right bar when it does.
+
+    A chord SYMBOL is a Chord to music21 and comes back from `.notesAndRests`
+    with the music -- the trap `whistle_fingerings`, `guitar_tab` and
+    `ops._elements_in_measure` are each written around. It is not a note event
+    and it would shift every mark after it by one.
+    """
+    from music21 import harmony as m21harmony
+    from music21 import stream as m21stream
+
+    out = []
+    for part in score.parts:
+        measures = list(part.getElementsByClass(m21stream.Measure))
+        for holder in measures or [part]:
+            for element in holder.recurse().notesAndRests:
+                if not isinstance(element, m21harmony.Harmony):
+                    out.append((element, holder))
+    return out
+
+
+def _attach(element, measure, mark: str) -> None:
+    """One decoration onto one note event, by the family it belongs to."""
+    from music21 import articulations as m21articulations
+    from music21 import dynamics as m21dynamics
+    from music21 import expressions as m21expressions
+    from music21 import repeat as m21repeat
+
+    family, spec = DECORATIONS[mark]
+    if family == "expression":
+        obj = getattr(m21expressions, spec)()
+        if spec == "Fermata":
+            # music21 defaults a Fermata to `inverted`, which MusicXML draws
+            # UNDER the note; ABC's `H` is the one above it. The same choice
+            # `ops._make_element` makes.
+            obj.type = "upright"
+        element.expressions.append(obj)
+    elif family == "articulation":
+        element.articulations.append(getattr(m21articulations, spec)())
+    elif family == "dynamic":
+        measure.insert(element.getOffsetInHierarchy(measure),
+                       m21dynamics.Dynamic(spec))
+    elif family == "navigation":
+        # at the barline, where `ops._navigation_mark` puts one, so that
+        # `set-structure --kind segno --remove` still finds it
+        measure.insert(0.0, getattr(m21repeat, spec)())
+    else:
+        raise ValueError(f"no family {family!r} for decoration {mark!r}")
+
+
 def _restore_one(score, marks: list[Decoration]) -> dict:
     """Attach one tune's decorations to its notes. See the module docstring."""
-    from music21 import expressions as m21expressions
-
-    events = list(score.flatten().notesAndRests)
-    report = {"carried": 0, "uncarried": 0, "reason": None}
+    report = {"carried": 0, "misplaced": 0, "reason": None}
     if not marks:
         return report
 
+    events = _events(score)
     counted = max(m.event for m in marks) + 1
     if counted > len(events):
-        report["uncarried"] = len(marks)
+        report["misplaced"] = len(marks)
         report["reason"] = (
             f"the tune reads as {len(events)} note events and its decorations "
             f"are written against {counted}, so nothing could be placed "
@@ -267,36 +405,32 @@ def _restore_one(score, marks: list[Decoration]) -> dict:
         return report
 
     for mark in marks:
-        target = events[mark.event]
-        if mark.step is not None and getattr(target, "step", None) != mark.step:
-            report["uncarried"] += 1
+        element, measure = events[mark.event]
+        if mark.step is not None and getattr(element, "step", None) != mark.step:
+            report["misplaced"] += 1
             continue
-        family, class_name = DECORATIONS[mark.mark]
-        if family == "expression":
-            obj = getattr(m21expressions, class_name)()
-            if class_name == "Fermata":
-                # music21 defaults a Fermata to `inverted`, which MusicXML
-                # draws UNDER the note; ABC's `H` is the one above it. The
-                # same choice `ops._make_element` makes.
-                obj.type = "upright"
-            target.expressions.append(obj)
-            report["carried"] += 1
-        else:
-            report["uncarried"] += 1
+        _attach(element, measure, mark.mark)
+        report["carried"] += 1
     return report
 
 
 def restore(scores: list, marks: list[Decoration]) -> dict:
-    """Put every scanned decoration on its note. Returns what it managed."""
-    carried = uncarried = 0
+    """Put every scanned decoration on its note. Returns what it managed.
+
+    `carried` is the number that reached the notation. `misplaced` is the
+    number this module declined to place because it could not prove which note
+    they belonged to -- see the module docstring; a mark on the wrong note is
+    worse than a mark reported as missing, and the reason names the tune.
+    """
+    carried = misplaced = 0
     reasons: list[str] = []
     for index, score in enumerate(scores):
         one = _restore_one(score, [m for m in marks if m.tune == index])
         carried += one["carried"]
-        uncarried += one["uncarried"]
+        misplaced += one["misplaced"]
         if one["reason"]:
             reasons.append(f"tune {index + 1}: {one['reason']}")
-    out = {"carried": carried, "uncarried": uncarried}
+    out = {"carried": carried, "misplaced": misplaced}
     if reasons:
         out["reasons"] = reasons
     return out

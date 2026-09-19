@@ -469,10 +469,31 @@ takes `.abc` like any other notation. What matters about it:
   grace notes, slurs, staccato, chord symbols, `Q:` tempo, `C:` composer,
   unicode titles. All of it proven to the written FILE in
   `engine/scripts/check_abc_import.py`.
-- **What does not**: `~` rolls and `!...!` decorations are dropped by music21's
-  reader, and `R:` (reel/jig/hornpipe) has nowhere to live in MusicXML. All
-  three are COUNTED in the import report's `abc` key. **Relay them** -- a tune
-  whose 120 roll marks vanished is a tune the reader will not recognise.
+- **Decorations are CARRIED, and they did not used to be.** music21's ABC
+  reader drops `~`, `T`, `!trill!` and the rest -- and for `H`, the fermata,
+  it drops THE NOTE: `HA2 B2 c2 d2` parsed as three notes, so every tune
+  imported with a fermata in it was quietly a note short.
+  `scoranger_engine/enrich.py` is the stage that fixes both halves: it reads
+  the ABC, strips the marks before the parse, and attaches the music21
+  objects afterwards. It is written as a NAMED STAGE, not a branch inside
+  `read_notation`, because every importer loses something and this is where
+  the next one is put back.
+  A mark finds its note by COUNTING note events, so the restore checks the
+  tune's event total against the stream's AND each mark's ABC note letter
+  against the note it is about to hang on, and attaches nothing to a tune
+  where either disagrees. A mark on the wrong note is worse than a mark
+  reported as missing. Proven over 540 real thesession.org tunes: 2098
+  carried, 0 misplaced.
+  **THE ROLL IS A JUDGEMENT.** An Irish roll (`~`) is its own idiom with no
+  glyph of its own in MusicXML or SMuFL, and it is engraved here as a TURN
+  (`<turn/>`, the ∾ above the notehead) -- the standard sign whose shape the
+  roll's five notes describe. `~` and `!turn!` therefore look identical on
+  the page. One line in `enrich.DECORATIONS` changes it.
+- **What does not survive**: `R:` (reel/jig/hornpipe) has nowhere to live in
+  MusicXML, and `!...!` spellings with no music21 object. Both are in the
+  import report's `abc` key beside `decorations_carried`. **Relay them.**
+- **Ornaments are editable like any other mark**: `--kind ornament` on
+  `add-element`, `move-element`, `duplicate-element` and `adjust-element`.
 - **There is no ABC export.** music21 reads ABC and cannot write it
   (`ConverterABC.registerOutputExtensions` is empty). Export is MusicXML, MIDI
   or PDF.

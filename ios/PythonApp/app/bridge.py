@@ -238,10 +238,10 @@ def _dispatch(op, a):
         out = dict(rows[0])
         out["tunes_found"] = len(rows)
         out["arrangements"] = rows
-        losses = workspace.abc_losses(a["path"]) if os.path.splitext(
+        said = workspace.abc_report(a["path"], tunes) if os.path.splitext(
             a["path"])[1].lower() in workspace.ABC_SUFFIXES else {}
-        if losses:
-            out["abc"] = losses
+        if said:
+            out["abc"] = said
         return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))

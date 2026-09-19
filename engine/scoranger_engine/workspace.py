@@ -381,50 +381,51 @@ def read_notation(path) -> list:
     return [parsed]
 
 
-#: Ornament marks ABC carries that music21's reader drops on the floor: the
-#: roll/ornament squiggle, and the `!...!` and `+...+` decorations.
-_ABC_ROLL = "~"
-
-
-def abc_losses(path) -> dict:
-    """What an ABC file says that the import cannot carry, counted.
+def abc_report(path, scores: list) -> dict:
+    """What an ABC file said, and how much of it the notation now carries.
 
     music21 reads ABC well -- pitches, meter, modal keys, repeats, first and
-    second endings, triplets, grace notes, slurs, staccato, chord symbols, the
-    `Q:` tempo and a pickup bar all survive. Three things do not, and this
-    counts them so the import can SAY so rather than quietly hand back less
-    music than the file described:
+    second endings, triplets, grace notes, slurs, chord symbols, the `Q:`
+    tempo and a pickup bar all survive its reader. Its DECORATIONS do not, and
+    `enrich.read_abc` is what puts them back; this reports what that managed,
+    because a reader whose 120 roll marks vanished is owed the number and a
+    reader whose 120 roll marks arrived should be told that too.
 
-    - `~`, the roll, which is on nearly every bar of Irish repertoire (120 of
-      them in thesession.org's 21 settings of "The Silver Spear");
-    - `!trill!`-style decorations;
-    - `R:`, the rhythm field, which names the tune type -- reel, jig,
-      hornpipe. It is not notation and has nowhere to live in MusicXML, so it
-      is REPORTED and not stored. A reader who wants it in the title can put
-      it there.
-
-    Text-scanned rather than read off the parsed score, because a mark music21
-    discards leaves nothing behind to count.
+      `decorations_carried`   marks that reached the notation
+      `decorations_misplaced` marks the enrichment declined to place because
+                              it could not prove which note they belonged to
+                              (see `enrich.restore`), with `abc_notes` naming
+                              the tune and why
+      `decorations_unknown`   `!...!` spellings there is no music21 object
+                              for. Still dropped, now by name rather than as
+                              a count.
+      `tune_types`            `R:`, which names the tune type -- reel, jig,
+                              hornpipe. It is not notation and has nowhere to
+                              live in MusicXML, so it is REPORTED and not
+                              stored. A reader who wants it in the title can
+                              put it there.
     """
-    import re
+    out: dict = {}
+    report = next((getattr(s, "scoranger_abc", None) for s in scores
+                   if getattr(s, "scoranger_abc", None)), None) or {}
+    if report.get("carried"):
+        out["decorations_carried"] = report["carried"]
+    if report.get("misplaced"):
+        out["decorations_misplaced"] = report["misplaced"]
+    if report.get("reasons"):
+        out["abc_notes"] = report["reasons"]
+    if report.get("unknown"):
+        out["decorations_unknown"] = report["unknown"]
 
+    # `R:` is read off the TEXT: it never reaches a stream at all.
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return {}
-    body = "\n".join(line for line in text.splitlines()
-                      if not re.match(r"^[A-Za-z]:", line))
-    out = {}
-    if body.count(_ABC_ROLL):
-        out["ornament_marks_dropped"] = body.count(_ABC_ROLL)
-    decorations = len(re.findall(r"![^!\s]+!", body))
-    if decorations:
-        out["decorations_dropped"] = decorations
+        return out
     kinds = [m.strip() for m in re.findall(r"(?m)^R:\s*(.+?)\s*$", text)]
     if kinds:
         out["tune_types"] = sorted(set(kinds))
     return out
-
 
 
 def list_versions(slug: str) -> list:

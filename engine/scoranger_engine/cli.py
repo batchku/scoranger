@@ -111,12 +111,12 @@ def cmd_import(a):
         f"{n} tune{'s' if n != 1 else ''} found, imported as "
         f"{n} arrangement{'s' if n != 1 else ''} of "
         f"{p} piece{'s' if p != 1 else ''}")
-    # what the file said that the notation cannot carry -- counted, never
-    # silently swallowed (workspace.abc_losses)
+    # what the file said and how much of it the notation carries -- counted,
+    # never silently swallowed (workspace.abc_report)
     if src.suffix.lower() in workspace.ABC_SUFFIXES:
-        losses = workspace.abc_losses(src)
-        if losses:
-            out["abc"] = losses
+        said = workspace.abc_report(src, scores)
+        if said:
+            out["abc"] = said
     _emit(out)
 
 
