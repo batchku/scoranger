@@ -318,6 +318,25 @@ if (( ${#MISSING_MANIFESTS[@]} )); then
 fi
 say "privacy manifests present on every OpenSSL framework in the archive"
 
+# And the APP's own, which is a different rejection with a different code.
+# ITMS-91061 above is about SDKs on Apple's list; ITMS-91053, "Missing API
+# declaration", is about REQUIRED-REASON APIs, and it is an automatic upload
+# rejection rather than a warning. The app target had no manifest at all
+# through 0.11.0 while nine of its files use UserDefaults. Checked against the
+# archive because that is the bundle Apple receives, and checked for CONTENT
+# rather than existence -- an empty manifest declares nothing and would pass a
+# file-exists test.
+APP_MANIFEST="$ARCHIVED_APP/PrivacyInfo.xcprivacy"
+[[ -f "$APP_MANIFEST" ]] || die "the archived app has no PrivacyInfo.xcprivacy at its
+     bundle root. Apple answers ITMS-91053 and REFUSES THE UPLOAD. The file is
+     ios/Scoranger/PrivacyInfo.xcprivacy; if it is there, the resources build
+     phase lost it -- re-run xcodegen generate."
+/usr/libexec/PlistBuddy -c "Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType" \
+  "$APP_MANIFEST" > /dev/null 2>&1 || die "the archived app's PrivacyInfo.xcprivacy declares
+     no required-reason API. It uses UserDefaults; an empty declaration is
+     ITMS-91053 with extra steps. See engine/scripts/check_privacy_manifests.py."
+say "the app's own privacy manifest is in the archive and declares its APIs"
+
 # ------------------------------------------------------- export and upload
 say "exporting and uploading to TestFlight"
 rm -rf "$EXPORT_DIR"
