@@ -68,10 +68,21 @@ final class DictationShot: XCTestCase {
         sleep(4)
         snap("chat-after-tapping-the-mic")
 
-        // Whatever happened, say what the field now reads, in the log.
+        // Whatever happened, say what the field now reads, and whether the
+        // app thinks it is recording -- the picture alone cannot distinguish
+        // "refused" from "listening", and those are opposite outcomes.
         let field = app.descendants(matching: .any)["chat-input"]
         let placeholder = field.exists
             ? (field.placeholderValue ?? field.label) : "(no chat-input)"
+        let recording = app.buttons["Stop dictation"].exists
         print("DICTATION PLACEHOLDER: \(placeholder)")
+        print("DICTATION RECORDING: \(recording)")
+        if recording {
+            // On-device recognition IS available here; photograph the live
+            // state instead, and leave the field as it was found.
+            app.buttons["Stop dictation"].tap()
+            sleep(2)
+            snap("chat-after-stopping")
+        }
     }
 }

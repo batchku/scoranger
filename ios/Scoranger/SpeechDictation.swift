@@ -83,8 +83,12 @@ final class SpeechDictation: ObservableObject {
         // task instead -- after the microphone is live, which is the one
         // ordering that would record audio it then had nowhere to send.
         guard recognizer.supportsOnDeviceRecognition else {
-            errorText = "Dictation needs on-device speech, which isn't ready "
-                      + "for this language yet — type instead"
+            // SHORT ON PURPOSE. errorText is the chat field's PLACEHOLDER, and
+            // that field is about thirty characters wide at the panel's width
+            // -- a sentence there is truncated to a fragment with an ellipsis,
+            // which was what the first draft of this string did. Photographed
+            // and shortened.
+            errorText = "On-device speech isn't ready"
             return
         }
         self.recognizer = recognizer
@@ -122,7 +126,7 @@ final class SpeechDictation: ObservableObject {
                     // is also the shape the on-device refusal takes if the
                     // guard above is ever removed, so it must be visible.
                     if error != nil, self.transcript.isEmpty {
-                        self.errorText = "Dictation stopped — nothing was heard"
+                        self.errorText = "Dictation heard nothing"
                     }
                     if error != nil || result?.isFinal == true {
                         if self.isRecording { self.finishSession() }
