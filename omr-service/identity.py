@@ -136,12 +136,21 @@ def verify_id_token(token: str) -> dict:
     return claims
 
 
-def actor_for(bearer: str | None, api_key_ok: bool) -> tuple[str, str, str | None]:
-    """Who to bill this job to: `(actor, trust, detail)`.
+def actor_for(bearer: str | None, api_key_ok: bool) -> tuple[str, str]:
+    """Who to bill this job to: `(actor, trust)`.
 
-    - `("uid:<sub>", "verified", email)` -- a checked Firebase ID token. The
-      only attribution that is a fact.
-    - `("anonymous", "unattributed", None)` -- a valid shared API key and no
+    THE EMAIL ADDRESS IS DELIBERATELY NOT RETURNED. It used to be, as a third
+    element, and server.py wrote it into every usage line -- so a Cloud
+    Logging bucket with no configured retention held the address of every
+    signed-in user who ever scanned a page, and `deleteAccount` could not
+    reach it. The uid is the whole of what the cost report needs, and it was
+    the only thing anything read. Returning the address again would put it
+    back in the log, so it stops here rather than being filtered downstream.
+    Asserted by engine/scripts/check_omr_attribution.py.
+
+    - `("uid:<sub>", "verified")` -- a checked Firebase ID token. The only
+      attribution that is a fact.
+    - `("anonymous", "unattributed")` -- a valid shared API key and no
       token. **This is not a failure and not a gap to close by requiring
       sign-in.** Importing a scanned PDF is a core feature of the signed-out
       app, and principle 1 of §0 says no login may gate using it. There is no
@@ -156,7 +165,7 @@ def actor_for(bearer: str | None, api_key_ok: bool) -> tuple[str, str, str | Non
     if bearer:
         try:
             claims = verify_id_token(bearer)
-            return f"uid:{claims['sub']}", "verified", claims.get("email")
+            return f"uid:{claims['sub']}", "verified"
         except CannotVerify as e:
             # The server's fault, not the caller's. Do not punish a signed-in
             # reader for a missing env var -- take the job on the shared key
@@ -166,14 +175,14 @@ def actor_for(bearer: str | None, api_key_ok: bool) -> tuple[str, str, str | Non
             print(f"omr-service: CANNOT VERIFY TOKENS ({e}) -- job accepted "
                   f"UNATTRIBUTED on the shared key. Set FIREBASE_PROJECT_ID.",
                   flush=True)
-            return "anonymous", "unattributed", None
+            return "anonymous", "unattributed"
     if api_key_ok:
-        return "anonymous", "unattributed", None
+        return "anonymous", "unattributed"
     raise Unverified("no bearer token and no valid API key")
 
 
 def usage_line(job_id: str, actor: str, trust: str, pages: int,
-               seconds: float, outcome: str, detail: str | None = None) -> str:
+               seconds: float, outcome: str) -> str:
     """One structured line per finished job: the per-user cost record.
 
     JSON on stdout rather than a database, because on Cloud Run stdout IS the
@@ -183,6 +192,14 @@ def usage_line(job_id: str, actor: str, trust: str, pages: int,
     max-instances=1) precisely because nothing in it is meant to be durable.
 
     `omr_usage` is the field to filter on.
+
+    NO PERSONAL DATA IN THIS LINE. It carried `"email"` until 0.12.0 -- the
+    signed-in user's address, on every conversion, on all four exit paths.
+    Cloud Logging is durable by design and the account-deletion Function makes
+    no Logging call, so that address outlived the account it belonged to. The
+    `actor` field carries `uid:<sub>`, which is what the per-user cost report
+    multiplies against `pages`, and the address was read by nothing else.
+    Removing it removes the problem rather than managing it.
     """
     return json.dumps({
         "omr_usage": True,
@@ -192,6 +209,5 @@ def usage_line(job_id: str, actor: str, trust: str, pages: int,
         "pages": pages,
         "seconds": round(seconds, 1),
         "outcome": outcome,
-        "email": detail,
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }, sort_keys=True)

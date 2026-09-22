@@ -167,8 +167,7 @@ def run_job(job_id: str, pdf: bytes):
         """
         print(identity.usage_line(
             job_id, job.get("actor", "anonymous"), job.get("trust", "unattributed"),
-            job.get("pages", 0), time.time() - started, outcome,
-            job.get("email")), flush=True)
+            job.get("pages", 0), time.time() - started, outcome), flush=True)
 
     try:
         pdf_path = os.path.join(workdir, "input.pdf")
@@ -245,7 +244,10 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _actor(self):
-        """`(actor, trust, email)`, or None having already answered 401.
+        """`(actor, trust)`, or None having already answered 401.
+
+        No email. The job is labelled by uid and nothing else: see the note on
+        identity.actor_for for why the address is not carried at all.
 
         Reads on job status and result are NOT attributed: they cost nothing,
         they are polled every second while a bar moves, and verifying a token
@@ -315,7 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         who = self._actor()
         if who is None:
             return
-        actor, trust, email = who
+        actor, trust = who
         if not 0 < length <= MAX_BYTES:
             self._json(413, {"ok": False, "error": f"body must be 1..{MAX_BYTES} bytes"})
             return
@@ -328,7 +330,7 @@ class Handler(BaseHTTPRequestHandler):
         job_id = uuid.uuid4().hex[:12]
         JOBS[job_id] = {"state": "queued", "page": 0, "pages": count_pages(pdf),
                         "created": time.time(),
-                        "actor": actor, "trust": trust, "email": email}
+                        "actor": actor, "trust": trust}
         print(f"job {job_id}: accepted for {actor} ({trust})", flush=True)
         worker = threading.Thread(target=run_job, args=(job_id, pdf), daemon=True)
         worker.start()
