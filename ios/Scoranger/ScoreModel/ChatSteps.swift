@@ -8,7 +8,7 @@ import Foundation
 /// tool name and its arguments, so there is nothing here that needs any of it.
 ///
 /// They say what the MUSIC is doing, not what the tool is called: a reader who
-/// asked for a harmony a sixth below should see "Harmonising a sixth below, in
+/// asked for a line a sixth below should see "Transposing a sixth below, in
 /// key" and not "Transpose diatonic".
 enum ChatSteps {
 
@@ -83,8 +83,18 @@ enum ChatSteps {
             if let t = s("title") { return "Titling the arrangement \u{201C}\(t)\u{201D}" }
             return "Updating the arrangement's credits"
         case "transpose_diatonic", "transpose_diatonic_elements":
-            // the reader asked for a harmony, so the step says harmony -- not
-            // "transpose diatonic", which is the tool's name and not the music
+            // What this op does is MOVE a line and keep it in the key. It said
+            // "Harmonising" instead, because the case that prompted it was a
+            // harmony a sixth below -- but a harmony is two lines, and this op
+            // writes no staff and adds no note (the CLI reference says so:
+            // pull-part first, then this). So a reader who lassoed five notes
+            // and asked to transpose them up an octave watched it say
+            // "Harmonising an octave above" over a sentence that correctly
+            // read "Transposed the 10 selected notes up one octave".
+            //
+            // "Transposing" is the musician's word for what happened and is
+            // true of both readings; ", in key" is what still distinguishes it
+            // from the chromatic `transpose` beside it.
             let degrees = s("degrees") ?? ""
             let steps = Int(degrees.replacingOccurrences(of: "+", with: ""))
             let named = steps.map { step -> String in
@@ -99,7 +109,7 @@ enum ChatSteps {
                 let article = "aeiou".contains(name.first ?? "x") ? "an" : "a"
                 return "\(article) \(name) \(where_)"
             } ?? degrees
-            return "Harmonising \(named), in key"
+            return "Transposing \(named), in key"
         case "change_clef": return "Setting \(s("part") ?? "part") to \(s("clef") ?? "") clef"
         case "keep_parts", "remove_parts":
             let parts = (args["parts"] as? [String])?.joined(separator: ", ") ?? ""

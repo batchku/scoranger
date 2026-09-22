@@ -78,6 +78,26 @@ def list_part_labels(score) -> list[str]:
     return [part_label(p) for p in score.parts]
 
 
+def bar_label(n) -> str:
+    """How a REPORT names the bar a note stands in.
+
+    music21 numbers a pickup 0, and that number is a real address here -- an
+    element address may say `m0` and `--from-measure 0` reaches it. But no page
+    prints a bar 0: an engraver leaves the pickup unnumbered and calls the
+    first full bar 1, which is also where `_measures_in_range` starts when no
+    range is given. So a report that says "bar 0" names a bar the reader cannot
+    find, and one did: a whistle range report read "3 notes (B3 in bars 0, 3,
+    and 11)" for a tune whose bar 0 was its two-note upbeat.
+
+    The pickup is NAMED rather than numbered, and the number is left out of the
+    report entirely rather than carried beside the name -- a report is prose
+    the chat agent writes from, and a `0` anywhere in it is a `0` that can be
+    printed. Op ARGUMENTS are the other surface and keep their integers.
+    """
+    number = n.measureNumber
+    return "pickup" if number == 0 else str(number)
+
+
 def find_parts(score, names: list[str]):
     """Match parts by name (case-insensitive, exact then substring) or by index ('#0', '#1', ...)."""
     matched = []
@@ -712,7 +732,7 @@ def _move_note_diatonically(n, generic, key_obj, chromatic: list) -> int:
     for p in pitches:
         moved, outside, respelled = _diatonic_pitch(p, generic, key_obj)
         if outside:
-            chromatic.append({"measure": n.measureNumber,
+            chromatic.append({"bar": bar_label(n),
                               "pitch": p.nameWithOctave,
                               "became": moved.nameWithOctave,
                               "respelled": respelled})
@@ -839,7 +859,7 @@ def transpose_diatonic_elements(score, degrees, addresses: list,
             p = pitches[pitch_index]
             new, outside, respelled = _diatonic_pitch(p, generic, key_obj)
             if outside:
-                chromatic.append({"measure": owner.measureNumber,
+                chromatic.append({"bar": bar_label(owner),
                                   "pitch": p.nameWithOctave,
                                   "became": new.nameWithOctave,
                                   "respelled": respelled})
@@ -930,7 +950,7 @@ def range_violations(part, class_name: str) -> list[dict]:
     for n in part.recurse().notes:
         for p in n.pitches:
             if p < lo or p > hi:
-                out.append({"measure": n.measureNumber, "pitch": p.nameWithOctave})
+                out.append({"bar": bar_label(n), "pitch": p.nameWithOctave})
     return out
 
 
@@ -2274,7 +2294,7 @@ def whistle_fingerings(score, part, whistle_key: str = "D", clear: bool = False)
         steps = int(round(sounding.ps - lowest.ps))
         if steps < 0 or steps > WHISTLE_TOP_SEMITONE:
             unplayable.append({
-                "measure": n.measureNumber,
+                "bar": bar_label(n),
                 "pitch": sounding.nameWithOctave,
                 "why": f"outside a {key} whistle's range "
                        f"({lowest.nameWithOctave} to "
@@ -3237,7 +3257,7 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
                         reasons.append(f"{p.nameWithOctave} is {reason}")
                 why = "; ".join(reasons) or "no hand shape inside four frets"
             unplayable.append({
-                "measure": n.measureNumber,
+                "bar": bar_label(n),
                 "pitch": ", ".join(p.nameWithOctave for p in pitches),
                 "why": why})
             continue
@@ -3247,7 +3267,7 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
         # for a note played entirely on open strings: the hand did not move,
         # it was not asked for.
         if any(f for _, f in layout) and at is not None and where != at:
-            shifts.append({"measure": n.measureNumber, "from": at, "to": where})
+            shifts.append({"bar": bar_label(n), "from": at, "to": where})
         if any(f for _, f in layout):
             at = where
         elif at is None:
@@ -3258,7 +3278,7 @@ def guitar_tab(score, part, tuning: str = "EADGBE", capo: int = 0,
             alone = max(_tab_string_frets(p.ps, opens, capo)[0][1] for p in pitches)
             highest = max(f for _, f in layout)
             if highest > alone:
-                raised.append({"measure": n.measureNumber, "to_fret": highest,
+                raised.append({"bar": bar_label(n), "to_fret": highest,
                                "lowest_alone": alone})
         frets = {string: fret for string, fret in layout}
         # verse 1 is the HIGHEST string: a tab staff's top line is the string

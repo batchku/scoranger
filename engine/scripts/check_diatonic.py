@@ -144,7 +144,7 @@ note_(f"no double accidental reaches the page: {moved}",
 note_(f"and each one is reported with its bar: {outside['outside_the_key']}",
       outside["outside_the_key_count"] == 2
       and {r["pitch"] for r in outside["outside_the_key"]} == {"D#5", "F4"}
-      and all(r["measure"] in (2, 3) for r in outside["outside_the_key"]))
+      and all(r["bar"] in ("2", "3") for r in outside["outside_the_key"]))
 note_("the note in the key beside them is untouched by any of that",
       moved[0] == "B3" and moved[3] == "C4")
 
