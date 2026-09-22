@@ -322,8 +322,12 @@ scor remove-element <score> --part X --kind K [--measure N] [--ordinal N] [--all
   # sings that verse the op names the word in the way. SPANNERS (slurs, hairpins) are
   # refused by name: a spanner has two anchors and a destination names one.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
-  # penny-whistle fingerings engraved under the part as stacked lyric verses:
-  # six holes top to bottom, a 7th verse "+" for the overblown octave.
+  # penny-whistle fingerings carried BY the part as stacked lyric verses and
+  # ENGRAVED ABOVE its staff: six holes top to bottom, a 7th verse "+" for the
+  # overblown octave. Both halves of that matter and this file said only the
+  # first, which reads as "below the staff" and is where lyric verses otherwise
+  # go. They are lifted by `render.mei_with_fingerings_above`, which marks every
+  # fingering verse `place="above"`, and its twin in FingeringDiagrams.swift.
   # A whistle's range is two octaves and its tonic again at the top -- a D
   # whistle plays D4 to D6 -- and EVERY note in it gets a diagram whatever its
   # accidental is spelled as. Both halves of that were bugs Ali photographed as
@@ -586,7 +590,18 @@ Audiveris 5.11 is installed at `~/Applications/Audiveris.app`. Pipeline for a PD
 converts written/sounding pitch for transposing instruments, octave-shifts the
 line to best fit the new instrument's range, picks the idiomatic clef, and
 reports any notes still out of range. **Always relay its report to the user**
-(octave shift applied, remaining out-of-range notes with measure numbers).
+(octave shift applied, remaining out-of-range notes with the bar each is in).
+
+### A report names a bar the page has
+
+Every report that says where something is carries `bar` — a STRING, and the
+pickup's is `"pickup"`. It used to carry `measure`, straight from music21,
+which numbers a pickup 0: a whistle range report read "3 notes (B3 in bars 0,
+3, and 11)" on Ali's iPad for a tune whose bar 0 is its two-note upbeat. No
+page prints a bar 0, and `--from-measure` starts at 1, so the reader was sent
+to a bar that is not there. `ops.bar_label` is the one place that decides it
+and `check_whistle.py` holds it. Op ARGUMENTS are the other surface and keep
+their integers — an element address may still say `m0`.
 
 ## How to behave as the arrangement agent
 

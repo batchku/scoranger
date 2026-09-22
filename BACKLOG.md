@@ -1,5 +1,47 @@
 # Backlog
 
+## From the screen recording of 2026-09-22 (Star of the County Down)
+
+Thirty-three seconds on the iPad: lasso five notes and transpose them a third
+in key, build a Penny Whistle staff off the top Voice line with fingerings,
+then lasso ten and transpose them an octave. Every op did what it was asked.
+Three faults in what the app SAID about it, all fixed on
+`fix/report-bar-numbers`; two things that looked like faults and are not,
+written down so nobody chases them again.
+
+**A report named bar 0 — FIXED.** "3 notes (B3 in bars 0, 3, and 11)". music21
+numbers a pickup 0 and seven reports passed that number straight through, so
+the reader was sent to a bar no page prints and `--from-measure` does not
+reach. `ops.bar_label` now names the pickup instead of numbering it, and every
+report carries `bar` as a string rather than `measure` as an int — a `0` a
+model can print is not left lying in the JSON for it to find. Op ARGUMENTS
+keep their integers; an element address may still say `m0`.
+`check_whistle.py` builds a pickup with an out-of-range note in it and fails
+without the fix.
+
+**The step said "Harmonising" over a transposition — FIXED.** Both diatonic
+ops were labelled "Harmonising a third above, in key" whatever the reader
+asked, because the case that prompted the wording was a harmony a sixth below.
+A harmony is two lines and this op writes no staff, so the label contradicted
+the sentence under it, which correctly read "Transposed the 10 selected notes
+up one octave". Now "Transposing …, in key" — the word Ali used, true of both
+readings, and ", in key" still separates it from the chromatic `transpose`.
+
+**CLAUDE.md put the whistle fingerings under the staff — FIXED.** It said
+"engraved under the part as stacked lyric verses", which reads as below the
+staff and is where verses otherwise go. `render.mei_with_fingerings_above`
+lifts every one of them above it. The file now says both halves.
+
+**NOT a fault: the octave-transposed notes have ledger lines.** Read off a
+video frame as missing; Ali confirmed on the device that they are there. The
+engine's SVG was checked first and does emit `<g class="ledgerLines above">`
+with real paths, so there was never anything below it to find.
+
+**NOT a fault: the fingering columns do not crowd the staff above.** Called
+tight from a scaled-down frame; at full resolution the column sits in clear
+white space, which is what `HOLE_PITCH_RATIO = 0.475` is for — the drawn
+column is less than half the height of the text rows Verovio reserved for it.
+
 ## Shipped 2026-08-15: standalone iPad (engine on-device)
 
 The laptop dependency is gone: CPython 3.14 + music21 embedded in the iOS app

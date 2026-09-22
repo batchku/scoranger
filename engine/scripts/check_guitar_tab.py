@@ -157,7 +157,7 @@ check("...and no shift is claimed for a stretch", report["shift_count"] == 0,
 report, _ = tabbed(["E4", "F4", "G4", "A5"])
 check("a line that leaves the hand shifts", report["shift_count"] >= 1, str(report))
 check("...and the report gives the bar and both positions",
-      bool(report["shifts"]) and report["shifts"][0]["measure"] == 1
+      bool(report["shifts"]) and report["shifts"][0]["bar"] == "1"
       and report["shifts"][0]["from"] != report["shifts"][0]["to"],
       str(report["shifts"]))
 
@@ -236,7 +236,7 @@ report, cols = tabbed(["C2", "A6", "E4"])
 check("two notes outside the neck are reported", report["unplayable_count"] == 2,
       str(report["unplayable"]))
 check("...with the bar and the pitch",
-      report["unplayable"][0]["measure"] == 1
+      report["unplayable"][0]["bar"] == "1"
       and report["unplayable"][0]["pitch"] == "C2", str(report["unplayable"][0]))
 check("...and nothing is written for them", len(cols) == 1,
       f"{len(cols)} notes tabbed")

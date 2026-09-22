@@ -262,7 +262,7 @@ def has_full_fingering(n):
 
 drawn = [n for n in staff_notes if has_full_fingering(n)]
 bare = [n for n in staff_notes if not has_full_fingering(n)]
-reported = {(u["measure"], u["pitch"]) for u in whole_report["unplayable"]}
+reported = {(u["bar"], u["pitch"]) for u in whole_report["unplayable"]}
 
 print(f"\n  whole part: {len(staff_notes)} notes on the staff, {len(drawn)} fingered, "
       f"{whole_report['unplayable_count']} reported out of range "
@@ -275,7 +275,7 @@ note(f"every note is either fingered or reported: "
 note(f"and the bare ones are exactly the reported ones: "
      f"{[n.pitch.nameWithOctave for n in bare]}",
      len(bare) == whole_report["unplayable_count"]
-     and all((n.measureNumber, n.pitch.nameWithOctave) in reported for n in bare))
+     and all((ops.bar_label(n), n.pitch.nameWithOctave) in reported for n in bare))
 note(f"the only notes without a diagram are the two out of range: {sorted(reported)}",
      {p for _, p in reported} == {"A3", "E6"})
 note("the top D is fingered rather than reported",
@@ -285,6 +285,39 @@ note("and the overblown mark survives the write, on the notes above the octave",
              for ly in n.lyrics)
          for n in staff_notes
          if n.pitch.ps >= ops.m21pitch.Pitch("D5").ps and has_full_fingering(n)))
+
+# --- the bar a report names is a bar the page has ---------------------------
+#
+# music21 numbers a pickup 0. A report that passes that number through says
+# "bar 0", and one did, on a photographed screen: "3 notes (B3 in bars 0, 3,
+# and 11)" for a tune whose bar 0 is its upbeat. No page prints a bar 0 and
+# `--from-measure` starts at 1, so the reader is sent to a bar that is not
+# there. The pickup is named; every other bar is its own number.
+print("\na pickup is named rather than numbered 0")
+
+pickup_score = stream.Score()
+pickup_part = stream.Part()
+upbeat = stream.Measure(number=0)
+upbeat.append(meter.TimeSignature("4/4"))
+upbeat.paddingLeft = 3.0
+upbeat.append(m21note.Note("A3", quarterLength=1))     # below a D whistle
+pickup_part.append(upbeat)
+first = stream.Measure(number=1)
+first.append(m21note.Note("A3", quarterLength=1))      # and again, in bar 1
+first.append(m21note.Note("E5", quarterLength=3))      # this one plays
+pickup_part.append(first)
+pickup_score.append(pickup_part)
+pickup_report = ops.whistle_fingerings(pickup_score, pickup_part, "D")
+pickup_bars = [u["bar"] for u in pickup_report["unplayable"]]
+
+note(f"both out-of-range notes are reported: {pickup_bars}",
+     len(pickup_bars) == 2)
+note("the upbeat is called the pickup, not bar 0",
+     pickup_bars[0] == "pickup")
+note("and the bar after it is still 1",
+     pickup_bars[1] == "1")
+note("no report carries a zero for a bar",
+     not any(u.get("bar") in (0, "0") for u in pickup_report["unplayable"]))
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} fingering(s) wrong")
