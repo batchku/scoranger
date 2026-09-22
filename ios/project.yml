@@ -766,8 +766,13 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
-        NSSpeechRecognitionUsageDescription: "Dictate arrangement requests"
-        NSMicrophoneUsageDescription: "Dictation input for chat"
+        # These two say where the audio goes, because they are the only place
+        # a user is ever told. SpeechDictation refuses unless on-device
+        # recognition is available, so "not sent anywhere" is literal rather
+        # than usual -- if that ever becomes a fallback, these strings become
+        # false and have to change with it.
+        NSSpeechRecognitionUsageDescription: "Dictate arrangement requests. Speech is transcribed on this device and is not sent anywhere."
+        NSMicrophoneUsageDescription: "Dictation input for chat. Recording is transcribed on this device and is not sent anywhere."
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         OMRDefaultURL: "https://scoranger-omr-37kxlg2dpa-uc.a.run.app"
         ITSAppUsesNonExemptEncryption: false
