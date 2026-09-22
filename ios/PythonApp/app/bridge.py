@@ -308,7 +308,11 @@ def _dispatch(op, a):
         return {"path": str(dest), "filename": dest.name, "format": fmt}
 
     if op == "versions":
-        return workspace.load_meta(a["score"])
+        # NOT load_meta. This answer goes to a model provider, and the full
+        # version documents carry artifact filenames, uids and a 200-character
+        # excerpt of every earlier user prompt. One projection, shared with the
+        # desktop agent's list_versions: workspace.VERSION_FIELDS.
+        return workspace.version_history(a["score"])
     if op == "delete-score":
         workspace.delete_score(a["score"])
         return {"deleted": a["score"]}

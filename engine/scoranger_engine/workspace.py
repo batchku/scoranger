@@ -250,6 +250,53 @@ def load_meta(slug: str) -> dict:
     return doc
 
 
+#: What a MODEL is told about a version, and the whole of it.
+#:
+#: A version document carries more than this: `file` (the artifact's filename),
+#: `uid`, `parent`, `time`, a full `parts` snapshot, `rhythm_warnings`, and
+#: `turn`, whose `prompt` is the FIRST 200 CHARACTERS OF AN EARLIER USER
+#: PROMPT. The desktop agent had always projected the document down to these
+#: three; the iOS bridge returned `load_meta` whole, so the same tool call sent
+#: a model provider a transcript of what the user had asked for earlier in the
+#: day, along with the filenames of their scores. The two paths disagreed, and
+#: the iOS one was the wider.
+#:
+#: They now share this list rather than each keeping their own copy, because
+#: two copies is how they came to disagree.
+#:
+#: `op` and `args` are what the history is FOR -- the model reasons about what
+#: was done to the score, and args are op arguments (part names, intervals,
+#: measure numbers), not prose. `id` is what addresses a version in a
+#: subsequent call.
+VERSION_FIELDS = ("id", "op", "args")
+
+#: And of a source. `parts` is what a pull_part decision is made on; `name` is
+#: what a person called the edition. `file`, `origin` and `uid` are a filename,
+#: a device path and an identifier -- nothing a model can act on.
+SOURCE_FIELDS = ("id", "name", "parts")
+
+
+def version_history(slug: str) -> dict:
+    """The score's history and its sources, as the list_versions tool sees it.
+
+    THE ONE implementation. `chat.list_versions` (desktop) and `bridge.py`'s
+    `versions` op (iOS) both call this, so the two surfaces cannot drift into
+    sending different amounts of a user's data to the same model provider
+    again.
+
+    Not the same thing as `load_meta`, which is the FULL documents and is what
+    the CLI, the manifest and the app's own UI read. Everything dropped here is
+    dropped because it goes to a third party, not because it is unimportant.
+    """
+    meta = load_meta(slug)
+    return {
+        "versions": [{k: v[k] for k in VERSION_FIELDS if k in v}
+                     for v in meta["versions"]],
+        "sources": [{k: src[k] for k in SOURCE_FIELDS if k in src}
+                    for src in _repo().list_sources(slug)],
+    }
+
+
 def version_label(v: dict) -> str:
     """What a person calls this version. `v012`, derived, never its identity.
 

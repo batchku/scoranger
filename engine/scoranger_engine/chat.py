@@ -140,9 +140,9 @@ def get_score_info(ctx: RunContext[str]) -> dict:
 
 def list_versions(ctx: RunContext[str]) -> dict:
     """The score's version history (op + args per version) and its sources (other editions of the piece)."""
-    meta = workspace.load_meta(ctx.deps)
-    return {"versions": [{k: v[k] for k in ("id", "op", "args")} for v in meta["versions"]],
-            "sources": workspace._repo().list_sources(ctx.deps)}
+    # workspace.version_history, not load_meta: see the note on VERSION_FIELDS
+    # for what is dropped and why. Shared with the iOS bridge's `versions` op.
+    return workspace.version_history(ctx.deps)
 
 
 def keep_parts(ctx: RunContext[str], parts: list[str]) -> dict:
