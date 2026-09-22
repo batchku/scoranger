@@ -4,6 +4,16 @@ Prepared for the public App Store submission of **Scoranger**
 (`com.irllabs.scoranger`, IRL Labs LLC, team `V9DBGV72NL`), against
 `rel/0.11.0` (marketing version 0.11.0, build 200).
 
+> **AMENDED 2026-09-21 FOR 0.12.0, THE SUBMISSION BUILD.** Four of the defects
+> this inventory found were fixed on `rel/0.12.0`, and three of them change
+> answers below. Every paragraph they affect is marked **FIXED IN 0.12.0** and
+> states both what the code did when this was written and what it does now.
+> **Section 5 is the amended questionnaire** — click it through as it stands.
+> The changes: dictation is on-device only, so **Audio Data is now No**; the
+> OMR cost log no longer carries an email address, so **Email Address is App
+> Functionality only**; the chat no longer sends excerpts of earlier prompts;
+> and the app has a privacy manifest, closing blocker 4.
+
 Everything here was read out of the code in this repository. Where a fact could
 not be established from the code it is marked **UNKNOWN** with the reason.
 Nothing is guessed. Section 8 lists the judgment calls that are Ali's to make
@@ -26,7 +36,7 @@ so it can be clicked through top to bottom without re-deriving anything.
 | 1 | **App Privacy questionnaire** | Answers in section 5. Six judgment calls in section 8 need Ali's decision first. |
 | 2 | **Privacy Policy URL** | Text written: `design/privacy-policy.md`. Must be hosted and live before submission. Nothing is published by this work. |
 | 3 | **Support URL** | Text written: `design/support.md`. A placeholder page is rejected; the email address in it must be real. |
-| 4 | **App-level privacy manifest** | **Missing, and it is a real gap.** See section 7. |
+| 4 | **App-level privacy manifest** | **FIXED IN 0.12.0.** `ios/Scoranger/PrivacyInfo.xcprivacy`, declaring UserDefaults/CA92.1, FileTimestamp/C617.1 and SystemBootTime/35F9.1. See section 7. |
 
 Blocker 4 was found while doing this inventory and is not on anyone's list yet.
 Expect the App Store Connect checklist to arrive in waves; budget two or three
@@ -130,10 +140,12 @@ in code. `ChatWire.swift:30-33` records this as observed behaviour.
   plus key and time signatures (`engine/scoranger_engine/ops.py:4621-4652`);
 - chord symbols and lyric text the user asks to be written, inside the tool
   arguments the model generates;
-- via the `list_versions` tool: artifact **filenames**, document uids, each
-  version's operation and arguments, and **up to 200 characters of each
-  previous user prompt** (`ios/PythonApp/app/bridge.py:310-311` →
-  `engine/scoranger_engine/workspace.py:241-250, 519-523, 759-767`);
+- via the `list_versions` tool, **in 0.12.0**: each version's id, operation
+  and arguments, and per source its id, name and part structure — and nothing
+  else (`engine/scoranger_engine/workspace.version_history`). *Through 0.11.0
+  this also sent artifact **filenames**, document uids and **up to 200
+  characters of each previous user prompt**; see the note at the end of this
+  section;*
 - engine error strings verbatim, which deliberately quote real part names
   (`LocalChat.swift:37-38, 237-242`).
 
@@ -159,30 +171,61 @@ apply. **UNKNOWN:** whether logging and training are disabled on that account.
 That is a dashboard setting outside this repository, and the privacy policy's
 honesty depends on it. *Ali must check this before the policy goes live.*
 
-**The `list_versions` asymmetry looks unintended.** The Python agent projects
-version documents down to `{id, op, args}` (`engine/scoranger_engine/chat.py:143-145`);
-the iOS bridge returns `load_meta` unfiltered. That is what puts filenames,
-uids and old prompt excerpts on the wire. Recorded, not fixed.
+**FIXED IN 0.12.0: the `list_versions` asymmetry.** Through 0.11.0 the Python
+agent projected version documents down to `{id, op, args}` while the iOS
+bridge returned `load_meta` unfiltered — so the surface on the device Ali's
+family uses put artifact filenames, document uids and 200-character excerpts
+of earlier user prompts on the wire, and the desktop one did not.
+
+Both now call one projection, `workspace.version_history`. Sources were
+narrowed at the same time, to `{id, name, parts}`: the desktop path had been
+sending each source's `file` and `origin`, a filename and a path off the
+user's disk. `load_meta` itself is unchanged — the CLI, the manifest and the
+app's own UI read it and want the whole document.
+
+Nothing depended on the wider payload; the only readers of the bridge op's
+result are a check that counts the versions and the chat itself. Held by
+`engine/scoranger_engine`'s `check_version_history.py`, which drives a real
+score with a real chat turn open and searches the serialised answer for the
+prompt text **by value**, so a prompt reaching the model under a different key
+is still caught.
 
 ### 3.2 Apple speech recognition, for dictation
 
-`ios/Scoranger/SpeechDictation.swift:51-71`. `SFSpeechRecognizer()` is
-default-initialised and **`requiresOnDeviceRecognition` is never set anywhere
-in the repository** (`grep requiresOnDeviceRecognition --include='*.swift'`
-returns zero matches). It defaults to `false`.
+**FIXED IN 0.12.0. No dictation audio leaves the device, and there is no
+path on which it can.**
 
-**So dictation audio can be streamed to Apple's servers, on every device,
-including ones that support on-device recognition.** The Info.plist strings
-(`NSSpeechRecognitionUsageDescription: "Dictate arrangement requests"`,
-`NSMicrophoneUsageDescription: "Dictation input for chat"`) do not mention a
+*What it did through 0.11.0.* `SFSpeechRecognizer()` was default-initialised
+and `requiresOnDeviceRecognition` was never set anywhere in the repository —
+zero matches across all Swift — so it defaulted to `false` and microphone
+audio was streamed to Apple's servers on every device, including ones that
+support on-device recognition. The Info.plist strings did not mention a
 server.
 
-The chain is: microphone → Apple → text in the chat draft
-(`ChatView.swift:291-295`) → OpenRouter.
+*What it does in 0.12.0* (`ios/Scoranger/SpeechDictation.swift`).
+`requiresOnDeviceRecognition = true`, and where `supportsOnDeviceRecognition`
+is false the app **refuses to dictate** and says so in the chat field's
+placeholder, rather than falling back to the network. A fallback was
+considered and rejected: the user cannot tell which of the two ran, so no
+honest permission string could be written for it. Dictation is one alternative
+way to type into a text field; the keyboard is always there.
 
-Setting `requiresOnDeviceRecognition = true` (with a
-`supportsOnDeviceRecognition` fallback) would make the Audio Data answer in
-section 5 a clean "No". That is a one-line app change and is **not** made here.
+The guard runs before the audio session opens, so a device that cannot do this
+never records at all.
+
+Both Info.plist strings now say where the audio goes: *"Dictate arrangement
+requests. Speech is transcribed on this device and is not sent anywhere."* and
+the microphone equivalent. They are set in `ios/project.yml` as well as
+`Info.plist`, because Xcode regenerates the built plist from `project.yml`.
+
+The chain is now: microphone → on-device transcription → text in the chat
+draft (`ChatView.swift:291-295`) → OpenRouter, which the user typed-or-spoke
+either way.
+
+**Audio Data in section 5 is "No".** Held by
+`engine/scripts/check_dictation.py`, which reads the source with comments
+stripped and fails both on the flag being absent and on it being assigned from
+anything other than the literal `true`.
 
 ### 3.3 The OMR service: the user's own sheet music goes to a server
 
@@ -216,14 +259,31 @@ filename**. No score title, no slug, no device identifier.
   (`Account/OMRIdentity.swift:32-45`). The JWT carries the Firebase uid and,
   for most providers, the email address.
 
-**The service writes the user's email address to Cloud Logging on every
-attributed job.** `omr-service/identity.py:187-197` emits one JSON line per
-finished job carrying `{omr_usage, job, actor: "uid:<firebase uid>", trust,
-pages, seconds, outcome, email, at}`, on every exit path including timeout and
-failure (`server.py:168-171`). This is deliberate: design/FIREBASE.md §0.12
-records the requirement as per-user OMR cost tracking, and §0.12 states "on
-Cloud Run stdout IS the durable store". **This is the single most
-under-declarable thing in the app.**
+**FIXED IN 0.12.0: the service no longer writes any email address.**
+
+*What it did through 0.11.0.* `omr-service/identity.py` emitted one JSON line
+per finished job carrying `{omr_usage, job, actor: "uid:<firebase uid>",
+trust, pages, seconds, outcome, **email**, at}`, on every exit path including
+timeout and failure. Cloud Logging is durable by design and `deleteAccount`
+makes no Logging call, so that address outlived the account it belonged to —
+for every user, not only the known child one. This was the sharpest edge in
+the inventory.
+
+*What it does in 0.12.0.* The line is
+`{omr_usage, job, actor, trust, pages, seconds, outcome, at}`. `actor` still
+carries `uid:<firebase uid>`, which is what per-user cost accounting
+multiplies against `pages`; the address was read by nothing else, and
+design/FIREBASE.md §0.12's own description of the record never listed it.
+
+Removed at the source rather than filtered downstream: `actor_for` answers
+`(actor, trust)` and no longer reads the `email` claim, `usage_line` has no
+parameter to pass one to, and the job record `server.py` keeps between
+acceptance and billing has no `email` key. Held by
+`engine/scripts/check_omr_attribution.py`, which drives a token whose claims
+*do* carry an address and asserts none of it reaches the line.
+
+**This changes the Email Address row in section 5: the Analytics purpose was
+this log, and it is gone.**
 
 Two more logging facts:
 - `server.py:309-310` logs byte length, User-Agent and the **first 8 bytes** of
@@ -425,17 +485,17 @@ on-device library and the on-device engine are therefore not collection.
 
 | Data type | Collected | Linked to identity | Used for tracking | Purposes |
 |---|---|---|---|---|
-| **Email Address** | **Yes** | **Yes** | No | App Functionality; Analytics |
+| **Email Address** | **Yes** | **Yes** | No | App Functionality *(Analytics dropped in 0.12.0 — see §3.3)* |
 | **Name** | **Yes** | **Yes** | No | App Functionality |
 | Phone Number | **No** *(see 8.1)* | — | — | — |
 | Physical Address | No | — | — | — |
 | Other User Contact Info | No | — | — | — |
 
-*Email:* three separate flows. The account's own address in Firebase Auth
-(§3.4); the invitee's address the user types into an invitation, stored as
-`invites.emailLower` (§3.5); and the signed-in user's address written into the
-OMR service's Cloud Logging cost records (§3.3), which is the Analytics
-purpose.
+*Email:* **two** flows in 0.12.0. The account's own address in Firebase Auth
+(§3.4), and the invitee's address the user types into an invitation, stored as
+`invites.emailLower` (§3.5). Both are App Functionality. The third flow — the
+signed-in user's address written into the OMR service's Cloud Logging cost
+records — was the Analytics purpose, and it no longer exists (§3.3).
 
 *Name:* the display name Apple or Google supplies at sign-in, held by Firebase
 Auth (§3.4). Never written to Firestore.
@@ -458,7 +518,7 @@ Both are collected **only if the user signs in**. Apple's questionnaire has no
 | Data type | Collected | Linked to identity | Used for tracking | Purposes |
 |---|---|---|---|---|
 | **Photos or Videos** | **Yes** | **Yes** | No | App Functionality |
-| **Audio Data** | **Yes** *(see 8.3)* | No | No | App Functionality |
+| Audio Data | **No** *(0.12.0: dictation is on-device only — see §3.2)* | — | — | — |
 | **Other User Content** | **Yes** | **Yes** | No | App Functionality |
 | Emails or Text Messages | No | — | — | — |
 | Gameplay Content | No | — | — | — |
@@ -469,9 +529,11 @@ uploaded to the OMR service when the user taps "Make editable" (§3.3). Linked,
 because a signed-in user's job carries their Firebase ID token and their uid
 and email are logged against it.
 
-*Audio Data:* dictation microphone audio, streamed to Apple's speech
-recognition service because `requiresOnDeviceRecognition` is never set (§3.2).
-Not linked: nothing about the Scoranger account accompanies it.
+*Audio Data:* **No, as of 0.12.0.** Dictation sets
+`requiresOnDeviceRecognition = true` and refuses where on-device recognition
+is unavailable, so no recording leaves the device and none is collected
+(§3.2). Through 0.11.0 this was Yes / not linked. Judgment call 8.3 is
+therefore moot.
 
 *Other User Content:* three things. The sheet music files uploaded to Cloud
 Storage for a shared set list (§3.6). The pencil ink drawn on shared pages,
@@ -535,18 +597,21 @@ OMR service logs a User-Agent string and byte counts per request.
 
 ### Summary of every "Yes"
 
-Eight data types, in the order the questionnaire presents them:
+**Seven** data types in 0.12.0, in the order the questionnaire presents them.
+Audio Data was the eighth and is now No (§3.2); Email Address has lost its
+Analytics purpose (§3.3). These seven are also what
+`ios/Scoranger/PrivacyInfo.xcprivacy` declares, and a check fails if the two
+lists disagree.
 
 | # | Data type | Linked | Purposes |
 |---|---|---|---|
-| 1 | Email Address | linked | App Functionality, Analytics |
+| 1 | Email Address | linked | App Functionality |
 | 2 | Name | linked | App Functionality |
 | 3 | Photos or Videos | linked | App Functionality |
-| 4 | Audio Data | not linked | App Functionality |
-| 5 | Other User Content | linked | App Functionality |
-| 6 | User ID | linked | App Functionality, Analytics |
-| 7 | Product Interaction | linked | Analytics |
-| 8 | Other Diagnostic Data | not linked | Analytics |
+| 4 | Other User Content | linked | App Functionality |
+| 5 | User ID | linked | App Functionality, Analytics |
+| 6 | Product Interaction | linked | Analytics |
+| 7 | Other Diagnostic Data | not linked | Analytics |
 
 Tracking: **No**, on every one.
 
@@ -594,7 +659,7 @@ What it does, in order:
 
 ---
 
-## 7. Blocker 4: the app has no privacy manifest of its own
+## 7. Blocker 4: the app's privacy manifest — FIXED IN 0.12.0
 
 `ios/PrivacyManifests/` holds exactly two files, `_ssl.xcprivacy` and
 `_hashlib.xcprivacy`, hand-written for the embedded CPython OpenSSL extension
@@ -602,9 +667,11 @@ modules and seeded into the Python payload at build time
 (`ios/scripts/seed_privacy_manifests.sh`) to clear the ITMS-91061 warnings that
 blocked external TestFlight on 0.6.15.
 
-**There is no `PrivacyInfo.xcprivacy` for the Scoranger app target.** Not in
-`ios/Scoranger/`, not referenced in `project.yml`, and not present at
-`Scoranger.app/PrivacyInfo.xcprivacy` in the archive.
+*Through 0.11.0 there was no `PrivacyInfo.xcprivacy` for the Scoranger app
+target at all* — not in `ios/Scoranger/`, not in the project, not at
+`Scoranger.app/PrivacyInfo.xcprivacy` in the archive. **0.12.0 adds
+`ios/Scoranger/PrivacyInfo.xcprivacy`**, picked up by the app target's
+resources build phase.
 
 The app uses `UserDefaults` / `@AppStorage` in nine files
 (`AppState`, `ScorangerApp`, `SettingsView`, `ChatView`, `TestReset`,
@@ -614,14 +681,39 @@ own use of it needs the app's own manifest with reason **CA92.1** ("access info
 from same app, per documentation"). Every bundled SDK declares its own; the app
 declares none. Expect **ITMS-91053, "Missing API declaration"**.
 
-No other required-reason API was found in app code: no `systemUptime`, no
-`mach_absolute_time`, no `statfs`, no `volumeAvailableCapacity`, no file
-timestamp reads.
+**What 0.12.0 declares, and how it was decided.** Read off the compiled app
+binary's undefined symbols rather than off a grep of Swift, because SPM
+packages that build as **static** libraries are linked *into* the app binary
+and are the app's to declare:
 
-The manifest must also carry `NSPrivacyTracking = false`,
-`NSPrivacyTrackingDomains = []`, and `NSPrivacyCollectedDataTypes` consistent
-with section 5. Writing it is an app change and is deliberately **not** done
-here.
+| Category | Reason | What puts it in the binary |
+|---|---|---|
+| `UserDefaults` | `CA92.1` | `_OBJC_CLASS_$_NSUserDefaults` and SwiftUI's `AppStorage` initialisers, from the nine files above. App-private: no `suiteName` and no app group anywhere in the target |
+| `FileTimestamp` | `C617.1` | `_stat` and `_fstat`, from `VerovioCore.o` and `leveldb.o`. leveldb declares its own in a resource bundle; **Verovio is a local SPM package with no manifest**, so its file access is undeclared by anyone but the app |
+| `SystemBootTime` | `35F9.1` | `_CACurrentMediaTime`, in `PerfMetrics` and the page view's frame loop |
+
+The Swift-only survey in the paragraph above was **wrong in one direction**:
+it found no file-timestamp reads in app *code*, which was true, and concluded
+none were in the app *binary*, which was not. Verovio is the reason.
+
+`SystemBootTime` is deliberately wider than the letter of Apple's list, which
+names `systemUptime` and `mach_absolute_time` rather than the `CACurrentMediaTime`
+wrapper. It is the same boot-relative clock, used to measure elapsed time
+within the app, which is what `35F9.1` describes — and over-declaring is the
+safe direction.
+
+**Not declared, because no symbol in the binary backs them:** Disk Space (no
+`statfs`, `statvfs`, `fstatfs`, `fstatvfs`, `volumeAvailableCapacity`) and
+Active Keyboards (no `activeInputModes` in the symbol table or the strings).
+
+It carries `NSPrivacyTracking = false`, `NSPrivacyTrackingDomains = []`, and
+the seven collected data types of section 5.
+
+**Two enforcement points.** `engine/scripts/check_privacy_manifests.py` §0
+reads the built binary and fails on *under*-declaring, and reports (without
+failing) any category declared that no symbol backs. `ios/scripts/deploy_testflight.sh`
+refuses to upload an archive whose app has no manifest, or whose manifest
+declares nothing.
 
 ---
 

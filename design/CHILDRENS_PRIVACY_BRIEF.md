@@ -15,6 +15,15 @@ Where the rule text settles a question this brief says so and cites it; where
 the answer turns on a judgement only counsel can make, it asks the question
 instead of guessing. Nothing here is a legal conclusion.
 
+> **ALL THREE DEFECTS IN §7 WERE FIXED ON `rel/0.12.0`, 2026-09-21**, along
+> with the stale comment in Q5 of §5. §7 now records each as fixed and says
+> what the code does now. **Nothing in §1–§6 or §8–§11 changes**: the legal
+> questions are unaffected, and the two facts that drive them — that the app is
+> not directed to children, and that the developer knows his under-13 son has
+> an account — are as stated. The fixes narrow what is collected from that
+> child: his voice no longer leaves the device at all, and his email address is
+> no longer written into a log that account deletion cannot reach.
+
 **Companion documents:** `design/APP_STORE_PRIVACY.md` (the full data
 inventory; its §9 is this brief's predecessor) and `design/privacy-policy.md`
 (the draft policy, whose children's section is a placeholder §9 below
@@ -191,15 +200,16 @@ Verified in code:
 | Set-list membership records keyed by uid | Firestore `setlists/{id}`, `memberships/{uid}_{setlistId}` | written by Cloud Function, `firebase/functions/index.js:76-95` |
 | His pencil ink on shared pages, keyed by uid | Firestore `setlists/{id}/entries/{id}/ink/{uid}` | `Account/SharedSetlists.swift:573-579` |
 | Sheet music he adds to a shared set list | Cloud Storage `shared/{setlistId}/…` | `SharedSetlists.swift:461-482` |
-| **His email address, written to Google Cloud Logging on every scan conversion** | Cloud Logging, retention not configured in the repo | `omr-service/identity.py:187-197`, emitted `omr-service/server.py:168-171` |
+| ~~His email address, written to Google Cloud Logging on every scan conversion~~ | **Removed in 0.12.0.** The line now carries `uid:<sub>` and no address | `omr-service/identity.py`, `omr-service/server.py`; held by `engine/scripts/check_omr_attribution.py` |
 
 Signed **out** — which is the app's full-function default — nothing reaches
 Firebase at all, and that is enforced by a release gate
 (`engine/scripts/check_signed_out.py`, wired into `engine/scripts/run_checks.sh`).
-Two things still leave the device signed out: the chat text and score structure
-to OpenRouter (`ios/Scoranger/LocalChat.swift:262`), and dictation audio to
-Apple's speech servers (`ios/Scoranger/SpeechDictation.swift:51-76`). Neither
-carries any identifier.
+One thing still leaves the device signed out: the chat text and score
+structure to OpenRouter (`ios/Scoranger/LocalChat.swift:262`), carrying no
+identifier. Dictation audio used to be the second — in 0.12.0 it is
+transcribed on the device and dictation is refused where that is impossible,
+so nothing recorded by the microphone leaves at all.
 
 ### Why this resolves quickly
 
@@ -526,12 +536,21 @@ per-request in code, and should be screenshotted for the file.
 
 ---
 
-## 7. Three engineering defects to fix regardless
+## 7. Three engineering defects — all three fixed in 0.12.0
 
-These stand independent of every legal question above. Each is a gap between
-what the app does and what the privacy policy will have to say.
+These stood independent of every legal question above. Each was a gap between
+what the app did and what the privacy policy would have had to say, and each
+is closed on `rel/0.12.0`. The original findings are kept in full below,
+because the reasoning is what makes the fix reviewable; each carries a
+**FIXED** paragraph saying what the code does now and what holds it there.
 
-**7.1 Dictation is not on-device.** `requiresOnDeviceRecognition` is never set
+**7.1 Dictation is not on-device. FIXED.** *`requiresOnDeviceRecognition =
+true`, and where `supportsOnDeviceRecognition` is false the app refuses to
+dictate rather than falling back to the network — a fallback is invisible to
+the user, so no honest permission string could describe it. Both Info.plist
+usage strings now say the audio stays on the device. Held by
+`engine/scripts/check_dictation.py`. The Audio Data row in the App Privacy
+questionnaire is now a clean "No". Original finding:* `requiresOnDeviceRecognition` is never set
 anywhere in the repository — zero matches across all Swift — so it defaults to
 `false` and `SFSpeechAudioBufferRecognitionRequest` streams microphone audio to
 Apple's servers even on devices that support on-device recognition
@@ -555,7 +574,15 @@ responding"* and gives the § 312.4(d)(4) notice. On-device recognition removes
 the question entirely rather than requiring the app to fit inside that
 exception.
 
-**7.2 The email address in scan logs, which account deletion does not reach.**
+**7.2 The email address in scan logs, which account deletion does not reach.
+FIXED, by recommendation (a).** *The address is gone from the log line and
+from the plumbing: `actor_for` answers `(actor, trust)` and no longer reads
+the `email` claim, `usage_line` has no parameter to pass one to, and the job
+record in `server.py` has no `email` key. Verified before acting that nothing
+read it. (b), the retention policy on the log bucket, is still Ali's to set and
+is still needed for the policy to state a number; (c) is unnecessary now.
+Held by `engine/scripts/check_omr_attribution.py`, which drives a token whose
+claims do carry an address. Original finding:*
 `omr-service/identity.py:187-197` writes the signed-in user's email address
 into Cloud Logging on every conversion, on all four exit paths. `deleteAccount`
 makes no Logging call. This is the sharpest edge in the inventory and it is
@@ -582,7 +609,14 @@ the child already collected."* If IRL Labs ever has to remediate for any user,
 child or not, the Cloud Logging records are exactly the "other personal
 information already collected" that the deletion path does not reach.
 
-**7.3 The chat sends excerpts of previous prompts.** The `list_versions` tool
+**7.3 The chat sends excerpts of previous prompts. FIXED.** *Both surfaces now
+call one projection, `workspace.version_history`, which answers `{id, op,
+args}` per version and `{id, name, parts}` per source. The bridge's `versions`
+op no longer calls `load_meta`. Sources were narrowed too: the desktop path had
+been sending `file` and `origin`, a filename and a path off the user's disk.
+Held by `engine/scripts/check_version_history.py`, which drives a real score
+with a real chat turn open and searches the serialised answer for the prompt
+text by value rather than by key. Original finding:* The `list_versions` tool
 returns the iOS bridge's unfiltered `load_meta`, which carries artifact
 filenames, document uids, and **the first 200 characters of each earlier user
 prompt** (`engine/scoranger_engine/workspace.py:54`, reached via
@@ -775,7 +809,7 @@ problem the facts do not support.
 | 2 | Whether the OpenRouter account's zero-data-retention and training settings are actually off. The developer states they are now set; nothing in code requests them per-request. | Ali. Screenshot for the file. |
 | 3 | Minimum-age terms of the upstream model providers whose Model Terms flow down under OpenRouter §5.2. | Counsel, with §6. |
 | 4 | Scoranger's App Store category and age rating. Nothing in this repository declares either — no `LSApplicationCategoryType`, no fastlane metadata, no App Store Connect metadata directory. | Ali, in App Store Connect. |
-| 5 | Whether the Sign in with Apple comment at `Scoranger.entitlements:5-11` or the developer's current account is correct about whether his son can use Sign in with Apple. | Ali. Correct the comment either way. |
+| 5 | ~~Whether the Sign in with Apple comment at `Scoranger.entitlements:5-11` or the developer's current account is correct about whether his son can use Sign in with Apple.~~ | **Settled 2026-09-21.** Ali confirms Apple does not offer Sign in with Apple below its age threshold, so Google is what works for his son and the comment was backwards. Corrected in 0.12.0; the entitlement stays, required by App Store Review Guideline 4.8 because the app offers Google SSO. |
 | 6 | Whether EU or UK distribution is intended. Determines whether §4 item 7 needs any work at all. | Ali. |
 
 ---
