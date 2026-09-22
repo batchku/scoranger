@@ -251,7 +251,7 @@ def share_payload(slug: str, ink_dir=None) -> dict:
     The artifact is described, not read. A 52 MB book has no business passing
     through the bridge as base64, so the app opens the path itself.
     """
-    from . import workspace
+    from . import ops, workspace
 
     _refuse_books_and_sources(slug)
     repo = workspace._repo()
@@ -272,10 +272,24 @@ def share_payload(slug: str, ink_dir=None) -> dict:
     raw = path.read_bytes()
     uid = doc.get("uid") or slug
 
+    # The entry's title, decided HERE and never left for the app to improvise.
+    # This used to be `doc.get("title") or doc.get("name")`, which is null when
+    # both are empty -- and SharedSetlists.addEntry turned that null into the
+    # string "Untitled" and uploaded it to everybody in the set list. The
+    # ladder goes on to the piece and the slug before giving up, and giving up
+    # REFUSES rather than shipping a placeholder into somebody else's library.
+    piece_doc = repo.get_piece(doc.get("piece")) if doc.get("piece") else None
+    title = ops.title_for_sharing(doc.get("title"), doc.get("name"),
+                                  (piece_doc or {}).get("name"), slug)
+    if not title:
+        raise ValueError(
+            f"'{slug}' has no name to share it under -- not its own, not its "
+            f"piece's. Give it a title (set-metadata) and share again.")
+
     return {
         "scoreUid": uid,
         "slug": slug,
-        "title": doc.get("title") or doc.get("name"),
+        "title": title,
         "composer": doc.get("composer"),
         "arranger": doc.get("arranger"),
         # The version is PINNED (§6.1): an entry names a version, not a score,

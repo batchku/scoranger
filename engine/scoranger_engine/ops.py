@@ -4252,6 +4252,44 @@ def title_repair(stored: str | None, name: str | None,
     return None
 
 
+def title_for_sharing(stored: str | None, name: str | None,
+                      piece: str | None, slug: str | None) -> str | None:
+    """The name a SHARED SETLIST ENTRY carries for an arrangement.
+
+    The ladder `title_repair` walks -- the stored title, then the
+    arrangement's own name, then its piece's -- with one rung added and a
+    different ending, both because of what a share IS.
+
+    THE EXTRA RUNG IS THE SLUG. `title_repair` stops before it and reports,
+    and is right to: it writes a NEW VERSION, so a guessed title gets engraved
+    at the top of the page and somebody has to undo it. A share names a row in
+    someone else's set list. The slug was derived from a real name once, so
+    spelling it out is the worst HONEST answer available, and it is a great
+    deal better than the alternative that shipped -- `share_payload` returned
+    `title or name`, both were empty for one arrangement, and the app turned
+    the resulting null into the literal string "Untitled" and uploaded it.
+    Echo opened Ali's set list and found a piece called Untitled where
+    Morrison's Jig should have been.
+
+    Returns None only when NOTHING here can name the arrangement, and then the
+    share refuses rather than inventing -- which is the same answer
+    `title_repair` gives, for the same reason.
+    """
+    for candidate in (stored, name, piece, slug):
+        if not candidate or is_internal_artifact_name(candidate):
+            continue
+        spelled = humanise_title(candidate)
+        if not spelled or is_internal_artifact_name(spelled):
+            continue
+        # "Untitled" and "Music21 Fragment" are placeholders, not names, and a
+        # slug survives humanising as words -- so this rejects the first and
+        # keeps the second.
+        if _is_junk_title(spelled):
+            continue
+        return spelled
+    return None
+
+
 def title_for_added_version(existing: str | None, incoming: str | None,
                             source_stem: str | None = None) -> str | None:
     """Which title a version built FROM A FILE should carry.

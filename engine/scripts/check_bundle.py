@@ -350,6 +350,58 @@ def a_shared_entry_describes_the_pinned_version() -> None:
     check(all(Path(entry["path"]).exists() for entry in payload["ink"]),
           "each by a path the app can open")
 
+    # --- an entry is never called "Untitled" -----------------------------
+    #
+    # Echo joined Ali's set list and found a piece called Untitled where
+    # Morrison's Jig should have been. This payload carried `title or name`,
+    # both were empty for that one arrangement, and the app turned the null
+    # into the literal string "Untitled" and uploaded it to everyone in the
+    # set list. The ladder goes on to the piece and then the slug, and
+    # refuses rather than shipping a placeholder into somebody's library.
+    check(payload["title"] == "Morrison's Jig",
+          f"a healthy arrangement shares under its own title: {payload['title']!r}")
+
+    repo = workspace._repo()
+    healthy = repo.get_score(slug)
+    # Filed under a piece that is named, as every real import leaves it.
+    # Built explicitly rather than through `ensure_own_piece`, which names the
+    # piece from the arrangement's TITLE and would copy this fixture's
+    # music21 placeholder into it -- the separate defect this found.
+    piece = workspace.create_piece("Morrison's Jig")
+    repo.set_score(slug, dict(healthy, piece=piece.get("slug") or piece.get("id")))
+
+    stripped = dict(repo.get_score(slug), title="", name="")
+    repo.set_score(slug, stripped)
+    check(bundle.share_payload(slug)["title"] == "Morrison's Jig",
+          "with title AND name empty, the PIECE names it -- the shape that "
+          "shipped Untitled")
+
+    no_piece = dict(stripped, piece=None)
+    repo.set_score(slug, no_piece)
+    check(bundle.share_payload(slug)["title"] == "Morrison s jig",
+          "and with no piece either, the slug spelled out -- the worst HONEST "
+          "answer, which 'Untitled' is not")
+
+    placeholder = dict(no_piece, title="Untitled")
+    repo.set_score(slug, placeholder)
+    check(bundle.share_payload(slug)["title"] == "Morrison s jig",
+          "a stored 'Untitled' is a placeholder, not a name, so it is stepped "
+          "over rather than shared")
+    repo.set_score(slug, healthy)
+
+    # Nothing to name it with: every rung is the workspace's own file name for
+    # a version, which is the poisoning `is_internal_artifact_name` exists for.
+    # A share that cannot name the music says so instead of inventing.
+    nameless = a_score("v001")
+    doc_n = repo.get_score(nameless)
+    repo.set_score(nameless, dict(doc_n, title="v001", name="v001", piece=None))
+    try:
+        bundle.share_payload(nameless)
+        check(False, "an arrangement nothing can name must refuse to share")
+    except ValueError as exc:
+        check("no name to share it under" in str(exc),
+              f"when nothing can name it the share REFUSES, by name: {exc}")
+
     # The guard rail holds on this path too, not only on bundles.
     pdf = root / "book.pdf"
     try:

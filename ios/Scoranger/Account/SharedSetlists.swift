@@ -481,9 +481,20 @@ final class SharedSetlists: ObservableObject {
     private func addEntry(to setlistId: String, payload: [String: Any],
                           explicitOrder: String) async throws {
         guard let uid else { throw Trouble.signedOut }
+        // The title is guarded with the other three, and that is the fix for a
+        // real defect: it alone had a `?? "Untitled"` on it, so a payload that
+        // could not name the music uploaded a placeholder to everybody in the
+        // set list instead of failing. Echo opened Ali's set list and found a
+        // piece called Untitled where Morrison's Jig should have been.
+        // `bundle.share_payload` now walks title -> name -> piece -> slug and
+        // refuses rather than returning nothing, so reaching this guard means
+        // a bug worth hearing about rather than a row worth shipping.
         guard let localPath = payload["path"] as? String,
               let scoreUid = payload["scoreUid"] as? String,
-              let versionUid = payload["versionUid"] as? String else {
+              let versionUid = payload["versionUid"] as? String,
+              let title = (payload["title"] as? String)?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
             throw Trouble.unusablePayload
         }
         let entries = db.collection("setlists").document(setlistId).collection("entries")
@@ -499,7 +510,7 @@ final class SharedSetlists: ObservableObject {
             .putFileAsync(from: URL(fileURLWithPath: localPath))
 
         try await entry.setData([
-            "title": payload["title"] as? String ?? "Untitled",
+            "title": title,
             "composer": payload["composer"] as? String as Any,
             "order": explicitOrder,
             "scoreUid": scoreUid,
