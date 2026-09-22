@@ -230,6 +230,394 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.12.1 WHAT THE APP SAYS ABOUT WHAT IT DID (2026-09-22). Scope
+        #          written before the gate. THE FIRST BUILD OF THE 0.12 LINE:
+        #          0.12.0 below was scoped and written and never archived, so
+        #          its work ships here and everything that says "fixed in
+        #          0.12.0" is in this binary. Three fixes, no new feature, so
+        #          the patch bumps -- CLAUDE.md's rule.
+        #
+        #          INTENDED FOR INTERNAL TESTFLIGHT, and promotable to
+        #          external if it holds up. Internal testing reaches no App
+        #          Review, so nothing here turns on the submission blockers,
+        #          which are unchanged and are not code: the privacy policy is
+        #          still not hosted, the support page still needs a real
+        #          address, the log retention number is still unset, the App
+        #          Privacy questionnaire is still empty, the OMR service is
+        #          still undeployed, and counsel has still not answered
+        #          design/CHILDRENS_PRIVACY_BRIEF.md. An EXTERNAL promotion
+        #          crosses beta App Review and a PUBLIC submission needs all
+        #          of them.
+        #
+        #          All three came off one 33-second screen recording of Star
+        #          of the County Down on Ali's iPad. Every op in it did what
+        #          it was asked; the sentences around them did not:
+        #            1. A REPORT NAMED A BAR THE PAGE DOES NOT HAVE. "3 notes
+        #               (B3 in bars 0, 3, and 11)" -- music21 numbers a pickup
+        #               0 and seven reports passed that straight through.
+        #               ops.bar_label names the pickup, and reports carry
+        #               `bar` as a string rather than `measure` as an int, so
+        #               there is no 0 left in the JSON for a model to print.
+        #               Op ARGUMENTS keep their integers; an element address
+        #               may still say m0;
+        #            2. THE STEP SAID "HARMONISING" OVER A TRANSPOSITION, for
+        #               every diatonic call, because the case that prompted
+        #               the wording was a harmony a sixth below. The op writes
+        #               no staff, so the chip contradicted the sentence under
+        #               it. Now "Transposing ..., in key";
+        #            3. AND CLAUDE.MD PUT THE WHISTLE'S FINGERINGS UNDER THE
+        #               STAFF, where verses otherwise go, while
+        #               render.mei_with_fingerings_above lifts them above it.
+        #          Two things the same recording seemed to show and does not,
+        #          in BACKLOG so they are not chased again: the
+        #          octave-transposed notes DO carry ledger lines, and the
+        #          fingering columns do not crowd the staff above them.
+        #
+        #          NOTHING ELSE CHANGED. No notation, engraving, playback,
+        #          sync, sharing or set-list behaviour differs from 0.12.0 as
+        #          it stood.
+        #   0.12.0 THE APP STORE SUBMISSION BUILD: AN ACCOUNT A PERSON CAN
+        #          DELETE, AND FOUR THINGS THAT LEAK FIXED (2026-09-21). Scope
+        #          written before the work. Cut from the shipped 0.11.0
+        #          (build 200). NEVER ARCHIVED -- superseded by 0.12.1 above
+        #          before its gate ran; its work ships in that build.
+        #
+        #          THIS IS THE BUILD INTENDED FOR PUBLIC APP STORE
+        #          SUBMISSION, not another TestFlight round. Everything in it
+        #          is either something App Review requires or something that
+        #          would have been rejected, weakened the privacy answers, or
+        #          sent a user's data where the user was not told it went.
+        #
+        #          It carries a FEATURE -- account deletion -- so the minor
+        #          bumps once, and the four defects ride with it: see the
+        #          versioning rule in CLAUDE.md.
+        #
+        #          In this build:
+        #            1. DELETE MY ACCOUNT, which App Review guideline
+        #               5.1.1(v) requires of any app that lets a person make
+        #               one. Under Careful in Settings, and a Cloud Function
+        #               behind it that removes the succession as well as the
+        #               account. Merged from feat/account-deletion;
+        #            2. THE APP TARGET HAS A PRIVACY MANIFEST. It shipped
+        #               none through 0.11.0 while nine of its files use
+        #               UserDefaults -- ITMS-91053, which is an automatic
+        #               UPLOAD REJECTION, not a warning. The two manifests in
+        #               ios/PrivacyManifests/ are CPython's OpenSSL extension
+        #               modules and a different rejection code.
+        #               ios/Scoranger/PrivacyInfo.xcprivacy declares
+        #               UserDefaults/CA92.1, FileTimestamp/C617.1 and
+        #               SystemBootTime/35F9.1 -- decided by reading the app
+        #               BINARY's symbols, not by grepping Swift, because
+        #               Verovio is a local SPM package that links statically
+        #               into the app binary, calls stat, and has no manifest
+        #               of its own. A grep of Swift finds nothing and would
+        #               have under-declared. Disk Space and Active Keyboards
+        #               are NOT declared: no symbol in the binary backs them;
+        #            3. THE SCAN LOG NO LONGER CARRIES AN EMAIL ADDRESS. The
+        #               OMR service wrote the signed-in user's address into
+        #               Cloud Logging on every conversion, on all four exit
+        #               paths, into a bucket with no configured retention that
+        #               deleteAccount makes no call against -- so the address
+        #               outlived the account, for every user. Removed at the
+        #               source rather than filtered: actor_for answers
+        #               (actor, trust) and no longer reads the email claim.
+        #               The uid in `actor` is what the cost report needs;
+        #            4. DICTATION IS TRANSCRIBED ON THE DEVICE.
+        #               requiresOnDeviceRecognition appeared nowhere in the
+        #               repository, so it was false and the microphone went to
+        #               Apple's servers on every device. Now true, and where
+        #               on-device recognition is unavailable the app REFUSES
+        #               rather than falling back -- a fallback is invisible to
+        #               the user, so no honest permission string could
+        #               describe it. Both usage descriptions now say the audio
+        #               stays on the device;
+        #            5. THE CHAT STOPPED SENDING EXCERPTS OF EARLIER PROMPTS.
+        #               The iOS bridge answered list_versions with load_meta
+        #               whole -- artifact filenames, document uids, and the
+        #               first 200 characters of each earlier user prompt, to
+        #               the model provider. The desktop agent had always
+        #               projected the same call down to {id, op, args}. One
+        #               projection now, called by both;
+        #            6. and the Sign in with Apple comment says what is true.
+        #               It claimed the entitlement existed because Ali's son
+        #               has an Apple account and no Google one; the opposite
+        #               is the case, Apple not offering sign-in below its age
+        #               threshold. The entitlement stays -- guideline 4.8
+        #               requires it beside Google SSO.
+        #          NOT in this build, and said before it starts:
+        #            - NOTHING IS PUBLISHED OR DEPLOYED BY IT. The privacy
+        #              policy and support pages exist as TEXT
+        #              (design/privacy-policy.md, design/support.md) and are
+        #              not hosted; App Review rejects a submission whose
+        #              Privacy Policy URL and Support URL are not live, so
+        #              THOSE TWO PAGES MUST BE UP BEFORE SUBMITTING. The OMR
+        #              email fix is in omr-service/, which reaches a user only
+        #              when the image is rebuilt and deployed to Cloud Run --
+        #              shipping this binary alone does not change what the
+        #              service logs;
+        #            - THE LOG RETENTION NUMBER IS STILL UNSET. No log router,
+        #              bucket or retention policy exists in the repository, so
+        #              the GCP project's _Default applies. Removing the
+        #              address removes the sharp edge; it does not let the
+        #              policy state a retention period. Ali's to set;
+        #            - THE APP PRIVACY QUESTIONNAIRE IS NOT FILLED IN. It has
+        #              no API and cannot be. Section 5 of
+        #              design/APP_STORE_PRIVACY.md is amended to this build
+        #              and is what to click through -- seven data types now,
+        #              Audio Data having become No;
+        #            - COUNSEL HAS NOT ANSWERED design/CHILDRENS_PRIVACY_BRIEF.md.
+        #              The five questions in its section 5 are open. The three
+        #              engineering defects it listed are fixed here, which is
+        #              the part that was not a legal judgement;
+        #            - NO CHANGE TO PLAYBACK, SYNC, SHARING, SET LISTS,
+        #              NOTATION OR ENGRAVING. Nothing a musician does with the
+        #              app behaves differently, except that dictation now
+        #              refuses on a device or language that cannot transcribe
+        #              locally.
+        #   0.11.0 EVERY MARK ON THE PAGE REACHES THE NOTATION: THE ONES ABC
+        #          WRITES, AND THE ONES A SCANNER READS (2026-09-19). Scope
+        #          written before the merge. Cut from the shipped 0.10.0
+        #          (build 199). TWO features, so the minor bumps once: see the
+        #          versioning rule in CLAUDE.md.
+        #          In this build:
+        #            1. ABC DECORATIONS REACH THE NOTATION. music21's ABC
+        #               reader drops `~` and every `!...!` decoration -- the
+        #               gap 0.10.0 named and deferred. A new
+        #               `engine/scoranger_engine/enrich.py` stage puts them
+        #               back after the reader runs: 33 marks over 56
+        #               spellings. THE ROLL IS DECIDED, not deferred: an Irish
+        #               roll is engraved as a TURN, because that is the glyph
+        #               the repertoire prints and the `<other-ornament>` the
+        #               backlog proposed draws nothing in any engraver here.
+        #               The judgement is written at `enrich.DECORATIONS`. Also
+        #               fixed: a music21 bug where an `H` decoration DELETED
+        #               the note it was written on;
+        #            2. `ornament` IS AN ELEMENT KIND. Anchored to a note and
+        #               movable, like a fermata -- and a SEPARATE kind from
+        #               one, because music21 keeps ornaments under
+        #               `expressions.Ornament`, which Fermata is not a
+        #               subclass of. So "take the roll off bar 12" does not
+        #               also take the fermata there;
+        #            3. `remove-element`, WHICH DID NOT EXIST FOR ANY KIND. A
+        #               mark could be added, moved and resized, and the only
+        #               way back from one was to undo to the version before
+        #               it, losing everything done since;
+        #            4. THE SCANNER READS WORDS AGAIN. Chord symbols, lyrics,
+        #               titles and part names were never lost to Audiveris's
+        #               processing switches, which is where three earlier
+        #               passes looked. Audiveris 5.11 drives Tesseract in
+        #               LEGACY mode and Debian's tesseract-ocr-eng ships
+        #               tessdata_fast, which carries no legacy components --
+        #               so the TEXTS step read NOTHING and every word on the
+        #               page was lost. Language data that has them is now
+        #               pinned by tag and checked by DIGEST, and the image
+        #               build fails if what landed cannot drive the legacy
+        #               recogniser. Measured on a 32-bar lead sheet: 0 chord
+        #               symbols and 0 lyrics before, 28 and 124 after -- and
+        #               the unread words had been coming back as 19 dynamics,
+        #               50 articulations and 22 fermatas that are not on the
+        #               page. It is FASTER, not slower: 157s against 186s on a
+        #               12-page quartet, because misreading text as symbols
+        #               costs more than reading it. The two switches the
+        #               service depends on are now stated on the command line
+        #               rather than assumed, and a check asserts they are
+        #               there;
+        #            5. `lyric` IS AN ELEMENT KIND. Now that scans carry words,
+        #               a word is a thing a reader will ask to change. Anchored
+        #               to a note, and MOVING ONE MEANS RE-ATTACHING IT to
+        #               another note -- a word that slid sideways from its note
+        #               would be a lie about which note it is sung on. Its size
+        #               rides in the verse NAME because MusicXML has nowhere
+        #               else to put it: there is no font on a `<lyric>`. An
+        #               offset is REFUSED by name rather than written into a
+        #               file nothing honours. Removing one drops that verse
+        #               from the note, takes the sung words only (a whistle
+        #               fingering and a tab fret are verses too), and does NOT
+        #               renumber what is left.
+        #          NOT in this build, and said before it starts:
+        #            - THE OMR FIX IS IN THE SERVICE IMAGE, NOT THIS BINARY.
+        #              It reaches a reader only when `omr-service/` is built
+        #              and deployed to Cloud Run. Shipping this build alone
+        #              changes no scan. The image has NOT been built or pushed
+        #              here, and the measurements above are the feature
+        #              branch's, not this worktree's;
+        #            - THE IPAD CANNOT POINT AT AN ORNAMENT OR AT A WORD.
+        #              `ScoreElementKind` has no case for either, so neither is
+        #              tap-selectable and the adjust row offers neither; and
+        #              `ChordAdjustments.Kind` still knows its five, so a
+        #              resized ornament or word reaches the PDF export and does
+        #              NOT redraw on the app's own pages. CHAT REACHES BOTH, on
+        #              both surfaces, which is the whole of the UI they have in
+        #              0.11.0. BACKLOG.md carries both halves;
+        #            - A RESIZED WORD OVERLAPS THE WORD BESIDE IT. Verovio lays
+        #              the verse line out at one size and has no per-verse
+        #              size, so even 1.25x crowds its neighbour. The global
+        #              option that would re-lay it out also sizes `<harm>`. Not
+        #              fixable without per-verse layout, which is upstream work;
+        #            - ABC EXPORT, still. music21 cannot write ABC and 0.11.0
+        #              does not add a writer. Import only;
+        #            - TREMOLO is absent from `add-element` ON PURPOSE: music21
+        #              writes a `<tremolo>` with its size and reads it back
+        #              without, so a resized one would silently expire at the
+        #              next op. The same is true of `<fermata>`, which is a
+        #              PRE-EXISTING gap in `adjust-element --kind fermata`;
+        #            - nothing touched in playback, sync, sharing or set lists.
+        #   0.10.0 TUNES FROM THESESSION.ORG, AND THE FILING RULE THAT COMES
+        #          WITH THEM (2026-09-18). Scope written before the work. Cut
+        #          from the shipped 0.9.0 (build 198, gate 1664/1664 green).
+        #          In this build:
+        #            1. ABC import. thesession.org publishes Irish traditional
+        #               music as ABC and that is where Ali's tunes come from.
+        #               `.abc` joins the engine's NOTATION_SUFFIXES and the
+        #               picker's UTType list. `.abc` turned out NOT to be a
+        #               free extension, which the scope assumed it was: the
+        #               system declares it as Alembic, Pixar's 3D scene cache,
+        #               and that is what a downloaded tune is TAGGED as. So
+        #               the app accepts `public.alembic` as well as its own
+        #               `com.scoranger.abc`, at Alternate rank because it does
+        #               not own the extension, and a real 3D file is refused
+        #               by the engine the way anything unreadable is.
+        #               Modal keys are the part that matters: `K: Edor` reads
+        #               as E dorian with two sharps, and this repertoire is
+        #               full of Dorian and Mixolydian;
+        #            2. ONE FILE CAN BE SEVERAL ARRANGEMENTS. An ABC file may
+        #               hold several tunes and music21 returns an Opus for
+        #               those, which has no `.parts`. Every import path now
+        #               reads through `workspace.read_notation`, which returns
+        #               a LIST, and loops. The import REPORTS what it did --
+        #               "38 tunes found, imported as 38 arrangements of 1
+        #               piece" -- because a reader who drops in a collection
+        #               and gets one, or forty, has to be told which;
+        #            3. EVERY ARRANGEMENT BELONGS TO A PIECE. An import that
+        #               arrives without one is given a piece named after
+        #               itself. General, not an ABC branch: the bridge's
+        #               `import` and `import-pdf`, the CLI and the viewer's
+        #               /api/import could all land an arrangement unfiled
+        #               before this. Because `resolve_piece` matches an
+        #               existing name first, 38 settings of "Drowsy Maggie"
+        #               land as ONE piece of 38 arrangements and a set of
+        #               three different tunes as three pieces of one -- with
+        #               no rule that knows what ABC is;
+        #            4. COMBINING PIECES, the curation step that makes 3 safe.
+        #               On the Pieces page, in the Edit mode that already
+        #               ships, a selection of two or more pieces can be folded
+        #               into one. The survivor keeps its slug and uid so every
+        #               setlist and share still resolves; its arrangements
+        #               keep their numbers and the absorbed ones append. There
+        #               is no undo, so it asks twice under Careful rather than
+        #               using the action bar's delete-and-undo.
+        #          NOT in this build, and said before it starts:
+        #            - ABC EXPORT. music21 reads ABC and cannot write it
+        #              (`ConverterABC.registerOutputExtensions` is empty), so
+        #              this is a writer from scratch, not a line of wiring.
+        #              Import only. BACKLOG.md carries it;
+        #            - ABC ORNAMENTS. The `~` roll and `!...!` decorations are
+        #              dropped by music21's reader and are COUNTED AND
+        #              REPORTED rather than rendered. A roll is not a turn and
+        #              mapping it to one would be a lie about the music;
+        #            - the `R:` tune type (reel, jig, hornpipe) is reported,
+        #              not stored: it is not notation and has nowhere to live
+        #              in MusicXML. No new field on the score document;
+        #            - NO MIGRATION of the library Ali already has. The filing
+        #              rule is written about import and applies to imports
+        #              from here on; existing unfiled rows stay unfiled and
+        #              the UNFILED tag, its filter and its count all stay.
+        #              What to do about them is his call, not this build's;
+        #            - nothing touched in playback, sync, sharing or OMR.
+        #   0.9.0  WHAT THE APP IS, SAID TO THE PERSON USING IT, AND ONE OP
+        #          ALI ASKED FOR BY NAME (2026-09-18). Scope written before the
+        #          work. Cut from the green 0.8.2 state (1645 tests, 0 failed).
+        #          In this build:
+        #            1. Settings -> "How Scoranger works", beside Account,
+        #               Reading, Engine, Scanning, Model, Diagnostics and
+        #               About. Three things in one section:
+        #               (a) the pipeline described for a CURIOUS MUSICIAN and
+        #                   not for an engineer -- what optical music
+        #                   recognition is and that it is a reading rather
+        #                   than a transcription; that MusicXML and MIDI skip
+        #                   it; that every arrangement operation is written-out
+        #                   music theory and none of it is written by a
+        #                   language model; that an operation writes a NEW
+        #                   version and overwrites nothing; that the chat
+        #                   agent plans and calls tools and writes no notation;
+        #                   and, plainly, that the whole engine runs on the
+        #                   iPad, so the only two things that need a network
+        #                   are scanning a PDF and asking the agent. That last
+        #                   one is for a musician on a stage with no wifi and
+        #                   is said in those words;
+        #               (b) the architecture diagram drawn NATIVELY in
+        #                   SwiftUI. README.md's is Mermaid, which nothing on
+        #                   iOS renders, and a picture of it would neither
+        #                   grow with Dynamic Type nor be readable by
+        #                   VoiceOver. Boxes, dashed arrows and drawn heads in
+        #                   the app's own tokens, one column, the agent
+        #                   indented as a BRANCH into the engine because that
+        #                   is what it is. The README's six groups are folded
+        #                   down to five steps; the shape is not touched;
+        #               (c) the open-source credit, which for several of these
+        #                   licences is an OBLIGATION and not a courtesy.
+        #                   Verified against project.yml, Package.resolved,
+        #                   the vendored trees, app_packages and each Python
+        #                   package's own metadata -- not copied from
+        #                   README.md, which was wrong in five places. What it
+        #                   got wrong is in the header of Pipeline.swift;
+        #            2. feat/rhythm-simplify merged: `scor simplify-rhythm`,
+        #               augment and thin, asked for directly. Its tool spec
+        #               ends up in ScoreModel/ChatTools.swift, where this line
+        #               moved the table, and ChatDispatchTests proves the op is
+        #               reachable from chat in both modes.
+        #          NOT in this build, and said before it starts:
+        #            - the licence TEXTS do not ship beside the Python packages
+        #              they belong to. `scripts/vendor_engine.sh` deletes every
+        #              .dist-info on the way into the bundle, which takes the
+        #              LICENSE file with it. The screen names the licence; the
+        #              text is in the repository. BACKLOG.md carries it;
+        #            - the C libraries inside BeeWare's Python build (OpenSSL,
+        #              XZ, Zstandard, bzip2, libffi, mpdecimal) carry no
+        #              licence files in this tree, so they are NAMED on the
+        #              screen with the framework that brings them and given no
+        #              identifier nobody read. BACKLOG.md carries that too;
+        #            - no change to the engine's ops beyond the merge, no
+        #              redesign, and nothing touched in playback, sync or
+        #              sharing;
+        #            - direct vector rendering is still 0.8.3 on
+        #              feat/vector-render, still deliberately not beside
+        #              feature work.
+        #   0.8.2  WHAT 0.8 PROMISED AND 0.8.1 DID NOT CARRY, PLUS THE TEST
+        #          DEBT. Scope written before the work; the order is in
+        #          BACKLOG.md "The release plan after 0.8.1".
+        #            1. engine ops, each tested through the `scor` BINARY and
+        #               not the Python function: rename a book;
+        #               adjust_element past `harm` to other added text and
+        #               marks; move and duplicate for offset-anchored and
+        #               note-attached elements (spanners stay out -- a slur
+        #               re-pointed across different rhythms has no answer);
+        #            2. bridge.py covered for those ops and the ones it
+        #               already routed;
+        #            3. the four gaps 0.8.0 named for 0.8.1: the set list's
+        #               foot strip and the score bar's second row on the
+        #               phone; the OMR offer as a panel state rather than a
+        #               row in More plus a chip; Rename on a book row; and
+        #               Settings as a split inside the score's 380pt panel;
+        #            4. size and position for added text and marks through the
+        #               adjust row chord symbols already use, then move and
+        #               duplicate. Size is RELATIVE to the engraved default; a
+        #               move destination is a TAPPED BAR plus an offset
+        #               stepper, because this app has no drag;
+        #            5. chat dispatch asserted against a stubbed model -- no
+        #               network, no key; the model's judgement stays manual;
+        #            6. export from the app UI, end to end through the share
+        #               sheet;
+        #            7. the gate debt: the lyricSize experiment on
+        #               PaginationAfterAnOp, the eight rotating landscape
+        #               failures reproduced by hand, an engine-aware lock so
+        #               ENGINE_SERIAL stops growing, and the chord adjust row
+        #               driven through the UI on a stripped staff;
+        #            8. the copyright and terms posture, and the gate it
+        #               implies on the sharing path.
+        #          NOT in this build, and said before it starts: direct vector
+        #          rendering and everything standing on it -- that is 0.8.3 on
+        #          feat/vector-render, deliberately not beside feature work.
         #   0.8.1  THE EXTERNAL CANDIDATE (2026-09-13). Scope before the work:
         #          no new behaviour. This is build 196 as gated (1508/1508)
         #          plus the consolidation of every open branch into one line
@@ -464,8 +852,8 @@ targets:
         # not on link_worktree_inputs.sh's list -- so Settings read "This build
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
-        CURRENT_PROJECT_VERSION: 197
-        MARKETING_VERSION: 0.8.1
+        CURRENT_PROJECT_VERSION: 201
+        MARKETING_VERSION: 0.12.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
@@ -522,8 +910,13 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: "Scoranger talks to your score engine on the local network."
-        NSSpeechRecognitionUsageDescription: "Dictate arrangement requests"
-        NSMicrophoneUsageDescription: "Dictation input for chat"
+        # These two say where the audio goes, because they are the only place
+        # a user is ever told. SpeechDictation refuses unless on-device
+        # recognition is available, so "not sent anywhere" is literal rather
+        # than usual -- if that ever becomes a fallback, these strings become
+        # false and have to change with it.
+        NSSpeechRecognitionUsageDescription: "Dictate arrangement requests. Speech is transcribed on this device and is not sent anywhere."
+        NSMicrophoneUsageDescription: "Dictation input for chat. Recording is transcribed on this device and is not sent anywhere."
         EngineDefaultURL: "http://MacBook-Pro.local:8765"
         OMRDefaultURL: "https://scoranger-omr-37kxlg2dpa-uc.a.run.app"
         ITSAppUsesNonExemptEncryption: false
@@ -551,6 +944,24 @@ targets:
           - CFBundleTypeName: "MIDI file"
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.midi-audio]
+          # ABC: the text notation Irish traditional music is published in,
+          # and what thesession.org hands you.
+          #
+          # `public.alembic` IS NOT A MISTAKE. `.abc` is not a free extension:
+          # the system already declares it as Alembic, Pixar's 3D scene cache
+          # ("Alembic 3D Scene", conforming to public.3d-content), and
+          # `UTType(filenameExtension: "abc")` resolves to THAT -- so a tune
+          # downloaded from thesession.org arrives tagged public.alembic, and
+          # an app claiming only its own type is never offered one.
+          #
+          # One extension, two formats, one system type: there is no way to
+          # claim the tune and not the 3D cache. Open-in will offer Scoranger
+          # for an Alembic file, and the engine refuses it the way it refuses
+          # anything music21 cannot read. Alternate rank, not Owner, because
+          # this app does not own the extension.
+          - CFBundleTypeName: "ABC tune"
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.scoranger.abc, public.alembic]
           - CFBundleTypeName: "PDF score"
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
@@ -614,6 +1025,17 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [mxl]
+          # Our own name for the format, for a sender that tags a tune as
+          # text rather than as a 3D cache. It does NOT win the extension --
+          # public.alembic does, see the document type above -- so this is the
+          # second of the two types the picker accepts, never the only one.
+          # plain-text because that is what a tune is: a few lines anyone can
+          # read, which is exactly what Alembic is not.
+          - UTTypeIdentifier: com.scoranger.abc
+            UTTypeDescription: "ABC tune"
+            UTTypeConformsTo: [public.plain-text]
+            UTTypeTagSpecification:
+              public.filename-extension: [abc]
   # Logic tests for the score model. Deliberately has NO host application:
   # it compiles ScoreModel/ straight into the bundle, so the suite runs in a
   # second or two without booting the app or the embedded Python engine.

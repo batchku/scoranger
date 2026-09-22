@@ -121,8 +121,8 @@ expect_imports("grand staff with a tie chain", fixtures.grand_staff)
 expect_imports("string quartet", fixtures.quartet)
 
 # -- every real sample the app ships or the repo carries -----------------------
-samples = sorted((ROOT / "testdata" / "app-samples").glob("*.mxl")) \
-    + sorted((ROOT / "testdata" / "app-samples").glob("*.musicxml"))
+samples = sorted(p for p in (ROOT / "testdata" / "app-samples").iterdir()
+                 if p.suffix.lower() in {".mxl", ".musicxml", ".abc"})
 for sample in samples:
     expect_imports(f"sample: {sample.name}", sample)
 if not samples:

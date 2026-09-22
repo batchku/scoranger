@@ -10,7 +10,64 @@ import Foundation
 ///
 /// Preview is free: `ChordAdjustments` already applies size and offset in the
 /// app, so pending values draw locally and only the commit reaches the engine.
+///
+/// ## Five kinds, one session
+///
+/// It was written for chord symbols and 0.8.2 gave it the other four marks
+/// `adjust-element` reaches. The only thing that differs between them is how
+/// SIZE is counted: a chord symbol steps a ladder of point values, because the
+/// part-wide default beside it is a point value; everything else steps a
+/// ladder of multiples of the engraved default, which is the decided answer
+/// and the one the row says out loud. `SizeMetric` is that difference, and it
+/// is the whole of it -- the step, the clamps, the pending model and the
+/// commit are one behaviour for all five.
 struct ChordAdjustSession: Equatable {
+
+    /// How one kind of mark's size is counted, and how it is said.
+    struct SizeMetric: Equatable {
+        /// The rungs, in the unit below.
+        let ladder: [Int]
+        /// The rung an untouched mark sits at, and the one `reset` returns to.
+        let defaultValue: Int
+        /// True when a rung is a PERCENTAGE of the engraved default rather
+        /// than a point size. It decides what `Commit.size` means, so the
+        /// caller sends `scale` rather than `size`.
+        let isRelative: Bool
+
+        /// Points, for chord symbols. Clean values rather than a multiplier: a
+        /// multiplier writes 13.5 pt and then 15.19 pt into the notation and
+        /// makes "put it back" impossible to hit exactly.
+        static let points = SizeMetric(ladder: [8, 9, 10, 11, 12, 14, 16, 18, 20, 24],
+                                       defaultValue: 12, isRelative: false)
+
+        /// Multiples of the engraved default, for every other mark. Clean
+        /// again, for the same reason -- these are tenths, so the ladder can
+        /// be walked back to 1x exactly.
+        static let relative = SizeMetric(
+            ladder: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200],
+            defaultValue: 100, isRelative: true)
+
+        /// What the row shows: `14 pt`, or `1.4x` -- never a point value for a
+        /// mark whose size is a proportion, because the number would be true
+        /// of this engraving only.
+        func readout(_ value: Int) -> String {
+            guard isRelative else { return "\(value) pt" }
+            let times = Double(value) / 100
+            return times == times.rounded() ? "\(Int(times))x" : "\(times)x"
+        }
+
+        /// The same, read aloud.
+        func spoken(_ value: Int) -> String {
+            isRelative ? "\(readout(value).dropLast()) times the engraved default"
+                       : "\(value) points"
+        }
+
+        /// The one line the row carries under it, or nil where the number
+        /// speaks for itself.
+        var caption: String? {
+            isRelative ? "Size is a multiple of the engraved default." : nil
+        }
+    }
 
     enum Direction { case up, down, left, right }
     enum SizeStep { case bigger, smaller }
@@ -25,10 +82,12 @@ struct ChordAdjustSession: Equatable {
     static let maxVerticalTenths: Int = 40    // ±4 staff spaces
     static let maxHorizontalTenths: Int = 20  // ±2 staff spaces
 
-    /// Clean point sizes rather than a multiplier. A multiplier writes 13.5 pt
-    /// and then 15.19 pt into the notation and makes "put it back" impossible
-    /// to hit exactly.
-    static let sizeLadder: [Int] = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24]
+    /// The chord symbol's ladder, which the part-wide default walks too.
+    static let sizeLadder: [Int] = SizeMetric.points.ladder
+
+    /// How this mark's size is counted. Chord symbols step points; every
+    /// other mark steps multiples of the engraved default.
+    let metric: SizeMetric
 
     /// What is already in the notation.
     private let committedSize: Int
@@ -47,13 +106,18 @@ struct ChordAdjustSession: Equatable {
 
     /// The absolute values the engine will be given.
     struct Commit: Equatable {
+        /// The rung, in the session's own unit. `isRelative` says which:
+        /// points go to `adjust-element --size`, percentages to `--scale`.
         var size: Int?
         var offsetX: Int?
         var offsetY: Int?
         var reset: Bool
+        var isRelative: Bool = false
     }
 
-    init(size: Int, committedDX: Int = 0, committedDY: Int = 0) {
+    init(size: Int, committedDX: Int = 0, committedDY: Int = 0,
+         metric: SizeMetric = .points) {
+        self.metric = metric
         self.committedSize = size
         self.committedDX = committedDX
         self.committedDY = committedDY
@@ -126,8 +190,8 @@ struct ChordAdjustSession: Equatable {
     /// change a value the reader never touched.
     private func nextRung(from size: Int, step: SizeStep) -> Int? {
         switch step {
-        case .bigger: return Self.sizeLadder.first { $0 > size }
-        case .smaller: return Self.sizeLadder.last { $0 < size }
+        case .bigger: return metric.ladder.first { $0 > size }
+        case .smaller: return metric.ladder.last { $0 < size }
         }
     }
 
@@ -142,17 +206,17 @@ struct ChordAdjustSession: Equatable {
     /// unless the element was already untouched.
     mutating func reset() {
         guard committedDX != 0 || committedDY != 0
-                || committedSize != Self.defaultSize else {
+                || committedSize != metric.defaultValue else {
             pending = Pending(size: committedSize, dx: 0, dy: 0)
             return
         }
-        pending = Pending(size: Self.defaultSize,
+        pending = Pending(size: metric.defaultValue,
                           dx: -committedDX, dy: -committedDY, isReset: true)
     }
 
     /// The size an untouched chord symbol engraves at, mirroring
     /// `ChordAdjustments.defaultChordPoints`.
-    static let defaultSize = 12
+    static let defaultSize = SizeMetric.points.defaultValue
 
     // MARK: - Committing
 
@@ -160,12 +224,16 @@ struct ChordAdjustSession: Equatable {
     /// An empty commit would still cost a version.
     mutating func commit() -> Commit? {
         guard hasPendingChange else { return nil }
-        if pending.isReset { return Commit(size: nil, offsetX: nil, offsetY: nil, reset: true) }
+        if pending.isReset {
+            return Commit(size: nil, offsetX: nil, offsetY: nil, reset: true,
+                          isRelative: metric.isRelative)
+        }
         let (dx, dy) = total
         return Commit(size: pending.size,
                       offsetX: dx,
                       offsetY: dy,
-                      reset: false)
+                      reset: false,
+                      isRelative: metric.isRelative)
     }
 
     // MARK: - What the chip says
@@ -185,7 +253,7 @@ struct ChordAdjustSession: Equatable {
         if pending.dx != 0 {
             parts.append("\(Self.spaces(abs(pending.dx))) sp \(pending.dx > 0 ? "right" : "left")")
         }
-        parts.append("\(pending.size) pt")
+        parts.append(metric.readout(pending.size))
         return parts.joined(separator: " · ")
     }
 

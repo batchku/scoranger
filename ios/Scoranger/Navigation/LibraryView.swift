@@ -139,9 +139,14 @@ struct LibraryView: View {
     /// piece is a folder and cannot be duplicated or put in a set list. Actions
     /// needing exactly one row grey to 42% rather than vanishing, so the bar
     /// never re-flows under a finger.
+    ///
+    /// The COUNT is passed too, and the pieces bar is the only one that reads
+    /// it: New arrangement and Combine cannot both apply, so it shows the one
+    /// this selection can use rather than a fourth capsule that would push a
+    /// phone's bar onto two rows.
     private var actionBar: some View {
         let kind = selectionKind
-        let actions = LibraryActions.bar(for: kind)
+        let actions = LibraryActions.bar(for: kind, count: selected.count)
         return GeometryReader { geo in
             let labels = LibraryActionBarMetrics.labels(count: selected.count, kind: kind, size: typeSize)
             let rung = LibraryActionBarLayout.rung(width: geo.size.width, actions: actions, labels: labels)
@@ -258,7 +263,8 @@ struct LibraryView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rPanel))
     }
 
-    /// The library's top row: the gear, and nothing else (#48-#50).
+    /// The library's top row: the gear at the trailing edge, and nothing else
+    /// (#48-#50, and item 14 of 2026-09-14).
     ///
     /// Help and the inbox were drawn and inert -- a "?" that opened nothing and
     /// a tray whose count was the only true thing about it. The engine chip
@@ -268,10 +274,14 @@ struct LibraryView: View {
     /// reachability separated).
     private var topRow: some View {
         HStack(spacing: Theme.Metric.s8) {
+            Spacer()
+            // TOP RIGHT, and bigger (item 14). The trailing edge is where a
+            // settings control sits in every other app, and it is the corner
+            // the reading hand is nearest on an iPad held in one hand.
             PanelIconButton(systemName: "gearshape", label: "Settings",
+                            size: 40, glyphSize: 18,
                             action: onSettings)
                 .accessibilityIdentifier("library-settings")
-            Spacer()
         }
         // Centred on the ROW rather than placed in it, so the gear's width
         // does not push it off centre -- and as an overlay it cannot make the
@@ -375,21 +385,68 @@ struct LibraryView: View {
         }
     }
 
+    /// `+ New` makes the thing the segment is SHOWING (item 13).
+    ///
+    /// It used to open a band asking which kind, and Ali struck that band out
+    /// twice -- once from Pieces ("this should just create a new piece") and
+    /// once from Set lists. The segmented control above the row already says
+    /// which kind he is looking at, so asking again is a second answer to a
+    /// question already answered on screen.
+    ///
+    /// Books have no New. A book is a PDF somebody already owns; it arrives
+    /// through Import's Book row, which sits in the same cluster two controls
+    /// to the left. A `+ New` on that segment could only be an import wearing
+    /// the wrong verb, or a button that does nothing.
+    @ViewBuilder
     private func verbButton(_ verb: LibraryVerb, labelled: Bool,
                             labels: LibraryBarLayout.Labels) -> some View {
-        Button {
-            switch verb {
-            case .importing: toggle(.importing)
-            case .creating:  toggle(.creating)
+        if verb == .creating && segment == .books {
+            EmptyView()
+        } else {
+            Button {
+                switch verb {
+                case .importing: toggle(.importing)
+                case .creating:  startCreating()
+                }
+            } label: {
+                rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
+                          active: verb == .importing
+                              ? panel.isShowing(.importMenu)
+                              : creatingName != nil,
+                          icon: labels.iconButton)
             }
-        } label: {
-            rowButton(verb.title, glyph: verb.glyph, iconOnly: !labelled,
-                      active: panel.isShowing(verb == .importing ? .importMenu : .newMenu),
-                      icon: labels.iconButton)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(verb.identifier)
+            .accessibilityLabel(verb == .creating ? newLabel : verb.title)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(verb.identifier)
-        .accessibilityLabel(verb.title)
+    }
+
+    /// What `+ New` makes, said in full for VoiceOver: the visible label is
+    /// one word and the segment supplies the noun.
+    private var newLabel: String {
+        switch segment {
+        case .pieces:   return "New piece"
+        case .setlists: return "New set list"
+        case .books:    return "New"
+        }
+    }
+
+    /// Raise the naming row, and put it where it can be seen.
+    ///
+    /// Item 12. The row was never dead: it is the FIRST child of the list's
+    /// LazyVStack, and Ali was scrolled into the P section of 41 pieces, so it
+    /// appeared several screens above the viewport. A LazyVStack does not even
+    /// build a child that far off screen, so its `onAppear` never ran and
+    /// there was no keyboard to notice either.
+    private func startCreating() {
+        if creatingName != nil {
+            creatingName = nil
+            creatingDraft = ""
+        } else {
+            panel.done()
+            creatingName = ""
+            creatingDraft = ""
+        }
     }
 
     private func sortButton(_ fit: LibraryBarLayout.Fit,
@@ -432,19 +489,18 @@ struct LibraryView: View {
         .accessibilityIdentifier("library-edit")
     }
 
-    /// The verbs open the panel (§7.6): Import lists the ways in, New the two
-    /// things to make. Sort and Filter open theirs the same way. One panel
-    /// state at a time, and no floating menus.
+    /// Import opens its band (§7.6); Sort and Filter open theirs the same way.
+    /// One panel state at a time, and no floating menus. New is not here: it
+    /// creates rather than offering (item 13).
     private func toggle(_ band: Band) {
         switch band {
         case .importing: panel.toggle(.importMenu)
-        case .creating:  panel.toggle(.newMenu)
         case .sort:      panel.toggle(.sort)
         case .filter:    panel.toggle(.filter)
         }
     }
 
-    private enum Band { case importing, creating, sort, filter }
+    private enum Band { case importing, sort, filter }
 
     private func rowButton(_ text: String, glyph: String,
                            iconOnly: Bool, active: Bool = false,
@@ -491,6 +547,10 @@ struct LibraryView: View {
     }
 
     private var list: some View {
+        // A reader. Item 12: raising the naming row is not enough if the row
+        // is three screens above the viewport, which is where it is for
+        // anybody scrolled past the letter A.
+        ScrollViewReader { proxy in
         ScrollView {
             // The content column is CAPPED AND CENTRED, the same rule `Screen`
             // applies to every pushed screen (L34, and A-B of
@@ -519,6 +579,7 @@ struct LibraryView: View {
                                     },
                                     onCancel: { creatingName = nil; creatingDraft = "" })
                     .onAppear { creatingDraft = creatingName ?? "" }
+                    .id(Self.creatingAnchor)
                     Theme.Rule()
                 }
 
@@ -558,7 +619,23 @@ struct LibraryView: View {
             // row now: a tester should not have to scroll past their whole
             // library to say which build they are on (#53).
         }
+        // The row is put on screen the instant it exists. Deferred by one
+        // runloop turn because the row is not in the scroll view's content
+        // until this state change has been laid out, and `scrollTo` on an id
+        // that is not there yet does nothing at all.
+        .onChange(of: creatingName == nil) { _, gone in
+            guard !gone else { return }
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(Self.creatingAnchor, anchor: .top)
+                }
+            }
+        }
+        }
     }
+
+    /// What the list scrolls to when a new thing is being named.
+    private static let creatingAnchor = "inline-create-row-anchor"
 
     @ViewBuilder
     private var grouped: some View {
@@ -569,7 +646,20 @@ struct LibraryView: View {
         if sort.showsAlphabetRail {
             ForEach(LibraryModel.grouped(rows), id: \.letter) { group in
                 Section {
-                    ForEach(group.rows) { row in rowView(row) }
+                    // Identified by the slug AND the title.
+                    //
+                    // By the slug alone, a rename that moved a row from one
+                    // letter to another redrew the HEADER and not the row:
+                    // `rowView` was re-evaluated with the new title -- logged,
+                    // once -- and the pinned-header LazyVStack kept the
+                    // rendering it had. Photographed on an iPhone: "Big Fake
+                    // Book" under a header reading "R". It is not new to
+                    // books; a set list renamed across letters did the same,
+                    // and renaming within one letter always worked, which is
+                    // why nobody saw it.
+                    ForEach(group.rows) { row in
+                        rowView(row).id("\(row.id)|\(row.title)")
+                    }
                 } header: {
                     // BandHeader rather than a hand-rolled Text: it was a tiny
                     // lowercase "s" on an unruled 18pt strip, which is not what
@@ -580,7 +670,10 @@ struct LibraryView: View {
                 }
             }
         } else {
-            ForEach(rows) { row in rowView(row) }
+            // The same identity as above: under these sorts nothing moves
+            // between sections, but a row that is redrawn for one reason and
+            // not another is the defect, not the section.
+            ForEach(rows) { row in rowView(row).id("\(row.id)|\(row.title)") }
         }
     }
 
@@ -649,8 +742,7 @@ struct LibraryView: View {
         selected = [row.id]
     }
 
-    /// The row's own actions, by what the row is (L6, L8, L9). A book has no
-    /// rename in the engine yet, so its row offers Open and Delete.
+    /// The row's own actions, by what the row is (L6, L8, L9).
     private func rowActions(_ row: LibraryRow) -> [RowActionItem] {
         var items: [RowActionItem] = []
         items.append(RowActionItem(id: "row-open-\(row.id)", title: "Open") { open(row) })
@@ -692,7 +784,14 @@ struct LibraryView: View {
                 onOpenSetlistScreen(row.id)
             })
         case .books:
-            break
+            // Rename, 0.8.2: the engine can do it now (`rename-book`). It is
+            // the LABEL and nothing else -- the slug names books/<slug>.pdf
+            // and every extraction ever taken out of this book recorded it --
+            // so this offers exactly what a set list's Rename offers and
+            // nothing that implies the file moves.
+            items.append(RowActionItem(id: "row-rename-\(row.id)", title: "Rename") {
+                renameDraft = row.title; renaming = row.id; openRow = nil
+            })
         }
         items.append(RowActionItem(id: "row-delete-\(row.id)", title: "Delete", destructive: true,
                                    confirm: "Delete?") {
@@ -715,8 +814,18 @@ struct LibraryView: View {
     private func commitRename(_ row: LibraryRow) {
         let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         renaming = nil
-        guard !name.isEmpty, name != row.title, segment == .setlists else { return }
-        Task { _ = await state.renameSetlist(setlist: row.id, name: name) }
+        guard !name.isEmpty, name != row.title else { return }
+        // Which engine op, by which list the row is in. Pieces have no inline
+        // rename here (a piece is renamed on its own screen, with its
+        // arrangements in view), so only these two reach a commit.
+        switch segment {
+        case .setlists:
+            Task { _ = await state.renameSetlist(setlist: row.id, name: name) }
+        case .books:
+            Task { _ = await state.renameBook(row.id, name: name) }
+        case .pieces:
+            break
+        }
     }
 
     /// The leading checkbox (§2.1). Selecting is what raises the action bar.
@@ -743,12 +852,24 @@ struct LibraryView: View {
 
     /// A piece filling up. It sits in the list from the moment the file is
     /// chosen, so "where did it go?" never has to be asked.
+    ///
+    /// THESE ROWS ARE THE TRANSCRIPTION QUEUE. They are already ordered, they
+    /// already sit at the top of the library, and every import in flight is
+    /// among them -- so the queue Ali asked to see is the list he was already
+    /// looking at, with a position on each row that has not started and the
+    /// word TRANSCRIBING or WAITING rather than a blanket IMPORTING. Adding a
+    /// second surface to show the same six rows would be a second place for
+    /// them to disagree.
     private func importingRow(_ pending: AppState.PendingImport) -> some View {
-        VStack(spacing: 0) {
+        let waiting = pending.isTranscription && pending.waiting
+        let badge = pending.isTranscription
+            ? (waiting ? "WAITING" : "TRANSCRIBING")
+            : "IMPORTING"
+        return VStack(spacing: 0) {
             HStack(spacing: Theme.Metric.s12) {
                 PageThumb()
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(pieceName(for: pending) ?? pending.name)
+                    Text(rowTitle(for: pending))
                         .typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
                     Text(pending.stage).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                     if let fraction = pending.fraction {
@@ -758,7 +879,7 @@ struct LibraryView: View {
                     }
                 }
                 Spacer(minLength: Theme.Metric.s8)
-                Text("IMPORTING").typeRole(.meta)
+                Text(badge).typeRole(.meta)
                     .foregroundStyle(Color(hex: 0x8A5A12))
                     .padding(.horizontal, 5).padding(.vertical, 1.5)
                     .background(Color(hex: 0xFBF2E6))
@@ -773,7 +894,20 @@ struct LibraryView: View {
             Theme.Rule()
         }
         .accessibilityIdentifier("importing-\(pending.id.uuidString)")
-        .accessibilityLabel("\(pieceName(for: pending) ?? pending.name), importing, \(pending.stage)")
+        .accessibilityLabel("\(rowTitle(for: pending)), \(badge.lowercased()), \(pending.stage)")
+    }
+
+    /// What the row is called. A transcription of a scan the reader already
+    /// has is named by the ARRANGEMENT it belongs to -- which is the whole
+    /// point of recording that identity -- and everything else by its piece or
+    /// its file.
+    private func rowTitle(for pending: AppState.PendingImport) -> String {
+        if let slug = pending.arrangement,
+           let score = state.manifest?.scores.first(where: { $0.slug == slug }) {
+            return ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                              slug: score.slug)
+        }
+        return pieceName(for: pending) ?? pending.name
     }
 
     private func pieceName(for pending: AppState.PendingImport) -> String? {

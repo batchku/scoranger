@@ -250,6 +250,53 @@ def load_meta(slug: str) -> dict:
     return doc
 
 
+#: What a MODEL is told about a version, and the whole of it.
+#:
+#: A version document carries more than this: `file` (the artifact's filename),
+#: `uid`, `parent`, `time`, a full `parts` snapshot, `rhythm_warnings`, and
+#: `turn`, whose `prompt` is the FIRST 200 CHARACTERS OF AN EARLIER USER
+#: PROMPT. The desktop agent had always projected the document down to these
+#: three; the iOS bridge returned `load_meta` whole, so the same tool call sent
+#: a model provider a transcript of what the user had asked for earlier in the
+#: day, along with the filenames of their scores. The two paths disagreed, and
+#: the iOS one was the wider.
+#:
+#: They now share this list rather than each keeping their own copy, because
+#: two copies is how they came to disagree.
+#:
+#: `op` and `args` are what the history is FOR -- the model reasons about what
+#: was done to the score, and args are op arguments (part names, intervals,
+#: measure numbers), not prose. `id` is what addresses a version in a
+#: subsequent call.
+VERSION_FIELDS = ("id", "op", "args")
+
+#: And of a source. `parts` is what a pull_part decision is made on; `name` is
+#: what a person called the edition. `file`, `origin` and `uid` are a filename,
+#: a device path and an identifier -- nothing a model can act on.
+SOURCE_FIELDS = ("id", "name", "parts")
+
+
+def version_history(slug: str) -> dict:
+    """The score's history and its sources, as the list_versions tool sees it.
+
+    THE ONE implementation. `chat.list_versions` (desktop) and `bridge.py`'s
+    `versions` op (iOS) both call this, so the two surfaces cannot drift into
+    sending different amounts of a user's data to the same model provider
+    again.
+
+    Not the same thing as `load_meta`, which is the FULL documents and is what
+    the CLI, the manifest and the app's own UI read. Everything dropped here is
+    dropped because it goes to a third party, not because it is unimportant.
+    """
+    meta = load_meta(slug)
+    return {
+        "versions": [{k: v[k] for k in VERSION_FIELDS if k in v}
+                     for v in meta["versions"]],
+        "sources": [{k: src[k] for k in SOURCE_FIELDS if k in src}
+                    for src in _repo().list_sources(slug)],
+    }
+
+
 def version_label(v: dict) -> str:
     """What a person calls this version. `v012`, derived, never its identity.
 
@@ -311,9 +358,15 @@ class NotNotationError(Exception):
     """Notation was asked of an arrangement whose artifact is not notation."""
 
 
+#: ABC: the text notation Irish traditional music is published in, and what
+#: thesession.org hands you when you download a tune. One file can hold SEVERAL
+#: tunes, each opened by its own `X:` header -- see `read_notation`, which is
+#: why nothing may call `converter.parse` on an import path directly any more.
+ABC_SUFFIXES = {".abc"}
+
 #: Artifact suffixes the engine can actually operate on. Everything else is
 #: something a reader can look at but no op can touch.
-NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
+NOTATION_SUFFIXES = {".musicxml", ".xml", ".mxl", ".mid", ".midi"} | ABC_SUFFIXES
 
 #: Pictures of music. The SAME kind of thing as a PDF -- readable,
 #: annotatable, OMR-able, editable by nothing until OMR has read it -- so they
@@ -328,6 +381,98 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic"}
 
 #: Everything that is a scan rather than notation.
 SCAN_SUFFIXES = {".pdf"} | IMAGE_SUFFIXES
+
+
+def read_notation(path) -> list:
+    """Every piece of music a notation file holds, in the order it holds them.
+
+    A MusicXML or MIDI file is one score, so this is a list of one and every
+    caller that used to say `converter.parse` reads the same thing. ABC is not:
+    one `.abc` file may open several tunes, each with its own `X:` header, and
+    music21 hands back an **Opus** for those -- a container with no `.parts`,
+    on which anything written for a Score raises `AttributeError`. That is the
+    whole reason this function exists rather than a suffix check at each call
+    site; an Opus reaching `create_score` is a crash, not a bad import.
+
+    thesession.org produces both shapes routinely and they mean DIFFERENT
+    things, which the import rule (see `cli.cmd_import`) turns out to handle
+    without ever having to tell them apart:
+
+    - a tune's page (`/tunes/27/abc`) downloads every SETTING of one tune --
+      38 of "Drowsy Maggie" -- as 38 `X:` blocks that all carry the same `T:`.
+    - a set downloads as ONE `X:` block holding several tunes joined by a
+      second `T:`/`K:` mid-body. music21 reads that as a single continuous
+      score with a key change, which is what a set IS and what it sounds like,
+      so it stays one arrangement and nothing here has to special-case it.
+
+    ABC IS NOT HANDED STRAIGHT TO music21 either. Its reader drops decorations
+    -- and for `H`, the fermata, drops the NOTE the decoration was on -- so an
+    ABC path goes through `enrich.read_abc`, which strips the marks before the
+    parse and attaches them afterwards. `abc_report` is where what it managed
+    is kept for the import to relay.
+    """
+    from music21 import converter, stream
+
+    source = Path(path)
+    if source.suffix.lower() in ABC_SUFFIXES:
+        from . import enrich
+
+        scores, report = enrich.read_abc(source)
+        for score in scores:
+            score.scoranger_abc = report
+        return scores
+
+    parsed = converter.parse(str(source), forceSource=True)
+    if isinstance(parsed, stream.Opus):
+        return list(parsed.scores)
+    return [parsed]
+
+
+def abc_report(path, scores: list) -> dict:
+    """What an ABC file said, and how much of it the notation now carries.
+
+    music21 reads ABC well -- pitches, meter, modal keys, repeats, first and
+    second endings, triplets, grace notes, slurs, chord symbols, the `Q:`
+    tempo and a pickup bar all survive its reader. Its DECORATIONS do not, and
+    `enrich.read_abc` is what puts them back; this reports what that managed,
+    because a reader whose 120 roll marks vanished is owed the number and a
+    reader whose 120 roll marks arrived should be told that too.
+
+      `decorations_carried`   marks that reached the notation
+      `decorations_misplaced` marks the enrichment declined to place because
+                              it could not prove which note they belonged to
+                              (see `enrich.restore`), with `abc_notes` naming
+                              the tune and why
+      `decorations_unknown`   `!...!` spellings there is no music21 object
+                              for. Still dropped, now by name rather than as
+                              a count.
+      `tune_types`            `R:`, which names the tune type -- reel, jig,
+                              hornpipe. It is not notation and has nowhere to
+                              live in MusicXML, so it is REPORTED and not
+                              stored. A reader who wants it in the title can
+                              put it there.
+    """
+    out: dict = {}
+    report = next((getattr(s, "scoranger_abc", None) for s in scores
+                   if getattr(s, "scoranger_abc", None)), None) or {}
+    if report.get("carried"):
+        out["decorations_carried"] = report["carried"]
+    if report.get("misplaced"):
+        out["decorations_misplaced"] = report["misplaced"]
+    if report.get("reasons"):
+        out["abc_notes"] = report["reasons"]
+    if report.get("unknown"):
+        out["decorations_unknown"] = report["unknown"]
+
+    # `R:` is read off the TEXT: it never reaches a stream at all.
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    kinds = [m.strip() for m in re.findall(r"(?m)^R:\s*(.+?)\s*$", text)]
+    if kinds:
+        out["tune_types"] = sorted(set(kinds))
+    return out
 
 
 def list_versions(slug: str) -> list:
@@ -443,6 +588,18 @@ def list_books() -> list:
     return _repo().list_books()
 
 
+def resolve_book(slug: str) -> dict:
+    """The book document for a slug, or a FileNotFoundError that names the
+    books there are. Books are addressed by slug alone -- unlike pieces and
+    setlists, whose names are also accepted -- because a fake book's name is
+    long and a library holds few of them."""
+    doc = _repo().get_book(slug)
+    if doc is None:
+        have = [b["slug"] for b in _repo().list_books()]
+        raise FileNotFoundError(f"No book '{slug}'. Have: {have}")
+    return doc
+
+
 def create_book(name: str, pdf_path) -> tuple[str, dict]:
     """Store a PDF as a BOOK: a collection arrangements are taken out of.
 
@@ -477,6 +634,25 @@ def create_book(name: str, pdf_path) -> tuple[str, dict]:
     return slug, doc
 
 
+def rename_book(slug: str, new_name: str) -> dict:
+    """Rename a book. The slug is immutable, as for pieces, setlists and scores.
+
+    The slug names the stored file (books/<slug>.pdf) and every extraction ever
+    made from this book recorded it in its version args, so changing it to
+    follow a label would move bytes and orphan that history. A book has no
+    engraved title to keep in step either -- it is a PDF nobody re-encodes --
+    so unlike `rename_score` this touches the library name and nothing else.
+    """
+    doc = resolve_book(slug)
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise ValueError("A name is required")
+    doc["name"] = new_name
+    _repo().set_book(slug, doc)
+    rebuild_manifest()
+    return doc
+
+
 def delete_book(slug: str) -> None:
     _repo().delete_book(slug)
     book_path(slug).unlink(missing_ok=True)
@@ -496,10 +672,7 @@ def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
     """
     from pypdf import PdfReader, PdfWriter
 
-    doc = _repo().get_book(slug)
-    if doc is None:
-        have = [b["slug"] for b in _repo().list_books()]
-        raise FileNotFoundError(f"No book '{slug}'. Have: {have}")
+    doc = resolve_book(slug)
     total = int(doc.get("pages") or 0)
     if from_page < 1 or to_page > total or from_page > to_page:
         raise ValueError(
@@ -806,6 +979,42 @@ def assign_score_to_piece(slug: str, piece: str | None,
     return {"score": slug, "piece": piece_slug}
 
 
+def ensure_own_piece(slug: str) -> dict:
+    """Give an arrangement a piece if it has none, named after the arrangement.
+
+    **Every arrangement belongs to a piece.** An import that landed without one
+    left a row the library could only tag UNFILED, which is a hole in the model
+    rather than a state anybody chose: the app's own idea of itself is pieces
+    holding arrangements, and a thing outside that has no shelf to sit on.
+
+    Named from the arrangement's TITLE, which is a projection of the notation,
+    so the piece is called what the music is called. `resolve_piece` matches an
+    existing name case-insensitively BEFORE creating, and that one line is what
+    makes the rule behave correctly on real material instead of littering:
+
+        thesession.org/tunes/27/abc downloads 38 SETTINGS of "Drowsy Maggie".
+        Each is its own arrangement -- they are genuinely different music --
+        and all 38 carry the same `T:`, so the first mints the piece and the
+        other 37 find it. One piece, 38 arrangements, numbered in file order.
+
+        A set file holds three DIFFERENT tunes, so it makes three pieces of one
+        arrangement each. Same rule, no branch, no knowledge of ABC.
+
+    Idempotent, and never moves an arrangement that is already filed -- an
+    import into a piece the reader chose has already said where it goes.
+    """
+    doc = _repo().get_score(slug)
+    if doc is None:
+        raise FileNotFoundError(f"No score '{slug}'")
+    if doc.get("piece"):
+        return {"score": slug, "piece": doc["piece"], "created": False}
+    name = doc.get("title") or doc.get("name") or slug
+    existed = any(p["name"].lower() == name.lower() for p in _repo().list_pieces())
+    assign_score_to_piece(slug, name, create_if_missing=True)
+    return {"score": slug, "piece": (_repo().get_score(slug) or {}).get("piece"),
+            "created": not existed}
+
+
 def set_piece_order(name_or_slug: str, order: list) -> dict:
     """Set a piece's arrangement order. Every slug must belong to the piece."""
     repo = _repo()
@@ -1023,6 +1232,103 @@ def rename_piece(name_or_slug: str, new_name: str) -> dict:
     repo.set_piece(doc["slug"], doc)
     rebuild_manifest()
     return doc
+
+
+def combine_pieces(names: list, into: str | None = None,
+                   name: str | None = None) -> dict:
+    """Fold several pieces into one. The curation step `ensure_own_piece` needs.
+
+    Every import now mints a piece, which is right -- an arrangement with no
+    shelf to sit on is a hole in the model -- but it means a reader who brings
+    the same tune in twice under two spellings ends up with two pieces for one
+    piece of music. This is how they fix it, and the two features only make
+    sense together.
+
+    WHAT SURVIVES, all four decided here rather than left to the caller:
+
+    - THE PIECE. The first one named, unless `into` names another of them. Its
+      slug AND its uid survive, so every setlist, share and sync record that
+      already points at it still resolves. The others are gone afterwards and
+      the engine cannot bring them back -- there is no undo for this, which is
+      why the app asks twice.
+    - THE NAME. The survivor's, unless `name` gives a new one. Combining is not
+      a rename and must not silently perform one.
+    - THE METADATA. The survivor's own values win. A field the survivor leaves
+      EMPTY is filled from the first absorbed piece that has one, and tags are
+      unioned in the order they were first seen. Combining two records of one
+      tune usually means one of them was credited and the other was not;
+      dropping that credit is the wrong default, and overwriting a value
+      somebody deliberately typed is a worse one.
+    - THE NUMBERING, which is what a reader notices first. Arrangements are
+      numbered from the piece's `order`, so the survivor's own keep the numbers
+      they had -- #1 stays #1 -- and the absorbed arrangements APPEND, piece by
+      piece in the order named and keeping each piece's internal order. Nothing
+      a reader had already learned to call #2 becomes #5.
+
+    Returns what it did, including the resulting order, because that is the
+    part worth showing back.
+    """
+    repo = _repo()
+    docs, seen = [], set()
+    for n in names:
+        doc = resolve_piece(str(n))
+        if doc["slug"] not in seen:
+            seen.add(doc["slug"])
+            docs.append(doc)
+    if len(docs) < 2:
+        raise ValueError(
+            f"combine needs at least two different pieces, got {len(docs)}")
+
+    survivor = resolve_piece(into) if into else docs[0]
+    if survivor["slug"] not in seen:
+        raise ValueError(
+            f"'{survivor['slug']}' is not one of the pieces being combined: "
+            f"{[d['slug'] for d in docs]}")
+    absorbed = [d for d in docs if d["slug"] != survivor["slug"]]
+
+    def members(doc):
+        held = [s["slug"] for s in repo.list_scores() if s.get("piece") == doc["slug"]]
+        order = [s for s in (doc.get("order") or []) if s in held]
+        return order + [s for s in held if s not in order]
+
+    moved = []
+    for doc in absorbed:
+        for slug in members(doc):
+            assign_score_to_piece(slug, survivor["slug"], create_if_missing=False)
+            moved.append(slug)
+
+    doc = repo.get_piece(survivor["slug"])
+    filled = {}
+    for field in ("composer", "arranger"):
+        if not doc.get(field):
+            for other in absorbed:
+                if other.get(field):
+                    doc[field] = other[field]
+                    filled[field] = other[field]
+                    break
+    tags, lower = list(doc.get("tags") or []), {str(x).lower() for x in (doc.get("tags") or [])}
+    for other in absorbed:
+        for tag in other.get("tags") or []:
+            if str(tag).lower() not in lower:
+                lower.add(str(tag).lower())
+                tags.append(tag)
+    if tags:
+        doc["tags"] = tags
+    if name:
+        doc["name"] = name
+    repo.set_piece(doc["slug"], doc)
+    # the absorbed pieces hold nothing now, and a piece holding nothing is not
+    # allowed to exist
+    _drop_empty_pieces(keep=doc["slug"])
+    rebuild_manifest()
+
+    final = repo.get_piece(doc["slug"]) or doc
+    return {"piece": doc["slug"], "name": doc["name"],
+            "absorbed": [{"slug": d["slug"], "name": d["name"]} for d in absorbed],
+            "arrangements_moved": moved,
+            "order": members(final),
+            "metadata_filled": filled,
+            "tags": final.get("tags") or []}
 
 
 def tidy_pieces() -> list[str]:

@@ -53,14 +53,41 @@ final class AppState: ObservableObject {
     }
     /// One-shot user-facing message shown as an alert (share-sheet receipts etc.)
     @Published var notice: String?
-    @Published var omrBusy = false
-    /// The transcription in flight, so a control that OFFERS OMR can show what
-    /// OMR is doing rather than a bare "busy". Both paths in -- the More
-    /// screen's switch and the transport's button -- read it.
-    @Published private(set) var omrPendingID: UUID?
+    /// The transcription queue, projected out of `pendingImports` so the
+    /// arithmetic can be tested with no app (`OMRQueue`).
+    var omrEntries: [OMRQueue.Entry] {
+        pendingImports.filter(\.isTranscription).map {
+            OMRQueue.Entry(id: $0.id, arrangement: $0.arrangement, name: $0.name,
+                           running: !$0.waiting, stage: $0.stage, fraction: $0.fraction)
+        }
+    }
 
-    var omrStage: String? { pendingImports.first { $0.id == omrPendingID }?.stage }
-    var omrFraction: Double? { pendingImports.first { $0.id == omrPendingID }?.fraction }
+    /// What ONE arrangement's transcription is doing, or nil. THE answer: the
+    /// top bar's chip, the Make editable switch, the Convert panel, More's row
+    /// and the transport all read this and nothing else, so they cannot
+    /// disagree.
+    ///
+    /// They used to read an app-wide `omrBusy` Bool, which is how Ali opened
+    /// one arrangement and saw another's progress -- and, worse, saw a
+    /// progress bar over a score whose own Make editable read off.
+    func omrStatus(for slug: String?) -> OMRStatus? {
+        OMRQueue.status(ofArrangement: slug, in: omrEntries)
+    }
+
+    /// The score ON SCREEN, which is what every surface in the score view
+    /// means by "is this transcribing?".
+    var omrHere: OMRStatus? { omrStatus(for: selectedSlug) }
+
+    /// Kept as a spelling for the surfaces that ask "is the score I am drawing
+    /// being transcribed?". It is SCOPED now; there is no app-wide busy flag
+    /// left to read.
+    var omrBusy: Bool { omrHere != nil }
+
+    var omrStage: String? { omrHere.map(MakeEditable.detailText) }
+    var omrFraction: Double? { omrHere?.fraction }
+
+    /// The whole queue in a line, for the surface that shows all of it.
+    var omrQueueSummary: String? { OMRQueue.summary(omrEntries) }
     /// What the lasso caught, held by durable address so it survives the
     /// re-render every engine op triggers. This replaces the yellow-band
     /// highlight, which inferred bar numbers from where a stroke landed across
@@ -99,9 +126,9 @@ final class AppState: ObservableObject {
     /// a walk of every address in the document -- 2724 of them on a nine-page
     /// quartet -- while it changes only when the engraving does.
     private(set) var barPopulations: [SelectionMerge.Key: Int] = [:]
-    /// What each chord symbol already carries, by address — the chip's starting
+    /// What each added mark already carries, by address — the chip's starting
     /// point, so a nudge builds on the file rather than on the default.
-    @Published var chordAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
+    @Published var markAdjustments: [ScoreAddress: ChordAdjustments.Adjustment] = [:]
     /// Bumped to ask the UI to open chat, with text for its input: how a
     /// finished lasso shows the user that the selection registered.
     /// The setlist being played, if the score was opened from one. It is what
@@ -238,10 +265,12 @@ final class AppState: ObservableObject {
         if adjustTarget == address { return }
         commitAdjustment()
         closeAdjustTurn()
+        let metric = AddedMark.sizeMetric(address.kind)
         adjustSession = ChordAdjustSession(
-            size: chordSize(at: address) ?? ChordAdjustSession.defaultSize,
-            committedDX: chordOffset(at: address).dx,
-            committedDY: chordOffset(at: address).dy)
+            size: markSize(at: address) ?? metric.defaultValue,
+            committedDX: markOffset(at: address).dx,
+            committedDY: markOffset(at: address).dy,
+            metric: metric)
         adjustTarget = address
         adjustTurnID = nil
     }
@@ -272,6 +301,7 @@ final class AppState: ObservableObject {
         guard var session = adjustSession, let address = adjustTarget,
               let commit = session.commit(),
               let slug = selectedScore?.slug,
+              let kind = AddedMark.engineKind(address.kind),
               let part = partName(forStaff: address.staff) else { return }
         adjustSession = session   // the commit clears what was pending
         // Group this sitting's versions the way a chat turn's steps are
@@ -280,20 +310,34 @@ final class AppState: ObservableObject {
         // unrelated versions.
         let openTurn = adjustTurnID == nil
         adjustTurnID = adjustTurnID ?? UUID().uuidString
-        let what = "Adjusted the chord symbol in bar \(address.measure)"
+        let noun = AddedMark.noun(address.kind)
+        let what = "Adjusted the \(noun) in bar \(address.measure)"
         Task {
             if openTurn {
                 _ = try? await local.call(op: "begin-turn",
                                           args: ["score": slug, "prompt": what])
             }
             var args: [String: Any] = ["score": slug, "part": part,
-                                       "kind": "harm",
+                                       "kind": kind,
                                        "measure": address.measure,
                                        "ordinal": address.ordinal]
             if commit.reset {
                 args["reset"] = true
             } else {
-                if let size = commit.size { args["size"] = size }
+                // A relative rung is sent as `scale`, an absolute one as
+                // `size`; the op refuses both at once, which is what keeps the
+                // two interfaces from quietly meaning the same thing.
+                if let size = commit.size {
+                    // An absolute size stays an Int: it is written into the
+                    // notation as a font-size, and a chord symbol nudged
+                    // before 0.8.2 carries "14". Sending 14.0 would rewrite
+                    // every one of them as "14.0" for no reader's benefit.
+                    if commit.isRelative {
+                        args["scale"] = Double(size) / 100
+                    } else {
+                        args["size"] = size
+                    }
+                }
                 if let x = commit.offsetX { args["offset_x"] = x }
                 if let y = commit.offsetY { args["offset_y"] = y }
             }
@@ -302,7 +346,87 @@ final class AppState: ObservableObject {
                 await refresh()
                 await renderIfNeeded(force: true)
             } catch {
-                report("move that chord symbol", error)
+                report("move that \(noun)", error)
+            }
+        }
+    }
+
+    // MARK: - Sending a mark to another bar
+    //
+    // The destination is a TAPPED BAR plus an offset stepper inside it. There
+    // is no drag in this app, so there is no drag here.
+
+    /// The move or duplicate in progress, or nil. While it is set, a tap on the
+    /// canvas picks a BAR instead of selecting anything.
+    @Published var placing: MoveDestination?
+
+    /// True while a tap on the page means "that bar", not "that element".
+    var isPlacingMark: Bool { placing != nil }
+
+    /// Start one. The pending adjustment is committed first: the reader is
+    /// about to move the thing they were nudging, and an uncommitted nudge
+    /// would be written against the element's OLD bar afterwards.
+    func beginPlacing(_ intent: MoveDestination.Intent) {
+        guard let address = adjustTarget else { return }
+        commitAdjustment()
+        placing = MoveDestination(intent: intent, kind: address.kind,
+                                  source: address)
+    }
+
+    func cancelPlacing() { placing = nil }
+
+    func aimPlacement(atBar number: Int) {
+        placing?.aim(atBar: number, barLength: barLength(ofMeasure: number))
+    }
+
+    func stepPlacement(by delta: Double) { placing?.step(by: delta) }
+
+    func snapPlacement(to onset: Double) { placing?.snap(to: onset) }
+
+    /// How long a bar is, in quarter notes, when the playback timeline knows.
+    ///
+    /// It is the only thing in the app that measures a bar, and it is there
+    /// only when the score is playable. Nil is a fine answer: the stepper is
+    /// then unclamped and `ops.move_element` is the authority, which it is in
+    /// either case.
+    func barLength(ofMeasure number: Int) -> Double? {
+        guard let bar = playback.timeline.bars.first(where: { $0.measure == number })
+        else { return nil }
+        let length = bar.end - bar.start
+        return length > 0 ? length : nil
+    }
+
+    /// Send it. A refusal is kept ON the destination rather than thrown at the
+    /// notice bar, because the engine's refusal names the offsets that WOULD
+    /// work and the chip turns them into buttons.
+    func commitPlacement() {
+        guard let destination = placing, let bar = destination.bar,
+              let slug = selectedScore?.slug,
+              let kind = AddedMark.engineKind(destination.kind),
+              let part = partName(forStaff: destination.source.staff) else { return }
+        let op = destination.intent == .move ? "move-element" : "duplicate-element"
+        let args: [String: Any] = [
+            "score": slug, "part": part, "kind": kind,
+            "measure": destination.source.measure,
+            "ordinal": destination.source.ordinal,
+            "to_measure": bar, "to_offset": destination.offset]
+        Task {
+            do {
+                _ = try await local.call(op: op, args: args)
+                placing = nil
+                // The element has moved, so the selection that pointed at it
+                // points at nothing. Dropping it also closes the adjust row,
+                // which would otherwise address the old bar.
+                clearSelection()
+                await refresh()
+                await renderIfNeeded(force: true)
+            } catch {
+                // NOT reported to the notice bar, deliberately. The engine's
+                // refusal names the offsets that WOULD work, and the chip
+                // turns them into buttons -- a sentence in a bar that vanishes
+                // would throw that away and leave the reader where they were.
+                // `MoveDestination.refusalNote` is where it is rendered.
+                placing?.refused(OperationReport.reason(error))
             }
         }
     }
@@ -396,14 +520,21 @@ final class AppState: ObservableObject {
         return parts[staff - 1].name
     }
 
-    /// What the notation already carries for this symbol, so the session starts
-    /// from the truth rather than from the default.
-    private func chordSize(at address: ScoreAddress) -> Int? {
-        chordAdjustments[address]?.size.map { Int($0.rounded()) }
+    /// What the notation already carries for this mark, in the unit its own
+    /// row steps, so the session starts from the truth rather than the default.
+    ///
+    /// The file always holds POINTS -- MusicXML has no relative font size --
+    /// so a relative ladder reads its rung back out by dividing by the same
+    /// constant every renderer divides by.
+    private func markSize(at address: ScoreAddress) -> Int? {
+        guard let points = markAdjustments[address]?.size else { return nil }
+        let metric = AddedMark.sizeMetric(address.kind)
+        guard metric.isRelative else { return Int(points.rounded()) }
+        return Int((points / ChordAdjustments.defaultChordPoints * 100).rounded())
     }
 
-    private func chordOffset(at address: ScoreAddress) -> (dx: Int, dy: Int) {
-        let adjustment = chordAdjustments[address]
+    private func markOffset(at address: ScoreAddress) -> (dx: Int, dy: Int) {
+        let adjustment = markAdjustments[address]
         return (Int((adjustment?.dx ?? 0).rounded()), Int((adjustment?.dy ?? 0).rounded()))
     }
 
@@ -442,6 +573,14 @@ final class AppState: ObservableObject {
         selection = combined.isEmpty ? nil : combined
         selectionKey = combined.isEmpty ? nil : geometryKey
         if combined.isEmpty { selectionPaths = [:] }
+        // The adjust row follows the selection, through THIS writer, because
+        // every route goes through it. It used to be retargeted from
+        // `commitSelection` -- the lasso's route alone -- so a chord symbol
+        // TAPPED at 2x selected fine, the chip appeared, and no adjust row
+        // came with it: `adjustSession` was still nil and the row is drawn
+        // only when it is not. Found by photographing the row: the picture was
+        // of a selection with no row under it.
+        retargetAdjustment()
         return selection
     }
 
@@ -458,9 +597,6 @@ final class AppState: ObservableObject {
         // never be changed back
         combineMode = SelectionCombine.modeAfter(combineMode,
                                                  selectionIsEmpty: combined == nil)
-        // Selecting a different symbol WRITES whatever the last one had
-        // pending, rather than carrying the pending values onto it.
-        retargetAdjustment()
         // Nothing is inserted into the chat box here any more (#4c). The user
         // builds the selection up -- lasso, add with a held finger, drop what
         // they did not mean -- and hands it over when it is right, by tapping
@@ -525,9 +661,7 @@ final class AppState: ObservableObject {
             return allStaves || address.staff == wanted
         }
         guard !members.isEmpty else { return false }
-        selection = ScoreSelection(addresses: members)
-        selectionKey = geometryKey
-        selectionPaths = [:]
+        select(members, mode: .replace)
         combineMode = .replace
         return true
     }
@@ -552,6 +686,18 @@ final class AppState: ObservableObject {
     /// is asked BEFORE the decision and handed in as a fact -- a turn that
     /// depended on what was under the thumb would be unpredictable, which is
     /// exactly what §12 rejected.
+    /// The number of the bar under a point, without selecting anything.
+    ///
+    /// What a tap means while a move is being aimed: the reader is naming a
+    /// DESTINATION, so the bar is the answer and the selection must not move
+    /// -- it still points at the mark being sent.
+    func barNumber(at point: CGPoint, onPage index: Int) -> Int? {
+        guard let page = geometry?.page(index) else { return nil }
+        let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
+        return page.element(at: scaled, kinds: ScoreElementKind.barLike)?
+            .address?.measure
+    }
+
     func hasElement(at point: CGPoint, onPage index: Int) -> Bool {
         guard let page = geometry?.page(index) else { return false }
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
@@ -578,9 +724,7 @@ final class AppState: ObservableObject {
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let hit = page.element(at: scaled)?.address,
               !ScoreElementKind.barLike.contains(hit.kind) else { return false }
-        selection = (selection ?? ScoreSelection(addresses: []))
-            .combining([hit], mode: .add)
-        selectionKey = geometryKey
+        select([hit], mode: .add)
         return true
     }
 
@@ -595,12 +739,12 @@ final class AppState: ObservableObject {
         let scaled = CGPoint(x: point.x * page.size.width, y: point.y * page.size.height)
         guard let hit = page.element(at: scaled)?.address,
               selection.addresses.contains(hit) else { return false }
-        let left = selection.dropping(hit)
-        self.selection = left.isEmpty ? nil : left
-        if left.isEmpty { selectionPaths = [:] }
-        selectionKey = left.isEmpty ? nil : selectionKey
+        // Through the writer, so the adjust row follows: dropping four of a
+        // five-element selection leaves one mark, and that is a selection the
+        // row belongs to.
+        select(selection.dropping(hit).addresses, mode: .replace)
         combineMode = SelectionCombine.modeAfter(combineMode,
-                                                 selectionIsEmpty: left.isEmpty)
+                                                 selectionIsEmpty: self.selection == nil)
         return true
     }
 
@@ -612,14 +756,32 @@ final class AppState: ObservableObject {
         /// The piece it is going into, so the library can show that piece
         /// filling up rather than the import vanishing (0.4.1 item 9).
         var piece: String?
+        /// The ARRANGEMENT being transcribed, when this is OMR on demand on a
+        /// scan the reader already has. Nil when the transcription is
+        /// BECOMING an arrangement (a PDF from the share sheet), and nil for
+        /// an import that is not a transcription at all.
+        ///
+        /// Without this there was nothing to scope the progress by, which is
+        /// why the chip belonged to no arrangement: `PendingImport` recorded
+        /// the file's name and the piece and not the thing being transcribed.
+        var arrangement: String?
         /// Which list this row belongs in. A book is not an arrangement and
         /// its progress must not appear under Pieces (ImportProgress).
         var target: ImportTarget = .arrangement
+        /// Whether this import is a TRANSCRIPTION and therefore in the OMR
+        /// queue. A book being copied is an import and is not.
+        var isTranscription = false
+        /// In the queue but not started. Only a transcription waits.
+        var waiting = false
         var stage: String = "uploading…"
         /// nil = indeterminate (spinner); 0…1 = determinate bar
         var fraction: Double? = nil
     }
     @Published var pendingImports: [PendingImport] = []
+
+    /// The inputs of each queued transcription, by the id of the row that
+    /// stands for it. Not published: the row is what the reader sees.
+    private var omrWork: [UUID: OMRWork] = [:]
 
     /// What an import just brought in, for the root to OPEN (0.8.0 build
     /// 194, Ali's item 1): a reader who imported a score, from Files or from
@@ -698,10 +860,42 @@ final class AppState: ObservableObject {
     @AppStorage("twoPageSpread") private var legacySpread = false
     @AppStorage("didMigrateScoreLayout") private var didMigrateScoreLayout = false
 
-    var layout: ScoreLayout {
+    /// What the READER chose: what the layout control lights, what Settings
+    /// shows, what is remembered between launches.
+    var layoutChoice: ScoreLayout {
         get { ScoreLayout(rawValue: storedLayout) ?? .page }
-        set { storedLayout = newValue.rawValue }
+        // `@AppStorage` inside an ObservableObject writes UserDefaults and
+        // tells nobody, so the publish is made here. It used to arrive by
+        // accident, from the `pageIndex = 0` the control set beside it.
+        set {
+            guard newValue.rawValue != storedLayout else { return }
+            objectWillChange.send()
+            storedLayout = newValue.rawValue
+        }
     }
+
+    /// The layout the score on screen is DRAWN with, which is the choice
+    /// except while the canvas is still holding pages made for the other kind
+    /// of engraving (`ScoreLayout.displayed`). Everything that draws reads
+    /// this; only the control and Settings read the choice.
+    ///
+    /// Continuous is a different engraving of the same music and takes a
+    /// second or three to make. Publishing the choice straight to the canvas
+    /// drew the pages it already had under the new layout's rules for a frame
+    /// -- a paged document as a strip, a strip squeezed into a page frame --
+    /// which is Ali's "shows the WRONG view for a moment". One page and a
+    /// spread share an engraving, so switching between those two still takes
+    /// effect on the next frame and waits for nothing.
+    var layout: ScoreLayout {
+        get { ScoreLayout.displayed(chosen: layoutChoice, engraved: renderedLayout) }
+        set { layoutChoice = newValue }
+    }
+
+    /// The layout the pages currently on the canvas were engraved for, or nil
+    /// when the canvas is holding nothing. Set beside `pdfDocument`, in the
+    /// same publish, so the document and the layout it is drawn with can never
+    /// be one frame apart.
+    @Published private(set) var renderedLayout: ScoreLayout?
 
     /// Kept so the twelve places that ask "is this a spread?" still can. It is
     /// DERIVED: setting it chooses between the two page layouts and can no
@@ -1074,7 +1268,10 @@ final class AppState: ObservableObject {
         // Notation, PDFs, and pictures of a page. The image list comes from
         // ScoreArtifact rather than being typed again, so a format added there
         // is accepted here without anyone remembering to.
-        let supported = ["musicxml", "mxl", "xml", "mid", "midi", "pdf"]
+        // Derived from ScoreArtifact rather than typed again: the notation
+        // half used to be a second copy of that list, and the comment claiming
+        // otherwise was half true. A format added there is accepted here now.
+        let supported = ScoreArtifact.notationSuffixes.sorted() + ["pdf"]
             + ScoreArtifact.imageSuffixes.sorted()
         for f in (try? FileManager.default.contentsOfDirectory(
             at: inbox, includingPropertiesForKeys: nil)) ?? []
@@ -1101,8 +1298,37 @@ final class AppState: ObservableObject {
         let arguments = ProcessInfo.processInfo.arguments
         let wantsScore = arguments.contains("-seedInboxFixture")
         let wantsImage = arguments.contains("-seedInboxImage")
-        guard !inboxSeeded, wantsScore || wantsImage else { return }
+        let wantsABC = arguments.contains("-seedInboxABC")
+        guard !inboxSeeded, wantsScore || wantsImage || wantsABC else { return }
         inboxSeeded = true
+        if wantsABC {
+            // A tune, dropped in the inbox the way a download from
+            // thesession.org arrives, so the photograph is of the REAL import
+            // path rather than a score placed in the library behind its back.
+            //
+            // Written here rather than shipped in samples-seed for two
+            // reasons: a bundled `.abc` would trip check_no_bundled_scores,
+            // which is right to flag music in the app's resources, and this
+            // is the only fixture in the repo that has to be ABC -- the
+            // format is text and there is no ABC writer to make one with.
+            // Eight bars, synthetic, nobody's transcription.
+            let tune = """
+            X: 1
+            T: The Shot Reel
+            R: reel
+            M: 4/4
+            L: 1/8
+            K: Edor
+            |:E2BE dEBE|E2BE AFDF|E2BE dEBE|1 BABc dAFD:|2 BABc d2 ef||
+            |:g2fg edBd|gfed BAFA|d2cd BAFA|DEFD E2 ef:|
+            """
+            try? FileManager.default.createDirectory(at: inbox,
+                                                     withIntermediateDirectories: true)
+            let dropped = inbox.appending(path: "The Shot Reel.abc")
+            try? FileManager.default.removeItem(at: dropped)
+            try? tune.write(to: dropped, atomically: true, encoding: .utf8)
+            print("SCORANGER-SEED dropped \(dropped.lastPathComponent) in the inbox")
+        }
         guard let seed = Bundle.main.resourceURL?.appending(path: "samples-seed") else { return }
         let samples = ((try? FileManager.default.contentsOfDirectory(
             at: seed, includingPropertiesForKeys: nil)) ?? [])
@@ -1169,10 +1395,54 @@ final class AppState: ObservableObject {
                                      args: ["path": scan.path,
                                             "name": "Scanned score",
                                             "piece": "Scanned score"])
+            // A SECOND scan, for the pair Ali named: one arrangement being
+            // transcribed and another that is PDF-only and is not. Without
+            // two, the "different arrangement" in that sentence has to be
+            // notation, which has no Make editable row to contradict.
+            if ProcessInfo.processInfo.arguments.contains("-seedSecondScan") {
+                _ = try await local.call(op: "import-pdf",
+                                         args: ["path": scan.path,
+                                                "name": "Another scan",
+                                                "piece": "Another scan"])
+            }
             await refresh()
         } catch {
             print("SCORANGER-SEED scan failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture: a transcription queue with nothing on the network.
+    ///
+    /// Three jobs against real arrangements -- one running with a stage and a
+    /// bar, two waiting -- so the queue and the per-score chip can be
+    /// photographed and driven without an OMR service, an API key or
+    /// Audiveris. It seeds the ROWS only: no work is enqueued, so nothing is
+    /// uploaded and nothing finishes.
+    func seedOMRQueueIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-seedOMRQueue"),
+              !pendingImports.contains(where: \.isTranscription) else { return }
+        // The running one is a SCAN, transcribed on demand -- the only kind of
+        // arrangement that can be. The waiting two are PDFs on their way in,
+        // which belong to no arrangement yet; that is the mix a reader who
+        // hands the app several pieces at once actually produces.
+        // By slug, so which scan is the running one does not depend on import
+        // order and the photographs can be named truthfully.
+        guard let scan = (manifest?.scores ?? []).filter({
+            ScoreArtifact.canBeMadeEditable(
+                ScoreArtifact.kind(ofFile: $0.versions.last?.file ?? ""))
+        }).min(by: { $0.slug < $1.slug }) else { return }
+        let running = MakeEditable.converting(page: 2, pages: 9)
+        pendingImports.append(PendingImport(name: scoreName(scan.slug) ?? scan.slug,
+                                            arrangement: scan.slug,
+                                            isTranscription: true, waiting: false,
+                                            stage: running.stage,
+                                            fraction: running.fraction))
+        for name in ["Valse d'Amelie.pdf", "Padam padam.pdf"] {
+            pendingImports.append(PendingImport(name: name,
+                                                isTranscription: true, waiting: true))
+        }
+        restateTheQueue()
+        print("SCORANGER-SEED omr queue: \(OMRQueue.summary(omrEntries) ?? "none")")
     }
 
     /// Test fixture only. The app ships with no sample library: a fresh install
@@ -1247,6 +1517,63 @@ final class AppState: ObservableObject {
                 } catch {
                     print("SCORANGER-SEED chord chart FAILED: \(error)")
                 }
+            }
+            // A STAFF OF NOTHING BUT MARKS, so the adjust row can be
+            // reached by a finger at all.
+            //
+            // The row appears for a selection of ONE added mark, and a mark
+            // engraves a few points across. Landing a synthetic tap or lasso
+            // on one is a property of the engraving rather than of the code:
+            // measured, a pinch reaches 1.0, 1.37, 1.61, 5.42 or 5.53 from run
+            // to run, so the bars on screen afterwards are not the same twice.
+            // Three earlier attempts to assert through the lasso were deleted
+            // as flaky for the same reason (BACKLOG.md).
+            //
+            // So the fixture removes the problem rather than the test working
+            // around it: a dynamic under every other bar of the top part and a
+            // text mark over the ones between, so the staff is crowded with
+            // the one kind of thing the row is about.
+            //
+            // Two things it deliberately does NOT do. It does not empty the
+            // staff first -- `strip-notes` has no route through bridge.py, so
+            // the app cannot ask for it (noted; that is step 2's business).
+            // And it does not scale the marks up to make them easier to hit:
+            // measured, a text mark drawn at 4x keeps the HIT FRAME of its
+            // engraved size, because `ChordAdjustments.applySizes` rewrites
+            // the tspan's font-size in the drawn SVG and the geometry is read
+            // from the box the parser computes for it. Scaling up moved the
+            // picture and not the target.
+            if ProcessInfo.processInfo.arguments.contains("-seedMarkChart"),
+               let first = (try await local.manifest()).scores
+                    .sorted(by: { $0.slug < $1.slug }).first {
+                var outcome: [String] = []
+                var steps: [(String, [String: Any])] = []
+                for bar in stride(from: 1, through: 24, by: 2) {
+                    steps.append(("add-element",
+                                  ["score": first.slug, "part": "#0",
+                                   "kind": "dynamic", "value": "mf",
+                                   "measure": bar, "placement": "below"]))
+                }
+                for bar in stride(from: 2, through: 24, by: 2) {
+                    steps.append(("add-element",
+                                  ["score": first.slug, "part": "#0",
+                                   "kind": "text", "value": "dolce",
+                                   "measure": bar, "placement": "above"]))
+                }
+                for (op, args) in steps {
+                    do {
+                        _ = try await local.call(op: op, args: args)
+                    } catch {
+                        outcome.append("\(op)=FAILED(\(error.localizedDescription))")
+                        break
+                    }
+                }
+                // The outcome goes where the test can see it, not to stdout:
+                // app stdout is not in the xcodebuild log, so a step that
+                // failed would be invisible and the shot would be of a score
+                // that never got its marks.
+                seedOutcome = "marks:"
+                    + (outcome.isEmpty ? "ok" : outcome.joined(separator: " "))
             }
             // A guitar tab, which is the other half of the pagination
             // fixture. Ali's report is that a chat op which ADDS material --
@@ -1349,6 +1676,13 @@ final class AppState: ObservableObject {
             if ProcessInfo.processInfo.arguments.contains("-seedBigBook") {
                 await seedBigBook()
             }
+            // The SHAPE of a real library, for the pictures Ali's list is
+            // about: enough rows that the top of the list is off-screen, and
+            // an arrangement filed under no piece beside the pieces -- the
+            // two row kinds that contradicted each other on his screen.
+            if ProcessInfo.processInfo.arguments.contains("-seedLibraryShape") {
+                await seedLibraryShape()
+            }
             await refresh()
             // `-autoDrag`: the frame probe's scripted drag needs a score open
             // with nobody at the device; the first seeded arrangement opens
@@ -1363,6 +1697,38 @@ final class AppState: ObservableObject {
         } catch {
             print("SCORANGER-SEED failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Test fixture only: a library long enough to scroll, with one
+    /// arrangement left unfiled.
+    ///
+    /// Both halves are photographic evidence, not product: a library of one
+    /// piece can never show a naming row landing off-screen, and the seeded
+    /// library files every score under a piece, so it can never show the
+    /// unfiled arrangement row beside a piece row.
+    private func seedLibraryShape() async {
+        // Sixteen, not forty. Each one is a separate trip through the bridge
+        // and costs seconds in the simulator; sixteen rows under sixteen
+        // letter headers is already several screens of list, which is all the
+        // fixture is for.
+        let names = ["All Blues", "Balkan Ornaments", "Ciribiribin", "Djangology",
+                     "El Choclo", "Fascination", "Gnossienne", "Hejira",
+                     "Indifference", "Jeux d'enfants", "Kalinka", "La Foule",
+                     "Nuages", "Orient Express", "Padam padam",
+                     "Quelqu'un m'a dit"]
+        // The unfiling FIRST. `assign_score_to_piece` drops every piece left
+        // holding nothing, so unfiling after the pieces are made deletes all
+        // of them -- which is how the first run of this fixture produced a
+        // library of one piece.
+        if let last = try? await local.manifest().scores
+            .sorted(by: { $0.slug < $1.slug }).last {
+            _ = try? await local.call(op: "unassign-piece",
+                                      args: ["score": last.slug])
+        }
+        for name in names {
+            _ = try? await local.call(op: "create-piece", args: ["name": name])
+        }
+        print("SCORANGER-SEED library shape: \(names.count) pieces, one unfiled")
     }
 
     /// Test fixture only: a several-hundred-page book, made on the spot and
@@ -1510,7 +1876,11 @@ final class AppState: ObservableObject {
         // still the first component, so RenderTransition reads this as the
         // same score and keeps the current pages up until the new ones arrive
         // rather than blanking the canvas (#44).
-        let key = "\(score.slug)/\(vid)/\(layout.rawValue)"
+        // The ENGRAVING, not the layout: one page and a spread are the same
+        // pages counted out differently, so they share a key and a reader
+        // toggling between them pays no engrave at all. Continuous is a
+        // different document and has its own.
+        let key = "\(score.slug)/\(vid)/\(layoutChoice.engraving.rawValue)"
         guard force || key != renderedKey else { return }
         // A forced render is asked for when the FILE behind the key changed
         // under it, which is the one thing the cache cannot see.
@@ -1534,6 +1904,7 @@ final class AppState: ObservableObject {
         if transition.blanksTheCanvas {
             pageIndex = 0
             pdfDocument = nil
+            renderedLayout = nil
             geometry = nil
             geometryKey = nil
             clearSelection()
@@ -1592,14 +1963,14 @@ final class AppState: ObservableObject {
                         for: key, cost: Self.engravingBytes,
                         make: {
                             let made = try await VerovioRenderer.shared.engrave(
-                                musicXMLPath: path, layout: layout)
+                                musicXMLPath: path, layout: layoutChoice)
                             engravingCount += 1
                             return HeldEngraving(engraving: made,
                                                  stamp: engravingCount)
                         })
                     data = held.engraving.pdf
                     model = held.engraving.geometry
-                    engravedAdjustments = held.engraving.chordAdjustments
+                    engravedAdjustments = held.engraving.markAdjustments
                     stamp = held.stamp
                 }
             } else {
@@ -1612,13 +1983,17 @@ final class AppState: ObservableObject {
                 if stamp == 0 { engravingCount += 1; stamp = engravingCount }
                 engravingKey = "\(key)#\(stamp)"
                 pdfDocument = PDFDocument(data: data)
+                // In the SAME publish as the document, or the canvas draws
+                // one of them a frame before the other -- which is the flash
+                // this pair exists to close.
+                renderedLayout = layoutChoice
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no
                 // pages at all, which is the blank canvas this was avoiding.
                 pageIndex = PagedCanvas.clampedIndex(pageIndex,
                                                      pageCount: pdfDocument?.pageCount ?? 0)
                 geometry = model
-                chordAdjustments = engravedAdjustments
+                markAdjustments = engravedAdjustments
                 let previousKey = geometryKey
                 geometryKey = key
                 carrySelection(from: previousKey, to: key, into: model)
@@ -1770,27 +2145,64 @@ final class AppState: ObservableObject {
     /// version of the SAME arrangement.
     ///
     /// Only meaningful for a scan: notation is already editable.
+    /// The slugs whose convert offer (SC13) has had an answer, either way.
+    ///
+    /// Persisted: a question answered on Tuesday must not be asked again on
+    /// Wednesday just because the app was relaunched. In UserDefaults rather
+    /// than in the workspace because it is a reader's preference about one
+    /// device, not a fact about the arrangement -- and `TestReset` clears the
+    /// whole domain, so a seeded test library starts unanswered.
+    private static let convertAnsweredKey = "convertOfferAnswered"
+
+    var convertOfferAnswered: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: Self.convertAnsweredKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: Self.convertAnsweredKey) }
+    }
+
+    func recordConvertAnswer(for slug: String) {
+        guard !slug.isEmpty else { return }
+        var answered = convertOfferAnswered
+        guard answered.insert(slug).inserted else { return }
+        convertOfferAnswered = answered
+    }
+
     func makeEditable() {
         guard let slug = selectedSlug,
               let version = displayedVersion,
               ScoreArtifact.canBeMadeEditable(ScoreArtifact.kind(ofFile: version.file))
         else { return }
-        // Claimed HERE, not inside convertPDF: fetching the artifact's path is
-        // a round trip to the engine, and until this was set both ways in --
-        // the More screen's switch and the transport's button -- read as idle
-        // and a second tap started a second run on the same page.
-        guard !omrBusy else { return }
-        omrBusy = true
+        // One transcription per arrangement. Two of the same scan is two
+        // versions of the same draft and twice the wait; asking again while it
+        // is queued is a tap that must do nothing.
+        guard omrStatus(for: slug) == nil else { return }
+        // The place in the queue is claimed HERE, not inside `convertPDF`:
+        // fetching the artifact's path is a round trip to the engine, and
+        // until something was set both ways in -- the More screen's switch and
+        // the transport's button -- read as idle and a second tap started a
+        // second run on the same page.
+        let claim = PendingImport(name: scoreName(slug) ?? slug, arrangement: slug,
+                                  isTranscription: true, waiting: true,
+                                  stage: "reading the scan…")
+        pendingImports.append(claim)
         Task {
             do {
                 let path = try await local.versionFilePath(score: slug, version: version.id)
-                convertPDF(at: URL(fileURLWithPath: path), intoScore: slug)
+                convertPDF(at: URL(fileURLWithPath: path), intoScore: slug,
+                           claiming: claim.id)
             } catch {
-                omrBusy = false
+                pendingImports.removeAll { $0.id == claim.id }
                 notice = "That scan could not be opened for transcription: "
                        + OperationReport.reason(error)
             }
         }
+    }
+
+    /// What an arrangement is called, for a queue row that stands for it.
+    private func scoreName(_ slug: String) -> String? {
+        guard let score = manifest?.scores.first(where: { $0.slug == slug })
+        else { return nil }
+        return ScoreTitle.arrangementName(title: score.title, name: score.name,
+                                          slug: score.slug)
     }
 
     /// Books opened for browsing, by slug. Not published: nothing redraws
@@ -2098,58 +2510,151 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// PDF -> MusicXML via the cloud OMR service (Audiveris on Cloud Run),
+    /// PDF -> MusicXML through the cloud OMR service (Audiveris on Cloud Run),
     /// then import. Falls back to saving into Documents/intake when no
     /// service is configured.
-    /// PDF -> MusicXML through the cloud OMR service.
     ///
     /// `intoScore` is OMR ON DEMAND: the transcription becomes the next
     /// version of that arrangement rather than a new one, so the scan the
     /// reader knows stays as v001 and the two can be compared with the version
     /// control. Without it, this is the old share-sheet path: a new
     /// arrangement from a PDF handed to the app from outside.
+    ///
+    /// It ENQUEUES. See `OMRQueue`: the work is serial on the service, so the
+    /// client keeps an ordered queue of one at a time and every score says
+    /// where in it its own transcription is.
     private func convertPDF(at url: URL, intoPiece piece: String? = nil,
-                            intoScore: String? = nil) {
+                            intoScore: String? = nil,
+                            claiming claimed: UUID? = nil) {
         let scoped = url.startAccessingSecurityScopedResource()
         let raw = try? Data(contentsOf: url)
         let name = url.deletingPathExtension().lastPathComponent
         if scoped { url.stopAccessingSecurityScopedResource() }
-        guard let raw else {
-            omrBusy = false
-            notice = "Couldn't read the scan."
-            return
+
+        /// Give the reader the reason and take the row back out of the queue.
+        func abandon(_ why: String?) {
+            if let claimed { pendingImports.removeAll { $0.id == claimed } }
+            if let why { notice = why }
         }
+
+        guard let raw else { return abandon("Couldn't read the scan.") }
         // The OMR service is handed `Content-Type: application/pdf`, so a
         // photograph is wrapped into a one-page PDF here rather than the
         // service learning about images. One helper does this and the score
         // view's own display, so what is transcribed is what was looked at.
         let kind = ScoreArtifact.kind(ofFile: url.lastPathComponent)
         guard let pdfData = ScanImage.displayable(raw, kind: kind) else {
-            omrBusy = false
-            notice = ScanImageError.undecodable.errorDescription
-            return
+            return abandon(ScanImageError.undecodable.errorDescription)
         }
         guard let endpoint = URL(string: omrURLString), !omrURLString.isEmpty else {
-            omrBusy = false
+            abandon(nil)
             saveToIntake(pdfData, filename: url.lastPathComponent)
             return
         }
         // Notation software exports pages OMR cannot read: oversized, vector,
         // no raster layer. Re-render those before they go anywhere.
         let preflight = PDFPreflight.prepare(pdfData)
-        let uploadData = preflight.data
         if let note = preflight.note { print("SCORANGER-OMR preflight: \(note)") }
 
-        omrBusy = true
-        let pending = PendingImport(name: name, piece: piece)
-        pendingImports.append(pending)
-        omrPendingID = pending.id
-        Task {
-            defer {
-                omrBusy = false
-                omrPendingID = nil
-                pendingImports.removeAll { $0.id == pending.id }
-            }
+        // The bytes go to a file, not into the queue. A queue of scans held as
+        // Data is a queue of tens of megabytes, and the reader is invited to
+        // put several pieces in it.
+        let spool: URL
+        do {
+            spool = try spoolOMRUpload(preflight.data, id: claimed ?? UUID())
+        } catch {
+            return abandon("Couldn't hold on to that scan: "
+                           + OperationReport.reason(error))
+        }
+
+        let id: UUID
+        if let claimed, pendingImports.contains(where: { $0.id == claimed }) {
+            id = claimed
+        } else {
+            let pending = PendingImport(name: name, piece: piece,
+                                        arrangement: intoScore,
+                                        isTranscription: true, waiting: true,
+                                        stage: OMRStatus.waiting(place: 1, of: 1).detail)
+            pendingImports.append(pending)
+            id = pending.id
+        }
+        omrWork[id] = OMRWork(id: id, name: name, piece: piece,
+                              arrangement: intoScore, endpoint: endpoint,
+                              spool: spool, preflightNote: preflight.note)
+        restateTheQueue()
+        pumpOMRQueue()
+    }
+
+    /// One transcription's inputs, held while it waits its turn. Not
+    /// published: nothing on screen reads it, and the row beside it in
+    /// `pendingImports` is what the reader sees.
+    private struct OMRWork {
+        let id: UUID
+        let name: String
+        let piece: String?
+        /// The arrangement this becomes a new version of, or nil when it is
+        /// becoming an arrangement of its own.
+        let arrangement: String?
+        let endpoint: URL
+        /// The preflighted upload bytes, on disk.
+        let spool: URL
+        let preflightNote: String?
+    }
+
+    private func spoolOMRUpload(_ data: Data, id: UUID) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "omr-queue")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: "\(id.uuidString).pdf")
+        try data.write(to: file, options: .atomic)
+        return file
+    }
+
+    /// Say where each waiting job is, so a row that has not started still
+    /// reads as something rather than as a stalled upload.
+    private func restateTheQueue() {
+        let entries = omrEntries
+        for (index, pending) in pendingImports.enumerated() where pending.isTranscription && pending.waiting {
+            guard let status = OMRQueue.status(of: pending.id, in: entries) else { continue }
+            let said = MakeEditable.detailText(status)
+            if pendingImports[index].stage != said { pendingImports[index].stage = said }
+            if pendingImports[index].fraction != nil { pendingImports[index].fraction = nil }
+        }
+    }
+
+    /// Start the next transcription if a slot is free. Called when one is
+    /// added and when one finishes; `OMRQueue.next` owns the decision.
+    private func pumpOMRQueue() {
+        guard let id = OMRQueue.next(in: omrEntries), let work = omrWork[id] else { return }
+        guard let index = pendingImports.firstIndex(where: { $0.id == id }) else {
+            omrWork[id] = nil
+            return
+        }
+        pendingImports[index].waiting = false
+        pendingImports[index].stage = "uploading…"
+        pendingImports[index].fraction = 0
+        Task { await runTranscription(work) }
+    }
+
+    private func finishTranscription(_ id: UUID) {
+        if let spool = omrWork[id]?.spool { try? FileManager.default.removeItem(at: spool) }
+        omrWork[id] = nil
+        pendingImports.removeAll { $0.id == id }
+        restateTheQueue()
+        pumpOMRQueue()
+    }
+
+    private func runTranscription(_ work: OMRWork) async {
+        defer { finishTranscription(work.id) }
+        let endpoint = work.endpoint
+        let name = work.name
+        let uploadData: Data
+        do {
+            uploadData = try Data(contentsOf: work.spool)
+        } catch {
+            notice = "That scan is no longer where it was put: "
+                   + OperationReport.reason(error)
+            return
+        }
             do {
                 // stored key if present, baked-in default otherwise; a 401
                 // self-heals below by falling back to the baked key
@@ -2174,7 +2679,7 @@ final class AppState: ObservableObject {
 
                 let progressDelegate = UploadProgressDelegate { [weak self] sent in
                     Task { @MainActor in
-                        self?.updatePending(pending.id, stage: "uploading…", fraction: sent)
+                        self?.updatePending(work.id, stage: "uploading…", fraction: sent)
                     }
                 }
 
@@ -2239,7 +2744,7 @@ final class AppState: ObservableObject {
                         switch state {
                         case "queued":
                             let queue = s["queue"] as? Int ?? 0
-                            updatePending(pending.id,
+                            updatePending(work.id,
                                           stage: queue > 0 ? "waiting (\(queue) ahead)…" : "waiting for converter…",
                                           fraction: nil)
                         case "converting":
@@ -2248,7 +2753,7 @@ final class AppState: ObservableObject {
                             // ON, so the bar behind it is `page - 1` and it
                             // never fills here (MakeEditable.converting).
                             let progress = MakeEditable.converting(page: page, pages: pages)
-                            updatePending(pending.id, stage: progress.stage,
+                            updatePending(work.id, stage: progress.stage,
                                           fraction: progress.fraction)
                         case "done":
                             break poll
@@ -2266,7 +2771,7 @@ final class AppState: ObservableObject {
                 }
 
                 // -- 3. fetch result, import ---------------------------------
-                updatePending(pending.id, stage: "downloading…", fraction: nil)
+                updatePending(work.id, stage: "downloading…", fraction: nil)
                 var resultReq = URLRequest(url: endpoint.appending(path: "jobs/\(jobID)/result"))
                 resultReq.timeoutInterval = 60
                 resultReq.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
@@ -2276,12 +2781,12 @@ final class AppState: ObservableObject {
                     throw LocalEngineError.engine(detail ?? "couldn't fetch the converted score")
                 }
 
-                updatePending(pending.id, stage: "importing…", fraction: nil)
-                let tmp = FileManager.default.temporaryDirectory.appending(path: "\(name).mxl")
+                updatePending(work.id, stage: "importing…", fraction: nil)
+                let tmp = FileManager.default.temporaryDirectory.appending(path: "\(work.name).mxl")
                 try? FileManager.default.removeItem(at: tmp)
                 try data.write(to: tmp)
                 let slug: String
-                if let intoScore {
+                if let intoScore = work.arrangement {
                     // Prove it can be DRAWN before it becomes a version.
                     //
                     // OMR output is a draft and some of it cannot be engraved
@@ -2303,19 +2808,26 @@ final class AppState: ObservableObject {
                                                    recordedAs: "omr")
                     slug = intoScore
                 } else {
-                    slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
+                    slug = try await local.importScore(fileURL: tmp, name: work.name, piece: work.piece)
                 }
                 try? FileManager.default.removeItem(at: tmp)
-                selectedSlug = slug
-                previewedSlug = slug
-                // follow the newest version, which is the transcription
-                pinnedVersion = nil
+                // Follow it ONLY if the reader is already there, or if it is
+                // brand new. With a queue a transcription can land while the
+                // reader is reading something else, and jumping them off the
+                // page they are on is what a background job must never do.
+                // A new arrangement still opens: an import the reader asked
+                // for wants to be seen (0.8.0 build 194, item 1).
+                if work.arrangement == nil || selectedSlug == slug {
+                    selectedSlug = slug
+                    previewedSlug = slug
+                    // follow the newest version, which is the transcription
+                    pinnedVersion = nil
+                }
                 await refresh()
             } catch {
                 notice = PDFPreflight.advice(name: name, error: error,
-                                             preflight: preflight.note)
+                                             preflight: work.preflightNote)
             }
-        }
     }
 
     /// Reports upload byte progress for the OMR job submission.
@@ -2804,6 +3316,22 @@ final class AppState: ObservableObject {
         await runSetlistOp(op: "rename-setlist", args: ["setlist": setlist, "name": name])
     }
 
+    /// Rename a book, which is a LABEL and nothing else: the slug names the
+    /// stored PDF and every extraction's recorded args, so the engine refuses
+    /// to move it (`workspace.rename_book`). The row's title is the only thing
+    /// a reader is changing, and no UI here may suggest otherwise.
+    @discardableResult
+    func renameBook(_ book: String, name: String) async -> Bool {
+        do {
+            try await local.renameBook(book, name: name)
+            await refresh()
+            return true
+        } catch {
+            report("rename that book", error)
+        }
+        return false
+    }
+
     /// Delete a setlist. Only the grouping goes; pieces and arrangements stay.
     @discardableResult
     func deleteSetlist(_ setlist: String) async -> Bool {
@@ -3146,6 +3674,30 @@ final class AppState: ObservableObject {
                 report("delete that piece", error)
             }
         }
+    }
+
+    /// Fold several pieces into one. ONE engine call, not N.
+    ///
+    /// Doing it client-side would be one `assign-piece` per arrangement, each
+    /// rebuilding the manifest and sweeping empty pieces, all of it racing the
+    /// manifest poll -- the same trap `placeInPiece` documents for filing and
+    /// ordering. The engine does it in one step and reports what it did.
+    ///
+    /// There is no undo, which is why the only route to here is a screen that
+    /// says so.
+    @discardableResult
+    func combinePieces(_ slugs: [String], name: String? = nil) async -> String? {
+        guard slugs.count > 1 else { return nil }
+        do {
+            var args: [String: Any] = ["pieces": slugs]
+            if let name { args["name"] = name }
+            let r = try await local.call(op: "combine-pieces", args: args)
+            await refresh()
+            return r["piece"] as? String
+        } catch {
+            report("combine those pieces", error)
+        }
+        return nil
     }
 
     /// What was just deleted and can still be put back (§5.2).

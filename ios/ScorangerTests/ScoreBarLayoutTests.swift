@@ -514,3 +514,74 @@ final class ScoreBarSelectArmTests: XCTestCase {
                                  "the bar's floor is wider than an iPhone SE")
     }
 }
+
+// MARK: - The phone's second row (0.8.2, Ph4)
+
+/// The three controls the bar handed to a row of its own, and what the phone
+/// gets back for it.
+///
+/// These are new assertions, not rewritten ones: `compact` defaults to false,
+/// so every fit above still describes the same bar it did before.
+extension ScoreBarLayoutTests {
+    private var phoneWidths: [CGFloat] { [375, 390, 393, 402, 430] }
+
+    /// The layout cells, Perform and the + come off the bar.
+    func testTheSecondRowTakesTheThreeControlsOffThePhonesBar() {
+        for width in phoneWidths {
+            let fit = ScoreBarLayout.fit(barWidth: width, compact: true)
+            XCTAssertTrue(fit.secondRow, "no second row at \(width)")
+            XCTAssertEqual(fit.layoutCells, 0,
+                           "the bar still holds layout cells at \(width)")
+            XCTAssertFalse(fit.showsPerformanceToggle,
+                           "Perform is on the bar AND the second row at \(width)")
+            XCTAssertFalse(fit.showsAddToSetlist,
+                           "the + is on the bar AND the second row at \(width)")
+        }
+    }
+
+    /// What the phone gets for it: the PENCIL, which every step of the yield
+    /// order used to take off a narrow bar.
+    func testThePhoneKeepsThePencilOnceTheCellsHaveARowOfTheirOwn() {
+        for width in phoneWidths {
+            let fit = ScoreBarLayout.fit(barWidth: width, compact: true)
+            XCTAssertTrue(fit.showsEdit,
+                          "the pencil still yields at \(width) with the row in place")
+            XCTAssertTrue(fit.showsSelectArm, "⌖ must never yield")
+            XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                          "the phone's bar overflows at \(width): \(fit)")
+        }
+    }
+
+    /// A switch belongs in exactly one place. The second row carrying Perform
+    /// must take it OFF the Options screen, which reads the same `Fit`.
+    func testOptionsDoesNotCarryPerformWhenTheSecondRowDoes() {
+        for width in phoneWidths {
+            let fit = ScoreBarLayout.fit(barWidth: width, compact: true)
+            XCTAssertFalse(fit.optionsCarriesPerformanceToggle,
+                           "Perform is in two places at \(width)")
+            XCTAssertFalse(fit.optionsCarriesEdit,
+                           "the pencil is in two places at \(width)")
+        }
+    }
+
+    /// And the bar still fits at every phone width, transcribing or not.
+    func testNoCompactWidthOverflows() {
+        for busy in [false, true] {
+            for width in stride(from: CGFloat(320), through: 500, by: 1) {
+                let fit = ScoreBarLayout.fit(barWidth: width, omrBusy: busy, compact: true)
+                XCTAssertTrue(ScoreBarLayout.fits(fit, in: width),
+                              "the phone's bar overflows at \(width)pt "
+                              + "(omrBusy: \(busy)): \(fit)")
+            }
+        }
+    }
+
+    /// The origin's name is still the first courtesy to go [C6]: 151pt for it
+    /// is what no phone has, second row or not.
+    func testThePhoneStillYieldsTheOriginsName() {
+        for width in phoneWidths {
+            XCTAssertFalse(ScoreBarLayout.fit(barWidth: width, compact: true).showsOriginName,
+                           "a phone seated the origin's name at \(width)")
+        }
+    }
+}

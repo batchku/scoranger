@@ -41,6 +41,17 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>ABC tune</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.scoranger.abc</string>
+				<string>public.alembic</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>PDF score</string>
 			<key>LSHandlerRank</key>
 			<string>Alternate</string>
@@ -120,9 +131,9 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scoranger talks to your score engine on the local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Dictation input for chat</string>
+	<string>Dictation input for chat. Recording is transcribed on this device and is not sent anywhere.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Dictate arrangement requests</string>
+	<string>Dictate arrangement requests. Speech is transcribed on this device and is not sent anywhere.</string>
 	<key>OMRDefaultURL</key>
 	<string>https://scoranger-omr-37kxlg2dpa-uc.a.run.app</string>
 	<key>UIAppFonts</key>
@@ -189,6 +200,23 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>mxl</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>ABC tune</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.scoranger.abc</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>abc</string>
 				</array>
 			</dict>
 		</dict>

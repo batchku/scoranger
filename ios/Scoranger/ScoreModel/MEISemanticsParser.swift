@@ -64,6 +64,28 @@ enum MEISemanticsParser {
             // an attribute instead.
             let staff = staffStack.last ?? Int(attrs["staff"] ?? "") ?? 0
             let layer = layerStack.last ?? Int(attrs["layer"] ?? "") ?? 0
+            // A <dir> is held until its body has been read: a chord DIAGRAM is
+            // a <dir> whose text is a six-fret shape, and giving one an
+            // address would shift every later text mark's ordinal off the one
+            // the engine counts (ops._elements_in_measure excludes them too).
+            if kind == .text {
+                pendingText = (id: id, staff: staff, layer: layer)
+                pendingBody = ""
+                return
+            }
+            assign(id, staff: staff, layer: layer, kind: kind)
+        }
+
+        /// A text mark's id and place, held while its words are read.
+        private var pendingText: (id: String, staff: Int, layer: Int)?
+        private var pendingBody = ""
+
+        func parser(_ parser: XMLParser, foundCharacters text: String) {
+            if pendingText != nil { pendingBody += text }
+        }
+
+        private func assign(_ id: String, staff: Int, layer: Int,
+                            kind: ScoreElementKind) {
             let key = "\(measure)/\(staff)/\(layer)/\(kind.rawValue)"
             let ordinal = counters[key] ?? 0
             counters[key] = ordinal + 1
@@ -76,6 +98,14 @@ enum MEISemanticsParser {
             switch name {
             case "staff": _ = staffStack.popLast()
             case "layer": _ = layerStack.popLast()
+            case "dir":
+                if let held = pendingText,
+                   ChordDiagrams.parseShape(pendingBody) == nil {
+                    assign(held.id, staff: held.staff, layer: held.layer,
+                           kind: .text)
+                }
+                pendingText = nil
+                pendingBody = ""
             default: break
             }
         }

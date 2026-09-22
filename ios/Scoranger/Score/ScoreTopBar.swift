@@ -37,13 +37,46 @@ struct ScoreTopBar: View {
     var chatOpen: Bool
     var onClose: () -> Void
     var onAsk: () -> Void
+    /// Which of the phone's TWO rows this instance is (Ph4).
+    ///
+    /// One type, two instances, rather than a second view holding copies of
+    /// the layout cells, Perform and the +. Copies are how the bar and the
+    /// Options screen came to disagree about which of them owned a switch,
+    /// and these three carry more state between them than that pair did.
+    enum Row { case bar, second }
+    var row: Row = .bar
 
     var body: some View {
-        if mode == .performance {
-            performanceBar
-        } else {
-            fullBar
+        switch row {
+        case .bar:
+            if mode == .performance { performanceBar } else { fullBar }
+        case .second:
+            if mode != .performance && fit.secondRow { secondRow }
         }
+    }
+
+    /// The phone's second row: the layout control, Perform and the + , centred
+    /// over the tray (Ph4). Everything in it came off the bar, so nothing here
+    /// is a new control and nothing is in two places.
+    private var secondRow: some View {
+        HStack(spacing: Theme.Metric.s8) {
+            Spacer(minLength: 0)
+            // Each at its own width, so the row reads as three controls
+            // side by side rather than one stretched capsule: an HStack
+            // hands its slack to whatever will take it, and Perform's
+            // label took all of it.
+            layoutControl.fixedSize()
+            performanceToggle.fixedSize()
+            if ScoreBarLayout.secondRowFitsPlus(width: barWidth) {
+                addToSetlistTrigger.fixedSize()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.Metric.s12)
+        .padding(.vertical, Theme.Metric.s6)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("score-second-row")
     }
 
     // MARK: - Reading and editing
@@ -78,8 +111,12 @@ struct ScoreTopBar: View {
             barButton("bubble.left", label: "Ask", identifier: "score-ask",
                       active: chatOpen, action: onAsk)
             if fit.showsAddToSetlist { addToSetlistTrigger }
-            layoutControl
-            if fit.showsPerformanceToggle { performanceToggle }
+            // On a phone these three are the second row's (Ph4); everywhere
+            // else they are the bar's, as they have always been.
+            if !fit.secondRow {
+                layoutControl
+                if fit.showsPerformanceToggle { performanceToggle }
+            }
             if fit.showsOMRProgress {
                 OMRProgressChip(control: omr) { moreOpen = true; titleMenuOpen = false }
             }
@@ -174,11 +211,10 @@ struct ScoreTopBar: View {
     private var setlistsOpen: Bool { titleMenuOpen && titleMenuMode == .setlists }
 
     /// What OMR is doing, read from the one signal the app keeps for it
-    /// (`AppState.omrBusy` + the stage of the pending import it started). No
+    /// (`AppState.omrHere`, the status of THIS arrangement's job). No
     /// second notion: the Make editable switch in Options reads exactly this.
     private var omr: OMRControl {
-        MakeEditable.control(busy: state.omrBusy, stage: state.omrStage,
-                             fraction: state.omrFraction)
+        MakeEditable.control(status: state.omrHere)
     }
 
     /// Performance mode, on the bar (0.6.8).
@@ -233,6 +269,11 @@ struct ScoreTopBar: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Metric.rCtl))
+        // Three answers to ONE question, so they are drawn as one thing: the
+        // app's dashed rule closed around the group (Ali, 2026-09-14 #7).
+        // The boundary is the group's, not a cell's -- the active cell keeps
+        // the single clean shape build 195 gave it.
+        .dashedBoundary()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("score-layout")
     }
@@ -246,11 +287,14 @@ struct ScoreTopBar: View {
     }
 
     private func layoutCell(_ option: ScoreLayout) -> some View {
-        let active = state.layout == option
+        // The CHOICE, not what is drawn: the cell lights the moment it is
+        // pressed, while the canvas keeps the pages it has until the new
+        // engraving lands (`AppState.layout`).
+        let active = state.layoutChoice == option
         let available = isAvailable(option)
         return Button {
-            guard state.layout != option else { return }
-            state.layout = option
+            guard state.layoutChoice != option else { return }
+            state.layoutChoice = option
             // continuous has no pages to be on, and coming back from it the
             // reader should be at the top of the score rather than at an index
             // the strip never had
@@ -343,7 +387,8 @@ struct ScoreTopBar: View {
     /// What this bar can seat. See `ScoreBarLayout` for the order things yield
     /// in -- ✕ never does (#60).
     private var fit: ScoreBarLayout.Fit {
-        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy,
+                           compact: isCompact)
     }
 
     private var titleBlock: some View {
@@ -483,7 +528,7 @@ struct ScoreTopBar: View {
 /// minute or two the conversion takes. A reader who came back to the music saw
 /// a PDF that was still a PDF.
 ///
-/// It reads the SAME signal the Make editable switch does -- `AppState.omrBusy`
+/// It reads the SAME signal the Make editable switch does -- `AppState.omrHere`
 /// and the stage of the pending import it started, through `MakeEditable` --
 /// because two notions of "is OMR running" fall out of step the moment either
 /// moves.

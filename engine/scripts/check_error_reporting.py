@@ -53,14 +53,16 @@ INTERNAL = {
                               "displays the number itself",
     "previewedSlug": "the row being previewed; AppState resolves it into "
                      "selectedSlug before any view asks",
-    "omrPendingID": "which pending import the OMR run belongs to; the row is "
-                    "rendered from pendingImports, not from this",
+    "renderedLayout": "the layout the pages on the canvas were engraved for; "
+                      "read by `layout` to decide what may be DRAWN "
+                      "(ScoreLayout.displayed), never shown",
     "selection": "the lasso's result, read back through selectionPaths and the "
                  "ops that consume it",
     "selectionKey": "the engraving a selection was drawn on, compared inside "
                     "carrySelection when a re-render lands",
-    "chordAdjustments": "handed to VerovioRenderer as a parameter, not read off "
-                        "AppState",
+    "markAdjustments": "what every added mark already carries, by address; read "
+                       "by retargetAdjustment to start a session from the "
+                       "notation rather than from the default, not rendered",
     "combineMode": "replace/add/subtract, applied inside the selection merge",
     "adjustTarget": "the address the open adjust session points at; the session "
                     "itself is what views read",

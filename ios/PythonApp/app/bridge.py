@@ -48,6 +48,27 @@ def _part(score, name):
     return ops.find_parts(score, [name])[0]
 
 
+def _place_element(a, op, duplicate):
+    """move-element and duplicate-element: one body, because they place things
+    by identical rules and two bodies would drift apart.
+
+    The destination is a tapped BAR plus an offset stepper inside it -- this
+    app has no drag. Spanners are refused inside ops.move_element, which is
+    where the reason is written.
+    """
+    score = _load(a["score"], None)
+    args = {"part": a["part"], "kind": a["kind"], "measure": int(a["measure"]),
+            "ordinal": int(a.get("ordinal") or 0),
+            "to_measure": None if a.get("to_measure") is None else int(a["to_measure"]),
+            "to_offset": float(a.get("to_offset") or 0.0)}
+    details = ops.move_element(score, args["part"], args["kind"], args["measure"],
+                               ordinal=args["ordinal"],
+                               to_measure=args["to_measure"],
+                               to_offset=args["to_offset"], duplicate=duplicate)
+    entry = workspace.add_version(a["score"], score, op, args)
+    return {"version": entry["id"], "details": details}
+
+
 def _dispatch(op, a):
     if op == "manifest":
         return workspace.rebuild_manifest()
@@ -118,19 +139,22 @@ def _dispatch(op, a):
         slug, entry = workspace.extract_from_book(
             a["book"], int(a["from_page"]), int(a["to_page"]),
             a["name"], a.get("piece"))
-        return {"score": slug, "version": entry["id"], "piece": a.get("piece")}
+        piece = a.get("piece") or workspace.ensure_own_piece(slug)["piece"]
+        return {"score": slug, "version": entry["id"], "piece": piece}
     if op == "book-file":
         # Where the book's own PDF is, so the reader can LOOK through it before
         # naming a page range. Asking someone for pages 137-139 of a fake book
         # they cannot see is asking them to guess.
-        doc = workspace._repo().get_book(a["book"])
-        if doc is None:
-            have = [b["slug"] for b in workspace.list_books()]
-            raise FileNotFoundError(f"No book '{a['book']}'. Have: {have}")
+        doc = workspace.resolve_book(a["book"])
         path = workspace.book_path(a["book"])
         if not path.exists():
             raise FileNotFoundError(f"'{doc['name']}' has no file at {path}")
         return {"path": str(path), "pages": doc.get("pages")}
+    if op == "rename-book":
+        # The book row's Rename. A book has no engraved title -- it is a PDF
+        # nobody re-encodes -- so unlike an arrangement this is the library
+        # name and nothing else.
+        return workspace.rename_book(a["book"], a["name"])
     if op == "delete-book":
         workspace.delete_book(a["book"])
         return {"deleted": a["book"]}
@@ -173,28 +197,51 @@ def _dispatch(op, a):
         name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
         slug, entry = workspace.create_pdf_score(name, a["path"], op="import-pdf",
                                                  args={"source": a["path"]})
-        piece = None
         if a.get("piece"):
             piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+        else:
+            # a scan is an arrangement too, and the rule is about arrangements
+            piece = workspace.ensure_own_piece(slug)["piece"]
         return {"score": slug, "version": entry["id"], "piece": piece, "kind": "pdf"}
     if op == "import":
-        from music21 import converter
-        score = converter.parse(a["path"], forceSource=True)
-        name = a.get("name") or os.path.splitext(os.path.basename(a["path"]))[0]
-        # music21 seeds the movement title with the file name, extension and
-        # all, and that is what engraves; normalize before the first version
+        # read_notation, never converter.parse: an ABC file can hold several
+        # tunes and music21 returns an Opus for those, which has no `.parts`
+        # and takes down everything that follows
+        tunes = workspace.read_notation(a["path"])
+        if not tunes:
+            raise ValueError("that file holds no music")
         stem = os.path.splitext(os.path.basename(a["path"]))[0]
-        name = ops.clean_imported_metadata(score, name, source_stem=stem)["title"]
-        slug, entry = workspace.create_score(name, score, op="import", args={"source": a["path"]})
-        piece = None
-        if a.get("piece"):
-            piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
-        # Odd bars in an imported score are reported, never fatal. OMR output is
-        # imperfect by nature and the user brings the score in so they can fix
-        # it; refusing the import left them unable to open their own music.
-        out = {"score": slug, "version": entry["id"], "piece": piece}
-        if entry.get("rhythm_warnings"):
-            out["rhythm_warnings"] = entry["rhythm_warnings"]
+        rows = []
+        for score in tunes:
+            # music21 seeds the movement title with the file name, extension
+            # and all, and that is what engraves; normalize before the first
+            # version. `name` is the FALLBACK, so a tune that names itself
+            # keeps its own name and a file of tunes imports as the tunes.
+            name = a.get("name") or stem
+            name = ops.clean_imported_metadata(score, name, source_stem=stem)["title"]
+            slug, entry = workspace.create_score(name, score, op="import",
+                                                 args={"source": a["path"]})
+            if a.get("piece"):
+                piece = workspace.assign_score_to_piece(slug, a["piece"])["piece"]
+            else:
+                # EVERY arrangement belongs to a piece. Without this the app's
+                # own import was the thing that made UNFILED rows.
+                piece = workspace.ensure_own_piece(slug)["piece"]
+            # Odd bars in an imported score are reported, never fatal. OMR
+            # output is imperfect by nature and the user brings the score in so
+            # they can fix it; refusing the import left them unable to open
+            # their own music.
+            row = {"score": slug, "version": entry["id"], "piece": piece}
+            if entry.get("rhythm_warnings"):
+                row["rhythm_warnings"] = entry["rhythm_warnings"]
+            rows.append(row)
+        out = dict(rows[0])
+        out["tunes_found"] = len(rows)
+        out["arrangements"] = rows
+        said = workspace.abc_report(a["path"], tunes) if os.path.splitext(
+            a["path"])[1].lower() in workspace.ABC_SUFFIXES else {}
+        if said:
+            out["abc"] = said
         return out
     if op == "info":
         return ops.info(_load(a["score"], a.get("version")))
@@ -261,7 +308,11 @@ def _dispatch(op, a):
         return {"path": str(dest), "filename": dest.name, "format": fmt}
 
     if op == "versions":
-        return workspace.load_meta(a["score"])
+        # NOT load_meta. This answer goes to a model provider, and the full
+        # version documents carry artifact filenames, uids and a 200-character
+        # excerpt of every earlier user prompt. One projection, shared with the
+        # desktop agent's list_versions: workspace.VERSION_FIELDS.
+        return workspace.version_history(a["score"])
     if op == "delete-score":
         workspace.delete_score(a["score"])
         return {"deleted": a["score"]}
@@ -291,6 +342,13 @@ def _dispatch(op, a):
                                                create_if_missing=True)
     if op == "unassign-piece":
         return workspace.assign_score_to_piece(a["score"], None)
+    if op == "combine-pieces":
+        # ONE op rather than the app making N assign-piece calls: each of those
+        # rebuilds the manifest and sweeps empty pieces, so a combine done
+        # client-side is N round-trips racing the 2-second poll -- and a report
+        # of what it did is the thing worth showing back.
+        return workspace.combine_pieces(a["pieces"], into=a.get("into"),
+                                        name=a.get("name"))
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
     if op == "set-structure":
@@ -305,14 +363,44 @@ def _dispatch(op, a):
         return {"version": entry["id"], "details": details}
     if op == "adjust-element":
         score = _load(a["score"], None)
+        # `scale` is the relative interface and `size` the absolute one the
+        # adjust row already holds; ops.adjust_element refuses both at once.
         details = ops.adjust_element(
             score, a["part"], kind=a.get("kind") or "harm",
             measure=a.get("measure"), ordinal=int(a.get("ordinal") or 0),
-            size=a.get("size"), offset_x=a.get("offset_x"), offset_y=a.get("offset_y"),
+            size=a.get("size"), scale=a.get("scale"),
+            offset_x=a.get("offset_x"), offset_y=a.get("offset_y"),
             reset=bool(a.get("reset")), all_elements=bool(a.get("all")))
         entry = workspace.add_version(a["score"], score, "adjust-element",
                                       {"part": a["part"], "kind": a.get("kind") or "harm",
                                        "measure": a.get("measure")})
+        return {"version": entry["id"], "details": details}
+    if op == "add-element":
+        score = _load(a["score"], None)
+        details = ops.add_element(score, a["part"], a["kind"], int(a["measure"]),
+                                  value=a.get("value"),
+                                  offset=float(a.get("offset") or 0.0),
+                                  placement=a.get("placement"))
+        entry = workspace.add_version(a["score"], score, "add-element",
+                                      {"part": a["part"], "kind": a["kind"],
+                                       "measure": int(a["measure"]),
+                                       "value": a.get("value")})
+        return {"version": entry["id"], "details": details}
+    if op == "move-element":
+        return _place_element(a, op, duplicate=False)
+    if op == "duplicate-element":
+        return _place_element(a, op, duplicate=True)
+    if op == "remove-element":
+        score = _load(a["score"], None)
+        details = ops.remove_element(score, a["part"], a["kind"],
+                                     a.get("measure"),
+                                     ordinal=int(a.get("ordinal") or 0),
+                                     all_elements=bool(a.get("all")))
+        entry = workspace.add_version(a["score"], score, "remove-element",
+                                      {"part": a["part"], "kind": a["kind"],
+                                       "measure": a.get("measure"),
+                                       "ordinal": int(a.get("ordinal") or 0),
+                                       "all": bool(a.get("all"))})
         return {"version": entry["id"], "details": details}
     if op == "guitar-tab":
         score = _load(a["score"], None)
@@ -430,9 +518,13 @@ def _dispatch(op, a):
         workspace.assign_score_to_piece(slug, a["piece"])
         return {"score": slug, "version": entry["id"]}
     if op == "add-source":
-        from music21 import converter
-        score = converter.parse(a["path"], forceSource=True)
-        return workspace.add_source(a["score"], score, a.get("name") or "source", a["path"])
+        # a source is ONE reference edition; read_notation so a multi-tune ABC
+        # cannot hand an Opus to add_source
+        tunes = workspace.read_notation(a["path"])
+        if not tunes:
+            raise ValueError("that file holds no music")
+        return workspace.add_source(a["score"], tunes[0],
+                                    a.get("name") or "source", a["path"])
     if op == "analyze":
         return ops.analyze_harmony(_load(a["score"], a.get("version")), a.get("parts"))
     if op == "check-range":
@@ -508,8 +600,18 @@ def _dispatch(op, a):
         return _mutate(s, op, a, lambda sc: ops.consolidate_ties(sc, a["parts"]))
     if op == "limit-part":
         return _mutate(s, op, a, lambda sc: ops.limit_part(sc, a["part"], a.get("max_pitch"), a.get("monophonic", False)))
+    if op == "simplify-rhythm":
+        return _mutate(s, op, a, lambda sc: ops.simplify_rhythm(
+            sc, a["mode"], [a["part"]] if a.get("part") else None,
+            a.get("unit", "eighth"), a.get("from_measure"), a.get("to_measure")))
     if op == "simplify-repeats":
         return _mutate(s, op, a, lambda sc: ops.simplify_repeats(sc, a["part"]))
+    if op == "strip-notes":
+        # The names-only staff: the chart's changes with nothing engraved under
+        # them. The engine has had the op and the CLI has documented it since
+        # before this bridge existed, and the app could not ask for it -- found
+        # while building a fixture that wanted one.
+        return _mutate(s, op, a, lambda sc: ops.strip_notes(sc, a["part"]))
     if op == "set-chords":
         return _mutate(s, op, a, lambda sc: ops.set_chord_symbols(sc, a["part"], a["chords"]))
     if op == "chart-style":

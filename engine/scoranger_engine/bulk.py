@@ -24,8 +24,11 @@ from . import workspace
 #: A PDF is one of them now: it reads and takes markup, and OMR turns it into
 #: an editable arrangement when the reader wants that. What it cannot do until
 #: then is be edited, which `workspace.resolve_notation_path` enforces.
-NOTATION = {".musicxml", ".xml", ".mxl", ".mid", ".midi"}
-from .workspace import SCAN_SUFFIXES
+#: Derived, not typed again. Both halves of this now come from the engine's
+#: own lists, so a format the engine learns (ABC) is importable in bulk on the
+#: same day rather than whenever someone notices this line.
+from .workspace import NOTATION_SUFFIXES, SCAN_SUFFIXES
+NOTATION = set(NOTATION_SUFFIXES)
 SCANS = set(SCAN_SUFFIXES)
 IMPORTABLE = NOTATION | SCANS
 
@@ -195,10 +198,14 @@ def run(plan_: dict, dry_run: bool = True, root: str | None = None) -> dict:
                 continue
             source = base / arrangement["file"]
             try:
-                slug = _import_one(source, arrangement["name"])
-                workspace.assign_score_to_piece(slug, piece["piece"],
-                                                create_if_missing=True)
-                imported.append({"file": arrangement["file"], "score": slug})
+                # a list, because one file can hold several tunes; they all
+                # belong to the piece the FOLDER named, so `ensure_own_piece`
+                # is deliberately not used here -- the reader's own filing
+                # already said where these go and must not be second-guessed
+                for slug in _import_one(source, arrangement["name"]):
+                    workspace.assign_score_to_piece(slug, piece["piece"],
+                                                    create_if_missing=True)
+                    imported.append({"file": arrangement["file"], "score": slug})
             except Exception as exc:                      # noqa: BLE001
                 # one bad file may not abandon the other forty
                 failed.append({"file": arrangement["file"],
@@ -207,9 +214,14 @@ def run(plan_: dict, dry_run: bool = True, root: str | None = None) -> dict:
             "failed": failed, "held": [f["file"] for f in plan_["pending"]]}
 
 
-def _import_one(source: Path, name: str) -> str:
-    from music21 import converter
+def _import_one(source: Path, name: str) -> list[str]:
+    """Every arrangement one file yields. A list of one, except for ABC.
 
+    It returned a single slug while every importable file was one score. An
+    ABC file holding several tunes is several arrangements, and music21 gives
+    back an Opus for those -- so this reads through `workspace.read_notation`
+    and the caller files each of them.
+    """
     from . import ops
 
     if not source.exists():
@@ -219,9 +231,12 @@ def _import_one(source: Path, name: str) -> str:
         # out of an export called things like "3.pdf"
         slug, _entry = workspace.create_pdf_score(name, source, op="bulk-import",
                                                   args={"source": source.name})
-        return slug
-    score = converter.parse(str(source), forceSource=True)
-    title = ops.clean_imported_metadata(score, name, source_stem=source.stem)["title"]
-    slug, _entry = workspace.create_score(title, score, op="bulk-import",
-                                          args={"source": source.name})
-    return slug
+        return [slug]
+    slugs = []
+    for score in workspace.read_notation(source):
+        title = ops.clean_imported_metadata(score, name,
+                                            source_stem=source.stem)["title"]
+        slug, _entry = workspace.create_score(title, score, op="bulk-import",
+                                              args={"source": source.name})
+        slugs.append(slug)
+    return slugs

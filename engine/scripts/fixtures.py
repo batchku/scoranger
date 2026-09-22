@@ -7,8 +7,8 @@ something, and says which.
 
 from fractions import Fraction
 
-from music21 import (clef, instrument, key, layout, meter,
-                     note as m21note, stream, tie)
+from music21 import (clef, duration, instrument, key, layout, meter,
+                     note as m21note, spanner, stream, tie)
 
 E, S, Q, DE, DQ = (Fraction(1, 2), Fraction(1, 4), Fraction(1),
                    Fraction(3, 4), Fraction(3, 2))
@@ -132,4 +132,60 @@ def quartet(bars: int = 8) -> stream.Score:
                 measure.append(n)
             part.append(measure)
         score.append(part)
+    return score
+
+
+def sax_study(bars: int = 8) -> stream.Score:
+    """A solo line shaped like the one that asked for rhythmic simplification.
+
+    Ali asked the chat to reduce the sixteenths in a solo alto sax part to
+    eighths. Every bar here is one of the figures that decides what
+    `simplify-rhythm --mode thin` does, so the check can assert the musical
+    judgement rather than just "it ran":
+
+      1  a run of sixteenths          -- the first and third of each group live
+      2  dotted eighth + sixteenth    -- the dotted eighth becomes a quarter
+      3  an eighth-note syncopation   -- on the grid, so untouched
+      4  a whole note                 -- untouched
+      5  a run under one slur         -- the slur must not outlive its notes
+      6  quarter-note TRIPLETS        -- longer than an eighth, so untouched
+      7  eighth triplets              -- faster than an eighth, so thinned
+      8  dotted quarter + eighth      -- untouched
+    """
+    third = Fraction(1, 3)
+    score = stream.Score()
+    part = stream.Part()
+    part.partName = "Alto Saxophone"
+    part.insert(0, instrument.AltoSaxophone())
+    tune = ["C5", "D5", "E5", "F5", "G5", "A5", "B5", "C6"]
+    figures = {
+        1: [(Fraction(i, 4), S) for i in range(16)],
+        2: [(off, length) for beat in range(4)
+            for off, length in ((Fraction(beat), DE),
+                                (Fraction(beat) + DE, S))],
+        3: [(Fraction(0), E), (Fraction(1, 2), Q), (DQ, E), (Fraction(2), Q),
+            (Fraction(3), Q)],
+        4: [(Fraction(0), Fraction(4))],
+        5: [(Fraction(i, 4), S) for i in range(16)],
+        6: [(third * 4 * i, third * 4) for i in range(3)],
+        7: [(third * i, third) for i in range(12)],
+        8: [(Fraction(0), DQ), (DQ, E), (Fraction(2), Fraction(2))],
+    }
+    slurred = []
+    for bar in range(1, bars + 1):
+        measure = stream.Measure(number=bar)
+        if bar == 1:
+            measure.append(clef.TrebleClef())
+            measure.append(meter.TimeSignature("4/4"))
+        for index, (offset, length) in enumerate(figures[((bar - 1) % 8) + 1]):
+            n = m21note.Note(tune[index % len(tune)])
+            n.duration = duration.Duration(length)
+            measure.insert(offset, n)
+            if bar == 5 and index < 4:
+                slurred.append(n)
+        part.append(measure)
+    score.append(part)
+    if len(slurred) >= 2:
+        # the slur is the point of bar 5: thinning removes notes it points at
+        part.insert(0.0, spanner.Slur(slurred[0], slurred[-1]))
     return score

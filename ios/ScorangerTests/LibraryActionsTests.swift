@@ -9,8 +9,19 @@ final class LibraryActionsTests: XCTestCase {
 
     // MARK: - A piece is a folder
 
+    /// THREE capsules either way, and the first one is whichever verb the
+    /// selection can actually use. New arrangement needs exactly one piece
+    /// (into which piece would it go?); Combine needs two or more. A fourth
+    /// capsule carrying the dead one pushed a phone's bar onto two rows.
     func testAPieceCanBeFilledOrThrownAway() {
-        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .newSetlist, .delete])
+        XCTAssertEqual(LibraryActions.bar(for: .pieces, count: 1),
+                       [.newArrangement, .newSetlist, .delete])
+        XCTAssertEqual(LibraryActions.bar(for: .pieces, count: 5),
+                       [.combine, .newSetlist, .delete])
+        for count in 1...12 {
+            XCTAssertEqual(LibraryActions.bar(for: .pieces, count: count).count, 3,
+                           "the pieces bar changed width at \(count) selected")
+        }
     }
 
     /// There is no Rename anywhere in the bars. A name is edited by TAPPING IT
@@ -18,19 +29,19 @@ final class LibraryActionsTests: XCTestCase {
     /// only job was to make it editable has nothing left to do.
     func testNothingOffersARenameButton() {
         for kind in [LibrarySelectionKind.pieces, .setlists, .arrangements, .mixed] {
-            XCTAssertFalse(LibraryActions.bar(for: kind)
+            XCTAssertFalse(LibraryActions.bar(for: kind, count: 5)
                             .contains { $0.identifier.contains("rename") },
                            "\(kind) still offers a Rename button")
         }
     }
 
     func testAPieceCannotBeMovedIntoAPiece() {
-        XCTAssertFalse(LibraryActions.bar(for: .pieces).contains(.moveToPiece),
+        XCTAssertFalse(LibraryActions.bar(for: .pieces, count: 5).contains(.moveToPiece),
                        "a folder does not go inside a folder")
     }
 
     func testAPieceCannotBeDuplicatedOrPutInASetList() {
-        let bar = LibraryActions.bar(for: .pieces)
+        let bar = LibraryActions.bar(for: .pieces, count: 5)
         XCTAssertFalse(bar.contains(.duplicate), "you duplicate an arrangement, not a piece")
         XCTAssertFalse(bar.contains(.addToSetlist),
                        "a set list holds arrangements; a piece is not one")
@@ -39,13 +50,13 @@ final class LibraryActionsTests: XCTestCase {
     // MARK: - A set list is a running order
 
     func testASetListCanOnlyBeDeleted() {
-        XCTAssertEqual(LibraryActions.bar(for: .setlists), [.delete])
+        XCTAssertEqual(LibraryActions.bar(for: .setlists, count: 5), [.delete])
     }
 
     // MARK: - An arrangement is the thing the verbs were written for
 
     func testAnArrangementCarriesTheFullSet() {
-        XCTAssertEqual(LibraryActions.bar(for: .arrangements),
+        XCTAssertEqual(LibraryActions.bar(for: .arrangements, count: 5),
                        [.moveToPiece, .addToSetlist, .duplicate, .delete])
     }
 
@@ -54,7 +65,7 @@ final class LibraryActionsTests: XCTestCase {
     /// A verb that is wrong for half of what is highlighted is worse than one
     /// fewer button.
     func testAMixedSelectionOffersOnlyWhatIsTrueOfEverything() {
-        XCTAssertEqual(LibraryActions.bar(for: .mixed), [.delete])
+        XCTAssertEqual(LibraryActions.bar(for: .mixed, count: 5), [.delete])
     }
 
     func testOneKindSelectedIsThatKind() {
@@ -95,7 +106,7 @@ final class LibraryActionsTests: XCTestCase {
     /// they add a second row to the selection.
     func testTheBarKeepsItsShapeWhateverIsSelected() {
         for count in 1...5 {
-            XCTAssertEqual(LibraryActions.bar(for: .arrangements).count, 4,
+            XCTAssertEqual(LibraryActions.bar(for: .arrangements, count: 5).count, 4,
                            "the bar changed length at \(count) selected")
         }
     }
@@ -125,14 +136,15 @@ final class LibraryActionsTests: XCTestCase {
     /// the Edit-mode bar. Arrangements already have Add to set list, a
     /// different verb with a different target.
     func testASelectionOfPiecesCanBecomeASetList() {
-        XCTAssertTrue(LibraryActions.bar(for: .pieces).contains(.newSetlist))
-        XCTAssertFalse(LibraryActions.bar(for: .arrangements).contains(.newSetlist))
-        XCTAssertFalse(LibraryActions.bar(for: .setlists).contains(.newSetlist),
+        XCTAssertTrue(LibraryActions.bar(for: .pieces, count: 5).contains(.newSetlist))
+        XCTAssertFalse(LibraryActions.bar(for: .arrangements, count: 5).contains(.newSetlist))
+        XCTAssertFalse(LibraryActions.bar(for: .setlists, count: 5).contains(.newSetlist),
                        "a set list of set lists is not a thing")
         XCTAssertFalse(LibraryAction.newSetlist.needsExactlyOne)
         XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 1))
         XCTAssertTrue(LibraryActions.isEnabled(.newSetlist, count: 5))
         XCTAssertEqual(LibraryAction.newSetlist.identifier, "bar-new-setlist")
-        XCTAssertEqual(LibraryActions.bar(for: .pieces), [.newArrangement, .newSetlist, .delete])
+        XCTAssertEqual(LibraryActions.bar(for: .pieces, count: 5),
+                       [.combine, .newSetlist, .delete])
     }
 }

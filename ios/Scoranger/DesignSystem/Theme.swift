@@ -311,8 +311,12 @@ enum Theme {
 
         /// §4. Every button, field, chip, segment, panel item: a capsule.
         static let rCtl: CGFloat = 999
-        /// §4 `rPage`: the top corners of a page, the panel and the tray.
-        /// Kept under its 0.7 name so no call site moves in 0.8.0.
+        /// §4: the rounded surfaces inside a page -- the segmented control,
+        /// panel blocks. Kept under its 0.7 name so no call site moves.
+        ///
+        /// It is NOT the page's own top corners any more, nor the tray's:
+        /// both are square against the screen's edge since 0.8.2 (items 9 and
+        /// 10). `rPage` is the alias those two used and now has no caller.
         static let rPanel: CGFloat = 22
         static let rPage: CGFloat = rPanel
         /// The scroll-mode strip and message bubbles.
@@ -343,6 +347,24 @@ enum Theme {
             RuleLine(vertical: vertical)
                 .stroke(Line.line2, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 .frame(width: vertical ? 1 : nil, height: vertical ? nil : 1)
+        }
+    }
+
+    /// The rule, closed around a group: the same 1pt dashed `line2`, drawn as
+    /// a boundary rather than a line, so a set of controls reads as one thing.
+    ///
+    /// The app had only the straight rule, and a group of controls could be
+    /// separated from its neighbours but never enclosed by them -- the three
+    /// layout cells sat on the bar with nothing saying they were three answers
+    /// to one question.
+    struct DashedBoundary: ViewModifier {
+        var cornerRadius: CGFloat = Metric.rCtl
+        func body(content: Content) -> some View {
+            content.overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Line.line2,
+                                  style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
         }
     }
 
@@ -396,6 +418,11 @@ extension View {
     /// cannot drift apart.
     func typeRole(_ role: Theme.Role) -> some View {
         modifier(TypeRoleModifier(role: role))
+    }
+
+    /// Encloses a group of controls in the app's dashed rule.
+    func dashedBoundary(cornerRadius: CGFloat = Theme.Metric.rCtl) -> some View {
+        modifier(Theme.DashedBoundary(cornerRadius: cornerRadius))
     }
 }
 

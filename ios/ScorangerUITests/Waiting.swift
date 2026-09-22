@@ -65,6 +65,34 @@ extension XCTestCase {
         return false
     }
 
+    /// Wait until an element's frame is one a GESTURE can be computed from.
+    ///
+    /// `pinch`, `swipeLeft`, `coordinate(withNormalizedOffset:)` and the rest
+    /// turn the element's frame into screen points at the moment the event is
+    /// synthesised. An app too busy to answer the accessibility snapshot
+    /// answers with `CGRect.null` instead -- `{{inf, inf}, {0, 0}}` -- and
+    /// XCTest does not check it: the arithmetic yields INFINITY and
+    /// `XCPointerEventPath` raises `NSInternalInconsistencyException`, which
+    /// takes the test down with a message about a parameter rather than about
+    /// the app. There is nothing at the failure site to read.
+    ///
+    /// Seen on the 0.8.2 gate, 2026-09-16: the third of twenty back-to-back
+    /// pinches in `ContinuousZoomOut`, after a snapshot the runner waited two
+    /// seconds for under four workers.
+    ///
+    /// Returns false on timeout rather than failing, so the caller fails on
+    /// its own terms -- which say what the geometry was supposed to be.
+    @discardableResult
+    func gesturableFrame(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
+        waitUntil("a frame a gesture can be computed from", timeout: timeout) {
+            guard element.exists else { return false }
+            let frame = element.frame
+            return !frame.isNull && !frame.isInfinite && !frame.isEmpty
+                && frame.origin.x.isFinite && frame.origin.y.isFinite
+                && frame.size.width.isFinite && frame.size.height.isFinite
+        }
+    }
+
     /// Both frames still. Two panels open together and the second one moves
     /// the first, so waiting on one of them alone can return between the two.
     ///

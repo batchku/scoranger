@@ -226,10 +226,38 @@ else:
     if lost:
         FAILURES.append(f"absorb part: {len(lost)} note(s) of the existing music moved, "
                         f"first {sorted(lost)[0]}")
+# thinning DROPS notes on purpose, which is the one op here that is meant to
+# change the line. What it may never change is the part's LENGTH: the passage
+# has to keep its place in the bar, or the part it was thinning to keep in step
+# with the ensemble falls out of step with it.
+expect_rhythm_survives("thin a jig to eighths", jig,
+                       lambda sc: ops.simplify_rhythm(sc, "thin", ["#0"], "eighth"))
+expect_rhythm_survives("thin one staff of a grand staff", two_staff,
+                       lambda sc: ops.simplify_rhythm(sc, "thin", ["#0"], "eighth"))
+
 expect_rhythm_survives("pull a part in", two_staff,
                        lambda sc: ops.pull_part(sc, jig(), "#0", "Whistle", None, None))
 expect_rhythm_survives("split bass", two_staff,
                        lambda sc: ops.split_bass(sc, "#0", "Bass", "Chords", None))
+
+# Augmentation is the one op here that is MEANT to change how long the music
+# lasts -- that is the whole point of it -- so `expect_rhythm_survives`, which
+# requires the length to hold, cannot say anything about it. What has to be
+# exact is the factor: every value doubled, nothing added, nothing lost.
+augmented = jig()
+notes_before = len(list(augmented.parts[0].recurse().notes))
+length_before = total_length(augmented)
+ops.simplify_rhythm(augmented, "augment", None, "eighth")
+written_aug, _ = write_and_read(augmented, "augment-doubles-exactly")
+problems = ops.rhythm_problems(written_aug)
+if problems:
+    FAILURES.append(f"augment: the file it wrote is unsound -- {problems[0]}")
+elif total_length(written_aug) != [n * 2 for n in length_before]:
+    FAILURES.append(f"augment: the music should be exactly twice as long, "
+                    f"{length_before} -> {total_length(written_aug)}")
+elif len(list(written_aug.parts[0].recurse().notes)) != notes_before:
+    FAILURES.append(f"augment: notes were lost or gained, {notes_before} -> "
+                    f"{len(list(written_aug.parts[0].recurse().notes))}")
 
 # -- the detector itself must be able to fail --------------------------------
 # A check that cannot fail is worse than no check. The runtime no longer

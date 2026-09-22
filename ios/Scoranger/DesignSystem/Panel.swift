@@ -21,6 +21,17 @@ final class PanelModel: ObservableObject {
     @Published var rest: Route?
 
     var top: Route? { stack.last ?? rest }
+    /// What a COMPACT width shows, which is the pushed stack and never the
+    /// page's panel at rest (Ph2).
+    ///
+    /// A panel at rest is a column BESIDE the page. On a phone the panel is a
+    /// pushed page, and a pushed page that nobody asked for covers the one
+    /// they are on: opening a set list on an iPhone showed "This set list"
+    /// and not the set list -- no title, no running order, no Play. The
+    /// page's own tools reach the reader as a foot strip instead
+    /// (`PageFootStrip`), and the rest state is still one tap away through
+    /// More on that strip.
+    var pushedTop: Route? { stack.last }
     var isOpen: Bool { top != nil }
     var canGoBack: Bool { stack.count > 1 }
 
@@ -61,6 +72,7 @@ private struct InPanelKey: EnvironmentKey { static let defaultValue = false }
 private struct PanelTitleKey: EnvironmentKey { static let defaultValue: String? = nil }
 private struct PanelBackKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
 private struct PanelDoneKey: EnvironmentKey { static let defaultValue: (() -> Void)? = nil }
+private struct PanelAtRestKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
     /// True inside the panel: `Screen` draws the panel's header rather than a
@@ -80,6 +92,13 @@ extension EnvironmentValues {
     /// Done.
     var panelDone: (() -> Void)? {
         get { self[PanelDoneKey.self] } set { self[PanelDoneKey.self] = newValue }
+    }
+    /// True when this state is the page's panel AT REST rather than something
+    /// the reader opened. Nothing was pushed, so Done has nothing to pop: it
+    /// is a button that does nothing, beside a title repeating the page it
+    /// sits next to. A state at rest can leave both out (Ali, 2026-09-14 #5).
+    var panelAtRest: Bool {
+        get { self[PanelAtRestKey.self] } set { self[PanelAtRestKey.self] = newValue }
     }
 }
 
@@ -167,15 +186,23 @@ extension PanelHeader where Trailing == EmptyView {
     }
 }
 
-/// The page shape the panel and the list page share: `panel` fill, `rPage`
-/// top corners, running off the bottom of the table (§7.1).
+/// The page shape the panel and the list page share: `panel` fill, straight
+/// along the screen's top edge, running off the bottom of the table (§7.1).
+///
+/// ## Why the top corners are square (Ali, 2026-09-14 item 10)
+///
+/// They were `rPage`, and the page began below the status bar, so the library
+/// read as a rounded card floating on the band with a strip of background
+/// above it. He drew the corner he meant and asked for flush and straight.
+///
+/// So the fill ignores the top safe area -- the same thing the score's own top
+/// bar already does, which is why that screen never drew the strip -- and the
+/// clip is gone with the radius. The content still starts below the status
+/// bar; only the paint goes up behind it.
 struct PageShape: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Theme.Surface.panel)
-            .clipShape(UnevenRoundedRectangle(
-                topLeadingRadius: Theme.Metric.rPage, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: Theme.Metric.rPage))
+            .background(Theme.Surface.panel.ignoresSafeArea(edges: .top))
     }
 }
 
@@ -212,7 +239,7 @@ struct PanelHost<Page: View, PanelContent: View>: View {
                             .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                     }
                 }
-                if compact, !suspended, let top = panel.top {
+                if compact, !suspended, let top = panel.pushedTop {
                     panelPage(top, width: nil)
                         .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                 }
@@ -227,6 +254,7 @@ struct PanelHost<Page: View, PanelContent: View>: View {
             .environment(\.panelTitle, route.panelTitle)
             .environment(\.panelBack, panel.canGoBack ? { panel.back() } : nil)
             .environment(\.panelDone, { panel.done() })
+            .environment(\.panelAtRest, panel.stack.isEmpty)
             .frame(width: width)
             .frame(maxHeight: .infinity, alignment: .top)
             .pageShape()

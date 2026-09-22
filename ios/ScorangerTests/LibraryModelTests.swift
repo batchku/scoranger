@@ -118,6 +118,87 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(rows.first?.chips.contains { $0.text == "UNFILED" } ?? false)
     }
 
+    /// Ali, 2026-09-14 item 11: the two row kinds in one list contradicted
+    /// each other. A piece holds ARRANGEMENTS and says so; an arrangement row
+    /// counted VERSIONS in the same slot, and neither said which kind it was.
+    func testTheTwoRowKindsAgreeAboutWhatTheyHold() {
+        let piece = LibraryModel.pieceRows(manifest: manifest)
+            .first { $0.title == "Cavatina" }
+        let unfiled = LibraryModel.unfiledRows(manifest: manifest).first
+
+        XCTAssertTrue(piece?.subtitle.contains("arrangement") ?? false,
+                      "a piece row must say how many arrangements it holds: "
+                      + "\(piece?.subtitle ?? "nil")")
+        XCTAssertEqual(unfiled?.subtitle.hasSuffix("Arrangement"), true,
+                       "an unfiled row must say it IS an arrangement: "
+                       + "\(unfiled?.subtitle ?? "nil")")
+        XCTAssertFalse(unfiled?.subtitle.contains("version") ?? true,
+                       "a version count does not belong in the slot a piece "
+                       + "row uses for its arrangement count")
+        // The version fact is not lost: it is in `meta`, where the piece row
+        // keeps its own.
+        XCTAssertFalse(unfiled?.meta.isEmpty ?? true,
+                       "the unfiled row lost its version label too")
+    }
+
+    /// Ali's device grew a "Morrison's jig" with ZERO versions that sat on
+    /// "Opening…" for ever. The row is where a reader finds that out before
+    /// opening it, so naming the kind must not swallow the state -- a broken
+    /// row and a healthy one have to read differently.
+    ///
+    /// A separate manifest, because the shared fixture's counts are asserted
+    /// all over this file.
+    func testAVersionLessArrangementStillSaysSo() {
+        let broken = ScoreDoc(slug: "broken-arrangement", name: "Morrison's jig",
+                              title: "Morrison's jig", composer: nil, latest: nil,
+                              versions: [], sources: nil, piece: nil)
+        let m = Manifest(generated: nil,
+                         scores: [broken, score("loose-sketch", name: "Loose sketch")],
+                         pieces: nil, setlists: nil)
+        let rows = LibraryModel.unfiledRows(manifest: m)
+        let jig = rows.first { $0.title == "Morrison's jig" }
+        let healthy = rows.first { $0.title == "Loose sketch" }
+
+        XCTAssertEqual(jig?.subtitle, "Arrangement · no versions")
+        XCTAssertEqual(healthy?.subtitle, "Arrangement")
+        XCTAssertNotEqual(jig?.subtitle, healthy?.subtitle,
+                          "a broken arrangement reads exactly like a healthy one")
+        // And the state is in the SUBTITLE, not only a chip: `LRow.spoken` is
+        // title + subtitle + meta, so a chip-only warning never reaches
+        // VoiceOver. `meta` is empty here -- no label, no day -- which is why
+        // the subtitle is the last thing left to say it.
+        XCTAssertEqual(jig?.meta, "", "a version-less row has no meta to lean on")
+    }
+
+    /// The piece row hid the same fault, and hid it before 0.8.2 too: it
+    /// counts what it holds, and a piece whose arrangements have no versions
+    /// has an empty `meta` as well.
+    func testAPieceWithNothingToOpenSaysSo() {
+        let empty = ScoreDoc(slug: "jig-1", name: "Morrison's jig",
+                             title: "Morrison's jig", composer: nil, latest: nil,
+                             versions: [], sources: nil, piece: "jig")
+        let m = Manifest(generated: nil,
+                         scores: [empty, score("libertango-1", name: "Libertango",
+                                               composer: "Piazzolla", piece: "libertango")],
+                         pieces: [PieceDoc(slug: "jig", name: "Morrison's jig",
+                                           arrangements: ["jig-1"]),
+                                  PieceDoc(slug: "libertango", name: "Libertango",
+                                           arrangements: ["libertango-1"]),
+                                  PieceDoc(slug: "nothing", name: "Nothing yet",
+                                           arrangements: [])],
+                         setlists: nil)
+        let rows = LibraryModel.pieceRows(manifest: m)
+
+        XCTAssertEqual(rows.first { $0.title == "Morrison's jig" }?.subtitle,
+                       "1 arrangement · no versions")
+        XCTAssertEqual(rows.first { $0.title == "Libertango" }?.subtitle,
+                       "Piazzolla · 1 arrangement")
+        // A piece holding nothing already says so; "no versions" on top of
+        // "0 arrangements" is the same absence twice.
+        XCTAssertEqual(rows.first { $0.title == "Nothing yet" }?.subtitle,
+                       "0 arrangements")
+    }
+
     func testAFiledArrangementIsNotListedAsUnfiled() {
         let rows = LibraryModel.unfiledRows(manifest: manifest)
         XCTAssertFalse(rows.contains { $0.title == "Accordion duo" })
@@ -250,11 +331,19 @@ final class LibraryModelTests: XCTestCase {
 /// Tags on a piece: shown as chips, and findable by typing.
 final class LibraryTagTests: XCTestCase {
 
+    /// The arrangement HAS its v001. The fixture used to say `latest: "v001"`
+    /// and carry no versions at all, which is not a piece -- it is the broken
+    /// shape `testAPieceWithNothingToOpenSaysSo` is about, and once the piece
+    /// row started admitting that shape this credit test was asserting it by
+    /// accident.
     private func manifest(tags: [String]) -> Manifest {
         Manifest(generated: "", scores: [
             ScoreDoc(slug: "a1", name: "Pravo Horo", title: "Pravo Horo",
                      composer: nil, latest: "v001",
-                     versions: [], sources: nil, piece: "pravo")],
+                     versions: [VersionDoc(id: "v001", file: "v001.musicxml",
+                                           op: "import", time: "2026-08-25T14:02:00",
+                                           parts: nil, turn: nil)],
+                     sources: nil, piece: "pravo")],
                  pieces: [PieceDoc(slug: "pravo", name: "Pravo Horo",
                                    arrangements: ["a1"], composer: "Boris Karlov",
                                    arranger: nil, tags: tags)],

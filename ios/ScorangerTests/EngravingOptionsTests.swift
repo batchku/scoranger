@@ -57,6 +57,20 @@ final class EngravingOptionsTests: XCTestCase {
         XCTAssertTrue(EngravingOptions.adjustPageHeight(continuous: true))
     }
 
+    /// Ali, 2026-09-14 item 8: a page carried two systems and then a blank
+    /// third. Verovio stacks systems from the top of a fixed sheet and leaves
+    /// the remainder as paper; justified, they are spread down it.
+    func testTheSystemsAreSpreadDownAPageAndNotDownTheStrip() {
+        XCTAssertTrue(EngravingOptions.justifyVertically(continuous: false))
+        XCTAssertFalse(EngravingOptions.justifyVertically(continuous: true))
+        XCTAssertEqual(value("justifyVertically",
+                             in: EngravingOptions.json(lyricSize: 4.5, continuous: false)),
+                       "1")
+        XCTAssertEqual(value("justifyVertically",
+                             in: EngravingOptions.json(lyricSize: 4.5, continuous: true)),
+                       "0")
+    }
+
     /// The page size the canvas measures. Verovio emits `tenths * scale/100`
     /// points, and reports 972 x 1258 for these options.
     func testEngravedPageSizeMatchesWhatVerovioEmits() {

@@ -39,7 +39,7 @@ final class ImportContentTypeTests: XCTestCase {
     /// list cannot quietly narrow it.
     func testTheScoreTypesItAlwaysTookAreStillThere() {
         let declared = ImportKind.file.contentTypes
-        for suffix in ["musicxml", "mxl", "xml", "mid", "midi", "pdf"] {
+        for suffix in ["musicxml", "mxl", "xml", "mid", "midi", "abc", "pdf"] {
             guard let type = UTType(filenameExtension: suffix) else { continue }
             XCTAssertTrue(declared.contains { type.conforms(to: $0) || type == $0 },
                           ".\(suffix) stopped being selectable")
@@ -75,10 +75,68 @@ final class ImportContentTypeTests: XCTestCase {
         XCTAssertFalse(ScoreArtifact.kind(ofFile: "scan.pdf").isNotation)
         // And notation is still notation, so "same pipeline" has not become
         // "one pipeline for everything".
-        for notation in ["piece.musicxml", "piece.mxl", "piece.mid"] {
+        for notation in ["piece.musicxml", "piece.mxl", "piece.mid", "reel.abc"] {
             XCTAssertTrue(ScoreArtifact.kind(ofFile: notation).isNotation)
         }
     }
+
+    /// ABC IS NOTATION, NOT A SCAN.
+    ///
+    /// `ScoreArtifact.kind` falls through to `.scan` for anything it does not
+    /// recognise, so an unlisted `.abc` is not rejected -- it is mis-filed as
+    /// a PDF and sent to `importPDF`, which stores the text file as a picture
+    /// of music nothing can edit. That is the failure this pins.
+    func testABCTakesTheNotationPath() {
+        for tune in ["kesh.abc", "Drowsy Maggie.ABC", "set.abc"] {
+            XCTAssertEqual(ScoreArtifact.kind(ofFile: tune), .notation,
+                           "\(tune) would be stored as a scan")
+        }
+        XCTAssertTrue(ScoreArtifact.notationSuffixes.contains("abc"),
+                      "the Swift list has drifted from workspace.NOTATION_SUFFIXES")
+    }
+
+    /// `.abc` IS ALREADY TAKEN, and the picker has to know it.
+    ///
+    /// The premise this was built on -- that ABC has no system UTType and
+    /// needs its own -- is false. The system declares `.abc` as Alembic,
+    /// Pixar's 3D scene cache, so `UTType(filenameExtension: "abc")` is
+    /// `public.alembic`, and that is what a tune downloaded from
+    /// thesession.org is tagged as. An app offering only `com.scoranger.abc`
+    /// would grey out every real tune.
+    ///
+    /// One extension, two formats, one system type. This pins the resolution
+    /// so a change that drops `public.alembic` from the list -- which reads
+    /// like tidying up a wrong-looking entry -- fails here rather than in a
+    /// reader's Files app.
+    func testABCResolvesToAlembicAndThePickerTakesItAnyway() {
+        guard let abc = UTType(filenameExtension: "abc") else {
+            return XCTFail("no UTType resolves for .abc at all")
+        }
+        XCTAssertFalse(abc.isDynamic, "\(abc.identifier) is dynamic")
+        XCTAssertEqual(abc.identifier, "public.alembic",
+                       "the system no longer claims .abc for Alembic -- if it "
+                       + "claims nothing, com.scoranger.abc can own the "
+                       + "extension and Alternate rank should become Owner")
+        let declared = ImportKind.file.contentTypes
+        XCTAssertTrue(declared.contains(abc),
+                      "the picker does not accept what a downloaded tune is "
+                      + "actually tagged as: \(declared.map(\.identifier))")
+    }
+
+    /// THE APP'S OWN TYPE IS NOT ASSERTED HERE, AND CANNOT BE.
+    ///
+    /// `com.scoranger.abc` is declared in the app's Info.plist and this
+    /// bundle has no host app, so whether it resolves in THIS process depends
+    /// on whether something else has already installed the app on the
+    /// simulator. Run alone it is absent; run in the gate, after the UI
+    /// bundle has installed the app, it is present. An assertion either way
+    /// pins the run order rather than the product, and the first version of
+    /// this test asserted the absence and duly failed in the gate only.
+    ///
+    /// The declaration is checked where it is deterministic instead: against
+    /// the generated Info.plist itself, in engine/scripts/check_abc_import.py.
+    /// What IS asserted above is the one a reader feels -- the picker accepts
+    /// the type a downloaded `.abc` file actually carries.
 
     /// The umbrella is safe because the PIPELINE normalises, not because the
     /// picker narrows. Anything the engine will not take is converted at the

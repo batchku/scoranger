@@ -1,5 +1,47 @@
 # Backlog
 
+## From the screen recording of 2026-09-22 (Star of the County Down)
+
+Thirty-three seconds on the iPad: lasso five notes and transpose them a third
+in key, build a Penny Whistle staff off the top Voice line with fingerings,
+then lasso ten and transpose them an octave. Every op did what it was asked.
+Three faults in what the app SAID about it, all fixed on
+`fix/report-bar-numbers`; two things that looked like faults and are not,
+written down so nobody chases them again.
+
+**A report named bar 0 — FIXED.** "3 notes (B3 in bars 0, 3, and 11)". music21
+numbers a pickup 0 and seven reports passed that number straight through, so
+the reader was sent to a bar no page prints and `--from-measure` does not
+reach. `ops.bar_label` now names the pickup instead of numbering it, and every
+report carries `bar` as a string rather than `measure` as an int — a `0` a
+model can print is not left lying in the JSON for it to find. Op ARGUMENTS
+keep their integers; an element address may still say `m0`.
+`check_whistle.py` builds a pickup with an out-of-range note in it and fails
+without the fix.
+
+**The step said "Harmonising" over a transposition — FIXED.** Both diatonic
+ops were labelled "Harmonising a third above, in key" whatever the reader
+asked, because the case that prompted the wording was a harmony a sixth below.
+A harmony is two lines and this op writes no staff, so the label contradicted
+the sentence under it, which correctly read "Transposed the 10 selected notes
+up one octave". Now "Transposing …, in key" — the word Ali used, true of both
+readings, and ", in key" still separates it from the chromatic `transpose`.
+
+**CLAUDE.md put the whistle fingerings under the staff — FIXED.** It said
+"engraved under the part as stacked lyric verses", which reads as below the
+staff and is where verses otherwise go. `render.mei_with_fingerings_above`
+lifts every one of them above it. The file now says both halves.
+
+**NOT a fault: the octave-transposed notes have ledger lines.** Read off a
+video frame as missing; Ali confirmed on the device that they are there. The
+engine's SVG was checked first and does emit `<g class="ledgerLines above">`
+with real paths, so there was never anything below it to find.
+
+**NOT a fault: the fingering columns do not crowd the staff above.** Called
+tight from a scaled-down frame; at full resolution the column sits in clear
+white space, which is what `HOLE_PITCH_RATIO = 0.475` is for — the drawn
+column is less than half the height of the text rows Verovio reserved for it.
+
 ## Shipped 2026-08-15: standalone iPad (engine on-device)
 
 The laptop dependency is gone: CPython 3.14 + music21 embedded in the iOS app
@@ -8,6 +50,90 @@ The laptop dependency is gone: CPython 3.14 + music21 embedded in the iOS app
 share-sheet import, and a Cloud Run Audiveris service for PDF→MusicXML
 (`omr-service/`). Cross-device library sync remains a follow-up (iCloud or the
 Firebase backend).
+
+## Deferred from 0.11.0 (lyrics and ornaments as element kinds)
+
+**A resized word overlaps the word beside it.** Verovio lays the verse line
+out at one size and has no per-verse size, so `adjust-element --kind lyric
+--scale` is applied to the drawn page afterwards, exactly as a chord symbol's
+size is. A chord symbol is one per bar and has room; syllables are set tight,
+so even 1.25x crowds its neighbour and 2x runs across it
+(`design/screenshots/lyric-resized-and-moved.png`). The global option that
+WOULD re-lay the line out, Verovio's `lyricSize`, also sizes `<harm>` -- that
+is the whole reason `engine/scripts/check_render.py` exists -- so raising it
+for the words would shrink or grow every chord name with them. A real fix
+means per-verse layout, which is upstream work, or accepting a whole-part
+size that re-engraves the line and compensating the chord symbols back, which
+is the kind of cleverness that breaks quietly.
+
+**A word resized on the iPad does not redraw there.** The engine writes the
+size into the verse NAME (`ly@1.5`) and `render.apply_lyric_sizes` applies it
+in the PDF export; the app draws its own pages, and
+`ios/Scoranger/ScoreModel/ChordAdjustments.swift` knows five kinds, none of
+them a verse. The pattern to copy is `FingeringDiagrams.swift`, which already
+reads a verse's labelAttr title out of the SVG and rescales its tspan.
+
+**The app cannot point at a word.** `ScoreElementKind` (in
+`ios/Scoranger/ScoreModel/ScoreAddress.swift`) lists harm, dynam, text,
+fermata and articulation, so tap-to-select and the adjust row do not reach a
+lyric; the chat tools do, on both surfaces. Adding it means a selection story
+for something drawn in a line rather than as a mark.
+
+**The app cannot point at an ornament either, and does not redraw a resized
+one.** The exact twin of the two entries above, for the kind 0.11.0's other
+half added. `ScoreElementKind` has no `ornament` case, so a trill or a roll is
+not tap-selectable and the adjust row does not offer it; and
+`ChordAdjustments.Kind` knows the same five kinds it has always known (harm,
+dynamic, text, fermata, articulation), so a resized ornament reaches the PDF
+export through `render.apply_element_sizes` and does NOT redraw on the iPad's
+own pages. Chat reaches ornaments on both surfaces today. This was found
+during the 0.11.0 merge rather than on either feature branch, which is why it
+is written here late: `feat/abc-decorations` changed no BACKLOG entry.
+Unlike a lyric, an ornament IS drawn as a mark over one notehead, so it needs
+no new selection story -- it is the same shape of work as `fermata`, which is
+already wired end to end, and is the cheaper of the two to close.
+
+## Deferred from 0.10.0 (ABC import)
+
+**ABC export.** 0.10.0 reads ABC and cannot write it, because music21 cannot:
+`ConverterABC.registerOutputExtensions` is empty, so there is no writer to
+call. Writing one means emitting headers (X, T, M, L, K with the mode), the
+unit-note-length arithmetic, barlines, repeats and endings, tuplets, grace
+notes, ties and chord symbols -- a real piece of work, not a line of wiring.
+Worth it only if Ali wants to give tunes BACK to thesession.org or to a
+session; reading them is what he asked for.
+
+**ABC ornaments -- DONE in 0.11.0, entry kept for the decision it records.**
+music21's ABC reader still drops `~` (the roll) and `!...!` decorations;
+`engine/scoranger_engine/enrich.py` now puts them back after the reader runs,
+covering 33 marks over 56 spellings. The open question here -- what a roll IS
+in MusicXML -- was decided rather than deferred: a roll is engraved as a TURN,
+because the turn sign is what Irish repertoire actually prints and the
+`<other-ornament>` this entry proposed draws nothing in any engraver we use.
+The judgement is written down at `enrich.DECORATIONS`, not here.
+
+**The `R:` tune type** (reel, jig, hornpipe, slip jig) is reported by the
+import and not stored: it is not notation and has nowhere to live in
+MusicXML. If it should be searchable, the piece's `tags` are where it belongs
+-- `set_piece_metadata` already takes them -- and the import could offer it
+rather than assume it.
+
+**`OMR DRAFT` on rows that never saw OMR.** `LibraryModel.isOMRDraft` is one
+version whose op is `"import"` or `"omr"`, so every freshly imported MusicXML,
+MIDI and ABC row carries the chip. Predates 0.10.0 and is not ABC's; an
+import the reader brought in already editable is not a draft of anything.
+Photographed in `design/shots-0.10.0/abc-the-library-after-importing-a-tune.png`.
+
+**Unfiled arrangements, now that imports all get a piece.** After 0.10.0 the
+only things in the app that make an unfiled row are the reader choosing
+"Remove from piece" and duplicating a row that is already unfiled (the copy
+inherits its source's filing, or lack of it). Audited across every bridge op
+that creates an arrangement: `import`, `import-pdf`, `duplicate` and
+`create-arrangement` all end up filed; the two that do not are `selftest` and
+`debug-orphan-arrangement`, which exist for tests. The UNFILED chip, its filter and `LibraryModel.unfiledRows`
+all still work and existing libraries are untouched -- no migration was run.
+Whether the concept should survive at all is Ali's call about data he already
+has, not a build's.
 
 ## Candidate: portable score-ops kernel (Rust → iOS/Android/WASM)
 
@@ -25,6 +151,152 @@ not transpiled Java.
 
 Deferred from the prototype (see ARCHITECTURE.md for the full product design).
 The prototype is: local React viewer + Python score engine, driven by Claude Code.
+
+## Ali's second and third lists of 2026-09-14
+
+Sent while the first seven were being built. Eight items. Two carry a
+diagnosis made here rather than a symptom.
+
+8. **The empty space at the bottom of a score page is awkward.** Morrison's jig
+   (v016) carries two systems and then roughly a third of the sheet is blank.
+
+9. **Make the bottom drawer like the top.** The transport tray at the foot of
+   the score should match the top bar's treatment.
+
+10. **Make the shape straight along the top.** The top bar sits in a rounded,
+    inset container with background showing above it; he wants it flush and
+    straight along the screen's edge. He drew the corner he means.
+
+11. **Library rows contradict each other about what they hold.**
+    "Swallowtail Jig — 20 versions" sits above "Tam Lin (Glasgow Reel) — 3
+    arrangements"; "All Blues — 1 version" four rows above "Balkan Ornaments —
+    1 arrangement". A piece holds ARRANGEMENTS; a version count belongs to an
+    arrangement. He circled both and named them.
+
+12. **"New → Piece does nothing."** DIAGNOSED, and it is not dead — it is
+    off-screen. `runQuickAction(.new)` sets `segment = .pieces` and
+    `libraryNaming = ""`, and `LibraryView` renders `InlineRenameRow` as the
+    FIRST child of the list's `LazyVStack`, above the in-flight imports and
+    every section. He was scrolled into the P section of a 41-piece library, so
+    the row appeared several screens above the viewport. `LibraryView` has a
+    `scrollTo` state but nothing scrolls to the creating row and nothing moves
+    focus into it, so there is not even a keyboard to notice. **His own
+    screenshots corroborate it**: on Set lists, with two rows and the top of
+    the list on screen, the identical row appears with Cancel and Save. The fix
+    is scroll-and-focus, not a new action.
+
+13. **`+ New` should just create the thing the segment is showing.** He struck
+    the whole New panel out, twice — once from Pieces ("this should just create
+    a new piece") and once from Set lists ("this should just create a new set
+    list"). The segmented control already says which kind he is looking at, so
+    asking again is redundant. Note this does NOT remove the need to fix 12:
+    a direct create that scrolls nowhere looks equally dead.
+
+14. **Move the settings gear to the top right, and make it a bit bigger.**
+
+15. **What he expects of a new piece**, in his words: "a new piece w/ no
+    arrangements ready to type name" — the inline name field, focused.
+
+## Ali's list of 2026-09-14, found using the app
+
+Six of the seven are in 0.8.2, with the two extra findings. The one still open
+is the first, and the analysis is below it so nobody has to find it again.
+
+### Still open: a shared set list does not auto-update (item 1)
+
+NOT BUILT in 0.8.2. What the code does today, read on 2026-09-14:
+
+- A shared set list's local row is filled from Firestore ONCE, at join
+  (`AppState.joinSharedSetlist`): claim, fetch the document, fetch the
+  entries, adopt each one through the ordinary import, file it into the local
+  running order. After that nothing ever reads the entries again. Re-tapping
+  the invitation link is the only thing that catches the row up, and it works
+  precisely because both halves of adoption are idempotent.
+- The only writer of a shared entry is the SHARED screen's Add
+  (`SharedSetlistScreen` -> `SharedSetlists.addEntry`). Adding an arrangement
+  to the set list on its ORDINARY library row calls `assign-setlist` and
+  pushes nothing.
+- So both directions are missing for the row Ali actually uses, and the
+  feature needs both: a change made locally has to go up, and a change made
+  by somebody else has to come down.
+
+What a build of it looks like, so the next pass starts here:
+
+1. A pure `SetlistSync` in `ScoreModel/`: the state of one shared row (not
+   shared / signed out / in step / catching up / offline showing a cache /
+   trouble) and the DIFF between a remote running order and the local one.
+   Testable with no Firebase, like `SetlistPermission` and `SharedOrder`.
+2. PULL: an entries listener per bound set list, not just the open one. This
+   needs NO new rule and no new query shape -- it is the same
+   `setlists/{id}/entries` listen the shared screen already opens, which the
+   deployed rules already allow a member. Then a reconcile that adopts what
+   arrived, files it in `order`, and removes what was removed.
+3. PUSH: `assign-setlist` and the reorder on a bound row have to upload the
+   artifact and write the entry, which is what the shared screen's Add
+   already does end to end.
+4. The sync icon beside the share icon on the row (Ali asked for it by name),
+   drawn from (1) so the state is visible rather than inferred.
+
+Why it was not built here, plainly: the pull half imports arrangements into
+somebody's library automatically, and it cannot be proven against the real
+Firestore without a deploy, which is Ali's to authorise. An auto-reconcile
+that writes to a reader's library on evidence no stronger than "it compiles"
+does not belong in a release branch. Items 2-4 above are the rest of it.
+
+### The seven as they were written
+
+Seven, from a session with the app on his iPad. Two carry a diagnosis made
+here rather than a symptom; the rest are as he described them.
+
+1. **A shared set list does not auto-update.** A change by one member has to
+   reach every member. He wants a **sync icon beside the share icon** on the
+   set list's row, so the state is visible rather than inferred.
+
+2. **Switching the score canvas between one page, two pages and scroll shows
+   the WRONG view for a moment** before it settles. A frame of the old layout
+   is drawn before the new one arrives.
+
+3. **The transcribing chip belongs to no arrangement.** He opened one
+   arrangement and saw "page 1 of 2" and "Transcribing…" for a job that
+   belonged to a DIFFERENT one. Diagnosed: `AppState.omrPendingID` is a single
+   app-wide "transcription in flight", and `omrStage`/`omrFraction` read it
+   with no reference to what is on screen. `PendingImport` carries `name` and
+   `piece` but NOT the arrangement it is transcribing, so there is nothing to
+   scope by yet -- the identity has to be recorded before the chip can be
+   filtered. Both readers (the More screen's row, the transport's chip) share
+   the fault.
+
+4. **A blank region mid-score, and staves that stop before the others.** On
+   his 4-part arrangement, one system carries all four staves, the accordion
+   staves stop, and the rest of the page is single-staff systems with a gap
+   where the others were. Diagnosed: that arrangement was assembled by pulling
+   parts out of two different arrangements (one of 1 part, one of 3), and
+   `pull_part` neither pads a short part nor reports a length. Its return is
+   `pulled` / `added_as` / `position` / `redundant_accidentals_hidden` -- no
+   measure count, no comparison against the score it joined. So parts of
+   unequal length assemble silently and the reader finds out by looking at the
+   page. The op should report the measures it brought and how that compares,
+   so a person AND the chat agent both notice.
+
+5. **The piece panel's header should go** -- both the "This piece" title and
+   its Done button -- and **Composer, Arranger and Tags must be editable**.
+   They render as "—" today and cannot be typed into.
+
+6. **The row action labelled `Arrangement` should read `Details`.** It sits
+   between "Move to piece" and "Delete" on an expanded arrangement row.
+
+7. **The three view-mode icons in the score bar want a dashed boundary**
+   around them as a group -- one page, two pages, scroll -- in the dashed idiom
+   the rest of the app already uses.
+
+### Also seen in the photographs, not on his list
+
+- The chat transcript showed a reader a raw `ValueError: No par…` from a
+  failed rename step, then recovered by renaming with `#0`/`#1` indices. A
+  stack-trace class name is not a sentence for a musician.
+- The top bar said `page 1 of 2` while the canvas said `pp. 1-2 / 2` at the
+  same moment, in two-page view. One of those is counting pages and the other
+  spreads; they should not contradict each other on one screen.
 
 ## The release plan after 0.8.1 (set 2026-09-14)
 
@@ -74,6 +346,191 @@ earlier ones.
    implies on the sharing path. Mostly Ali's decisions and a document. It
    belongs here because it gets harder the more external testers hold the app.
 
+### Found while building 0.9.0: two licence texts that do not ship
+
+Building Settings -> "How Scoranger works" meant auditing what the app
+actually carries, against `ios/project.yml`, `Package.resolved`, the vendored
+trees under `ios/Vendor/`, `ios/PythonApp/app_packages/` and each Python
+package's own `.dist-info`. The credit list on that screen is the result and
+NAMES everything found. Two gaps are about the licence TEXTS, which several of
+these licences require to travel with the binary, and neither is fixed by a
+screen that names them:
+
+1. **`ios/scripts/vendor_engine.sh` deletes every `.dist-info` on the way into
+   the bundle**, and the `LICENSE` file goes with it. Eleven packages ship
+   without their text: music21 (BSD-3-Clause), pypdf (BSD-3-Clause), requests
+   (Apache-2.0), urllib3 (MIT), certifi (MPL-2.0), idna (BSD-3-Clause),
+   chardet (0BSD), charset-normalizer (MIT), joblib (BSD-3-Clause), jsonpickle
+   (BSD-3-Clause), more-itertools (MIT), webcolors (BSD-3-Clause). BSD-3,
+   MIT, Apache-2.0 and MPL-2.0 all require the notice in a binary
+   distribution. The fix is to keep each `dist-info/LICENSE*` rather than the
+   whole `dist-info` (which is what made the directory worth deleting -- it is
+   mostly `RECORD` and `WHEEL`), and to show them on this screen. A side
+   effect of the same deletion, unrelated and harmless: `jsonpickle` reports
+   its version as `0.0.0-alpha` on the device, because it reads
+   `importlib.metadata`.
+
+2. **The C libraries inside BeeWare's Python build carry no licence files in
+   this tree.** `ios/Vendor/VERSIONS` declares OpenSSL 3.5.7, XZ 5.6.4,
+   Zstandard 1.5.7, BZip2 1.0.8, libFFI 3.4.7 and mpdecimal 4.0.0, and
+   `Scoranger.app/Frameworks/` confirms every one of them ships. The only
+   licence file anywhere under `ios/Vendor/Python.xcframework` is CPython's
+   own. 0.9.0 NAMES them on the credits screen, beside the Python build that
+   brings them, and deliberately gives them no SPDX identifier, because
+   nothing in this tree states one and a guessed licence identifier on a
+   shipping attribution screen is worse than an honest gap. Source the six
+   texts upstream and add them.
+
+Also found, and NOT a problem: `samples-seed` holds two copyrighted editions
+in a Debug build only. `project.yml`'s "Bake UI-test fixtures" phase removes
+it for every other configuration and `check_no_bundled_scores.py` is the
+release gate, both since 0.6.20. An audit of a Debug `.app` will keep finding
+it; that is the gate working, not a leak.
+
+### Found while building 0.8.2, recorded because nothing else records it
+
+**Two faults in the shipped rendering path, on every page, for months.** Both
+were found in an afternoon by a comparison harness -- the bitmap renderer's
+output beside the vector renderer's on the same engraving -- and then
+confirmed by eye on real pages. Neither had a test, neither was ever
+reported, and both are in the build Ali plays from:
+
+- A tempo mark's digits printed at roughly double their engraved size.
+  Verovio writes `♩. = 138` as one `<text>` of three runs -- a 720px glyph in
+  the music font, then `" = "` and `"138"` at 405px in the text font -- and
+  `SVGForSwiftDraw.flattenTextElements` took the size of the FIRST run for the
+  whole block. Fixed in 0.8.2: a music glyph gets no vote in the size, though
+  it still decides the FAMILY, because taking the family off leaves Core Text
+  drawing `.notdef` and the note becomes an empty box.
+- Verovio's italics and bolds were ignored outright. Its stylesheet sets
+  `g.dir`, `g.dynam`, `g.mNum` italic and `g.ending`, `g.fing`, `g.reh`,
+  `g.tempo` bold; SwiftDraw reads neither the stylesheet (its CSS selectors
+  stop short of the `#id g.dir` descendant form Verovio emits) nor
+  `font-style`, which its DOM has no notion of. Every direction, dynamic,
+  expression mark, bass fingering and measure number was drawn upright. Fixed
+  by resolving the face into a font NAME, asked of Core Text rather than
+  written down: `Times-Italic` is a macOS PostScript name and iOS ships the
+  Times New Roman faces instead, so a name chosen by reading a font list
+  would have silently fallen back.
+
+`render.py` was never wrong about either -- cairosvg reads per-tspan sizes and
+the stylesheet -- so this is a property of the iPad's renderer alone.
+
+**Four more, from step 4 (size, position, move and duplicate in the UI).**
+
+- **The adjust row only ever opened from a lasso.** `retargetAdjustment`
+  builds the session the row is drawn from, and it was called from
+  `commitSelection` -- the lasso's route alone. `selectBar`, `addToSelection`
+  and `dropFromSelection` wrote `selection` directly, so a chord symbol TAPPED
+  at 2x selected, highlighted, raised the chip and had no row under it. This
+  is why every attempt to test the row went through the lasso, and the lasso
+  is the hard gesture. Fixed by routing all three through
+  `select(_:mode:path:page:)`, which already documented itself as the one
+  writer every route goes through.
+- **A mark's hit frame does not follow its size.** `adjust-element --scale 4`
+  draws a text mark four times as big and leaves the frame the geometry
+  reports at the engraved size, because the size is applied to the rendered
+  SVG (`ChordAdjustments.applySizes` rewrites the tspan's font-size) and the
+  model is built from the box the parser computes. A reader who makes a chord
+  symbol bigger so they can hit it does not get a bigger target. Not fixed
+  here; it belongs with 0.8.3's vector work, where the drawn extent is
+  something the app computes rather than reads.
+- **`strip-notes` has no route through bridge.py.** The engine has the op and
+  the CLI reference documents it; the app cannot ask for it. Found while
+  building a fixture that wanted a names-only staff. Step 2's territory.
+- **A synthetic pinch is not reproducible.** Eight runs of the same code
+  reached 1.00, 1.37, 1.61, 2.91, 2.98, 5.42 and 5.53. Any UI test that needs
+  a particular zoom -- and a tap means the NOTE only at 2x and above -- has to
+  read `score-canvas`'s accessibility value back and pinch again, which is
+  what `MarkAdjustShot.zoomIn` does. It is also why that test asserts nothing
+  about what it finds.
+
+**Not covered by a photograph.** The refused move -- the sentence and the row
+of onset buttons a note-attached mark gets when nothing starts at the chosen
+offset -- is asserted in `MoveDestinationTests` against the engine's real
+wording, and has not been photographed. Reaching it needs a fermata selected
+by a finger, and a fermata is a smaller target than a dynamic.
+
+**Five more, from steps 5 and 6 (chat dispatch against a stub, and export
+from the app).**
+
+- **Three chat tools raised NameError on every call.** `chat.py`'s
+  `penny_whistle_fingerings`, `guitar_tablature` and `guitar_chord_diagrams`
+  call a `_part` helper that exists in `bridge.py` and did not exist beside
+  them. Nothing had ever run the agent's own tool functions -- the engine
+  checks call `ops.py` directly and the app's checks go through `bridge.py` --
+  so the desktop agent had three dead tools and no test could see it. The same
+  shape of failure as `scor whistle-fingerings`, one surface over.
+  `check_chat.py` now drives every registered tool and fails with those three
+  NameErrors the moment the helper is taken away again.
+- **Both agents were a build behind their own toolset.** `add-element`,
+  `move-element` and `duplicate-element` shipped in the engine, the CLI and
+  `bridge.py` in step 1 and were described to neither agent, so nothing a
+  reader could ASK produced a mark. `adjust-element`'s description was worse
+  than missing: it still called size "an absolute point size (12 is the
+  default)" after step 4 made `scale` the interface, which is the one sentence
+  standing between "make that dynamic bigger" and a model sending 12.
+- **The share sheet describes a file TWO ways, and which one a test sees is a
+  race.** The moment it appears the header reads `Sous le ciel
+  quartet.musicxml` with nothing under it; a second later the link metadata
+  resolves and the same header reads `Sous le ciel quartet` over `MusicXML
+  score · 591 KB`. An assertion on the extension passes or fails on timing.
+  `ExportFromTheApp` accepts either, and the photographs catch the first
+  state. Worth knowing: iOS resolves all three of our types -- "MusicXML
+  score", "Audio Recording" (the .mid) and "PDF Document" -- so what the
+  reader hands to another program is typed, not a blob.
+- **`PopoverDismissRegion` is not one element.** The share sheet raises
+  several, so `app.otherElements["PopoverDismissRegion"].tap()` fails with
+  "Multiple matching elements found" rather than dismissing anything. The
+  sheet's own X is `header.closeButton`, and that is what the test taps.
+- **The Export rows' captions are truncated in the panel.** Seen in the
+  photograph, not in any assertion: at the score panel's 380pt the value
+  column shows "Open in another notation pr…" and "AirDrop, Files, Ma…". The
+  caption is the whole reason those rows say what a format is FOR rather than
+  what it is called, and the half a reader gets is the half without the point.
+  Cosmetic, and it belongs with whoever next touches ScreenRow's two columns.
+- **Export does not wait for the page.** Through the whole journey the score
+  behind the panel still read "Opening…", and all three files came out right:
+  export reads the version artifact, and the PDF is engraved from it by the
+  same renderer rather than from what is on screen. Anyone tempted to make
+  export use the drawn page would be trading a working path for a slower one.
+
+**What the comparison harness is worth.** These are the first two faults it
+found, and it found them by looking rather than by asserting. That is the
+argument for 0.8.3's visual regression tests: the output is about to become
+vector, which is what can be asserted on.
+
+**Still open from the same family:** a tempo mark's metronome glyph is drawn
+by whatever font the system falls back to, which is why the mark cannot also
+be bold -- naming a real font takes the fallback away. Drawing the metronome
+glyph ourselves, the way the whistle's circles and the chord grids already
+are, buys both. Small, and not urgent.
+
+**A chord symbol's "up" arrow moved it down.** MusicXML's `relative-y`
+measures up and so does MEI's `@vo`; the `<harm>` translation negated its own
+on the belief that harm was the exception. It is not. Fixed in 0.8.2 along
+with generalising the translation to the other four kinds, and
+`check_adjust.py` now asserts the DIRECTION rather than only that the mark
+moved -- which is exactly what the old check was missing.
+
+**`LazyVStack(pinnedViews:)` keeps a stale rendering for a row whose id has
+not changed.** The bug behind "a renamed row did not redraw": after a rename
+the section header moved from B to R and the row under it still read the old
+name. `rowView` was re-evaluated with the new title -- logged, once -- and the
+pinned-header stack kept the rendering it had. Renaming WITHIN one letter
+always worked, which is why nobody saw it for as long as the lists have
+existed. The fix in place is to identify a row by its slug AND its title, so
+the id changes when the name does; the underlying SwiftUI behaviour is
+unchanged and will bite again anywhere else a pinned-header list shows text
+that can be edited in place.
+
+**`LibraryToolbarFits.testEveryActionIsStillReachable` fails at compact
+width.** The Import band covers the page, so the controls the test then
+reaches for are not hittable. Pre-existing, not introduced by the phone work;
+the fix is the same mutually-exclusive-bands rule the test's second half
+already asserts for New, applied to Import at compact width. Out of scope for
+the 0.8.2 build it was found in.
+
 ### 0.8.3 -- the renderer and what stands on it
 
 1. **Direct vector rendering behind a flag**, off by default, compared side by
@@ -101,6 +558,52 @@ question answered first.
   piano reduction have to get right before Ali would play from it?
 - **Portable score-ops kernel (Rust -> iOS/Android/WASM)** -- question: which
   second platform is real enough to pay for the port?
+
+## TypeSafe / Jev as a fast path for the chat (tabled 2026-09-21)
+
+Ali asked to try `jev-1.13.0`, TypeSafe's "System One" model. Investigated,
+not built. Tabled here rather than dropped because two places in this codebase
+fit it almost exactly.
+
+**What it is, and what it is not.** It does not generate text and does not call
+tools. It takes STATE plus a set of QUESTIONS and returns typed answers with
+probabilities: `choice` (one of a defined set), `noul` (does this condition
+hold), `score` (a position on a described rubric). `POST
+https://api.typesafe.ai/v1/systemone`, bearer token, `model: "jev-latest"`.
+So it cannot replace the arrangement agent, which plans SEQUENCES of ops.
+
+**The two fits, in order of how ready they are:**
+
+1. **`analyze` adjudication.** `scor analyze` already emits per-bar harmony
+   candidates and this file's own CLI reference says "agent adjudicates". That
+   is exactly the documented "select instead of generate" pattern: find the
+   candidates in code, use one judgment to pick the intended one. Each bar is an
+   independent `choice` over the candidates for that bar, and independent
+   questions over the same state run in parallel in one request. Today a chat
+   model does this in prose, which is the expensive and least reliable way.
+2. **Single-operation routing.** Most real requests are one op with closed-set
+   arguments -- transpose by an interval, change an instrument, make the chord
+   names bigger. TypeSafe's function-calling cookbook does precisely this and
+   returns the function, its typed arguments, and a confidence that is *the
+   least certain judgement in the call*. That confidence is the useful part: it
+   gives a principled place to fall back to the full agent rather than a guess.
+
+**The shape to build, if it is built:** a fast path for single-op requests,
+escalating to the current agent when confidence is low or the request needs
+sequencing. Ali's hypothesis is that it will be much faster, which is the first
+thing to measure and the reason to try it at all.
+
+**Blocked on:** an API key. Nothing on this machine -- not in the environment,
+not in `.env`, no SDK installed, nothing in the keychain; the plugin ships only
+documentation. `TYPESAFE_API_KEY` in the repo `.env` is the place, matching how
+`OPENROUTER_API_KEY` already works.
+
+**Costs to weigh before it ships:** it adds a THIRD PARTY receiving user data,
+so `design/privacy-policy.md` and `design/APP_STORE_PRIVACY.md` both need a
+paragraph -- and that work was just finished for the App Store submission. Also
+worth knowing that Ali first reported this model as being on OpenRouter; it is
+not, and a search of their 443-model catalogue found nothing, which is how the
+confusion surfaced.
 
 ## Deferred to post-prototype
 
@@ -720,7 +1223,7 @@ nothing asserts that a scroll of the CONTINUOUS strip reaches it. That wants a
 UI test -- scroll the strip mid-performance, assert the Sync chip appears and
 the strip stays where it was put.
 
-## PaginationAfterAnOp's system count passes and fails for reasons nobody chose
+## CLOSED 2026-09-18: PaginationAfterAnOp's system count compared two different drawings
 
 `PaginationAfterAnOp.testTheSystemCountAgreesWithTheEngine` compares the app's
 per-page system count against a hard-coded 25 that the engine reports for the
@@ -778,6 +1281,95 @@ Where to look, in order:
    so one over-wide bar frame straddling two rows would split one system into
    two, which is an over-count of exactly one. The fragility is worse at 5-6
    systems per page than at 3, which fits both observations.
+
+**Lead 2, `lyricSize`, is CROSSED OFF (2026-09-18, on rel/0.10.0). It is not
+the cause and nobody should chase it again.**
+
+- In code it cannot vary. `render.lyric_size_for(fingerings:)` ignores its
+  argument and returns `DEFAULT_LYRIC_SIZE`; its docstring says so outright
+  ("it used to return something smaller for fingered scores, and the whole
+  point of the fix is that it no longer does"). On the app side
+  `FingeringDiagrams.defaultLyricSize` is a `static let` of 4.5 and ALL THREE
+  `VerovioRenderer` call sites pass exactly that -- only `continuous` varies.
+- Measured, it cannot produce the passing shape either. Rendering the imported
+  accordion solo through the APP's option set and varying only lyricSize
+  across Verovio's whole legal range (2.0-8.0; 12.0 is refused and falls back):
+
+      2.2  pages=5  6,6,6,5,3  = 26
+      3.0  pages=5  5,6,6,6,3  = 26
+      4.5  pages=5  5,6,6,6,3  = 26   <- the app's actual constant
+      6.0  pages=5  5,6,6,6,4  = 27
+      8.0  pages=6  4,5,6,6,5,2 = 28
+
+  Nothing yields 9 pages or 25.
+
+**And the measurement above answers the question the entry was really asking.**
+At 4.5 -- the value the app actually uses -- the app's own option set gives
+`pages=5 systems=5,6,6,6,3`, which is the FAILING observation exactly. The app
+is not miscounting. It is engraving correctly for its own page setup, and that
+page setup breaks this music into 26 systems.
+
+The engine breaks it into 25 because it engraves with a DIFFERENT setup. Same
+file, same Verovio, one process:
+
+    render.page_options()   ->  5 pages, 5,6,6,5,3  = 25
+    EngravingOptions (4.5)  ->  5 pages, 5,6,6,6,3  = 26
+
+`render.page_options()` sets neither margins, nor scale, nor breaks, nor
+lyricSize; `EngravingOptions` sets all four. Different margins and scale mean
+different horizontal room, which means a different number of bars per line --
+so a different number of LINES.
+
+So the assertion's premise is false. Its comment says "what has to agree is how
+many lines the music is broken into, which is the thing the two methods both
+measure" -- but the two methods do not measure one drawing with two rulers,
+they measure two different drawings. The total system count is not invariant
+across page setups, and 25 is not a number the app can be expected to produce.
+A number to compare against would have to be measured with the APP's options.
+
+Which makes the GREEN the accident, not the red: 25 was never a number the app
+could produce, so every red was correct.
+
+**FIXED, by making it compare like with like.** `ScorePage.drawnSystems` counts
+the `<g class="system">` groups Verovio put in the SVG THE APP JUST RENDERED,
+the probe reports it as `drawn=`, and
+`testTheSystemCountAgreesWithTheEngraving` asserts the app's inference equals
+it, per page and in total. Both numbers now come from one drawing, so no page
+setup, margin, scale or lyric size can make them differ for a reason that is
+not a defect, and there is no constant left to drift with the fixture. What the
+test now guards is what its name says: that `BarPosition.systems(of:)` finds
+the systems the engraver drew -- the `check_bar_frames.py` hazard, where one
+over-wide bar frame straddling two rows over-counts by exactly one.
+
+**The 0.6.21 line's skip, and the reasoning written into `gate.sh` beside it,
+were treating a symptom of this.** The test was not flaky-by-load; it was
+asserting something that could not be true, and the load only decided which
+engraving it happened to measure.
+
+### Still open, and now separated from the test: the app engraves this file
+### to 5 pages or to 9
+
+Measured on rel/0.10.0, same commit, same simulator, `-resetLibrary
+-seedTestLibrary` both times:
+
+    in the gate pool   pages=5  systems=5,6,6,6,3   (26)
+    run alone          pages=9  systems=3,3,3,2,3,3,3,3,2  (25)
+
+and in the second the inference matched `drawn=` exactly, so the app counted
+its own drawing correctly BOTH times. The variable is the engraving, not the
+counting.
+
+An earlier draft of this entry guessed the 9-page shape was a score carrying an
+op left by another test. **That guess is wrong** and is recorded so nobody
+repeats it: the 9-page run above was a clean, isolated, single-test launch with
+nothing before it.
+
+Three-per-page against five-or-six means the systems are TALLER, so something
+added height. The live lead is `FingeringDiagrams.meiWithFingeringsAbove`: the
+accordion solo carries fingerings, that transform rewrites the MEI and sets
+`reload`, and if it lands before the probe is read in some runs and after it in
+others, the two engravings follow. Untested. It is a rendering question, not a
+pagination-test question, and it no longer fails a gate.
 
 The 0.6.21 line SKIPPED this test in its gate for the reasons above. The 0.8
 line did not: it runs in the pool and passed in the build 196 gate (79s). A

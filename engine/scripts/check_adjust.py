@@ -159,10 +159,227 @@ ops.adjust_element(after, "#0", kind="harm", measure=3, size=22, offset_y=-3)
 if ops.rhythm_faults(after) != rhythm_before:
     FAILURES.append("adjusting a chord symbol changed the rhythm")
 
+# -- and it reaches the page for every kind, THE RIGHT WAY UP -----------------
+#
+# Step 1 generalised `adjust_element` past chord symbols, and the values went
+# into the MusicXML correctly and reached neither engraver: Verovio drops
+# relative-x/relative-y from a <dynamics>, a <words>, a <fermata> and an
+# articulation exactly as it drops them from a <harmony>, and the renderers
+# only carried the <harmony>.
+#
+# The direction is asserted, not assumed. The old <harm> pass NEGATED its
+# offset -- so the app's "up" arrow moved a chord symbol DOWN -- and the check
+# that existed only asked whether the symbol had MOVED. `up_is_up` is what
+# that check was missing.
+def marked():
+    """A jig with one of every adjustable mark on it."""
+    from music21 import articulations, dynamics, expressions, harmony
+
+    score = fixtures.jig(bars=8)
+    ops.set_chord_symbols(score, "#0", [{"measure": 3, "symbol": "Em"}])
+    bar = score.parts[0].measure(3)
+    bar.insert(0.0, dynamics.Dynamic("mf"))
+    bar.insert(1.5, expressions.TextExpression("dolce"))
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.expressions.append(expressions.Fermata())
+    note.articulations.append(articulations.Accent())
+    return score
+
+
+def engrave_marks(path):
+    toolkit = verovio.toolkit()
+    toolkit.setOptions({"scale": 45, "footer": "none", "adjustPageHeight": True,
+                        "lyricSize": render.DEFAULT_LYRIC_SIZE})
+    toolkit.loadFile(path)
+    mei = render.mei_with_element_adjustments(toolkit.getMEI(), path)
+    if mei is not None:
+        toolkit.loadData(mei)
+    return render.apply_element_sizes(toolkit.renderToSVG(1), path)
+
+
+def anchors(svg, css, leaf=False):
+    """Where each element of one class was drawn, and how big.
+
+    A glyph reports the translate of its <use> and the scale in the same
+    transform; a text element reports its <text> x/y and its tspan size.
+    """
+    out = []
+    pattern = (rf'<g[^>]*class="{css}"[^>]*>(?:(?!<g\b).)*?</g>' if leaf
+               else rf'<g[^>]*class="{css}".*?</g>\s*</g>')
+    for block in re.findall(pattern, svg, re.S):
+        # TEXT FIRST. A block's span can reach past its own drawing, so a
+        # <use> found inside a chord symbol's block belongs to the note under
+        # it; a <text> in there never does.
+        pos = re.search(r'<text[^>]*x="([-\d.]+)"[^>]*y="([-\d.]+)"', block)
+        size = re.search(r'<tspan font-size="([\d.]+)px"', block)
+        if pos:
+            out.append((float(pos.group(1)), float(pos.group(2)),
+                        float(size.group(1)) if size else None))
+            continue
+        glyph = re.search(r'translate\(([-\d.]+), ?([-\d.]+)\) '
+                          r'scale\(([\d.]+),', block)
+        if glyph:
+            out.append((float(glyph.group(1)), float(glyph.group(2)),
+                        float(glyph.group(3))))
+    return out
+
+
+UP_TENTHS = 12.0
+RIGHT_TENTHS = 8.0
+for kind, css, leaf in (("harm", "harm", False), ("dynamic", "dynam", True),
+                        ("text", "dir", False), ("fermata", "fermata", True),
+                        ("articulation", "artic", True)):
+    plain_marks = anchors(engrave_marks(written(marked())), css, leaf)
+    nudged_score = marked()
+    ops.adjust_element(nudged_score, "#0", kind=kind, measure=3,
+                       offset_x=RIGHT_TENTHS, offset_y=UP_TENTHS)
+    nudged = anchors(engrave_marks(written(nudged_score)), css, leaf)
+    if not plain_marks or len(plain_marks) != len(nudged):
+        FAILURES.append(f"{kind}: engraved {len(plain_marks)} then {len(nudged)} "
+                        "-- nothing to measure")
+        continue
+    before_x, before_y, before_size = plain_marks[0]
+    after_x, after_y, after_size = nudged[0]
+    if after_x <= before_x:
+        FAILURES.append(
+            f"{kind}: a positive relative-x did not move it RIGHT "
+            f"({before_x} -> {after_x}) -- the renderer is not carrying @ho")
+    if after_y >= before_y:
+        # SVG y grows downwards, so up is a SMALLER y
+        FAILURES.append(
+            f"{kind}: a positive relative-y did not move it UP "
+            f"({before_y} -> {after_y}) -- MusicXML and MEI both measure up, "
+            "so a negated @vo sends the reader's 'up' arrow down")
+
+    bigger_score = marked()
+    ops.adjust_element(bigger_score, "#0", kind=kind, measure=3, scale=2.0)
+    bigger = anchors(engrave_marks(written(bigger_score)), css, leaf)
+    if not bigger or bigger[0][2] is None or before_size is None:
+        FAILURES.append(f"{kind}: could not read the engraved size")
+    elif bigger[0][2] <= before_size:
+        FAILURES.append(
+            f"{kind}: --scale 2 did not make it bigger "
+            f"({before_size} -> {bigger[0][2]})")
+
+# -- a word's size reaches the page too, by a different road ------------------
+#
+# A lyric is not sized the way the five above are. MusicXML has no font on a
+# <lyric> -- the font belongs on the <text> inside it, which music21 neither
+# writes nor reads -- so the size rides in the verse NAME, and Verovio carries
+# that name onto the page as a labelAttr title. `apply_lyric_sizes` reads the
+# page rather than the file and so needs no nth-element alignment, which is
+# what a page break would break on a score with four hundred syllables.
+def sung(word="la"):
+    from music21 import harmony
+
+    score = fixtures.jig(bars=4)
+    bar = score.parts[0].measure(2)
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.lyric = word
+    return score
+
+
+def engrave_words(path):
+    toolkit = verovio.toolkit()
+    toolkit.setOptions({"scale": 45, "footer": "none", "adjustPageHeight": True,
+                        "lyricSize": render.DEFAULT_LYRIC_SIZE})
+    toolkit.loadFile(path)
+    return render.apply_lyric_sizes(toolkit.renderToSVG(1))
+
+
+def verse_sizes(svg):
+    return [float(m) for block in re.findall(
+                r'<g[^>]*class="verse">.*?</g>\s*</g>', svg, re.S)
+            for m in re.findall(r'<tspan font-size="([\d.]+)px"', block)[:1]]
+
+
+plain_words = verse_sizes(engrave_words(written(sung())))
+bigger_score = sung()
+ops.adjust_element(bigger_score, "#0", kind="lyric", measure=2, scale=2.0)
+bigger_words = verse_sizes(engrave_words(written(bigger_score)))
+if len(plain_words) != 1 or len(bigger_words) != 1:
+    FAILURES.append(f"lyric: engraved {len(plain_words)} then "
+                    f"{len(bigger_words)} verses -- nothing to measure")
+elif bigger_words[0] <= plain_words[0]:
+    FAILURES.append(f"lyric: --scale 2 did not make the word bigger "
+                    f"({plain_words[0]} -> {bigger_words[0]})")
+
+# And an offset is REFUSED rather than written into a file nothing honours.
+try:
+    ops.adjust_element(sung(), "#0", kind="lyric", measure=2, offset_y=8)
+    FAILURES.append("lyric: an offset was accepted, and nothing draws one")
+except ValueError as e:
+    if "cannot be nudged" not in str(e):
+        FAILURES.append(f"lyric: the offset refusal does not say why: {e}")
+
+# -- and a word can be TAKEN OFF, which is the one removal with an obvious
+# -- meaning and, until this was asserted, no test ------------------------------
+#
+# `remove_element` dispatches on the ANCHOR, not on the kind name, so `lyric`
+# comes off through the same path a fermata comes off through and needs no
+# branch of its own. What needs asserting is that the generic path is right
+# rather than merely silent: that it drops the verse, that it leaves a
+# whistle's fingerings alone, that it refuses an empty bar instead of
+# reporting a removal it did not make, and that it does not renumber what is
+# left. See `ops.remove_element` for why the last of those is deliberate.
+from music21 import note as m21note
+
+
+def words_on(score, bar=2):
+    from music21 import harmony
+
+    measure = score.parts[0].measure(bar)
+    note = next(n for n in measure.notes if not isinstance(n, harmony.Harmony))
+    return note
+
+
+removal = sung()
+target = words_on(removal)
+gone = ops.remove_element(removal, "#0", "lyric", measure=2, ordinal=0)
+if gone.get("removed") != 1:
+    FAILURES.append(f"lyric: remove-element reported {gone.get('removed')}")
+if [ly.text for ly in target.lyrics]:
+    FAILURES.append(f"lyric: the word survived removal: {target.lyrics}")
+
+# a fingering is a verse too, and --all must not sweep it up with the words
+mixed = sung()
+target = words_on(mixed)
+fingering = m21note.Lyric(text="OXX", applyRaw=True)
+fingering.number = 3
+fingering.identifier = ops.WHISTLE_LYRIC_TAG
+target.lyrics.append(fingering)
+ops.remove_element(mixed, "#0", "lyric", all_elements=True)
+left = [str(ly.identifier or "") for ly in target.lyrics]
+if left != [ops.WHISTLE_LYRIC_TAG]:
+    FAILURES.append(f"lyric: --all did not leave the fingering alone: {left}")
+
+# a bar with no words refuses, rather than reporting a removal it did not make
+try:
+    ops.remove_element(fixtures.jig(bars=4), "#0", "lyric", measure=2, ordinal=0)
+    FAILURES.append("lyric: removing a word from a bar with none was a no-op")
+except ValueError as e:
+    if "it has 0" not in str(e):
+        FAILURES.append(f"lyric: the empty-bar refusal does not count: {e}")
+
+# the verses left keep their numbers -- see ops.remove_element
+two = sung()
+target = words_on(two)
+second = m21note.Lyric(text="lo", applyRaw=True)
+second.number = 2
+target.lyrics.append(second)
+ops.remove_element(two, "#0", "lyric", measure=2, ordinal=0)
+kept = [(ly.number, ly.text) for ly in target.lyrics]
+if kept != [(2, "lo")]:
+    FAILURES.append(f"lyric: the surviving verse was renumbered: {kept}")
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} adjustment check(s) failed")
     for line in FAILURES:
         print("   ", line)
     sys.exit(1)
 print("OK: size and position are written to the notation, survive the file, "
-      "and reach the page without disturbing anything else")
+      "and reach the page -- right is right and up is up, for a chord symbol, "
+      "a dynamic, a text mark, a fermata and an articulation alike; and a "
+      "word grows by its verse name, refuses the nudge nothing would draw, "
+      "and comes off the note it was sung on without taking a fingering, a "
+      "verse number or a silent no-op with it")

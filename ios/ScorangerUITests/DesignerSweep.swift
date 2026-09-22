@@ -413,7 +413,7 @@ final class DesignerSweep: XCTestCase {
         lines.append(ask.exists
             ? "library-ask enabled=\(ask.isEnabled) hittable=\(ask.isHittable) label=\(ask.label)"
             : "library-ask — absent (removed in #47)")
-        for id in ["library-import", "library-new", "library-new-setlist",
+        for id in ["library-import", "library-new",
                    "library-edit", "library-sort", "library-filter",
                    "library-settings", "library-empty", "build-stamp"] {
             let e = app.descendants(matching: .any)[id]

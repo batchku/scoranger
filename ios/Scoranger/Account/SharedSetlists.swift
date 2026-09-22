@@ -40,8 +40,32 @@ final class SharedSetlists: ObservableObject {
     /// off any thread. Isolating it to the main actor made a struct's computed
     /// `isOwner` uncallable, which is where it is most needed.
     nonisolated static var currentUid: String? {
+        // The fixture's uid, when there is one. It has to answer HERE and not
+        // only in `SignIn`, because `Setlist.isOwner` is computed off this --
+        // and a fixture whose set lists all read as somebody else's would
+        // photograph the wrong half of the account-deletion confirm.
+        if let pretend = SignIn.pretendedAccount { return pretend.uid }
         guard FirebaseApp.app() != nil else { return nil }
         return Auth.auth().currentUser?.uid
+    }
+
+    /// Shared set lists with no Firebase behind them, for tests and for
+    /// photographs. Nil in every shipped run -- see `SignIn.pretendedAccount`.
+    ///
+    /// Three, deliberately, and one of each fate: one this account owns with
+    /// other people in it (handed on), one it owns alone (deleted with the
+    /// account), and one belonging to somebody else (left). That is the whole
+    /// of §6.6 on one screen, which is what the confirm has to be able to say.
+    nonisolated static var pretendedSetlists: [Setlist]? {
+        guard let me = SignIn.pretendedAccount?.uid else { return nil }
+        return [
+            Setlist(id: "s-friday", name: "Friday at the Bell", ownerId: me,
+                    members: [me: "owner", "u-2": "member", "u-3": "member"]),
+            Setlist(id: "s-practice", name: "Practice", ownerId: me,
+                    members: [me: "owner"]),
+            Setlist(id: "s-quintet", name: "The quintet's book", ownerId: "u-9",
+                    members: ["u-9": "owner", me: "member"]),
+        ]
     }
 
     struct Setlist: Identifiable, Equatable {
@@ -113,6 +137,10 @@ final class SharedSetlists: ObservableObject {
     /// same constraint the rule enforces. Listing `setlists` is refused
     /// outright by the deployed rules, and this is why.
     func watchMemberships() {
+        // Test fixture, before the guard below: under `-pretendSignedIn` there
+        // is no Firebase to listen to, and a confirm that has to name the set
+        // lists it is about to destroy needs some to name.
+        if let pretend = Self.pretendedSetlists { setlists = pretend; return }
         guard let uid else { return }   // nil until Firebase is up, by design
         // Already watching is not a reason to watch again. `onAppear` fires
         // every time the library's set-list segment comes back, and a listener

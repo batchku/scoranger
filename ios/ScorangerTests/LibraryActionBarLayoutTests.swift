@@ -5,7 +5,13 @@ import XCTest
 /// fits at every width and text size.
 final class LibraryActionBarLayoutTests: XCTestCase {
 
-    private let pieces = LibraryActions.bar(for: .pieces)
+    /// The bar a selection of SEVERAL pieces gets -- the widest case, and the
+    /// one the rungs were measured against.
+    private let pieces = LibraryActions.bar(for: .pieces, count: 5)
+
+    /// And the bar a single piece gets, which carries a longer first verb
+    /// ("New arrangement") and so must be measured too.
+    private let onePiece = LibraryActions.bar(for: .pieces, count: 1)
 
     /// The rungs, in order, are each narrower than the last -- or the order
     /// is not a yield order.
@@ -29,6 +35,34 @@ final class LibraryActionBarLayoutTests: XCTestCase {
         XCTAssertEqual(LibraryActionBarLayout.rung(width: 1000, actions: pieces, labels: labels), .full)
     }
 
+    /// BOTH pieces bars fit on ONE ROW at a phone's width, not just the one a
+    /// multi-selection gets.
+    ///
+    /// This is what Combine cost before the bar became count-aware: a fourth
+    /// capsule took 353pt to `.twoRows`, which is the whole bar folding in
+    /// half on every phone. Measuring only the five-selected case would have
+    /// missed the single-piece bar, whose first verb is the LONGER of the two
+    /// ("New arrangement" against "Combine…").
+    func testBothPiecesBarsFitOnOneRowOnAPhone() {
+        for (count, actions) in [(1, onePiece), (5, pieces)] {
+            let labels = LibraryActionBarMetrics.labels(count: count, kind: .pieces, size: .large)
+            let rung = LibraryActionBarLayout.rung(width: 353, actions: actions, labels: labels)
+            XCTAssertNotEqual(rung, .twoRows,
+                              "\(count) selected: the bar needs two rows at 353pt")
+            XCTAssertTrue(rung <= .shortVerbs,
+                          "\(count) selected: Delete gave up its count at 353pt, "
+                          + "and the count is the safety on the destructive verb")
+        }
+    }
+
+    /// The count-aware bar is always three capsules, so it cannot re-flow
+    /// under a finger as a selection grows.
+    func testThePiecesBarIsTheSameWidthWhateverIsSelected() {
+        for count in 1...12 {
+            XCTAssertEqual(LibraryActions.bar(for: .pieces, count: count).count, 3)
+        }
+    }
+
     // 4. theBarFitsAtEveryWidth
     func testTheChosenRungFitsAtEveryWidthAndSize() {
         let sizes: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge,
@@ -37,12 +71,15 @@ final class LibraryActionBarLayoutTests: XCTestCase {
         for size in sizes {
             for count in [1, 5, 12] {
                 let labels = LibraryActionBarMetrics.labels(count: count, kind: .pieces, size: size)
-                for width in stride(from: 320, through: 1366, by: 1) {
-                    let bar = CGFloat(width)
-                    let rung = LibraryActionBarLayout.rung(width: bar, actions: pieces, labels: labels)
-                    guard rung != .twoRows else { continue }
-                    XCTAssertLessThanOrEqual(LibraryActionBarLayout.width(of: rung, actions: pieces, labels: labels),
-                                             bar, "\(size) \(count) selected at \(width)pt chose \(rung)")
+                // BOTH bars: a single piece gets a different, longer first verb
+                for actions in [pieces, onePiece] {
+                    for width in stride(from: 320, through: 1366, by: 1) {
+                        let bar = CGFloat(width)
+                        let rung = LibraryActionBarLayout.rung(width: bar, actions: actions, labels: labels)
+                        guard rung != .twoRows else { continue }
+                        XCTAssertLessThanOrEqual(LibraryActionBarLayout.width(of: rung, actions: actions, labels: labels),
+                                                 bar, "\(size) \(count) selected at \(width)pt chose \(rung)")
+                    }
                 }
             }
         }

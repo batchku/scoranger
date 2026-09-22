@@ -71,4 +71,38 @@ enum ScoreLayout: String, CaseIterable, Codable {
 
     /// A page counter is meaningless with no pages; the bar number is not.
     var showsPageCounter: Bool { self != .continuous }
+
+    // MARK: - Which layout the canvas may draw with
+
+    /// Which ENGRAVING a layout needs. One page and a spread are the same
+    /// pages counted out differently -- Verovio is asked for the same
+    /// document and the canvas shows one or two of its pages at a time.
+    /// Continuous is a different document: one page, no system breaks.
+    enum Engraving: String, Equatable {
+        case paged
+        case continuous
+    }
+
+    var engraving: Engraving { isContinuous ? .continuous : .paged }
+
+    /// The layout the canvas may draw the pages it is HOLDING with.
+    ///
+    /// Changing layout published at once while the pages on screen were still
+    /// the old engraving, so for a frame the canvas drew a paged document as a
+    /// strip, or a strip squeezed into a page frame -- Ali: "changing between
+    /// one page, two pages and scroll shows the WRONG view for a moment".
+    ///
+    /// The rule is the engraving, not the layout. Page and spread share one,
+    /// so switching between them is instant and nothing waits. Continuous
+    /// needs its own, so the switch to or from it waits for the pages it
+    /// needs: the canvas keeps drawing what it has, in the layout that
+    /// engraving was made for, until the new document and this value change
+    /// together in one publish.
+    ///
+    /// `engraved` is nil when no pages are held at all, and then there is
+    /// nothing to mismatch.
+    static func displayed(chosen: ScoreLayout, engraved: ScoreLayout?) -> ScoreLayout {
+        guard let engraved, engraved.engraving != chosen.engraving else { return chosen }
+        return engraved
+    }
 }

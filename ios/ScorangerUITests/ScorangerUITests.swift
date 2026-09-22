@@ -777,12 +777,10 @@ final class ScorangerUITests: XCTestCase {
     /// Home's actions, on the library where they now live (§4C) -- less Ask,
     /// which Ali had removed (#47).
     ///
-    /// Five of them are two verbs since IPHONE_0.6.14 §14: the three imports
-    /// live in `Import`'s band and the two creations in `New`'s, because five
-    /// permanent buttons is what made the row 56pt wider than a phone. So the
-    /// row carries the verbs, and the variants are one tap inside them --
-    /// which is what this now checks, rather than assuming they are all on the
-    /// row.
+    /// The row carries two verbs since IPHONE_0.6.14 §14. Import still opens a
+    /// band of variants; New does not, and has not since 0.8.2 item 13 -- it
+    /// makes the thing the segment is showing, which on Pieces is a piece with
+    /// its name waiting to be typed.
     func testTheLibraryCarriesTheMakingActions() {
         XCTAssertTrue(app.buttons["library-import"].waitForExistence(timeout: 30),
                       "the library has no import action")
@@ -790,10 +788,15 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["library-ask"].exists, "Ask is back")
 
         app.buttons["library-new"].tap()
-        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
-                      "New set list is not in the New band")
-        app.buttons["library-new"].tap()   // close it again
+        let field = app.textFields["inline-rename-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20),
+                      "New did not raise the naming row")
+        XCTAssertEqual(field.placeholderValue, "Piece name",
+                       "on Pieces, New makes a piece")
+        XCTAssertFalse(app.buttons["library-new-setlist"].exists,
+                       "the New band is back")
         shot("library-action-row")
+        app.buttons["inline-rename-cancel"].tap()
     }
 
     /// #48-#50: the library's top row is the gear and nothing else. Help and
@@ -1139,7 +1142,18 @@ final class ScorangerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["score-edit"].exists,
                       "Pencil markup is the whole point of bringing scans in early")
 
-        // and the way OUT of being a scan is offered
+        // and the way OUT of being a scan offers ITSELF (0.8.2, SC13). Until
+        // this build it was a switch two taps behind `…`, so a scan opened as
+        // a PDF and said nothing about what it could become.
+        let convert = menuRow("convert-run")
+        XCTAssertTrue(convert.waitForExistence(timeout: 20),
+                      "the scan did not offer to be converted when it opened")
+        XCTAssertTrue(menuRow("convert-read-as-is").exists,
+                      "the offer has no second answer")
+        // Read as is closes it, and More offers Convert again after.
+        menuRow("convert-read-as-is").tap()
+        XCTAssertFalse(convert.waitForExistence(timeout: 3),
+                       "Read as is left the offer on screen")
         app.buttons["score-more"].tap()
         XCTAssertTrue(menuRow("more-make-editable").waitForExistence(timeout: 10),
                       "a scan should offer to be read into notation")
@@ -2379,8 +2393,19 @@ final class ScorangerUITests: XCTestCase {
         let broken = app.buttons["row-broken-arrangement"]
         XCTAssertTrue(broken.waitForExistence(timeout: 60),
                       "the version-less arrangement is not in the library")
-        XCTAssertTrue(broken.label.contains("0 versions"),
+        // The wording moved in 0.8.2 (item 11): an unfiled arrangement's
+        // subtitle names its KIND rather than counting versions, so a healthy
+        // one reads "Arrangement" and this one has to say more than that.
+        // Asserted against a HEALTHY row in the same list, or "contains
+        // Arrangement" would pass for both and this test would stop
+        // protecting anything.
+        XCTAssertTrue(broken.label.contains("no versions"),
                       "expected it to admit it has no versions: \(broken.label)")
+        let healthy = app.buttons["row-sous-le-ciel-de-paris"]
+        XCTAssertTrue(healthy.waitForExistence(timeout: 60),
+                      "no healthy row to tell the broken one apart from")
+        XCTAssertFalse(healthy.label.contains("no versions"),
+                       "a healthy row must not read as broken: \(healthy.label)")
         broken.tap()
 
         // it must say what is wrong rather than spin
@@ -3090,12 +3115,8 @@ final class ScorangerUITests: XCTestCase {
     func testNewSetlistAsksForANameThenOffersArrangements() {
 
         app.buttons["segment-setlists"].tap()
-        // New set list lives in `New`'s band since §14 -- one tap in, and
-        // named in words rather than drawn as three horizontal lines.
+        // One tap: on Set lists, New makes a set list (0.8.2 item 13).
         app.buttons["library-new"].tap()
-        XCTAssertTrue(app.buttons["library-new-setlist"].waitForExistence(timeout: 20),
-                      "New set list is not in the New band")
-        app.buttons["library-new-setlist"].tap()
         // naming happens in a band at the top of the list, not in an alert
         let field = app.textFields["inline-rename-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "no field to name it in")
@@ -3286,6 +3307,23 @@ final class ScorangerUITests: XCTestCase {
     /// stroke must not come back. Stroke counts are read off the canvas.
     func testAnnotationUndoAcrossColourChange() {
         openArrangement(firstArrangement)
+        // THE ENGRAVING FIRST. The annotation canvas is a child of a PAGE, so
+        // it cannot exist until the pages do, and the pages are an engine
+        // round trip away. What stood here was a ten-second wall-clock budget
+        // spent across that round trip -- one of the "fifteen places [that]
+        // waited twelve seconds for this and hoped" that `waitForEngraving`
+        // was written to remove, and the one place that never got converted.
+        //
+        // Measured 2026-09-17, solo on an idle machine, at this commit AND at
+        // 38bd7557 before items 8-10: the wait took 7.2 of its 10 seconds and
+        // passed with 2.8 to spare. Under four gate workers it ran out, twice.
+        // Nothing about the branch made it slower -- 7.15s at HEAD against
+        // 7.23s at the base -- the budget was always this close to the edge.
+        //
+        // `waitForEngraving` waits for the SIGNAL instead, and for this
+        // arrangement's own engraving rather than whatever page happens to be
+        // on screen. Every assertion below is unchanged.
+        waitForEngraving(of: firstArrangement)
         XCTAssertTrue(app.buttons["score-edit"].waitForExistence(timeout: 90),
                       "the markup toggle never appeared in the pill")
         app.buttons["score-edit"].tap()
@@ -3295,7 +3333,7 @@ final class ScorangerUITests: XCTestCase {
         let canvas = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas-"))
             .firstMatch
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no annotation canvas")
+        XCTAssertTrue(canvas.waitForExistence(timeout: 30), "no annotation canvas")
 
         func strokes() -> Int {
             Int((canvas.value as? String)?

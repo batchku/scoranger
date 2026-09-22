@@ -71,6 +71,9 @@ struct ContentView: View {
     private var moreOpen: Bool {
         switch scoreScreen {
         case nil, .chat, .titleVersions, .titleArrangements, .titleSetlists: return false
+        // The scan's own offer is not something More opened, so More is not
+        // lit while it is showing; the same state opened FROM More is.
+        case .convert(let fromMore): return fromMore
         default: return true
         }
     }
@@ -103,6 +106,9 @@ struct ContentView: View {
             return optionsSection == nil ? nil : { optionsSection = nil }
         case .setlists, .details, .settings:
             return { setPanel(.options) }
+        case .convert(let fromMore):
+            // Nothing behind the offer when the scan itself opened it.
+            return fromMore ? { setPanel(.options) } : nil
         case .chatModel:
             return { setPanel(.chat) }
         case .chat, .titleVersions, .titleArrangements, .titleSetlists:
@@ -207,7 +213,8 @@ struct ContentView: View {
     /// What the top bar can seat at its measured width. Read by the bar and by
     /// Options, which carries what the bar could not.
     private var barFit: ScoreBarLayout.Fit {
-        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy)
+        ScoreBarLayout.fit(barWidth: barWidth, omrBusy: state.omrBusy,
+                           compact: isCompact)
     }
 
     var body: some View {
@@ -248,7 +255,8 @@ struct ContentView: View {
                                push: { optionsSection = $0 },
                                onSettings: { scoreScreen = .settings },
                                onDetails: { scoreScreen = .details },
-                               onSetlists: { scoreScreen = .setlists })
+                               onSetlists: { scoreScreen = .setlists },
+                               onConvert: { setPanel(.convert(fromMore: true)) })
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score-options")
         case .setlists:
@@ -280,10 +288,24 @@ struct ContentView: View {
                 }
             }
         case .settings:
+            // The SPLIT, not the flat list (0.8.2, the fourth of what 0.8.0
+            // said it did not have). At 380 the split takes its compact leg --
+            // the index alone, each section pushed over it with a ‹ of its own
+            // (Ph6) -- so the score's panel and the Settings page are one
+            // surface at two widths rather than two surfaces.
+            //
+            // `scrolls: false`: the split scrolls its index and its section
+            // itself, and a ScrollView around a GeometryReader gives it zero
+            // height to lay out in.
             Screen(title: "Settings", backLabel: "More",
-                   onBack: { setPanel(.options) }) {
-                SettingsView()
+                   onBack: { setPanel(.options) }, scrolls: false) {
+                SettingsSplit()
             }
+        case .convert:
+            ConvertPanel(onAnswered: {
+                state.recordConvertAnswer(for: state.selectedScore?.slug ?? "")
+                closePanel()
+            })
         case .chatModel:
             ChatModelScreen(onBack: { setPanel(.chat) })
         case .chat:
@@ -312,38 +334,46 @@ struct ContentView: View {
         }
     }
 
+    /// The score bar, and on a phone its SECOND ROW (Ph4). One call
+    /// site, two instances: the row is what differs, and every binding
+    /// they share is shared rather than copied.
+    private func scoreBar(row: ScoreTopBar.Row) -> some View {
+        ScoreTopBar(annotation: state.annotation,
+                    number: state.selectedScore
+                        .flatMap { state.placement(of: $0.slug)?.number },
+                    title: scoreTitle,
+                    subtitle: scoreSubtitle,
+                    origin: scoreOrigin,
+                    mode: $state.scoreMode,
+                    titleMenuOpen: $state.titleMenuOpen,
+                    titleMenuMode: $titleMenuMode,
+                    barWidth: $barWidth,
+                    // The bar clears More when it opens something else;
+                    // that must not close what it just opened.
+                    moreOpen: Binding(get: { moreOpen },
+                                      set: { on in
+                                      if on {
+                                          setPanel(.options)
+                                      } else if moreOpen {
+                                          // Only More goes: the bar
+                                          // clears it AFTER opening
+                                          // the title menu, which
+                                          // must stay open.
+                                          withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
+                                              scoreScreen = nil
+                                              optionsSection = nil
+                                          }
+                                      }
+                                      }),
+                    chatOpen: chatOpen,
+                    onClose: onClose,
+                    onAsk: { setPanel(chatOpen ? nil : .chat) },
+                    row: row)
+    }
+
     private var scoreBody: some View {
         VStack(spacing: 0) {
-            ScoreTopBar(annotation: state.annotation,
-                        number: state.selectedScore
-                            .flatMap { state.placement(of: $0.slug)?.number },
-                        title: scoreTitle,
-                        subtitle: scoreSubtitle,
-                        origin: scoreOrigin,
-                        mode: $state.scoreMode,
-                        titleMenuOpen: $state.titleMenuOpen,
-                        titleMenuMode: $titleMenuMode,
-                        barWidth: $barWidth,
-                        // The bar clears More when it opens something else;
-                        // that must not close what it just opened.
-                        moreOpen: Binding(get: { moreOpen },
-                                          set: { on in
-                                              if on {
-                                                  setPanel(.options)
-                                              } else if moreOpen {
-                                                  // Only More goes: the bar
-                                                  // clears it AFTER opening
-                                                  // the title menu, which
-                                                  // must stay open.
-                                                  withAnimation(Theme.Motion.overlay(reduced: reduceMotion)) {
-                                                      scoreScreen = nil
-                                                      optionsSection = nil
-                                                  }
-                                              }
-                                          }),
-                        chatOpen: chatOpen,
-                        onClose: onClose,
-                        onAsk: { setPanel(chatOpen ? nil : .chat) })
+            scoreBar(row: .bar)
             ZStack(alignment: .top) {
                 Theme.Surface.band
                 canvasLayer
@@ -356,7 +386,8 @@ struct ContentView: View {
             }
             // What this arrangement IS, opposite the counters (0.6.3 #5).
             .overlay(alignment: .topLeading) {
-                if state.selectedScore != nil, state.pdfDocument != nil {
+                if state.selectedScore != nil, state.pdfDocument != nil,
+                   ScorePosition.counterShown(panelOpen: panelOpen, isCompact: isCompact) {
                     ArtifactMarker(kind: state.displayedArtifact)
                         .padding(.top, Theme.Metric.s8)
                         .padding(.leading, Theme.Metric.s12)
@@ -365,7 +396,8 @@ struct ContentView: View {
             }
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: Theme.Metric.s6) {
-                    if state.selectedScore != nil {
+                    if state.selectedScore != nil,
+                       ScorePosition.counterShown(panelOpen: panelOpen, isCompact: isCompact) {
                         LiveCounters(playback: state.playback,
                                      pages: state.layout.showsPageCounter ? pageCounter : nil,
                                      bar: barCounter,
@@ -383,13 +415,10 @@ struct ContentView: View {
                     // what 0.6.8 set out to fix. Same view, same signal -- only
                     // where it sits changes, and it sits here only while the
                     // bar is not showing it.
-                    if state.omrBusy, !barFit.showsOMRProgress,
+                    if let here = state.omrHere, !barFit.showsOMRProgress,
                        state.scoreMode != .performance {
-                        OMRProgressChip(control: MakeEditable.control(
-                                            busy: state.omrBusy,
-                                            stage: state.omrStage,
-                                            fraction: state.omrFraction),
-                                        action: { scoreScreen = .options })
+                        OMRProgressChip(control: MakeEditable.control(status: here),
+                                        action: { setPanel(.convert(fromMore: false)) })
                     }
                 }
                 .padding(.top, Theme.Metric.s8)
@@ -425,6 +454,11 @@ struct ContentView: View {
                              current: state.visiblePageIndices.first ?? 0,
                              onJump: jumpToPage)
             }
+            // The phone's second row, between the canvas and the tray
+            // (Ph4). It draws itself only where `ScoreBarLayout` says the bar
+            // handed it something, so there is no second notion of "is this a
+            // phone" anywhere in this file.
+            scoreBar(row: .second)
             // THE TRAY (design/DESIGN_SYSTEM.md §7.7): always there while
             // reading -- there is no "show transport" any more -- and gone
             // with the bar in performance mode. It is the transport and the
@@ -460,6 +494,10 @@ struct ContentView: View {
         // flag says it is open and which mode, and the panel follows.
         .onChange(of: state.titleMenuOpen) { _, open in titleMenuChanged(open: open) }
         .onChange(of: titleMenuMode) { _, _ in titleMenuChanged(open: state.titleMenuOpen) }
+        // SC13: the scan opens its own offer. Keyed on the displayed VERSION
+        // rather than on the arrangement, because converting produces a new
+        // version of the same slug and the offer must go when it does.
+        .task(id: state.displayedVersionID) { offerConversionIfScan() }
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -731,6 +769,21 @@ struct ContentView: View {
                       actionTitle: "Open library") {
             }
         }
+    }
+
+    /// Put the convert offer on screen when a scan opens (SC13).
+    ///
+    /// Only over an empty panel: a reader who opened Chat or More before the
+    /// page finished engraving asked for that, and having the offer displace
+    /// it would be the app taking the screen back. They still reach it from
+    /// More's row, which is the whole reason that row stayed.
+    private func offerConversionIfScan() {
+        guard scoreScreen == nil, state.scoreMode != .performance else { return }
+        guard ConvertOffer.opens(artifact: state.displayedArtifact,
+                                 slug: state.selectedScore?.slug ?? "",
+                                 answered: state.convertOfferAnswered,
+                                 status: state.omrHere) else { return }
+        setPanel(.convert(fromMore: false))
     }
 
     private func titleMenuChanged(open: Bool) {

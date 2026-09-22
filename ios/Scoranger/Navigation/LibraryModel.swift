@@ -167,11 +167,20 @@ enum LibraryModel {
             }
             let latest = arrangements.compactMap { $0.versions.last?.time ?? nil }.max() ?? ""
             let version = arrangements.compactMap { $0.latestLabel }.last ?? ""
+            // A piece hid the same fault the arrangement row did: it counts
+            // what it holds, and a piece whose arrangements all have NO
+            // versions has an empty `meta` too, so it read like any other.
+            // Said only when there is nothing to open ANYWHERE in the piece --
+            // one broken arrangement among three is not a broken piece, and a
+            // piece holding nothing at all already says "0 arrangements".
+            let nothingToOpen = !arrangements.isEmpty
+                && arrangements.allSatisfy { $0.versions.isEmpty }
             return LibraryRow(
                 id: piece.slug,
                 title: piece.name,
                 subtitle: [composer, "\(arrangements.count) "
-                    + (arrangements.count == 1 ? "arrangement" : "arrangements")]
+                    + (arrangements.count == 1 ? "arrangement" : "arrangements"),
+                           nothingToOpen ? "no versions" : ""]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [version, shortTime(latest)].filter { !$0.isEmpty }
@@ -203,6 +212,32 @@ enum LibraryModel {
     /// Arrangements filed under no piece. They have no `#N` -- a number is only
     /// meaningful inside a piece (§2) -- so the row shows no numeral and
     /// reserves no space for one.
+    ///
+    /// ## What the subtitle says, and why it changed (Ali, 2026-09-14 item 11)
+    ///
+    /// Two row kinds share the Pieces list. A PIECE row is a folder and says
+    /// how many arrangements it holds; this row IS one arrangement. It used to
+    /// say "20 versions", which put a version count where the row above it put
+    /// an arrangement count -- "Under Paris Skies accordion Solo, 1 version"
+    /// directly above "Une nuit, 0 arrangements" in the photographs -- and
+    /// nothing on either row said which kind it was.
+    ///
+    /// The count was also a second copy of a fact already on the row: `meta`
+    /// carries the latest version label (`v020`) on BOTH kinds. So the
+    /// subtitle now names the KIND and the version fact stays where the piece
+    /// row keeps it. Both rows then read the same way: what it is or holds,
+    /// then the version and the day.
+    ///
+    /// ## Except when there is nothing in it
+    ///
+    /// An arrangement with NO versions has no `meta` either -- no label, no
+    /// day -- so naming the kind and stopping made a broken row read exactly
+    /// like a healthy one. Ali's device grew a "Morrison's jig" with zero
+    /// versions that sat on "Opening…" for ever, and the row saying so is how
+    /// a reader learns it is broken before opening it. So the state is said
+    /// too, in the subtitle rather than as a chip: chips do not reach the
+    /// row's accessibility label (`LRow.spoken` is title, subtitle, meta), so
+    /// a chip-only warning is invisible to VoiceOver.
     static func unfiledRows(manifest: Manifest,
                             arrangementTags: [String: [String]] = [:]) -> [LibraryRow] {
         manifest.scores.filter { ($0.piece ?? "").isEmpty }.map { score in
@@ -214,8 +249,8 @@ enum LibraryModel {
                 id: score.slug,
                 title: ScoreTitle.arrangementName(title: score.title, name: score.name,
                                                   slug: score.slug),
-                subtitle: [score.composer ?? "", "\(score.versions.count) "
-                    + (score.versions.count == 1 ? "version" : "versions")]
+                subtitle: [score.composer ?? "", "Arrangement",
+                           score.versions.isEmpty ? "no versions" : ""]
                     .filter { !$0.isEmpty }.joined(separator: " · "),
                 chips: chips,
                 meta: [score.latestLabel ?? "", shortTime((score.versions.last?.time ?? nil) ?? "")]

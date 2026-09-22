@@ -2,13 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Sign in with Apple. Ali's son has an Apple account and no Google one,
-	     so this is not a nice-to-have: without it he cannot join a shared set
-	     list at all. The matching capability (APPLE_ID_AUTH, with
-	     PRIMARY_APP_CONSENT) is enabled on the App ID com.irllabs.scoranger;
-	     this entitlement without that capability fails code signing, and that
-	     capability without this entitlement is what made the button do
-	     nothing in build 183. -->
+	<!-- Sign in with Apple, which App Store Review Guideline 4.8 obliges.
+	     This app offers Google SSO, and 4.8 requires an equivalent
+	     privacy-preserving login option beside any third-party or social
+	     login; Sign in with Apple is the cheapest way to satisfy it. Shipping
+	     Google alone is not a choice that is available
+	     (design/FIREBASE.md, the amended §9.2 decision).
+
+	     CORRECTED 2026-09-21. This comment used to read "Ali's son has an
+	     Apple account and no Google one, so this is not a nice-to-have:
+	     without it he cannot join a shared set list at all." That is
+	     backwards. Apple does not offer Sign in with Apple to an account
+	     under the age threshold, so it is Google sign-in that works for him
+	     and Apple's that does not. The entitlement stays regardless: 4.8,
+	     not any one user, is what requires it.
+
+	     The matching capability (APPLE_ID_AUTH, with PRIMARY_APP_CONSENT) is
+	     enabled on the App ID com.irllabs.scoranger; this entitlement
+	     without that capability fails code signing, and that capability
+	     without this entitlement is what made the button do nothing in
+	     build 183. -->
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>

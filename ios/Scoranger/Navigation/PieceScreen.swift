@@ -16,6 +16,12 @@ struct PieceScreen: View {
     /// The arrangement row whose ☰ is open, its actions in the row (P2).
     @State private var openArrangement: String?
     @EnvironmentObject var panel: PanelModel
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Ph2's rule, on this page too: a phone has no column beside the page,
+    /// so the page's own tools sit on one line at its foot. Without it the
+    /// panel at rest -- "This piece" -- is not reachable on a phone at all
+    /// now that a rest state no longer covers the page it belongs to.
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         Screen(title: "", backLabel: "Library",
@@ -51,7 +57,16 @@ struct PieceScreen: View {
                         .padding(Theme.Metric.pageSide)
                 }
             }
-            .padding(.bottom, Theme.Metric.s32)
+            .padding(.bottom, isCompact ? PageFootStrip.inset : Theme.Metric.s32)
+        }
+        .overlay(alignment: .bottom) {
+            if isCompact {
+                PageFootStrip(items: [
+                    .init(id: "piece-tool-import", title: "Import",
+                          glyph: "arrow.down.to.line") { onImport(piece.slug) },
+                    .init(id: "piece-tool-more", title: "More") { push(.thisPiece(piece.slug)) },
+                ])
+            }
         }
     }
 
@@ -168,7 +183,7 @@ struct PieceScreen: View {
         return bits.joined(separator: " · ")
     }
 
-    /// P2: Up, Down, Duplicate, Move to piece, Arrangement, Delete.
+    /// P2: Up, Down, Duplicate, Move to piece, Details, Delete.
     private func arrangementActions(_ score: ScoreDoc, number: Int) -> [RowActionItem] {
         [
             RowActionItem(id: "arr-up-\(score.slug)", title: "Up", glyph: "chevron.up",
@@ -182,7 +197,7 @@ struct PieceScreen: View {
                           lit: panel.isShowing(.moveToPiece([score.slug]))) {
                 panel.toggle(.moveToPiece([score.slug]))
             },
-            RowActionItem(id: "arrangement-manage-\(score.slug)", title: "Arrangement",
+            RowActionItem(id: "arrangement-manage-\(score.slug)", title: "Details",
                           lit: panel.isShowing(.arrangement(score.slug))) {
                 panel.toggle(.arrangement(score.slug))
             },
@@ -365,58 +380,3 @@ struct RowMenuButton: View {
 }
 
 
-/// One editable line of a piece's metadata.
-///
-/// Separate from `EditableTitle` for one reason: a name cannot be empty, and
-/// these can. Clearing a composer is a thing a person does -- the credit was
-/// wrong, or it was never a composer in the first place -- so an empty commit
-/// has to reach the engine rather than be swallowed as "no change".
-struct PieceField: View {
-    let label: String
-    let value: String
-    var hint: String = ""
-    var identifier: String
-    var onCommit: (String) -> Void
-
-    @State private var editing = false
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        HStack(spacing: Theme.Metric.s12) {
-            Text(label).typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
-                .frame(width: 82, alignment: .leading)
-            if editing {
-                TextField(hint.isEmpty ? label : hint, text: $draft)
-                    .typeRole(.row).foregroundStyle(Theme.Ink.ink)
-                    .tint(Theme.Accent.clay).textFieldStyle(.plain)
-                    .focused($focused).submitLabel(.done)
-                    .onSubmit { commit() }
-                    .accessibilityIdentifier("\(identifier)-field")
-            } else {
-                Text(value.isEmpty ? "—" : value)
-                    .typeRole(.row)
-                    .foregroundStyle(value.isEmpty ? Theme.Ink.ink3 : Theme.Ink.ink)
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(.horizontal, Theme.Metric.s20)
-        .frame(minHeight: Theme.Metric.hitTarget)
-        .contentShape(Rectangle())
-        .accessibilityIdentifier(identifier)
-        .onTapGesture {
-            guard !editing else { return }
-            draft = value
-            editing = true
-            focused = true
-        }
-        .onChange(of: focused) { _, now in if !now && editing { commit() } }
-    }
-
-    private func commit() {
-        editing = false
-        focused = false
-        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed != value { onCommit(trimmed) }
-    }
-}

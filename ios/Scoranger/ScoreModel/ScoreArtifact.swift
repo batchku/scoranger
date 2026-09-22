@@ -35,7 +35,8 @@ enum ScoreArtifact {
     static let imageSuffixes: Set<String> = ["jpg", "jpeg", "png", "heic"]
 
     /// Suffixes the engine can operate on. Mirrors `workspace.NOTATION_SUFFIXES`.
-    static let notationSuffixes: Set<String> = ["musicxml", "xml", "mxl", "mid", "midi"]
+    static let notationSuffixes: Set<String> = ["musicxml", "xml", "mxl", "mid",
+                                               "midi", "abc"]
 
     static func kind(ofFile file: String) -> Kind {
         let suffix = (file as NSString).pathExtension.lowercased()

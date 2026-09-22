@@ -80,12 +80,38 @@ enum EngravingOptions {
     /// leaf's bottom edge above the right's.
     static func adjustPageHeight(continuous: Bool) -> Bool { continuous }
 
+    /// Whether the systems are spread down the page (Ali, 2026-09-14 item 8).
+    ///
+    /// Verovio stacks systems from the top of a fixed sheet and breaks when
+    /// the next one will not fit, leaving whatever is left as blank paper at
+    /// the bottom. On the seeded string quartet, measured with the engine's
+    /// own Verovio and this exact option set:
+    ///
+    ///     page  systems  blank at the foot
+    ///       1      3          12.8%
+    ///       3      2          38.2%   <-- "two systems and then about a
+    ///       4      4          38.8%        third of the sheet is blank"
+    ///
+    /// With the systems justified the same pages come out at 8.3%, 18.2% and
+    /// 18.8%. It is the engraver's answer and it changes nothing else: the
+    /// page keeps its size, the breaking is identical, the notation is the
+    /// same size, and a spread still shows two leaves of one height.
+    ///
+    /// The alternative was `adjustPageHeight` on paper, which trims each page
+    /// to its own content and would draw the music BIGGER -- and gives every
+    /// page a different height, which is what a spread and a thumbnail rail
+    /// cannot have. That trade stays refused; see `adjustPageHeight` above.
+    ///
+    /// Off for the strip, which has one system and is trimmed to it.
+    static func justifyVertically(continuous: Bool) -> Bool { !continuous }
+
     /// The whole option set, with every layout-dependent option named.
     static func json(lyricSize: Double, continuous: Bool) -> String {
         """
         {"scale": \(scale), "footer": "none",
          "breaks": "\(breaks(continuous: continuous))",
          "adjustPageHeight": \(adjustPageHeight(continuous: continuous)),
+         "justifyVertically": \(justifyVertically(continuous: continuous)),
          "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
          "pageMarginTop": \(verticalMargin(continuous: continuous)),
          "pageMarginBottom": \(verticalMargin(continuous: continuous)),
@@ -99,5 +125,6 @@ enum EngravingOptions {
     /// Named here so the test asserting it is asserting a rule rather than a
     /// list someone happened to type twice.
     static let layoutDependentKeys = ["breaks", "adjustPageHeight",
+                                      "justifyVertically",
                                       "pageMarginTop", "pageMarginBottom"]
 }

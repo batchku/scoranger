@@ -14,10 +14,20 @@ The two things worth proving are not "does a good token work". They are:
   2. **`aud` is checked against this project.** A Firebase ID token from ANY
      other Firebase project is also validly signed by Google, so without the
      audience check "verified" means "signed by Google for somebody".
+  3. **NO EMAIL ADDRESS REACHES THE LOG.** Until 0.12.0 `usage_line` carried
+     the signed-in user's address on every conversion, on all four exit
+     paths, into a Cloud Logging bucket with no configured retention that
+     `deleteAccount` makes no call against -- so the address outlived the
+     account. The uid in `actor` is the whole of what the cost report needs
+     and was the only field anything read. This asserts the address is gone
+     from BOTH ends: `actor_for` does not hand it out, and `usage_line`
+     cannot be made to write it. Verified against a token whose claims DO
+     carry an address, because a check fed no address proves nothing.
 
 Run against the real module, with no network: token verification is exercised
 through its failure paths, which is where the logic is.
 """
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -41,12 +51,17 @@ def a_signed_in_job_is_billed_to_a_uid() -> None:
     real = identity.verify_id_token
     identity.verify_id_token = lambda token: {"sub": "u-ali", "email": "a@b.c"}
     try:
-        actor, trust, email = identity.actor_for("a.token.here", api_key_ok=False)
+        who = identity.actor_for("a.token.here", api_key_ok=False)
     finally:
         identity.verify_id_token = real
+    check(len(who) == 2, f"actor_for answers (actor, trust) and nothing else; "
+                         f"got {len(who)} values: {who!r}")
+    actor, trust = who[0], who[1]
     check(actor == "uid:u-ali", f"actor is the uid; got {actor!r}")
     check(trust == "verified", f"trust is 'verified'; got {trust!r}")
-    check(email == "a@b.c", "the email rides along for a readable report")
+    # The token's claims DID carry a@b.c. Nothing in the answer may.
+    check(not any("a@b.c" in str(v) for v in who),
+          f"the address in the token's claims is not handed back; got {who!r}")
     # A verified token needs no API key at all -- that IS the migration, and it
     # is proven by the call above passing api_key_ok=False rather than by a
     # sentence. (A `check(True, ...)` stood here and asserted nothing, which is
@@ -101,7 +116,7 @@ def a_misconfigured_server_does_not_break_signed_in_readers() -> None:
     saved = identity.PROJECT_ID
     identity.PROJECT_ID = ""            # the un-deployed env var
     try:
-        actor, trust, email = identity.actor_for("a.real.token", api_key_ok=True)
+        actor, trust = identity.actor_for("a.real.token", api_key_ok=True)
         check(actor == "anonymous" and trust == "unattributed",
               f"a signed-in job is accepted unattributed; got {actor!r}/{trust!r}")
 
@@ -128,13 +143,12 @@ def a_signed_out_job_is_labelled_unattributed() -> None:
     print("\nno account means unattributed, which is not the same as broken")
     import identity
 
-    actor, trust, email = identity.actor_for(None, api_key_ok=True)
+    actor, trust = identity.actor_for(None, api_key_ok=True)
     # Importing a scan is a signed-out feature (principle 1), so there is
     # genuinely no user. The report must SAY that rather than imply the
     # attribution failed.
     check(actor == "anonymous", f"actor is 'anonymous'; got {actor!r}")
     check(trust == "unattributed", f"trust is 'unattributed'; got {trust!r}")
-    check(email is None, "no email is invented for a job with no user")
 
     try:
         identity.actor_for(None, api_key_ok=False)
@@ -180,8 +194,7 @@ def every_finished_job_emits_one_usage_record() -> None:
     print("\nthe cost record is a line a log query can add up")
     import identity
 
-    line = identity.usage_line("j1", "uid:u-ali", "verified", 9, 12.34, "done",
-                              "a@b.c")
+    line = identity.usage_line("j1", "uid:u-ali", "verified", 9, 12.34, "done")
     row = json.loads(line)
     check(row["omr_usage"] is True, "carries the omr_usage flag to filter on")
     for field in ("job", "actor", "trust", "pages", "seconds", "outcome", "at"):
@@ -196,6 +209,60 @@ def every_finished_job_emits_one_usage_record() -> None:
     for outcome in ('bill("done")', 'bill("unreadable")', 'bill("timeout")',
                     'bill("error")'):
         check(outcome in server, f"run_job emits {outcome}")
+
+
+def no_address_reaches_the_log() -> None:
+    """The fix for the sharpest edge in design/APP_STORE_PRIVACY.md, held down.
+
+    Three independent assertions, because each catches a different way of
+    putting it back: the LINE, driven end to end from a token whose claims
+    carry an address; the SIGNATURE, so no caller can pass one; and the JOB
+    RECORD in server.py, which is where the address was parked between
+    acceptance and billing.
+    """
+    print("\nno user's email address reaches Cloud Logging")
+    import identity
+
+    real = identity.verify_id_token
+    identity.verify_id_token = lambda token: {
+        "sub": "u-ali", "email": "ali@example.com",
+        "name": "Ali Momeni", "email_verified": True}
+    try:
+        who = identity.actor_for("a.token.here", api_key_ok=False)
+    finally:
+        identity.verify_id_token = real
+
+    # End to end: whatever actor_for answers is exactly what bill() spreads
+    # into usage_line, so this is the line Cloud Logging would ingest.
+    line = identity.usage_line("j1", who[0], who[1], 9, 12.3, "done")
+    for leak in ("ali@example.com", "example.com", "Ali Momeni", "@"):
+        check(leak not in line,
+              f"the usage line contains no {leak!r}; got {line}")
+    check("email" not in json.loads(line),
+          f"the usage line has no email field at all; got {sorted(json.loads(line))}")
+
+    # The signature, so the field cannot be reintroduced by a caller passing
+    # one positionally into a parameter that still exists.
+    params = list(inspect.signature(identity.usage_line).parameters)
+    check(params == ["job_id", "actor", "trust", "pages", "seconds", "outcome"],
+          f"usage_line takes no free-text detail parameter; got {params}")
+    check(list(inspect.signature(identity.actor_for).parameters)
+          == ["bearer", "api_key_ok"]
+          and inspect.signature(identity.actor_for).return_annotation
+              in ("tuple[str, str]", tuple[str, str]),
+          "actor_for is annotated to return (actor, trust) only; got "
+          f"{inspect.signature(identity.actor_for).return_annotation!r}")
+
+    # And the job record, read from the source: the dict server.py keeps per
+    # job is what bill() reads eight minutes later, and an address stored
+    # there is an address one line away from the log again.
+    server = (ROOT / "omr-service" / "server.py").read_text()
+    code = "\n".join(l for l in server.splitlines()
+                     if not l.lstrip().startswith("#"))
+    check('"email"' not in code and "'email'" not in code,
+          "server.py keeps no email key on the job record")
+    check("claims.get(\"email\")" not in (ROOT / "omr-service" / "identity.py").read_text(),
+          "identity.py never reads the email claim out of a verified token")
 
 
 def polling_is_not_billed() -> None:
@@ -220,6 +287,7 @@ def main() -> int:
     a_signed_out_job_is_labelled_unattributed()
     the_audience_and_issuer_are_checked()
     every_finished_job_emits_one_usage_record()
+    no_address_reaches_the_log()
     polling_is_not_billed()
     print()
     if FAILURES:
@@ -227,7 +295,8 @@ def main() -> int:
         for f in FAILURES:
             print(f"  - {f}")
         return 1
-    print("OK: every job says who it was for, and a bad token spends nothing")
+    print("OK: every job says who it was for by uid, a bad token spends "
+          "nothing,\n    and no address reaches the log")
     return 0
 
 

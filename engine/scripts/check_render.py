@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import verovio  # noqa: E402
 
+from music21 import duration as m21duration  # noqa: E402
+from music21 import expressions, tempo  # noqa: E402
+from pypdf import PdfReader  # noqa: E402
+
 import fixtures  # noqa: E402
 from scoranger_engine import ops, render  # noqa: E402
 
@@ -297,6 +301,102 @@ if drawn_cols:
         FAILURES.append(
             f"only {check_count} columns to compare -- the baseline check is "
             "not measuring anything")
+
+# -- the marks the APP's path got wrong, pinned on the EXPORT's path ---------
+#
+# Two faults were found in the iPad's renderer in 0.8.2: a tempo mark's digits
+# drawn at the size of the music glyph beside them, and Verovio's own italics
+# and bolds ignored outright. Neither was ever wrong here -- cairosvg reads the
+# per-tspan sizes and the stylesheet that the app's SwiftDraw path cannot --
+# and this is what says so, so that a future rewrite of `_sanitize_svg` cannot
+# quietly bring them across.
+marks = fixtures.jig(bars=8)
+marks_bar = marks.parts[0].measure(1)
+marks_bar.insert(0.0, tempo.MetronomeMark(number=138,
+                                          referent=m21duration.Duration(1.5)))
+marks_bar.insert(1.5, expressions.TextExpression("dolce"))
+marks_src = tempfile.mktemp(suffix=".musicxml")
+marks.write("musicxml", fp=marks_src)
+marks_pdf = tempfile.mktemp(suffix=".pdf")
+render.render_pdf(marks_src, marks_pdf)
+faces = {str(font.get("/BaseFont")).split("+")[-1]
+         for font in (PdfReader(marks_pdf).pages[0]["/Resources"].get("/Font") or {}).values()}
+for face in ("Times-Italic", "Times-Bold"):
+    if face not in faces:
+        FAILURES.append(f"the exported PDF has no {face}: Verovio's stylesheet "
+                        f"stopped reaching the page (it has {sorted(faces)})")
+
+marks_toolkit = verovio.toolkit()
+marks_toolkit.setOptions({**APP_OPTIONS, "lyricSize": render.DEFAULT_LYRIC_SIZE})
+marks_toolkit.loadFile(marks_src)
+tempo_block = re.search(r'<g[^>]*class="tempo".*?</g>',
+                        render._sanitize_svg(marks_toolkit.renderToSVG(1)), re.S)
+if tempo_block is None:
+    FAILURES.append("no tempo mark was engraved at all")
+else:
+    tempo_sizes = {float(v) for v in
+                   re.findall(r'font-size="([\d.]+)px"', tempo_block.group(0))
+                   if float(v) > 0}
+    if len(tempo_sizes) < 2:
+        FAILURES.append(
+            f"the tempo mark came out at one size ({sorted(tempo_sizes)}): the "
+            "glyph and the digits are engraved at different sizes and the "
+            "export must keep them apart")
+
+# -- a resized WORD reaches the exported page -------------------------------
+#
+# Measured in the PDF, not in the SVG, because the SVG pass and the export
+# chain are two different things: `apply_lyric_sizes` was written, checked in
+# isolation and not called from `render_pdf` at first, which is the same fault
+# `mei_with_element_adjustments` had -- an adjustment that showed on screen
+# and vanished from the export.
+#
+# cairosvg writes a glyph run's size into its text matrix and leaves `Tf` at
+# 1, so the first number of the Tm IS the point size of the word that follows.
+_PDF_WORD = re.compile(rb"BT\n([\d.-]+) 0 0 [\d.-]+ [\d.-]+ [\d.-]+ Tm\n"
+                       rb"/[\w-]+ 1 Tf\n\((.*?)\)Tj", re.S)
+
+
+def engraved_words(pdf_path):
+    """Every text run on page 1 of a PDF, with the size it was drawn at."""
+    data = PdfReader(pdf_path).pages[0].get_contents().get_data()
+    return {m.group(2).decode("latin-1"): round(float(m.group(1)), 2)
+            for m in _PDF_WORD.finditer(data)}
+
+
+def sung_pdf(scale=None):
+    from music21 import harmony
+
+    score = fixtures.jig(bars=4)
+    bar = score.parts[0].measure(2)
+    note = next(n for n in bar.notes if not isinstance(n, harmony.Harmony))
+    note.lyric = "la"
+    if scale is not None:
+        ops.adjust_element(score, "#0", kind="lyric", measure=2, scale=scale)
+    src = tempfile.mktemp(suffix=".musicxml")
+    score.write("musicxml", fp=src)
+    out = tempfile.mktemp(suffix=".pdf")
+    render.render_pdf(src, out)
+    return engraved_words(out)
+
+
+plain_page, big_page = sung_pdf(), sung_pdf(scale=2.0)
+if "la" not in plain_page or "la" not in big_page:
+    FAILURES.append(f"the word was not engraved in the PDF at all: "
+                    f"{sorted(plain_page)} then {sorted(big_page)}")
+else:
+    grew = big_page["la"] / plain_page["la"]
+    if not 1.9 <= grew <= 2.1:
+        FAILURES.append(
+            f"--scale 2 on a lyric engraved at {big_page['la']}pt against "
+            f"{plain_page['la']}pt ({grew:.2f}x): the size is in the notation "
+            "but render_pdf is not carrying it to the page")
+    if plain_page.get("Pennywhistle") != big_page.get("Pennywhistle"):
+        FAILURES.append(
+            "resizing one word changed the part name too "
+            f"({plain_page.get('Pennywhistle')} -> "
+            f"{big_page.get('Pennywhistle')}): the pass is matching more than "
+            "the verse it was asked for")
 
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} rendering size check(s) failed")

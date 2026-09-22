@@ -240,7 +240,7 @@ struct RootView: View {
                 }
                 if let first = state.manifest?.scores.first?.slug {
                     let args = ProcessInfo.processInfo.arguments
-                    state.layout = args.contains("-continuous") ? .continuous
+                    state.layoutChoice = args.contains("-continuous") ? .continuous
                         : (args.contains("-spread") ? .spread : .page)
                     open(first)
                 }
@@ -319,8 +319,6 @@ struct RootView: View {
         case .importPhotos: showPhotoImport = true
         case .importFolder: importIntent.ask(for: .folder)
         case .importBook:   importIntent.ask(for: .book)
-        case .new:          segment = .pieces; libraryNaming = ""
-        case .newSetlist:   segment = .setlists; libraryNaming = ""
         }
     }
 
@@ -387,8 +385,6 @@ struct RootView: View {
             FilterPanel(filters: $filters, groups: filterGroups)
         case .importMenu:
             ImportPanel(run: runQuickAction)
-        case .newMenu:
-            NewPanel(run: runQuickAction)
         case .pieceArrangements(let slug):
             PieceArrangementsPanel(slug: slug, onOpen: { open($0) },
                                    onPieceScreen: { libraryPath.append(.piece(slug)) },
@@ -425,6 +421,9 @@ struct RootView: View {
         case .moveToPiece(let slugs):
             MoveToPieceScreen(moving: slugs, onBack: pop)
                 .navigationBarHidden(true)
+        case .combinePieces(let slugs):
+            CombinePiecesScreen(combining: slugs, onBack: pop)
+                .navigationBarHidden(true)
         case .setlistsFor(let slug):
             SetlistsForScreen(slug: slug, onBack: pop)
                 .navigationBarHidden(true)
@@ -437,7 +436,8 @@ struct RootView: View {
                               }
                               open(member)
                           },
-                          push: push)
+                          push: push,
+                          onShare: { shareSetlist(slug) })
                 .navigationBarHidden(true)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-setlist-\(slug)")
@@ -569,6 +569,20 @@ struct RootView: View {
             Task { _ = await state.createArrangement(pieceSlug: id) }
         case .moveToPiece:
             libraryPath.append(.moveToPiece(scores.map(\.slug)))
+        case .combine:
+            // Pieces, not arrangements, and in the order the list shows them:
+            // the first is the one that survives, which is what the screen
+            // says before the button.
+            //
+            // Edit mode goes off here, as it does for New set list, and for a
+            // sharper reason: combining DELETES the pieces it absorbs, so a
+            // selection left standing afterwards names rows that no longer
+            // exist. The bar would keep offering Delete over them and the
+            // engine would refuse a slug it cannot find. `ids` is already
+            // copied into the route, so clearing the selection cannot take
+            // the screen's subject with it.
+            editing = false
+            libraryPath.append(.combinePieces(ids))
         case .addToSetlist:
             if let first = scores.first { libraryPath.append(.setlistsFor(first.slug)) }
         case .newSetlist:

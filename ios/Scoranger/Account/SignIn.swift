@@ -73,7 +73,33 @@ final class SignIn: ObservableObject {
     private let memory = SignInMemory()
 
     init() {
+        if Self.pretendedAccount != nil { state = .signedIn(Self.pretendedAccount!); return }
         restoreIfSignedInBefore()
+    }
+
+    /// A signed-in state with no Firebase behind it, for tests and for
+    /// photographs.
+    ///
+    /// The Account section's destructive half -- "Delete my account" and its
+    /// confirm -- only exists when somebody is signed in, and a simulator has
+    /// no Apple ID and no Google account to sign in WITH. Without this the
+    /// flow could be built and never looked at.
+    ///
+    /// It fakes the LOCAL STATE and nothing else. `FirebaseApp` is still not
+    /// configured, so every path that would touch the network still refuses,
+    /// and `AccountDeletion` reports `notConfigured` rather than pretending to
+    /// delete something. That refusal is itself worth photographing: it is
+    /// what a reader sees if the build has no configuration.
+    ///
+    /// Same shape as `-failAppleSignIn` and `-appleSignInPatience`: a launch
+    /// argument, read once, false in every shipped run.
+    nonisolated static var pretendedAccount: Account? {
+        guard ProcessInfo.processInfo.arguments.contains("-pretendSignedIn") else {
+            return nil
+        }
+        return Account(uid: "u-pretend", email: "you@example.com",
+                       isPrivateRelay: false, displayName: "Test Account",
+                       provider: .google)
     }
 
     /// Pick the persisted session back up, on a device that has one.

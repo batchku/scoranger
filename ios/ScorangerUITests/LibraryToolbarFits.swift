@@ -111,18 +111,18 @@ final class LibraryToolbarFits: XCTestCase {
                             "library-import-folder", "library-import-book"],
                            in: app, context: "import band")
 
-        // Opening New CLOSES Import: the bands are mutually exclusive, which
-        // is what makes them the pattern Sort and Filter already were rather
-        // than a new concept.
+        // New CLOSES Import: it creates rather than offering (0.8.2 item 13),
+        // and the band it used to open is gone, but one panel state at a time
+        // still holds.
         app.descendants(matching: .any)["library-new"].firstMatch.tap()
-        let setlist = app.descendants(matching: .any)["library-new-setlist"].firstMatch
-        XCTAssertTrue(setlist.waitForExistence(timeout: 20),
-                      "New set list is not in the New band")
-        XCTAssertTrue(setlist.isHittable)
+        let field = app.textFields["inline-rename-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20),
+                      "New did not raise the naming row")
         XCTAssertFalse(app.descendants(matching: .any)["library-import-book"]
                         .firstMatch.exists,
-                       "the Import band stayed open when New opened")
-        snap("library-new-band")
-        assertFitsOnScreen(["library-new-setlist"], in: app, context: "new band")
+                       "the Import band stayed open when New created")
+        snap("library-new-naming-row")
+        assertFitsOnScreen(["inline-rename-field", "inline-rename-cancel",
+                            "inline-rename-save"], in: app, context: "naming row")
     }
 }

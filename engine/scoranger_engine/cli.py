@@ -51,22 +51,72 @@ def _mutate(slug: str, score, op: str, args: dict, details) -> None:
 
 
 def cmd_import(a):
-    from music21 import converter
+    """Import every piece of music a file holds.
+
+    ONE FILE CAN BE SEVERAL ARRANGEMENTS. That is not an ABC curiosity it is
+    worth branching on -- it is the general rule, and the loop below is the
+    whole of it. Each tune becomes its own arrangement, and each arrangement
+    that arrives without a piece is given one named after itself
+    (`workspace.ensure_own_piece`), so a file of 38 settings of "Drowsy Maggie"
+    lands as 38 arrangements of ONE piece and a set of three different tunes
+    lands as three pieces of one. Neither case is written down anywhere.
+
+    The report SAYS which happened. A reader who drops in a collection and gets
+    one arrangement, or forty, has to be told which -- the counts are the first
+    thing in the output and `summary` says it in a sentence.
+
+    The single-score keys (`score`, `name`, `version`, `info`) still describe
+    the FIRST arrangement, because every existing caller reads them.
+    """
     src = Path(a.file).expanduser()
     if not src.exists():
         raise FileNotFoundError(f"No such file: {src}")
-    score = converter.parse(str(src), forceSource=True)
-    name = a.name or ops.engraved_title(score) or src.stem
-    # music21 seeds the movement title with the file name, extension and all,
-    # and that is what Verovio engraves -- so the title is normalized on the way
-    # in rather than surfacing as "my-score.mxl" at the top of the page.
-    name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
-    slug, entry = workspace.create_score(name, score, op="import", args={"source": str(src)})
-    out = {"score": slug, "name": name, "version": entry["id"],
-           "version_label": workspace.version_label(entry), "info": ops.info(score)}
-    # imperfect sources import and say so; they are never refused
-    if entry.get("rhythm_warnings"):
-        out["rhythm_warnings"] = entry["rhythm_warnings"]
+    scores = workspace.read_notation(src)
+    if not scores:
+        raise ValueError(f"{src.name} holds no music")
+
+    arrangements, pieces = [], []
+    for i, score in enumerate(scores):
+        # music21 seeds the movement title with the file name, extension and
+        # all, and that is what Verovio engraves -- so the title is normalized
+        # on the way in rather than surfacing as "my-score.mxl" at the top of
+        # the page. `--name` is only ever the FALLBACK: a tune that names
+        # itself keeps its own name, which is what makes a multi-tune file
+        # import as the tunes it holds rather than 38 copies of one label.
+        name = a.name or ops.engraved_title(score) or src.stem
+        name = ops.clean_imported_metadata(score, name, source_stem=src.stem)["title"]
+        args = {"source": str(src)}
+        if len(scores) > 1:
+            args["tune"] = i + 1
+        slug, entry = workspace.create_score(name, score, op="import", args=args)
+        filed = workspace.ensure_own_piece(slug)
+        if filed["created"]:
+            pieces.append(filed["piece"])
+        row = {"score": slug, "name": name, "version": entry["id"],
+               "version_label": workspace.version_label(entry),
+               "piece": filed["piece"]}
+        # imperfect sources import and say so; they are never refused
+        if entry.get("rhythm_warnings"):
+            row["rhythm_warnings"] = entry["rhythm_warnings"]
+        arrangements.append(row)
+
+    first = arrangements[0]
+    n, p = len(arrangements), len({r["piece"] for r in arrangements})
+    out = dict(first)
+    out["info"] = ops.info(scores[0])
+    out["tunes_found"] = len(scores)
+    out["arrangements"] = arrangements
+    out["pieces_created"] = pieces
+    out["summary"] = (
+        f"{n} tune{'s' if n != 1 else ''} found, imported as "
+        f"{n} arrangement{'s' if n != 1 else ''} of "
+        f"{p} piece{'s' if p != 1 else ''}")
+    # what the file said and how much of it the notation carries -- counted,
+    # never silently swallowed (workspace.abc_report)
+    if src.suffix.lower() in workspace.ABC_SUFFIXES:
+        said = workspace.abc_report(src, scores)
+        if said:
+            out["abc"] = said
     _emit(out)
 
 
@@ -254,11 +304,17 @@ def cmd_strip_notes(a):
 
 
 def cmd_add_source(a):
-    from music21 import converter
     src = Path(a.file).expanduser()
     if not src.exists():
         raise FileNotFoundError(f"No such file: {src}")
-    m21_score = converter.parse(str(src), forceSource=True)
+    # A source is ONE reference edition of the piece. An ABC file holding
+    # several tunes is not one, so the first is what was meant -- and reading
+    # through read_notation is what stops an Opus reaching add_source, where it
+    # would fail with no `.parts` several frames down.
+    tunes = workspace.read_notation(src)
+    if not tunes:
+        raise ValueError(f"{src.name} holds no music")
+    m21_score = tunes[0]
     name = a.name or src.stem
     doc = workspace.add_source(a.score, m21_score, name, origin=str(src))
     _emit({"score": a.score, "source": doc["id"], "name": name,
@@ -282,6 +338,16 @@ def cmd_simplify_repeats(a):
     score = _load(a.score, None)
     details = ops.simplify_repeats(score, a.part, a.note_length)
     _mutate(a.score, score, "simplify-repeats", {"part": a.part}, details)
+
+
+def cmd_simplify_rhythm(a):
+    score = _load(a.score, None)
+    names = _split_parts(a.part) if a.part else None
+    details = ops.simplify_rhythm(score, a.mode, names, a.unit,
+                                  a.from_measure, a.to_measure)
+    _mutate(a.score, score, "simplify-rhythm",
+            {"mode": a.mode, "part": a.part, "unit": a.unit,
+             "from_measure": a.from_measure, "to_measure": a.to_measure}, details)
 
 
 def cmd_octave_shift(a):
@@ -378,8 +444,56 @@ def cmd_piece_rename(a):
     _emit(workspace.rename_piece(a.piece, a.name))
 
 
+def cmd_piece_combine(a):
+    _emit(workspace.combine_pieces(_split_parts(a.pieces), into=a.into, name=a.name))
+
+
 def cmd_rename_score(a):
     _emit(workspace.rename_score(a.score, a.name))
+
+
+def cmd_add_element(a):
+    score = _load(a.score, None)
+    details = ops.add_element(score, a.part, a.kind, a.measure,
+                              value=a.value, offset=a.offset,
+                              placement=a.placement)
+    _mutate(a.score, score, "add-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "value": a.value, "offset": a.offset, "placement": a.placement},
+            details)
+
+
+def cmd_move_element(a):
+    score = _load(a.score, None)
+    details = ops.move_element(score, a.part, a.kind, a.measure,
+                               ordinal=a.ordinal, to_measure=a.to_measure,
+                               to_offset=a.to_offset)
+    _mutate(a.score, score, "move-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "to_measure": a.to_measure, "to_offset": a.to_offset}, details)
+
+
+def cmd_remove_element(a):
+    score = _load(a.score, None)
+    details = ops.remove_element(score, a.part, a.kind, a.measure,
+                                 ordinal=a.ordinal, all_elements=a.all)
+    _mutate(a.score, score, "remove-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "ordinal": a.ordinal, "all": a.all}, details)
+
+
+def cmd_duplicate_element(a):
+    score = _load(a.score, None)
+    details = ops.duplicate_element(score, a.part, a.kind, a.measure,
+                                    ordinal=a.ordinal, to_measure=a.to_measure,
+                                    to_offset=a.to_offset)
+    _mutate(a.score, score, "duplicate-element",
+            {"part": a.part, "kind": a.kind, "measure": a.measure,
+             "to_measure": a.to_measure, "to_offset": a.to_offset}, details)
+
+
+def cmd_rename_book(a):
+    _emit(workspace.rename_book(a.book, a.name))
 
 
 def cmd_set_structure(a):
@@ -394,7 +508,7 @@ def cmd_set_structure(a):
 def cmd_adjust_element(a):
     score = _load(a.score, None)
     details = ops.adjust_element(score, a.part, kind=a.kind, measure=a.measure,
-                                 ordinal=a.ordinal, size=a.size,
+                                 ordinal=a.ordinal, size=a.size, scale=a.scale,
                                  offset_x=a.offset_x, offset_y=a.offset_y,
                                  reset=a.reset, all_elements=a.all)
     _mutate(a.score, score, "adjust-element",
@@ -519,7 +633,10 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="scor", description="Scoranger score engine")
     sub = p.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("import", help="Import a score file into the workspace")
+    s = sub.add_parser("import",
+                       help="Import a notation file (.musicxml/.xml/.mxl/.mid/"
+                            ".abc) -- several tunes in one file become several "
+                            "arrangements")
     s.add_argument("file")
     s.add_argument("--name")
     s.set_defaults(fn=cmd_import)
@@ -722,6 +839,28 @@ def main() -> None:
     s.add_argument("--note-length", type=float, default=1.0)
     s.set_defaults(fn=cmd_simplify_repeats)
 
+    s = sub.add_parser("simplify-rhythm",
+                       help="Slow a passage down to read: double the values "
+                            "(augment) or drop the notes between the beats (thin)")
+    s.add_argument("score")
+    s.add_argument("--mode", required=True, choices=["augment", "thin"],
+                   help="augment: every value doubles and the meter's "
+                        "denominator halves (4/4 -> 4/2). Nothing is lost and "
+                        "no bar is renumbered; the passage lasts twice as long, "
+                        "which is 'play it slower' written down. Whole score "
+                        "only. | thin: attacks are quantized onto the --unit "
+                        "grid and what falls between them is DROPPED. Keeps its "
+                        "place and length, so it still fits the other parts; "
+                        "the report says how many notes that cost.")
+    s.add_argument("--part", help="required for thin; for augment, only "
+                                  "meaningful on a one-part score")
+    s.add_argument("--unit", default="eighth",
+                   help="the fastest value you want to read: eighth (default), "
+                        "16th, quarter, or a quarterLength like 0.5")
+    s.add_argument("--from-measure", type=int)
+    s.add_argument("--to-measure", type=int)
+    s.set_defaults(fn=cmd_simplify_rhythm)
+
     s = sub.add_parser("octave-shift", help="Shift a part by octaves within a measure range")
     s.add_argument("score")
     s.add_argument("--part", required=True)
@@ -794,6 +933,12 @@ def main() -> None:
     s = sub.add_parser("books", help="List the books in the workspace")
     s.set_defaults(fn=cmd_books)
 
+    s = sub.add_parser("rename-book",
+                       help="Rename a book (slug and stored PDF unchanged)")
+    s.add_argument("book", help="Book slug")
+    s.add_argument("--name", required=True)
+    s.set_defaults(fn=cmd_rename_book)
+
     s = sub.add_parser("piece-create", help="Create a piece (a work that groups arrangements)")
     s.add_argument("name")
     s.set_defaults(fn=cmd_piece_create)
@@ -808,6 +953,14 @@ def main() -> None:
     s.add_argument("piece", help="Piece name or slug")
     s.add_argument("--name", required=True)
     s.set_defaults(fn=cmd_piece_rename)
+
+    s = sub.add_parser("piece-combine",
+                       help="Fold several pieces into one (there is no undo)")
+    s.add_argument("--pieces", required=True,
+                   help="comma-separated piece names or slugs, two or more")
+    s.add_argument("--into", help="which of them survives (default: the first)")
+    s.add_argument("--name", help="rename the survivor while combining")
+    s.set_defaults(fn=cmd_piece_combine)
 
     s = sub.add_parser("set-structure",
                        help="Repeats, voltas and navigation marks (add/remove/move)")
@@ -859,19 +1012,81 @@ def main() -> None:
 
     s = sub.add_parser("adjust-element",
                        help="size and position of an added element "
-                            "(chord symbols, chord diagrams)")
+                            "(chord symbols, diagrams, dynamics, text, "
+                            "fermatas, articulations, ornaments, lyrics)")
     s.add_argument("score")
     s.add_argument("--part", required=True)
     s.add_argument("--kind", default="harm",
-                   help="harm (a chord symbol) or diagram (a chord diagram)")
+                   help="|".join(sorted(ops.ADJUSTABLE_KINDS)))
     s.add_argument("--measure", type=int)
     s.add_argument("--ordinal", type=int, default=0)
-    s.add_argument("--size", type=float, help="absolute point size")
+    s.add_argument("--scale", type=float,
+                   help="size RELATIVE to the engraved default: 1.0 leaves it, "
+                        "1.5 is half again")
+    s.add_argument("--size", type=float,
+                   help="absolute point size, for a caller that already holds "
+                        "one; use --scale instead")
     s.add_argument("--offset-x", dest="offset_x", type=float)
     s.add_argument("--offset-y", dest="offset_y", type=float)
     s.add_argument("--all", action="store_true", help="every element of that kind")
     s.add_argument("--reset", action="store_true")
     s.set_defaults(fn=cmd_adjust_element)
+
+    s = sub.add_parser("add-element",
+                       help="Add a dynamic, a text mark, a fermata, an "
+                            "articulation, an ornament or a word to a bar")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--kind", required=True,
+                   help="|".join(sorted(ops.ADDABLE_KINDS)))
+    s.add_argument("--measure", type=int, required=True,
+                   help="the bar it goes in")
+    s.add_argument("--value",
+                   help="the dynamic (mf), the words (\"dolce\"), the "
+                        "articulation (accent), the ornament "
+                        "(roll|trill|mordent|turn...), the fermata's shape "
+                        "(normal|angled|square) or the syllable (\"la\")")
+    s.add_argument("--offset", type=float, default=0.0,
+                   help="quarter notes from the barline: 0 is the downbeat. "
+                        "A fermata, an articulation, an ornament or a lyric "
+                        "needs a note STARTING there, because that is what it "
+                        "hangs off.")
+    s.add_argument("--placement", choices=["above", "below"],
+                   help="which side of the staff it sits on")
+    s.set_defaults(fn=cmd_add_element)
+
+    for verb, fn in (("move", cmd_move_element),
+                     ("duplicate", cmd_duplicate_element)):
+        s = sub.add_parser(
+            f"{verb}-element",
+            help=f"{verb.capitalize()} an added element to another bar "
+                 "(spanners are out of scope)")
+        s.add_argument("score")
+        s.add_argument("--part", required=True)
+        s.add_argument("--kind", required=True,
+                       help="|".join(sorted(ops.MOVABLE_KINDS)))
+        s.add_argument("--measure", type=int, required=True,
+                       help="the bar it is in now")
+        s.add_argument("--ordinal", type=int, default=0,
+                       help="which one in that bar, in document order")
+        s.add_argument("--to-measure", dest="to_measure", type=int,
+                       help="the bar it goes to (default: the one it is in)")
+        s.add_argument("--to-offset", dest="to_offset", type=float, default=0.0,
+                       help="quarter notes from that barline: 0 is the downbeat")
+        s.set_defaults(fn=fn)
+
+    s = sub.add_parser("remove-element",
+                       help="Take an added mark off the page")
+    s.add_argument("score")
+    s.add_argument("--part", required=True)
+    s.add_argument("--kind", required=True,
+                   help="|".join(sorted(ops.ADJUSTABLE_KINDS)))
+    s.add_argument("--measure", type=int, help="the bar it is in")
+    s.add_argument("--ordinal", type=int, default=0,
+                   help="which one in that bar, in document order")
+    s.add_argument("--all", action="store_true",
+                   help="every mark of that kind in the part")
+    s.set_defaults(fn=cmd_remove_element)
 
     s = sub.add_parser("rename-slug",
                        help="Change the slug a score is filed under (moves artifacts)")

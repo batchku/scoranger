@@ -16,6 +16,10 @@ enum Route: Hashable {
     case arrangement(String)
     /// Where an arrangement (or a selection) should be filed (§3.3).
     case moveToPiece([String])
+    /// Which pieces are about to become one, and what that costs. A screen
+    /// rather than a confirm strip because combining cannot be undone and the
+    /// consequences are several sentences, not one.
+    case combinePieces([String])
     /// Which set lists an arrangement belongs to (§3.4).
     case setlistsFor(String)
     /// A set list, its running order, and what can be done to it (§3.5).
@@ -51,7 +55,6 @@ enum Route: Hashable {
     case sort
     case filter
     case importMenu
-    case newMenu
     /// A piece row's Arrangements, beside the row (L6).
     case pieceArrangements(String)
     /// The piece screen's panel at rest: details, sources, delete (P1).
@@ -66,9 +69,10 @@ enum Route: Hashable {
         switch self {
         case .piece, .setlist, .sharedSetlist, .book, .settings, .settingsSection:
             return .page
-        case .arrangement, .moveToPiece, .setlistsFor, .addArrangements, .versions,
+        case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
+             .addArrangements, .versions,
              .parts, .details, .folderImport, .joinSetlist, .sort, .filter,
-             .importMenu, .newMenu, .pieceArrangements, .thisPiece, .thisSetlist, .setlistInvite:
+             .importMenu, .pieceArrangements, .thisPiece, .thisSetlist, .setlistInvite:
             return .panel
         }
     }
@@ -82,6 +86,7 @@ enum Route: Hashable {
         case .piece:            return "Piece"
         case .arrangement:      return "Arrangement"
         case .moveToPiece:      return "Move to piece"
+        case .combinePieces:    return "Combine"
         case .setlistsFor:      return "Set lists"
         case .setlist:          return "Set list"
         case .sharedSetlist:    return "People"
@@ -96,7 +101,6 @@ enum Route: Hashable {
         case .sort:             return "Sort"
         case .filter:           return "Filter"
         case .importMenu:       return "Import"
-        case .newMenu:          return "New"
         case .pieceArrangements: return "Arrangements"
         case .thisPiece:        return "This piece"
         case .thisSetlist:      return "This set list"
@@ -111,9 +115,10 @@ enum Route: Hashable {
         switch self {
         case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings:
             return "Library"
-        case .arrangement, .moveToPiece, .setlistsFor, .addArrangements,
+        case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
+             .addArrangements,
              .versions, .parts, .details, .settingsSection, .folderImport, .book,
-             .sort, .filter, .importMenu, .newMenu, .pieceArrangements, .thisPiece,
+             .sort, .filter, .importMenu, .pieceArrangements, .thisPiece,
              .thisSetlist, .setlistInvite:
             return "Back"
         }
@@ -156,6 +161,9 @@ extension Route {
         switch self {
         case .arrangement(let s):     return .arrangement(now(s))
         case .moveToPiece(let s):     return .moveToPiece(s.map { now($0) })
+        // pieces, not arrangements: a piece slug is not rewritten by a
+        // rename, so these follow nothing
+        case .combinePieces:          return self
         case .setlistsFor(let s):     return .setlistsFor(now(s))
         case .addArrangements(let s): return .addArrangements(now(s))
         case .versions(let s):        return .versions(now(s))
@@ -164,7 +172,7 @@ extension Route {
         case .pieceArrangements(let s):  return .pieceArrangements(s)
         case .thisPiece(let s):          return .thisPiece(s)
         case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings,
-             .settingsSection, .folderImport, .book, .sort, .filter, .importMenu, .newMenu,
+             .settingsSection, .folderImport, .book, .sort, .filter, .importMenu,
              .thisSetlist, .setlistInvite:
             return self
         }

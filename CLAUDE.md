@@ -66,6 +66,32 @@ So:
   repository journals nothing, the library's own id costs nothing, and the
   engine the app ships imports no network client -- design/FIREBASE.md §0.2).
 
+## Releases and version numbers
+
+**The rule Ali set on 2026-09-18, and it binds whoever is doing the release,
+not just the session it was said in:**
+
+- **A substantive feature bumps the MINOR.** 0.10.0 -> 0.11.0.
+- **A bug fix bumps the PATCH.** 0.11.0 -> 0.11.1.
+- **A build carrying both is a FEATURE build** -- the minor bumps and the
+  patch goes back to 0. A release does not get two numbers for carrying two
+  kinds of change.
+- **Two features in one build still bump the minor ONCE.** 0.11.0 carried the
+  ABC decorations and the OMR text pass and is one minor, not two.
+
+`MARKETING_VERSION` lives in `ios/project.yml` and is edited BY HAND when the
+feature starts -- before the work, not after it. `CURRENT_PROJECT_VERSION`
+counts builds, never goes backwards whatever the marketing version does, and
+is bumped by `ios/scripts/bump_build.sh` from the deploy script. **Leave the
+build number alone when you bump the version**; the deploy run takes it.
+
+**The scope comment comes first.** Above the version in `ios/project.yml`,
+every release since 0.6.9 carries a block saying what the build HAS and, under
+`NOT in this build, and said before it starts:`, what it does NOT -- written
+before the work, so a feature cannot quietly grow or quietly shrink. Match
+that form. A gap the build is knowingly shipping with belongs there AND in
+`BACKLOG.md`; one that is only in a commit message is one nobody finds.
+
 ## The engine CLI
 
 Always use the venv binary: `engine/.venv/bin/scor` (from the repo root).
@@ -73,7 +99,16 @@ Every command prints JSON. Every mutating command creates a **new immutable
 version** — nothing is edited in place, so operations are always safe to try.
 
 ```
-scor import <file> [--name NAME]        # .musicxml/.xml/.mxl/.mid → new score in workspace
+scor import <file> [--name NAME]        # .musicxml/.xml/.mxl/.mid/.abc → arrangements
+  # ONE FILE CAN BE SEVERAL ARRANGEMENTS, and the report says which happened:
+  # "38 tunes found, imported as 38 arrangements of 1 piece". Read it and relay
+  # it -- a reader who drops in a collection and gets one, or forty, has to be
+  # told. `tunes_found`, `arrangements` and `pieces_created` are in the JSON;
+  # `score`/`name`/`version`/`info` still describe the FIRST one.
+  # EVERY ARRANGEMENT GETS A PIECE. An import that arrives without one is filed
+  # under a piece named after itself, and the name is matched before it is
+  # created -- so tunes that share a title share a piece. Not an ABC rule: it
+  # applies to MusicXML, MIDI and scans on every import path.
 scor list                               # all scores + versions
 scor info <score> [--version vNNN]      # parts, instruments, clefs, ranges, keys, meters
 scor versions <score>                   # version history with the op that made each
@@ -126,6 +161,58 @@ scor strip-notes <score> --part X         # empty a staff of notes, keep chord s
 scor octave-shift <score> --part X --octaves -1 --from-measure 55 --to-measure 69
 scor rebuild-part <score> --part X --source-version vNNN --base "Violin II" [--overlay Viola] [--rules ...]
 scor simplify-repeats <score> --part "Acc. Bass"   # 1-pitch-class measures -> downbeat quarter + rests
+scor simplify-rhythm <score> --mode augment|thin [--part X] [--unit eighth]
+                     [--from-measure N] [--to-measure M]
+  # "Make this easier to play by reducing the 16th notes down to reasonable
+  # eighth notes I can't play this fast." The agent answered that it had no tool
+  # for rhythmic augmentation or quantization and offered a transposition
+  # instead, which was CORRECT -- it refused to invent notation. The gap was an
+  # op, and the ask is two different pieces of music, so `--mode` names which
+  # one and the report says what it cost. The op does not choose; neither should
+  # the agent, silently.
+  #   AUGMENT  every value doubles and the meter's denominator halves: 4/4 ->
+  #            4/2, every sixteenth written as an eighth. NOT ONE NOTE IS LOST,
+  #            no bar is added and nothing is renumbered, so every repeat, volta
+  #            and rehearsal mark still points where it did. The cost is TIME:
+  #            the passage lasts twice as long, which is to say it sounds at
+  #            half speed. That is the third answer nobody raises -- just play
+  #            it slower -- written into the notation, and the report says so,
+  #            because a reader who only wants relief should not be handed a
+  #            rewritten score. Doubling the tempo mark back would undo it
+  #            entirely. How long a bar lasts is not a property of one staff, so
+  #            this applies to the WHOLE score: naming one part of a multi-part
+  #            score is refused by name. 4/4 doubles to 4/2 and no further --
+  #            4/1 is not a meter to hand a reader -- so a passage carrying
+  #            32nds reaches 16ths in one pass and the report names thinning as
+  #            what is left rather than suggesting a second pass that would be
+  #            refused.
+  #   THIN     attacks are quantized onto the --unit grid and what falls between
+  #            them is DROPPED. The passage keeps its place in the bar and its
+  #            length, so it still fits whatever else is playing; it is no
+  #            longer the same tune. `notes_removed` and `removed_by_measure`
+  #            are in the report and must be relayed -- that is someone's music.
+  # WHICH NOTES THINNING KEEPS is the metrical judgement: an attack survives if
+  # it lands ON the grid, counted from the bar's metrical start so a pickup's
+  # paddingLeft is in the sum, and each survivor stretches to the next. Four
+  # sixteenths keep the first and third; a dotted eighth plus a sixteenth keeps
+  # the dotted eighth as a quarter and loses the pickup sixteenth; an
+  # eighth-note syncopation is on the grid and is untouched. A note ALREADY as
+  # long as the unit is kept wherever it starts, or three quarter-note triplets
+  # -- longer than an eighth, and not what anyone means by too fast -- are
+  # two-thirds deleted for landing between the lines. Nothing is ever MOVED: a
+  # dropped note is honest and a displaced one lies about when the music sounds.
+  # A bar attacked entirely off the grid is left exactly as written and
+  # REPORTED, rather than emptied.
+  # Two things point AT a note and have to be repaired when it goes. A Spanner
+  # does not live on the staff, and a slur whose end was removed is handed to
+  # the note that swallowed it (a slur left with one end is dropped and
+  # counted); a Beam describes a group, so a thinned bar is re-beamed from the
+  # meter. The first render of real music came back with one slur arcing across
+  # a whole system and 11 beamspans Verovio could not close.
+  # Proof: engine/scripts/check_rhythm_simplify.py, which drives the BINARY --
+  # argparse wiring, flag mapping, JSON on stdout, refusals on stderr -- and
+  # asserts the judgement bar by bar against fixtures.sax_study. check_rhythm.py
+  # holds thinning to the part's LENGTH and augmentation to its factor.
 scor analyze <score> [--parts ...]        # per-bar harmony candidates (read-only) — agent adjudicates
 scor set-chords <score> --part X --json chart.json   # [{"measure":1,"symbol":"Fm"},...] -> <harmony> symbols
 scor clean-accidentals <score> [--parts "..."]
@@ -142,18 +229,105 @@ scor set-accidental <score> --elements "s1/m15/l1/note#0" [--add sharp|flat|natu
 scor change-clef <score> --part Viola --clef alto [--from-measure N]
 scor change-instrument <score> --part Violoncello --to Viola
 scor rename-part <score> --part '#0' --name "Violin I" [--abbreviation "Vln. I"]
-scor adjust-element <score> --part X [--kind harm|diagram|tab]
-                    [--measure N] [--ordinal N] [--all] [--size PT]
-                    [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
+scor piece-combine --pieces "A,B,C" [--into B] [--name "New name"]
+  # fold several pieces into one. The curation step that makes "every import
+  # mints a piece" safe: two pieces for one tune become one. The FIRST named
+  # survives (slug and uid, so setlists and shares still resolve); its
+  # arrangements keep their numbers and the absorbed ones append; a credit the
+  # survivor lacks is taken from the first that has one; tags are unioned.
+  # THERE IS NO UNDO -- the app confirms on its own screen before calling it.
+scor add-element <score> --part X --kind dynamic|text|fermata|articulation|ornament|lyric
+                  --measure N [--value V] [--offset QUARTERS] [--placement above|below]
+  # put a mark on the page. --value is the dynamic (mf), the words ("dolce"),
+  # the articulation (accent, staccato, tenuto, marcato...), the ORNAMENT
+  # (roll|turn|inverted-turn|trill|mordent|lower-mordent|inverted-mordent|
+  # upper-mordent|pralltriller|slide|schleifer), the fermata's
+  # shape (normal|angled|square), or the syllable to sing ("la").
+  # AN ORNAMENT IS ITS OWN KIND, not a value of `fermata`: music21 keeps
+  # ornaments in a note's `expressions` beside the Fermata but under
+  # `expressions.Ornament`, which a Fermata is not -- so the two finders never
+  # see each other's marks and "take the roll off bar 12" does not also take
+  # the fermata. Most of them arrive from ABC (see enrich.DECORATIONS); this
+  # is how one is added, and every verb below addresses it the same way a
+  # fermata is addressed. A `roll` and a `turn` draw the SAME mark, which is
+  # the Irish-roll decision recorded in `enrich.DECORATIONS`.
+  # TREMOLO IS ABSENT ON PURPOSE: music21 writes a <tremolo> with its
+  # font-size and relative-x/y and reads it back without them, so a resized
+  # one would lose its size at the next op -- an adjustment that appears to
+  # work and quietly expires. The same is true of <fermata>, which is a
+  # PRE-EXISTING gap in `adjust-element --kind fermata`, not a new one.
+  # A LYRIC hangs off the note at the offset, like a fermata, and lands in the
+  # lowest verse that note has free; it takes no --placement, because verses
+  # are drawn below the staff and "above" would be written down and ignored.
+  # The destination is the same one move-element
+  # takes -- a BAR plus an offset in quarter notes from its barline -- and the
+  # two element classes land by the same two mechanics: offset-anchored marks
+  # are inserted at the offset, note-attached ones are attached to the note
+  # that STARTS there, and the op refuses and lists the bar's onsets rather
+  # than guessing. The report carries the ORDINAL it landed at, which is what
+  # adjust-element and move-element address it by.
+  # It refuses what the rest of the family refuses: spanners by name, and the
+  # three kinds that already have a creating op -- `harm` is `set-chords`,
+  # `diagram` is `chord-diagrams`, `tab` is `guitar-tab`. A second way to make
+  # a chord symbol is how two things that look alike start behaving
+  # differently. An invented dynamic or articulation is refused with the list,
+  # because music21 will build a Dynamic out of any string and give it a
+  # loudness that then gets PLAYED.
+scor adjust-element <score> --part X
+                    [--kind harm|diagram|dynamic|text|fermata|articulation|ornament|lyric|tab]
+                    [--measure N] [--ordinal N] [--all] [--scale RATIO]
+                    [--size PT] [--offset-x TENTHS] [--offset-y TENTHS] [--reset]
   # how big an added element is and where it sits, stored in the notation
   # (MusicXML font-size / relative-x / relative-y) so it travels with the
   # score. `harm` is a chord symbol, `diagram` a chord diagram, `tab` a tab
-  # column -- addressed by the same measure + ordinal, because the reader is
-  # pointing at one thing on the page. Verovio honours none of the three, so
-  # each renderer carries them across itself.
+  # column, and dynamic/text/fermata/articulation are what they say --
+  # addressed by the same measure + ordinal, because the reader is pointing at
+  # one thing on the page. --scale is RELATIVE to the engraved default (1.0
+  # leaves it, 1.5 is half again); --size is the absolute point value for a
+  # caller that already holds one, and the two together are refused. Verovio
+  # honours none of the three fields, so each renderer carries them across
+  # itself.
+  # A LYRIC takes a size and refuses an offset by name: a word is drawn under
+  # the note it belongs to and nothing here honours a nudge on one. Its size
+  # rides in the verse NAME (`ly@1.5`), because MusicXML puts no font on a
+  # <lyric> and music21 drops one written on the <text> inside it -- the same
+  # reason a tab column's size rides in `gt@...`. Words only: a whistle's
+  # fingerings and a tab's frets are verses too and are addressed by
+  # --kind tab, not by --kind lyric.
+scor move-element <score> --part X --kind K --measure N [--ordinal N]
+                  [--to-measure N] [--to-offset QUARTERS]
+scor duplicate-element <score> --part X --kind K --measure N [--ordinal N]
+                       [--to-measure N] [--to-offset QUARTERS]
+scor remove-element <score> --part X --kind K [--measure N] [--ordinal N] [--all]
+  # take an added mark off. The verb the family was missing: a mark could be
+  # added, moved and resized and the only way back from one was to undo to the
+  # version before it, losing everything done since. Addressed like every
+  # other verb here -- a bar plus an ordinal in its document order, or --all
+  # for the whole part. A TAB COLUMN is refused by name: its anchor is the
+  # NOTE, so removing it would mean removing music, and `guitar-tab --clear`
+  # is what taking one off means.
+  # A WORD is removed -- `--kind lyric` drops that verse from the note, by the
+  # same note-attached path a fermata comes off by, and it has no branch of
+  # its own because that IS the whole meaning of removing a word. It takes the
+  # sung words only: a whistle fingering and a tab fret are verses too, and
+  # `--all` leaves both. The verses left are NOT renumbered -- take verse 1 off
+  # a note singing two and verse 2 stays on the second line of text, because
+  # closing the gap would pull that one word up out of step with its own line.
+  # the destination is a BAR plus an offset inside it (0 is the downbeat) --
+  # this app has no drag. Offset-anchored elements (harm, diagram, dynamic,
+  # text) are copied in at that offset; note-attached ones (fermata,
+  # articulation, lyric) are attached to the note that STARTS there, and the
+  # op refuses rather than guess if nothing does. Re-attaching is the ONLY way
+  # a word moves, and it keeps its verse -- if the destination note already
+  # sings that verse the op names the word in the way. SPANNERS (slurs, hairpins) are
+  # refused by name: a spanner has two anchors and a destination names one.
 scor whistle-fingerings <score> --part X [--whistle D] [--clear]
-  # penny-whistle fingerings engraved under the part as stacked lyric verses:
-  # six holes top to bottom, a 7th verse "+" for the overblown octave.
+  # penny-whistle fingerings carried BY the part as stacked lyric verses and
+  # ENGRAVED ABOVE its staff: six holes top to bottom, a 7th verse "+" for the
+  # overblown octave. Both halves of that matter and this file said only the
+  # first, which reads as "below the staff" and is where lyric verses otherwise
+  # go. They are lifted by `render.mei_with_fingerings_above`, which marks every
+  # fingering verse `place="above"`, and its twin in FingeringDiagrams.swift.
   # A whistle's range is two octaves and its tonic again at the top -- a D
   # whistle plays D4 to D6 -- and EVERY note in it gets a diagram whatever its
   # accidental is spelled as. Both halves of that were bugs Ali photographed as
@@ -348,6 +522,57 @@ Watch for key mismatches — sources may be in a different key than the
 arrangement; transpose the pulled material to match (pull, then transpose the
 target part/measures). Sources are read-only; pulls only mutate the arrangement.
 
+## ABC (thesession.org)
+
+thesession.org publishes Irish traditional music as ABC, and `scor import`
+takes `.abc` like any other notation. What matters about it:
+
+- **Modal keys work.** `K: Edor` is E dorian with two sharps, `K: Amix` A
+  mixolydian. This repertoire is full of them and reading them as major would
+  make the feature useless rather than merely lossy.
+- **A tune's page is many SETTINGS of one tune.** `/tunes/27/abc` downloads 38
+  settings of "Drowsy Maggie", each its own `X:` block and all carrying the
+  same `T:`. They import as 38 arrangements of ONE piece, because the piece
+  rule matches an existing name before creating.
+- **A set is ONE `X:` block** holding several tunes joined by a mid-body
+  `T:`/`K:`. music21 reads it as one continuous score with a key change, which
+  is what a set is, so it stays one arrangement. A file of several `X:` blocks
+  with different titles is several pieces.
+- **What survives**: repeats, first and second endings, pickup bars, triplets,
+  grace notes, slurs, staccato, chord symbols, `Q:` tempo, `C:` composer,
+  unicode titles. All of it proven to the written FILE in
+  `engine/scripts/check_abc_import.py`.
+- **Decorations are CARRIED, and they did not used to be.** music21's ABC
+  reader drops `~`, `T`, `!trill!` and the rest -- and for `H`, the fermata,
+  it drops THE NOTE: `HA2 B2 c2 d2` parsed as three notes, so every tune
+  imported with a fermata in it was quietly a note short.
+  `scoranger_engine/enrich.py` is the stage that fixes both halves: it reads
+  the ABC, strips the marks before the parse, and attaches the music21
+  objects afterwards. It is written as a NAMED STAGE, not a branch inside
+  `read_notation`, because every importer loses something and this is where
+  the next one is put back.
+  A mark finds its note by COUNTING note events, so the restore checks the
+  tune's event total against the stream's AND each mark's ABC note letter
+  against the note it is about to hang on, and attaches nothing to a tune
+  where either disagrees. A mark on the wrong note is worse than a mark
+  reported as missing. Proven over 540 real thesession.org tunes: 2098
+  carried, 0 misplaced.
+  **THE ROLL IS A JUDGEMENT.** An Irish roll (`~`) is its own idiom with no
+  glyph of its own in MusicXML or SMuFL, and it is engraved here as a TURN
+  (`<turn/>`, the ∾ above the notehead) -- the standard sign whose shape the
+  roll's five notes describe. `~` and `!turn!` therefore look identical on
+  the page. One line in `enrich.DECORATIONS` changes it.
+- **What does not survive**: `R:` (reel/jig/hornpipe) has nowhere to live in
+  MusicXML, and `!...!` spellings with no music21 object. Both are in the
+  import report's `abc` key beside `decorations_carried`. **Relay them.**
+- **Ornaments are editable like any other mark**: `--kind ornament` on
+  `add-element`, `move-element`, `duplicate-element` and `adjust-element`.
+- **There is no ABC export.** music21 reads ABC and cannot write it
+  (`ConverterABC.registerOutputExtensions` is empty). Export is MusicXML, MIDI
+  or PDF.
+- `.abc` is not a free extension: the system tags it `public.alembic` (Pixar's
+  3D scene cache), which is why the app claims that type too.
+
 ## PDF ingestion (OMR)
 
 Audiveris 5.11 is installed at `~/Applications/Audiveris.app`. Pipeline for a PDF:
@@ -365,7 +590,18 @@ Audiveris 5.11 is installed at `~/Applications/Audiveris.app`. Pipeline for a PD
 converts written/sounding pitch for transposing instruments, octave-shifts the
 line to best fit the new instrument's range, picks the idiomatic clef, and
 reports any notes still out of range. **Always relay its report to the user**
-(octave shift applied, remaining out-of-range notes with measure numbers).
+(octave shift applied, remaining out-of-range notes with the bar each is in).
+
+### A report names a bar the page has
+
+Every report that says where something is carries `bar` — a STRING, and the
+pickup's is `"pickup"`. It used to carry `measure`, straight from music21,
+which numbers a pickup 0: a whistle range report read "3 notes (B3 in bars 0,
+3, and 11)" on Ali's iPad for a tune whose bar 0 is its two-note upbeat. No
+page prints a bar 0, and `--from-measure` starts at 1, so the reader was sent
+to a bar that is not there. `ops.bar_label` is the one place that decides it
+and `check_whistle.py` holds it. Op ARGUMENTS are the other surface and keep
+their integers — an element address may still say `m0`.
 
 ## How to behave as the arrangement agent
 

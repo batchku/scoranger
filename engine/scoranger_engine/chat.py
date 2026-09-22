@@ -45,7 +45,9 @@ Working rules:
 1. Orient first: call get_score_info before planning changes.
 2. State your plan briefly, then execute it with tool calls.
 3. Verify after: read each tool result; after change_instrument, relay the
-   octave-shift and out-of-range report to the user.
+   octave-shift and out-of-range report to the user. After pull_part, relay
+   `length_warning` if it is there: the staves are now different lengths, and
+   that draws as a blank region on the page.
 4. If a tool returns an error, read it — bad part names include the real part
    list. Correct and retry.
 5. Musical judgment is yours: sensible clefs, octaves, keys. Flag questionable
@@ -63,13 +65,32 @@ Working rules:
    and changes key -- right for "put this in D", wrong for a harmony. Never
    answer that scale-degree transposition within a key is unsupported; it is
    transpose_diatonic.
-8. Accidentals ARE yours to control, and the tools are clean_accidentals (a
+8. "I can't play this fast", "reduce the 16ths to eighths", "simplify the
+   rhythm" is simplify_rhythm, and it has TWO answers that are different pieces
+   of music: augment (every value doubles, the meter's denominator halves,
+   nothing is lost, the passage lasts twice as long) and thin (notes between
+   the beats are dropped, the passage keeps its place and length). Never say
+   rhythmic augmentation or quantization is unsupported, and never choose
+   between the two silently -- say which you used and what it cost, and relay
+   `notes_removed` when you thinned. A solo can have augment for free; a part
+   playing with others can only be thinned. The third answer needs no tool:
+   play it slower, which is what augmenting writes down.
+9. Accidentals ARE yours to control, and the tools are clean_accidentals (a
    whole part or score) and set_accidental (named notes: add, remove, show,
    hide, colour). If a reader says a part has accidentals that are already in
    the key signature, or is cluttered or hard to read, run clean_accidentals on
    that part -- do not answer that display accidentals cannot be overridden.
    Every op that changes pitches already normalises them against each part's
    own WRITTEN key, so a transposing part is judged by what is on its staff.
+10. The app can take ABC now -- the text notation thesession.org publishes
+    Irish traditional music in. If a reader asks whether they can bring a tune
+    in from there, the answer is yes: `.abc` imports like MusicXML or MIDI,
+    modal keys included (Edor, Amix). You do not import files yourself -- the
+    reader does, from Import -- so say it can be done rather than offering to
+    do it. Two things to say if it comes up: a file holding several tunes
+    imports as several ARRANGEMENTS, and ABC's `~` rolls and `!...!`
+    decorations are not carried into the notation. Scoranger cannot WRITE ABC;
+    export is MusicXML, MIDI or PDF.
 Answer concisely; the user sees the score update live.
 """
 
@@ -82,6 +103,17 @@ def _latest(slug: str):
 def _mutate(slug: str, op: str, args: dict, details) -> dict:
     # caller already applied `fn` to the score object it passes via details/score
     raise NotImplementedError
+
+
+def _part(score, name: str):
+    """The part a tool named, resolved the way every other surface resolves it.
+
+    `bridge.py` has carried this helper since it was written; three tools here
+    called it while it did not exist here and raised NameError on every
+    invocation. The same shape of failure as `scor whistle-fingerings`, and
+    invisible for the same reason: nothing ever ran the agent's tool functions.
+    """
+    return ops.find_parts(score, [name])[0]
 
 
 def _apply(slug: str, op: str, args: dict, fn) -> dict:
@@ -108,9 +140,9 @@ def get_score_info(ctx: RunContext[str]) -> dict:
 
 def list_versions(ctx: RunContext[str]) -> dict:
     """The score's version history (op + args per version) and its sources (other editions of the piece)."""
-    meta = workspace.load_meta(ctx.deps)
-    return {"versions": [{k: v[k] for k in ("id", "op", "args")} for v in meta["versions"]],
-            "sources": workspace._repo().list_sources(ctx.deps)}
+    # workspace.version_history, not load_meta: see the note on VERSION_FIELDS
+    # for what is dropped and why. Shared with the iOS bridge's `versions` op.
+    return workspace.version_history(ctx.deps)
 
 
 def keep_parts(ctx: RunContext[str], parts: list[str]) -> dict:
@@ -322,6 +354,59 @@ def octave_shift(ctx: RunContext[str], part: str, octaves: int,
                   lambda s: ops.octave_shift(s, part, octaves, from_measure, to_measure))
 
 
+def simplify_rhythm(ctx: RunContext[str], mode: str, part: str | None = None,
+                    unit: str = "eighth", from_measure: int | None = None,
+                    to_measure: int | None = None) -> dict:
+    """Make a passage slower to READ. This is the tool for "I can't play this
+    fast", "reduce the 16th notes down to eighth notes", "simplify the rhythm",
+    "this run is too quick for me", "make it easier to play".
+
+    Never answer that rhythmic augmentation or quantization is unsupported; it
+    is this tool. But DO NOT pick a mode silently -- the two are different
+    pieces of music and the reader has to know which one they are getting.
+
+    mode='augment' -- every value doubles and the meter's denominator halves
+    (4/4 becomes 4/2), so every sixteenth is written as an eighth. NOT ONE NOTE
+    IS LOST and no bar is added or renumbered. The cost is time: the passage
+    lasts twice as long, which is to say it sounds at half speed. This is the
+    right answer for a SOLO, where nothing has to line up with anything. It
+    changes how long a bar lasts, so it applies to the whole score -- naming one
+    part of a multi-part score is refused, and rightly.
+
+    mode='thin' -- attacks are quantized onto the `unit` grid and the notes
+    between them are DROPPED. The passage keeps its place in the bar and its
+    length, so it still fits everything else playing. It is no longer the same
+    tune. This is the right answer for a part in an ensemble. The result
+    reports `notes_removed` and `removed_by_measure`: RELAY THEM. That is
+    someone's music.
+
+    And there is a third answer that needs no tool at all: play it slower.
+    Augmenting IS that answer written into the notation, so if the reader only
+    wants relief and does not need the page changed, say so before rewriting
+    anything.
+
+    How to choose: if the score has one part, offer augment first -- it costs
+    nothing. If the part plays with others, augment is not available and thin
+    is the only notation change there is; say what it will cost before doing
+    it. When you are unsure which the reader wants, ASK; the difference between
+    "the same tune, slower" and "fewer notes, same speed" is not yours to
+    decide for them.
+
+    `unit` is the fastest value they want to read: 'eighth' (default), '16th',
+    'quarter'. Set from_measure/to_measure (inclusive) to fix just the passage
+    that defeats them rather than the whole piece -- usually what is wanted.
+
+    Read the result's `cost` sentence and pass its substance on. Augment can
+    take a passage carrying 32nds only as far as 16ths in one pass, and 4/4
+    doubles to 4/2 and no further; when that happens the result says so and
+    names thinning as what is left."""
+    return _apply(ctx.deps, "simplify-rhythm",
+                  {"mode": mode, "part": part, "unit": unit,
+                   "from_measure": from_measure, "to_measure": to_measure},
+                  lambda s: ops.simplify_rhythm(s, mode, [part] if part else None,
+                                                unit, from_measure, to_measure))
+
+
 def merge_parts(ctx: RunContext[str], parts: list[str], new_name: str, clef: str = "treble") -> dict:
     """Merge several parts losslessly into one staff (each source becomes a voice)."""
     return _apply(ctx.deps, "merge-parts", {"parts": parts, "name": new_name, "clef": clef},
@@ -392,7 +477,11 @@ def chart_style(ctx: RunContext[str], part: str) -> dict:
 def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | None = None,
               replace: str | None = None, measures: str | None = None) -> dict:
     """Bring a part (or 'A-B' measure range, requires replace) from a source ('src:s01') or a
-    historical version ('v007') into the arrangement."""
+    historical version ('v007') into the arrangement.
+
+    Reports how many bars it brought and how long every staff now is. If the
+    result carries `length_warning`, SAY IT: the staves are different lengths,
+    which draws as a blank region on the page, and nothing pads them."""
     def fn(s):
         from music21 import converter
         if from_ref.startswith("src:"):
@@ -428,22 +517,176 @@ def set_structure(ctx: RunContext[str], kind: str, measure: int | None = None,
 
 
 def adjust_element(ctx: RunContext[str], part: str, measure: int | None = None,
-                   kind: str = "harm", ordinal: int = 0, size: float | None = None,
+                   kind: str = "harm", ordinal: int = 0, scale: float | None = None,
+                   size: float | None = None,
                    offset_x: float | None = None, offset_y: float | None = None,
                    reset: bool = False, all_elements: bool = False) -> dict:
-    """Change the size or position of an added element. kind="harm" is a chord
-    symbol, kind="diagram" a guitar chord diagram.
-    `size` is an absolute point size (12 is the default); `offset_x`/`offset_y`
-    nudge it sideways/up in MusicXML tenths, positive y being up. Address one
-    with measure (+ ordinal when a bar has several), or pass all_elements=True
-    for every chord symbol in the part. reset=True puts them back."""
+    """Change how big an added element is, or where it sits.
+
+    `kind` is "harm" (a chord symbol), "diagram" (a guitar chord diagram),
+    "tab" (a tablature column), or one of the six marks add_element writes:
+    "dynamic", "text", "fermata", "articulation", "ornament", "lyric".
+
+    "MAKE THAT ROLL BIGGER" IS kind="ornament". So is a trill, a mordent, a
+    turn or a slide -- every squiggle over a notehead is that one kind, and
+    which squiggle it is is the `value` add_element took. A fermata is its
+    own kind, not an ornament.
+
+    A LYRIC TAKES A SIZE AND NOTHING ELSE. "Make the words bigger" is a scale
+    and works; "move the lyric to the left" is refused by name, because a word
+    is drawn under the note it belongs to and no renderer here honours an
+    offset on one. A word that belongs somewhere else belongs under another
+    NOTE: that is move_element, not an offset.
+
+    SIZE IS RELATIVE. `scale` is the interface: 1.0 is the engraved default,
+    1.5 is half again, 0.75 is three quarters. "Make that dynamic bigger" is a
+    scale, and so is every other size request a reader phrases in words.
+    `size` is the ABSOLUTE point value (12 engraves as the default) and exists
+    for a caller that already holds one -- the app's chord-symbol row reads a
+    point size back out of the notation and sends it. Pass one or the other,
+    never both; the op refuses both at once rather than letting one win.
+
+    `offset_x`/`offset_y` nudge it sideways and up in MusicXML tenths, positive
+    y being UP. Address one element with measure (plus ordinal when a bar has
+    several), or pass all_elements=True for every element of that kind in the
+    part. reset=True puts them back."""
     def fn(s):
         return ops.adjust_element(s, part, kind=kind, measure=measure, ordinal=ordinal,
-                                  size=size, offset_x=offset_x, offset_y=offset_y,
+                                  size=size, scale=scale,
+                                  offset_x=offset_x, offset_y=offset_y,
                                   reset=reset, all_elements=all_elements)
     return _apply(ctx.deps, "adjust-element",
-                  {"part": part, "kind": kind, "measure": measure, "size": size,
-                   "reset": reset}, fn)
+                  {"part": part, "kind": kind, "measure": measure,
+                   "scale": scale, "size": size, "reset": reset}, fn)
+
+
+def add_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                value: str | None = None, offset: float = 0.0,
+                placement: str | None = None) -> dict:
+    """Put a mark on the page: a dynamic, words, a fermata, an articulation, an ornament or a word.
+
+    `kind` is "dynamic", "text", "fermata", "articulation", "ornament" or
+    "lyric". `value` is the dynamic ("mf"), the words ("dolce"), the
+    articulation (accent, staccato, tenuto, marcato...), the ornament, the
+    fermata's shape (normal|angled|square), or the syllable to sing ("la").
+
+    ORNAMENTS are what a player calls them: "roll", "trill", "mordent",
+    "turn", "inverted-turn", "inverted-mordent" (also "pralltriller" or
+    "upper-mordent"), "lower-mordent", "slide". A ROLL is the Irish
+    ornament; it is engraved as a turn sign, which is what that repertoire
+    prints, so "roll" and "turn" draw the same mark.
+
+    A LYRIC hangs off the note that starts at the offset, like a fermata, and
+    lands in the lowest verse that note has free -- verse 1 under a note with
+    no words, verse 2 under one already singing. It takes no `placement`:
+    verses are drawn below the staff and asking for "above" is refused rather
+    than written down and ignored.
+
+    THE DESTINATION IS A BAR PLUS AN OFFSET INSIDE IT, in quarter notes from
+    the barline: 0 is the downbeat, 1.5 the second half of beat two in 4/4.
+    Offset-anchored marks (dynamic, text) are inserted at that offset;
+    note-attached ones (fermata, articulation, ornament, lyric) are attached
+    to the note that STARTS there, and if nothing does the op refuses and lists the
+    bar's real onsets -- read them and pick one rather than retrying the same
+    offset.
+    `placement` is "above" or "below".
+
+    Spanners (hairpins, slurs) are refused: they have two anchors. So are the
+    three kinds that already have their own creating op -- a chord symbol is
+    set_chords, a diagram guitar_chord_diagrams, a tab guitar_tablature.
+
+    The result carries the ORDINAL the mark landed at, which is what
+    adjust_element and move_element address it by."""
+    return _apply(ctx.deps, "add-element",
+                  {"part": part, "kind": kind, "measure": measure, "value": value},
+                  lambda s: ops.add_element(s, part, kind, measure, value=value,
+                                            offset=offset, placement=placement))
+
+
+def move_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                 ordinal: int = 0, to_measure: int | None = None,
+                 to_offset: float = 0.0) -> dict:
+    """Move an added element to another bar.
+
+    Address the one you mean with `measure` (plus `ordinal` when the bar holds
+    several of that kind, counting from 0). The destination is `to_measure`
+    plus `to_offset` quarter notes from its barline, the same destination
+    add_element takes.
+
+    Offset-anchored elements (harm, diagram, dynamic, text) land at that
+    offset; note-attached ones (fermata, articulation, ornament, lyric) attach
+    to the note that STARTS there, and the op refuses and lists the onsets
+    rather than guessing. "Move the trill onto the next note" is this op with
+    the next note's onset as `to_offset` -- read the onsets off the refusal if
+    you do not already know them. THIS IS THE ONLY WAY A LYRIC MOVES -- off
+    one note and onto another, keeping its verse. If the destination note
+    already sings that verse the op says whose word is in the way instead of
+    stacking two on one notehead.
+    Spanners are refused by name: a spanner has two anchors and a destination
+    names one. A move never touches pitch or rhythm."""
+    return _apply(ctx.deps, "move-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "to_measure": to_measure,
+                   "to_offset": to_offset},
+                  lambda s: ops.move_element(s, part, kind, measure, ordinal=ordinal,
+                                             to_measure=to_measure,
+                                             to_offset=to_offset, duplicate=False))
+
+
+def remove_element(ctx: RunContext[str], part: str, kind: str,
+                   measure: int | None = None, ordinal: int = 0,
+                   all_elements: bool = False) -> dict:
+    """Take an added mark off the page.
+
+    "Take the ornament off bar 12", "lose that fermata", "clear the dynamics
+    from this part". `kind` is the same set adjust_element takes: "harm",
+    "diagram", "dynamic", "text", "fermata", "articulation", "ornament",
+    "lyric".
+
+    Address the one you mean with `measure` plus `ordinal` (counting from 0
+    in the bar's document order), or pass all_elements=True for every one of
+    that kind in the part. A tab column is refused by name: it IS the note,
+    and guitar_tablature's clear is what takes one off.
+
+    A LYRIC CAN BE REMOVED -- "drop that word" takes the verse off the note it
+    is sung on. It takes the sung words only: a whistle's fingerings and a
+    guitar tab's frets are verses too, and all_elements=True leaves both
+    alone. The verses left keep their numbers, so taking verse 1 off a note
+    singing two leaves the other on the second line of text."""
+    return _apply(ctx.deps, "remove-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "all": all_elements},
+                  lambda s: ops.remove_element(s, part, kind, measure,
+                                               ordinal=ordinal,
+                                               all_elements=all_elements))
+
+
+def duplicate_element(ctx: RunContext[str], part: str, kind: str, measure: int,
+                      ordinal: int = 0, to_measure: int | None = None,
+                      to_offset: float = 0.0) -> dict:
+    """Copy an added element into another bar, leaving the original where it is.
+
+    Everything move_element says about addressing and about the destination
+    applies here -- this is the same placement with the source left alone. Use
+    it for "put that same accent on bar 9 too"."""
+    return _apply(ctx.deps, "duplicate-element",
+                  {"part": part, "kind": kind, "measure": measure,
+                   "ordinal": ordinal, "to_measure": to_measure,
+                   "to_offset": to_offset},
+                  lambda s: ops.move_element(s, part, kind, measure, ordinal=ordinal,
+                                             to_measure=to_measure,
+                                             to_offset=to_offset, duplicate=True))
+
+
+def strip_notes(ctx: RunContext[str], part: str) -> dict:
+    """Empty a staff of its notes and keep its chord symbols -- a names-only staff.
+
+    What a chart wants: the changes over the bars with nothing engraved under
+    them. Every bar is left with a whole-bar rest, so the meter is intact and
+    the chord symbols still sit where they sat. Pair it with chart_style, which
+    hides those rests and puts the names on the staff."""
+    return _apply(ctx.deps, "strip-notes", {"part": part},
+                  lambda s: ops.strip_notes(s, part))
 
 
 def guitar_tablature(ctx: RunContext[str], part: str, tuning: str = "EADGBE",
@@ -521,17 +764,35 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          respell, clean_accidentals, set_accidental, set_rehearsal,
          change_clef, change_instrument, rename_part, check_range, octave_shift,
          merge_parts, split_bass, absorb_part, flatten_voices, consolidate_ties,
-         limit_part, simplify_repeats, analyze_harmony, set_chords, chart_style,
+         limit_part, simplify_repeats, simplify_rhythm, strip_notes,
+         analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
          guitar_tablature,
          set_structure,
-         adjust_element,
+         add_element, adjust_element, move_element, duplicate_element,
+         remove_element,
          assign_to_piece]
 
 
-def resolve_model(alias_or_string: str | None) -> str:
+def resolve_model(alias_or_string):
+    """A friendly alias, a raw pydantic-ai model string, or a Model already built.
+
+    The third case is how this agent is testable at all: a check hands in a
+    scripted stub instead of a provider, and nothing else about the run
+    changes. An unknown alias falls through as a raw model string, which is
+    what lets a new slug be tried without editing MODELS.
+    """
     name = alias_or_string or DEFAULT_MODEL
-    return MODELS.get(name, name)  # unknown alias = raw pydantic-ai model string
+    if not isinstance(name, str):
+        return name
+    return MODELS.get(name, name)
+
+
+def model_name(resolved) -> str:
+    """What to call the model in a reply, whether it arrived as a string or as
+    an object."""
+    return resolved if isinstance(resolved, str) else getattr(
+        resolved, "model_name", type(resolved).__name__)
 
 
 def run_chat(slug: str, message: str, model: str | None = None,
@@ -548,7 +809,7 @@ def run_chat(slug: str, message: str, model: str | None = None,
     usage = result.usage if not callable(result.usage) else result.usage()
     return {
         "reply": result.output,
-        "model": resolve_model(model),
+        "model": model_name(resolve_model(model)),
         "usage": {k: getattr(usage, k, None) for k in
                   ("input_tokens", "output_tokens", "requests")},
         "history": result.all_messages_json().decode(),

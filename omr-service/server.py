@@ -60,6 +60,57 @@ MAX_BYTES = 50 * 1024 * 1024
 TIMEOUT_S = 480
 JOB_TTL_S = 3600
 
+# Audiveris processing switches this service DEPENDS ON, stated rather than
+# assumed. Each is one of Audiveris's own boolean constants, addressed by its
+# qualified name (org.audiveris.omr.sheet.ProcessingSwitches.<switch>) and set
+# for the run with `-option`.
+#
+# Measured on a 32-bar lead sheet carrying 32 chord symbols and 128 syllables
+# (Audiveris 5.11.0, batch export):
+#
+#   lyrics      defaults ON, and it really is the gate: forced to false the
+#               same sheet exported 0 lyrics instead of 124, and the syllables
+#               came back instead as 8 dynamics, 23 articulations and 12
+#               fermatas that are not on the page. Stated here so a change of
+#               default upstream cannot take the words away quietly.
+#   chordNames  is documented as the chord-symbol switch and its constant
+#               defaults to false -- but on 5.11.0 forcing it either way made
+#               no difference whatever (28 <harmony> both ways), so the
+#               symbols do not hang off it in this version. It is passed
+#               anyway: it costs nothing measurable (7.0s vs 6.5s on the lead
+#               sheet, 23.1s vs 23.8s on a 4-page piano score, both inside
+#               run-to-run noise) and it is the switch a later version will
+#               honour.
+#
+# Deliberately NOT here: fingerings, frets, pluckings, drumNotation, the
+# tablature and one-line-staff switches, smallHeads, crossHeads, tremolos and
+# implicitTuplets are for repertoire this app does not take, and each is
+# another class of shape for the recogniser to hunt on pages that have none.
+# lyricsAboveStaff reads text ABOVE a staff as lyrics, which on these scores
+# is where the chord symbols and tempo marks live.
+#
+# THE SWITCHES ARE NOT WHY CHORDS AND LYRICS WENT MISSING. The reason is OCR:
+# Audiveris drives Tesseract in LEGACY mode, and the Debian/Ubuntu
+# tesseract-ocr-eng package ships tessdata_fast, which carries no legacy
+# components -- so the TEXTS step read nothing at all and every word on the
+# page was lost. The Dockerfile installs language data that has them.
+PROCESSING_SWITCHES = {"chordNames": True, "lyrics": True}
+SWITCH_PREFIX = "org.audiveris.omr.sheet.ProcessingSwitches"
+
+
+def audiveris_command(out_dir: str, pdf_path: str) -> list[str]:
+    """The exact argv a conversion runs, switches included.
+
+    A function rather than a literal buried in `run_job` so a check can assert
+    the switches are on the command line: a switch that silently stops being
+    passed looks exactly like a switch that was never passed.
+    """
+    options: list[str] = []
+    for switch, value in PROCESSING_SWITCHES.items():
+        options += ["-option", f"{SWITCH_PREFIX}.{switch}={str(value).lower()}"]
+    return [AUDIVERIS, "-batch", "-export", *options, "-output", out_dir, pdf_path]
+
+
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 AUDIVERIS_LOCK = threading.Lock()  # one conversion at a time per instance
@@ -116,8 +167,7 @@ def run_job(job_id: str, pdf: bytes):
         """
         print(identity.usage_line(
             job_id, job.get("actor", "anonymous"), job.get("trust", "unattributed"),
-            job.get("pages", 0), time.time() - started, outcome,
-            job.get("email")), flush=True)
+            job.get("pages", 0), time.time() - started, outcome), flush=True)
 
     try:
         pdf_path = os.path.join(workdir, "input.pdf")
@@ -130,7 +180,7 @@ def run_job(job_id: str, pdf: bytes):
             job["state"] = "converting"
             print(f"job {job_id}: audiveris start ({job['pages']} pages)", flush=True)
             proc = subprocess.Popen(
-                [AUDIVERIS, "-batch", "-export", "-output", out_dir, pdf_path],
+                audiveris_command(out_dir, pdf_path),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             )
             deadline = time.time() + TIMEOUT_S
@@ -194,7 +244,10 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _actor(self):
-        """`(actor, trust, email)`, or None having already answered 401.
+        """`(actor, trust)`, or None having already answered 401.
+
+        No email. The job is labelled by uid and nothing else: see the note on
+        identity.actor_for for why the address is not carried at all.
 
         Reads on job status and result are NOT attributed: they cost nothing,
         they are polled every second while a bar moves, and verifying a token
@@ -264,7 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         who = self._actor()
         if who is None:
             return
-        actor, trust, email = who
+        actor, trust = who
         if not 0 < length <= MAX_BYTES:
             self._json(413, {"ok": False, "error": f"body must be 1..{MAX_BYTES} bytes"})
             return
@@ -277,7 +330,7 @@ class Handler(BaseHTTPRequestHandler):
         job_id = uuid.uuid4().hex[:12]
         JOBS[job_id] = {"state": "queued", "page": 0, "pages": count_pages(pdf),
                         "created": time.time(),
-                        "actor": actor, "trust": trust, "email": email}
+                        "actor": actor, "trust": trust}
         print(f"job {job_id}: accepted for {actor} ({trust})", flush=True)
         worker = threading.Thread(target=run_job, args=(job_id, pdf), daemon=True)
         worker.start()

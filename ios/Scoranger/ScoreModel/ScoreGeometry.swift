@@ -44,7 +44,23 @@ struct ScorePage {
     /// (0.8.0 build 195's frame probe found it).
     let barFrames: [BarPosition.Bar]
 
-    init(index: Int, size: CGSize, elements: [ScoreElement]) {
+    /// How many systems the ENGRAVER drew on this page, counted from the
+    /// `class="system"` groups in the SVG it produced.
+    ///
+    /// This is not a second opinion about the same question -- it is the
+    /// answer, straight from the thing that decided it. `systemsPerPage`
+    /// INFERS the same number from bar frames, and the two agreeing is what
+    /// says the inference is sound. They come from one drawing, so nothing
+    /// about page setup, margins, scale or lyric size can make them differ
+    /// for a reason that is not a defect.
+    let drawnSystems: Int
+
+    /// `drawnSystems` has NO default on purpose: a default of zero would let
+    /// a new construction site compare the inference against nothing and look
+    /// like agreement at an empty page.
+    init(index: Int, size: CGSize, elements: [ScoreElement],
+         drawnSystems: Int) {
+        self.drawnSystems = drawnSystems
         self.barFrames = BarPosition.clippedToNeighbours(elements.compactMap { element in
             guard element.kind == .measure, let address = element.address else { return nil }
             return BarPosition.Bar(number: address.measure, frame: element.frame)
@@ -339,6 +355,9 @@ extension ScoreGeometry {
         pages.map { BarPosition.systems(of: BarPosition.bars(onPage: $0)).count }
     }
 
+    /// What the engraver drew, per page, beside what the app inferred.
+    var drawnSystemsPerPage: [Int] { pages.map(\.drawnSystems) }
+
     /// The same, as one line a test can read off the screen.
     ///
     /// Test-only scaffolding, surfaced under `-geometryProbe` and by nothing
@@ -346,7 +365,15 @@ extension ScoreGeometry {
     /// the only place the iOS engrave path runs, and the engine's own Verovio
     /// already answers this question in Python: the two counts have to be
     /// compared to know whether a collapse is the renderer or the app.
+    /// `drawn=` is the engraver's own count and `systems=` is the app's
+    /// inference of it, so a test can compare LIKE WITH LIKE on one drawing.
+    /// The number that used to be compared came from the engine's Verovio
+    /// under `render.page_options()` -- different margins, scale, breaks and
+    /// lyric size -- which is a different engraving of the same music and a
+    /// different number of lines. See BACKLOG.md.
     var probeDescription: String {
-        "pages=\(pages.count) systems=\(systemsPerPage.map(String.init).joined(separator: ","))"
+        "pages=\(pages.count)"
+            + " systems=\(systemsPerPage.map(String.init).joined(separator: ","))"
+            + " drawn=\(drawnSystemsPerPage.map(String.init).joined(separator: ","))"
     }
 }

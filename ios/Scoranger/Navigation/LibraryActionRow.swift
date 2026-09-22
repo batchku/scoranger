@@ -8,7 +8,7 @@ import Foundation
 /// compact row of bordered buttons under the search field, deliberately quiet:
 /// the lists are what the screen is for.
 enum LibraryQuickAction: String, CaseIterable, Identifiable {
-    case importScore, importPhotos, importFolder, importBook, new, newSetlist
+    case importScore, importPhotos, importFolder, importBook
 
     var id: String { rawValue }
 
@@ -17,8 +17,7 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
     /// where a question about an arrangement belongs, and the library's copy
     /// was a fourth button that spent most of its life dimmed.
     static let ordered: [LibraryQuickAction] = [.importScore, .importPhotos,
-                                                .importFolder, .importBook,
-                                                .new, .newSetlist]
+                                                .importFolder, .importBook]
 
     /// The two verbs these five actions actually are (§14.2). Three flavours
     /// of Import and two of New, which is why five permanent buttons was
@@ -35,7 +34,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
 
     /// Where the band rules off: after Photos.
     static let importsDividerAfter: LibraryQuickAction = .importPhotos
-    static let creations: [LibraryQuickAction] = [.new, .newSetlist]
 
     /// How the action names itself INSIDE its band, where there is room for a
     /// word and no glyph to lean on. "Import" is the button above it, so the
@@ -52,8 +50,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importPhotos: return "a picture of the music, from your photo library"
         case .importFolder: return "a whole exported library"
         case .importBook:   return "a collection to take arrangements out of"
-        case .new:          return "a new arrangement"
-        case .newSetlist:   return "a new set list"
         }
     }
 
@@ -63,30 +59,23 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importPhotos: return "Photos"
         case .importFolder: return "Folder"
         case .importBook:   return "Book"
-        case .new:          return "Arrangement"
-        case .newSetlist:   return "Set list"
         }
     }
 
     /// Identifiers move with the actions. The `home-*` ids retire with Home,
     /// and `library-add` with the `+` that used to offer the same two things.
-    /// `library-import-folder`, `library-import-book` and
-    /// `library-new-setlist` keep the identifiers they had -- §14.3 says so in
-    /// terms, and everything that addressed them goes on working.
+    /// `library-import-folder` and `library-import-book` keep the identifiers
+    /// they had -- §14.3 says so in terms.
     ///
-    /// The other two changed, and had to: `importScore` was `library-import`
-    /// and `new` was `library-new`, which are now the two VERB buttons on the
-    /// row. Two elements with one identifier is a test that taps whichever
-    /// SwiftUI happened to put first -- so the band's own items say which kind
-    /// they are, in the same shape as their siblings.
+    /// `importScore`'s changed, and had to: it was `library-import`, which is
+    /// now the VERB button on the row. Two elements with one identifier is a
+    /// test that taps whichever SwiftUI happened to put first.
     var identifier: String {
         switch self {
         case .importScore:  return "library-import-score"
         case .importPhotos: return "library-import-photos"
         case .importFolder: return "library-import-folder"
         case .importBook:   return "library-import-book"
-        case .new:          return "library-new-arrangement"
-        case .newSetlist:   return "library-new-setlist"
         }
     }
 
@@ -96,8 +85,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importPhotos: return "photo.on.rectangle"
         case .importFolder: return "folder"
         case .importBook:   return "books.vertical"
-        case .new:         return "square"
-        case .newSetlist:  return "line.3.horizontal"
         }
     }
 
@@ -111,8 +98,6 @@ enum LibraryQuickAction: String, CaseIterable, Identifiable {
         case .importPhotos: return "Photos"
         case .importFolder: return "Folder"
         case .importBook:   return "Book"
-        case .new:         return "New"
-        case .newSetlist:  return "New set list"
         }
     }
 }

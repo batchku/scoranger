@@ -17,6 +17,12 @@ struct AccountSection: View {
     @EnvironmentObject var state: AppState
 
     @State private var pasteNote: String?
+    @State private var confirmingDelete = false
+    @State private var deleting = false
+    /// What became of the deletion, kept OUTSIDE the signed-in branch on
+    /// purpose: a successful one ends SIGNED OUT, so a note held inside that
+    /// branch would be swept away by the very thing it is reporting on.
+    @State private var deletionNote: String?
     var showsHeader = true
 
     var body: some View {
@@ -36,10 +42,135 @@ struct AccountSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("account-error")
                 }
+                if let deletionNote {
+                    Text(deletionNote).typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("account-delete-note")
+                }
             }
             .padding(.horizontal, Theme.Metric.s16)
             .padding(.vertical, Theme.Metric.s12)
+
+            // Outside the field group, last, the way every other destructive
+            // action in this app sits (DESIGN_SYSTEM §7.2).
+            if case .signedIn(let account) = signIn.state { careful(account) }
         }
+        .task(id: signIn.account?.uid) {
+            // So the confirm can NAME the set lists it is about to hand on or
+            // destroy. Without this the section knows about no set lists and
+            // the question reads "this cannot be undone" and nothing else,
+            // which is true and useless. Idempotent -- `watchMemberships`
+            // returns immediately when it is already watching this uid.
+            guard signIn.account != nil else { return }
+            shared.watchMemberships()
+        }
+    }
+
+    // MARK: - Careful
+
+    /// Deleting the account, which Apple requires to be possible from in here
+    /// (App Review guideline 5.1.1(v)) and which this app had no path to at
+    /// all. It is the same two-step inline confirm as Delete piece and Delete
+    /// arrangement: a `danger` row that becomes a `ConfirmDeleteStrip` in
+    /// place. No alert, no sheet, nothing to dismiss.
+    @ViewBuilder
+    private func careful(_ account: SignIn.Account) -> some View {
+        PanelLabel(text: "Careful")
+
+        if deleting {
+            Text("Deleting your account…")
+                .typeRole(.data).foregroundStyle(Theme.Ink.ink2)
+                .padding(.horizontal, Theme.Metric.s16)
+                .accessibilityIdentifier("account-delete-working")
+        } else if confirmingDelete {
+            ConfirmDeleteStrip(what: AccountDeletionPlan.question(),
+                               consequence: AccountDeletionPlan.consequence(for: outcome),
+                               verb: "Delete my account",
+                               identifier: "confirm-delete-account",
+                               onDelete: {
+                                   confirmingDelete = false
+                                   Task { await deleteAccount(account) }
+                               },
+                               onKeep: { confirmingDelete = false })
+        } else {
+            ScreenRow(title: "Delete my account", leads: false, isDestructive: true,
+                      identifier: "account-delete") {
+                confirmingDelete = true
+            }
+        }
+
+        // What will NOT be deleted, standing whether the question has been
+        // asked or not -- the counterpart to `account-signout-keeps`, and the
+        // sentence that stops "delete my account" reading as "delete my
+        // library".
+        Text(AccountDeletionPlan.keepsLocalLibrary)
+            .typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.Metric.s16)
+            .padding(.top, Theme.Metric.s8)
+            .padding(.bottom, Theme.Metric.s12)
+            .accessibilityIdentifier("account-delete-keeps")
+    }
+
+    /// What is about to happen to each shared set list, read off the ones the
+    /// app is already watching.
+    ///
+    /// The CLIENT'S opinion, in the sense `SetlistPermission` is: the
+    /// `deleteAccount` Function decides, because membership is
+    /// server-authoritative (design/FIREBASE.md §4.4). This is what the reader
+    /// is TOLD, and `AccountDeletionPlan` exists so that what the two must
+    /// agree on is written down once, where a test can read it.
+    private var outcome: AccountDeletionPlan.Outcome {
+        AccountDeletionPlan.outcome(for: shared.setlists.map {
+            AccountDeletionPlan.Standing(name: $0.name,
+                                         isOwner: $0.isOwner,
+                                         memberCount: $0.members.count)
+        })
+    }
+
+    private func deleteAccount(_ account: SignIn.Account) async {
+        deleting = true
+        deletionNote = nil
+        do {
+            let report = try await AccountDeletion.deleteAccount(provider: account.provider)
+            // In this order, and for the reason Sign out is: the shared set
+            // lists have to let go of their listeners before the account they
+            // were opened for is gone.
+            shared.signedOut()
+            signIn.signOut()
+            DrawingStore.shared.onSave = nil
+            deletionNote = summary(report)
+        } catch {
+            // NOTHING was deleted on this path, and the reader is told which
+            // it was rather than left to guess whether they are half-deleted.
+            deletionNote = ((error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription)
+        }
+        deleting = false
+    }
+
+    /// What the server reported, in the reader's terms.
+    private func summary(_ report: AccountDeletion.Report) -> String {
+        var said = "Your account is deleted."
+        if report.handedOn > 0 {
+            said += " \(report.handedOn) set list"
+                + (report.handedOn == 1 ? " passed" : "s passed")
+                + " to the next person invited."
+        }
+        if report.destroyed > 0 {
+            said += " \(report.destroyed) set list"
+                + (report.destroyed == 1 ? " was" : "s were")
+                + " deleted, because nobody else was in "
+                + (report.destroyed == 1 ? "it." : "them.")
+        }
+        said += " Your library on this iPad is untouched."
+        if !report.incomplete.isEmpty {
+            // Reported, not swallowed. The account is gone either way, and
+            // "done" about a job that was not finished is a lie.
+            said += " Some of it could not be finished: "
+                + report.incomplete.joined(separator: "; ") + "."
+        }
+        return said
     }
 
     // MARK: - signed out

@@ -14,7 +14,11 @@ enum ScoreModelBuilder {
     /// would swallow every lasso.
     static let indexedClasses: Set<String> = [
         "note", "chord", "rest", "mRest", "measure", "harm", "clef", "accid",
-        "slur", "tie", "dynam", "fermata", "artic"
+        "slur", "tie", "dynam", "fermata", "artic",
+        // A text mark. A chord DIAGRAM is drawn in a group of this class too,
+        // and is filtered out one step later: the MEI parser gives it no
+        // address, and an element with no address is not selectable.
+        "dir"
     ]
 
     /// - Parameters:
@@ -37,7 +41,17 @@ enum ScoreModelBuilder {
                                              pageIndex: index,
                                              frame: group.frame))
             }
-            pages.append(ScorePage(index: index, size: parsed.size, elements: elements))
+            // The engraver's own answer to "how many systems are on this
+            // page", kept beside the app's inference of it. Verovio wraps each
+            // system in <g class="system">; those groups are deliberately not
+            // INDEXED (a structural wrapper bounds half a page and would
+            // swallow every lasso) but they are still parsed, and counting
+            // them costs one pass over groups already in hand.
+            let drawn = parsed.groups.count {
+                $0.svgClass.split(separator: " ").first.map(String.init) == "system"
+            }
+            pages.append(ScorePage(index: index, size: parsed.size,
+                                   elements: elements, drawnSystems: drawn))
         }
         return ScoreGeometry(pages: pages)
     }
@@ -200,17 +214,27 @@ struct ScoreSelection: Equatable {
 
     /// Kinds whose size and position can be adjusted from the chip.
     ///
-    /// Chord symbols only for now. The mechanism generalises -- whistle
-    /// fingerings are lyric-anchored the same way -- but the spec's first
-    /// increment is deliberately one kind.
-    static let adjustableKinds: Set<ScoreElementKind> = [.harm]
+    /// Every kind `adjust-element` reaches and the lasso can catch. Chord
+    /// DIAGRAMS and tab columns are adjustable in the engine and are not here:
+    /// a diagram is drawn by us rather than by Verovio and carries no address,
+    /// and a tab column IS a note, so selecting one would mean selecting the
+    /// music under it.
+    static let adjustableKinds: Set<ScoreElementKind> = Set(AddedMark.kinds)
 
-    /// True when EVERY selected element can be adjusted, so the chip's position
-    /// and size row is shown. A mixed selection does not get it: nudging a
-    /// notehead is a different feature with different rules, and offering a
-    /// control that silently skips half the selection is worse than none.
+    /// True when every selected element can be adjusted AND they are all the
+    /// same kind, so the chip's position and size row is shown.
+    ///
+    /// A mixed selection does not get it: nudging a notehead is a different
+    /// feature with different rules, and offering a control that silently
+    /// skips half the selection is worse than none. Once there were five
+    /// adjustable kinds, "all adjustable" stopped being enough -- a dynamic
+    /// and a fermata selected together would drive one row that names one
+    /// noun, steps one size unit and moves by one of two different mechanics,
+    /// and all three would be true of only half of what was selected.
     var isAdjustable: Bool {
-        !addresses.isEmpty && addresses.allSatisfy { Self.adjustableKinds.contains($0.kind) }
+        guard let kind = addresses.first?.kind,
+              Self.adjustableKinds.contains(kind) else { return false }
+        return addresses.allSatisfy { $0.kind == kind }
     }
 
     /// The addresses themselves, for an op that must touch exactly these

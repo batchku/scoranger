@@ -53,4 +53,57 @@ final class ScoreLayoutTests: XCTestCase {
         XCTAssertEqual(ScoreLayout.spread.rawValue, "spread")
         XCTAssertEqual(ScoreLayout.continuous.rawValue, "continuous")
     }
+
+    // MARK: - Which layout the canvas may draw with (Ali, 2026-09-14 #2)
+
+    /// One page and a spread are the same pages counted out differently.
+    func testTheTwoPagedLayoutsShareAnEngraving() {
+        XCTAssertEqual(ScoreLayout.page.engraving, ScoreLayout.spread.engraving)
+        XCTAssertNotEqual(ScoreLayout.page.engraving, ScoreLayout.continuous.engraving)
+    }
+
+    /// Nothing held, nothing to mismatch.
+    func testWithNoPagesTheChoiceIsDrawnAtOnce() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: nil), .continuous)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .spread, engraved: nil), .spread)
+    }
+
+    /// Switching between the two paged layouts needs no new engraving, so it
+    /// takes effect on the next frame.
+    func testPageAndSpreadSwitchWithoutWaiting() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .spread, engraved: .page), .spread)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .page, engraved: .spread), .page)
+    }
+
+    /// The flash itself: a paged document drawn as a strip, or a strip drawn
+    /// as pages, for the frame between the choice publishing and the new
+    /// engraving arriving. The canvas keeps drawing what it is holding.
+    func testAStripIsNotDrawnBeforeItExists() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: .page), .page)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: .spread), .spread)
+    }
+
+    func testPagesAreNotDrawnBeforeTheyExist() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .page, engraved: .continuous), .continuous)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .spread, engraved: .continuous), .continuous)
+    }
+
+    /// Once the document the choice asked for has arrived, the choice is what
+    /// is drawn -- or the canvas would be stuck in the old layout for ever.
+    func testWhenTheEngravingArrivesTheChoiceIsDrawn() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: .continuous), .continuous)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .page, engraved: .page), .page)
+    }
+
+    /// Every pair, so a fourth layout cannot quietly break the rule: what is
+    /// drawn always matches the ENGRAVING that is held.
+    func testWhatIsDrawnAlwaysMatchesTheEngravingThatIsHeld() {
+        for chosen in ScoreLayout.allCases {
+            for engraved in ScoreLayout.allCases {
+                let drawn = ScoreLayout.displayed(chosen: chosen, engraved: engraved)
+                XCTAssertEqual(drawn.engraving, engraved.engraving,
+                               "chose \(chosen) holding \(engraved): drew \(drawn)")
+            }
+        }
+    }
 }

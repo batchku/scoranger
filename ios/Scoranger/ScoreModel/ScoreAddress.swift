@@ -7,6 +7,9 @@ import Foundation
 enum ScoreElementKind: String, Codable, Hashable, CaseIterable {
     case note, chord, rest, measure, harm, clef, accid, slur, tie
     case dynam, fermata, articulation, beam, staff, layer
+    /// A text mark -- "dolce", "rit." -- which MEI calls a `<dir>`. Added last
+    /// so every other raw value keeps the string it is already persisted as.
+    case text
 
     /// Kinds a "notes" selection should return.
     static let noteLike: Set<ScoreElementKind> = [.note, .chord, .rest]
@@ -14,7 +17,8 @@ enum ScoreElementKind: String, Codable, Hashable, CaseIterable {
     static let barLike: Set<ScoreElementKind> = [.measure]
     /// Everything else a user might lasso: markings rather than pitches.
     static let markingLike: Set<ScoreElementKind> = [
-        .harm, .clef, .accid, .slur, .tie, .dynam, .fermata, .articulation
+        .harm, .clef, .accid, .slur, .tie, .dynam, .fermata, .articulation,
+        .text
     ]
 
     /// MEI tag -> kind. Tags absent here are not addressable.
@@ -32,6 +36,11 @@ enum ScoreElementKind: String, Codable, Hashable, CaseIterable {
         case "dynam":        self = .dynam
         case "fermata":      self = .fermata
         case "artic":        self = .articulation
+        // A chord DIAGRAM is a <dir> too. MEISemanticsParser reads the body
+        // before it decides, and gives a diagram no address -- so the
+        // ordinals here count the same text marks `ops._elements_in_measure`
+        // counts, which is what makes an address usable by the engine.
+        case "dir":          self = .text
         case "beam":         self = .beam
         case "staff":        self = .staff
         case "layer":        self = .layer

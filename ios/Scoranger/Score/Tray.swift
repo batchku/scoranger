@@ -53,12 +53,16 @@ struct Tray: View {
         }
             .padding(.horizontal, Theme.Metric.s16)
             .frame(minHeight: Theme.Metric.transportHeight)
-            .background(Theme.Surface.panel)
-            .clipShape(UnevenRoundedRectangle(
-                topLeadingRadius: Theme.Metric.rPage, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: Theme.Metric.rPage))
+            // LIKE THE TOP BAR (Ali, 2026-09-14 item 9). It was inset 16 from
+            // each edge with `rPage` top corners, so it read as a drawer
+            // sliding out of the bottom of a card while the bar above it was a
+            // flat full-width strip with a rule under it. The two are the same
+            // kind of thing -- the screen's chrome -- and now look it: full
+            // width, square, a rule on the edge facing the music, and the fill
+            // carried under the home indicator the way the bar's is carried
+            // under the status bar.
+            .background(Theme.Surface.panel.ignoresSafeArea(edges: .bottom))
             .overlay(alignment: .top) { Theme.Rule() }
-            .padding(.horizontal, Theme.Metric.s16)
             .opacity(dimmed ? 0.5 : 1)
             .background(alignment: .leading) { spaceKey }
             .accessibilityElement(children: .contain)
