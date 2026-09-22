@@ -517,6 +517,52 @@ question answered first.
 - **Portable score-ops kernel (Rust -> iOS/Android/WASM)** -- question: which
   second platform is real enough to pay for the port?
 
+## TypeSafe / Jev as a fast path for the chat (tabled 2026-09-21)
+
+Ali asked to try `jev-1.13.0`, TypeSafe's "System One" model. Investigated,
+not built. Tabled here rather than dropped because two places in this codebase
+fit it almost exactly.
+
+**What it is, and what it is not.** It does not generate text and does not call
+tools. It takes STATE plus a set of QUESTIONS and returns typed answers with
+probabilities: `choice` (one of a defined set), `noul` (does this condition
+hold), `score` (a position on a described rubric). `POST
+https://api.typesafe.ai/v1/systemone`, bearer token, `model: "jev-latest"`.
+So it cannot replace the arrangement agent, which plans SEQUENCES of ops.
+
+**The two fits, in order of how ready they are:**
+
+1. **`analyze` adjudication.** `scor analyze` already emits per-bar harmony
+   candidates and this file's own CLI reference says "agent adjudicates". That
+   is exactly the documented "select instead of generate" pattern: find the
+   candidates in code, use one judgment to pick the intended one. Each bar is an
+   independent `choice` over the candidates for that bar, and independent
+   questions over the same state run in parallel in one request. Today a chat
+   model does this in prose, which is the expensive and least reliable way.
+2. **Single-operation routing.** Most real requests are one op with closed-set
+   arguments -- transpose by an interval, change an instrument, make the chord
+   names bigger. TypeSafe's function-calling cookbook does precisely this and
+   returns the function, its typed arguments, and a confidence that is *the
+   least certain judgement in the call*. That confidence is the useful part: it
+   gives a principled place to fall back to the full agent rather than a guess.
+
+**The shape to build, if it is built:** a fast path for single-op requests,
+escalating to the current agent when confidence is low or the request needs
+sequencing. Ali's hypothesis is that it will be much faster, which is the first
+thing to measure and the reason to try it at all.
+
+**Blocked on:** an API key. Nothing on this machine -- not in the environment,
+not in `.env`, no SDK installed, nothing in the keychain; the plugin ships only
+documentation. `TYPESAFE_API_KEY` in the repo `.env` is the place, matching how
+`OPENROUTER_API_KEY` already works.
+
+**Costs to weigh before it ships:** it adds a THIRD PARTY receiving user data,
+so `design/privacy-policy.md` and `design/APP_STORE_PRIVACY.md` both need a
+paragraph -- and that work was just finished for the App Store submission. Also
+worth knowing that Ali first reported this model as being on OpenRouter; it is
+not, and a search of their 443-model catalogue found nothing, which is how the
+confusion surfaced.
+
 ## Deferred to post-prototype
 
 - **Firebase backend** — Auth, Firestore (metadata/jobs/chat), Cloud Storage, Hosting
