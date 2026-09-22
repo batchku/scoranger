@@ -66,13 +66,8 @@ def code_of(path: Path) -> str:
     sentence explaining what it does -- a check reading its own
     documentation, which is the failure mode this repo keeps rediscovering.
     """
-    out = []
-    for raw in path.read_text().splitlines():
-        line = raw.split("//")[0] if raw.lstrip().startswith("//") else raw
-        if raw.lstrip().startswith("//"):
-            continue
-        out.append(line)
-    return "\n".join(out)
+    return "\n".join(line for line in path.read_text().splitlines()
+                     if not line.lstrip().startswith("//"))
 
 
 def dictation_is_on_device() -> int:

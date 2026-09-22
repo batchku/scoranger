@@ -104,6 +104,11 @@ SKIP=(
   -skip-testing:ScorangerUITests/MarkAdjustShot
   # MixerShot photographs the tray for a person to judge; it asserts nothing.
   -skip-testing:ScorangerUITests/MixerShot
+  # DictationShot photographs what the chat field says when on-device speech
+  # is unavailable. It asserts nothing, and which of the three messages it
+  # catches depends on what the host's Speech stack answers about permission
+  # and availability -- not something a build should fail on.
+  -skip-testing:ScorangerUITests/DictationShot
   # NotebookShot photographs the 0.8 pages and panel the same way.
   -skip-testing:ScorangerUITests/NotebookShot
   # OMRQueueShot photographs the queue and the two scores either side of it,
