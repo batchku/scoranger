@@ -230,6 +230,103 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.12.0 THE APP STORE SUBMISSION BUILD: AN ACCOUNT A PERSON CAN
+        #          DELETE, AND FOUR THINGS THAT LEAK FIXED (2026-09-21). Scope
+        #          written before the work. Cut from the shipped 0.11.0
+        #          (build 200).
+        #
+        #          THIS IS THE BUILD INTENDED FOR PUBLIC APP STORE
+        #          SUBMISSION, not another TestFlight round. Everything in it
+        #          is either something App Review requires or something that
+        #          would have been rejected, weakened the privacy answers, or
+        #          sent a user's data where the user was not told it went.
+        #
+        #          It carries a FEATURE -- account deletion -- so the minor
+        #          bumps once, and the four defects ride with it: see the
+        #          versioning rule in CLAUDE.md.
+        #
+        #          In this build:
+        #            1. DELETE MY ACCOUNT, which App Review guideline
+        #               5.1.1(v) requires of any app that lets a person make
+        #               one. Under Careful in Settings, and a Cloud Function
+        #               behind it that removes the succession as well as the
+        #               account. Merged from feat/account-deletion;
+        #            2. THE APP TARGET HAS A PRIVACY MANIFEST. It shipped
+        #               none through 0.11.0 while nine of its files use
+        #               UserDefaults -- ITMS-91053, which is an automatic
+        #               UPLOAD REJECTION, not a warning. The two manifests in
+        #               ios/PrivacyManifests/ are CPython's OpenSSL extension
+        #               modules and a different rejection code.
+        #               ios/Scoranger/PrivacyInfo.xcprivacy declares
+        #               UserDefaults/CA92.1, FileTimestamp/C617.1 and
+        #               SystemBootTime/35F9.1 -- decided by reading the app
+        #               BINARY's symbols, not by grepping Swift, because
+        #               Verovio is a local SPM package that links statically
+        #               into the app binary, calls stat, and has no manifest
+        #               of its own. A grep of Swift finds nothing and would
+        #               have under-declared. Disk Space and Active Keyboards
+        #               are NOT declared: no symbol in the binary backs them;
+        #            3. THE SCAN LOG NO LONGER CARRIES AN EMAIL ADDRESS. The
+        #               OMR service wrote the signed-in user's address into
+        #               Cloud Logging on every conversion, on all four exit
+        #               paths, into a bucket with no configured retention that
+        #               deleteAccount makes no call against -- so the address
+        #               outlived the account, for every user. Removed at the
+        #               source rather than filtered: actor_for answers
+        #               (actor, trust) and no longer reads the email claim.
+        #               The uid in `actor` is what the cost report needs;
+        #            4. DICTATION IS TRANSCRIBED ON THE DEVICE.
+        #               requiresOnDeviceRecognition appeared nowhere in the
+        #               repository, so it was false and the microphone went to
+        #               Apple's servers on every device. Now true, and where
+        #               on-device recognition is unavailable the app REFUSES
+        #               rather than falling back -- a fallback is invisible to
+        #               the user, so no honest permission string could
+        #               describe it. Both usage descriptions now say the audio
+        #               stays on the device;
+        #            5. THE CHAT STOPPED SENDING EXCERPTS OF EARLIER PROMPTS.
+        #               The iOS bridge answered list_versions with load_meta
+        #               whole -- artifact filenames, document uids, and the
+        #               first 200 characters of each earlier user prompt, to
+        #               the model provider. The desktop agent had always
+        #               projected the same call down to {id, op, args}. One
+        #               projection now, called by both;
+        #            6. and the Sign in with Apple comment says what is true.
+        #               It claimed the entitlement existed because Ali's son
+        #               has an Apple account and no Google one; the opposite
+        #               is the case, Apple not offering sign-in below its age
+        #               threshold. The entitlement stays -- guideline 4.8
+        #               requires it beside Google SSO.
+        #          NOT in this build, and said before it starts:
+        #            - NOTHING IS PUBLISHED OR DEPLOYED BY IT. The privacy
+        #              policy and support pages exist as TEXT
+        #              (design/privacy-policy.md, design/support.md) and are
+        #              not hosted; App Review rejects a submission whose
+        #              Privacy Policy URL and Support URL are not live, so
+        #              THOSE TWO PAGES MUST BE UP BEFORE SUBMITTING. The OMR
+        #              email fix is in omr-service/, which reaches a user only
+        #              when the image is rebuilt and deployed to Cloud Run --
+        #              shipping this binary alone does not change what the
+        #              service logs;
+        #            - THE LOG RETENTION NUMBER IS STILL UNSET. No log router,
+        #              bucket or retention policy exists in the repository, so
+        #              the GCP project's _Default applies. Removing the
+        #              address removes the sharp edge; it does not let the
+        #              policy state a retention period. Ali's to set;
+        #            - THE APP PRIVACY QUESTIONNAIRE IS NOT FILLED IN. It has
+        #              no API and cannot be. Section 5 of
+        #              design/APP_STORE_PRIVACY.md is amended to this build
+        #              and is what to click through -- seven data types now,
+        #              Audio Data having become No;
+        #            - COUNSEL HAS NOT ANSWERED design/CHILDRENS_PRIVACY_BRIEF.md.
+        #              The five questions in its section 5 are open. The three
+        #              engineering defects it listed are fixed here, which is
+        #              the part that was not a legal judgement;
+        #            - NO CHANGE TO PLAYBACK, SYNC, SHARING, SET LISTS,
+        #              NOTATION OR ENGRAVING. Nothing a musician does with the
+        #              app behaves differently, except that dictation now
+        #              refuses on a device or language that cannot transcribe
+        #              locally.
         #   0.11.0 EVERY MARK ON THE PAGE REACHES THE NOTATION: THE ONES ABC
         #          WRITES, AND THE ONES A SCANNER READS (2026-09-19). Scope
         #          written before the merge. Cut from the shipped 0.10.0
@@ -709,7 +806,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 200
-        MARKETING_VERSION: 0.11.0
+        MARKETING_VERSION: 0.12.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
