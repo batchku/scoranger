@@ -1,5 +1,23 @@
 # Backlog
 
+## Bar numbering: ABC counts from 0, MusicXML from 1
+
+Found while building `ops.bar_label` and nearly shipped as a bug. music21's ABC
+reader numbers EVERY tune from 0 whether or not it has a pickup, while a
+MusicXML import is numbered from 1. So bar 0 means two different things:
+
+    Morrison's Jig (no pickup)   bar 0, paddingLeft 0.0, a full 6/8 bar
+    Star of the County Down      bar 0, paddingLeft 2.0, a two-eighth upbeat
+
+`bar_label` now tells them apart by `paddingLeft` and only calls the second one
+"the pickup". What is NOT resolved is the wider oddity: for a pickup-less ABC
+tune the app calls the first bar 0 everywhere -- the transport, the play head,
+`--from-measure`, and now a report -- while the reader counts from 1. Nothing
+is wrong with itself; it just disagrees with the musician. Renumbering on
+import would fix it and would move every bar number in every existing library,
+including the ones written into set lists and rehearsal marks, so it is Ali's
+call and not a build's.
+
 ## From the screen recording of 2026-09-22 (Star of the County Down)
 
 Thirty-three seconds on the iPad: lasso five notes and transpose them a third

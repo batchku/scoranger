@@ -43,6 +43,12 @@ enum ChatSteps {
         case "respell": return "Respelling with \(s("prefer") ?? "flats")"
         case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
         case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        case "paginate":
+            if s("clear") == "true" { return "Letting the engraver lay it out" }
+            if let per = s("measures_per_line") { return "Laying it out \(per) bars to a line" }
+            if args["remove_at"] != nil { return "Taking a line break off" }
+            if args["break_at"] != nil { return "Starting a new line" }
+            return "Laying out the lines"
         case "set_structure":
             let what = s("kind") ?? "mark"
             if s("remove") == "true" { return "Removing the \(what)" }

@@ -13,6 +13,7 @@ from music21 import clef as m21clef
 from music21 import instrument as m21instrument
 from music21 import interval as m21interval
 from music21 import key as m21key
+from music21 import layout as m21layout
 from music21 import note as m21note
 from music21 import pitch as m21pitch
 from music21 import stream
@@ -93,9 +94,29 @@ def bar_label(n) -> str:
     report entirely rather than carried beside the name -- a report is prose
     the chat agent writes from, and a `0` anywhere in it is a `0` that can be
     printed. Op ARGUMENTS are the other surface and keep their integers.
+
+    **BAR 0 IS NOT THE SAME THING AS A PICKUP**, and the first version of this
+    said it was. music21's ABC reader numbers EVERY tune from 0, pickup or no
+    pickup, so `number == 0` called the ordinary first bar of every jig and
+    reel in the library "the pickup". What distinguishes them is
+    `paddingLeft` -- the beats missing from the head of the bar -- which is 0
+    on a full bar and positive on a real anacrusis:
+
+        Morrison's Jig (no pickup)   bar 0, paddingLeft 0.0, a full 6/8 bar
+        Star of the County Down      bar 0, paddingLeft 2.0, two eighths
+
+    A bar 0 that is a whole bar is REPORTED AS 0, which is also what the
+    transport and the play head call it, so at least the app agrees with
+    itself. That every ABC import is numbered from zero while every MusicXML
+    one is numbered from one is a wider oddity, and it is in BACKLOG.
     """
     number = n.measureNumber
-    return "pickup" if number == 0 else str(number)
+    if number != 0:
+        return str(number)
+    measure = n.getContextByClass(stream.Measure)
+    if measure is not None and (measure.paddingLeft or 0) > 0:
+        return "pickup"
+    return str(number)
 
 
 def find_parts(score, names: list[str]):
@@ -5376,3 +5397,182 @@ def playback_timeline(score) -> tuple:
         "performed_bars": len(bars),
         **flags,
     }
+
+
+# -- pagination --------------------------------------------------------------
+#
+# WHERE THE SYSTEMS BREAK, written into the notation as MusicXML
+# `<print new-system="yes"/>` (music21's `layout.SystemLayout(isNew=True)`) so
+# it travels with the score like everything else here.
+#
+# THE ONE THING TO KNOW ABOUT VEROVIO HERE, measured rather than assumed
+# (engine/scripts/check_pagination.py keeps the measurement):
+#
+#     breaks=auto      lays the music out itself and IGNORES encoded breaks
+#     breaks=encoded   breaks ONLY where the notation says, and nowhere else
+#     breaks=smart     honours some and re-flows the rest
+#
+# `encoded` is what a reader who asked for four bars a line means, and it is
+# safe to ask for unconditionally: on a score carrying no breaks at all Verovio
+# warns and falls back to laying it out itself.
+#
+# The trap is the other half. Because `encoded` breaks ONLY where told, ONE
+# break on a sixty-bar piece does not mean "and lay the rest out sensibly" --
+# it means one short system and then fifty-odd bars crushed into a single line,
+# which Verovio reports as "Justification is highly compressed" and a reader
+# sees as a garbled page. So THIS OP ALWAYS WRITES A COMPLETE PAGINATION:
+# every system's start, from the first bar to the last. There is no way to ask
+# it for a lone break, because there is no way to draw one.
+#: What a system's length is inferred from when the caller does not say and the
+#: score has no pagination to read one off. Refusing is better than guessing: a
+#: jig wants four bars a line and a piano reduction does not, and nothing in
+#: the notation says which this is.
+_PAGINATION_NEEDS_A_LENGTH = (
+    "how many bars to a line is not written anywhere on this score yet, so it "
+    "has to be said: give measures_per_line (4 suits most tunes). After that "
+    "the score remembers, and a break can be added or removed on its own.")
+
+
+def _measure_numbers(part) -> list[int]:
+    return [m.number for m in part.getElementsByClass(stream.Measure)]
+
+
+def system_break_bars(score) -> list[int]:
+    """The bars that START a system, as the notation currently says.
+
+    Read from the FIRST part: a system break is a property of the system, so
+    the op writes one to every staff and they agree by construction.
+    """
+    if not score.parts:
+        return []
+    bars = []
+    for m in score.parts[0].getElementsByClass(stream.Measure):
+        if any(sl.isNew for sl in m.getElementsByClass(m21layout.SystemLayout)):
+            bars.append(m.number)
+    return sorted(bars)
+
+
+def _fill_runs(starts: set[int], numbers: list[int], per_line: int) -> set[int]:
+    """Break any stretch longer than `per_line` until none is.
+
+    The forced breaks are kept exactly where they were asked for; only the
+    stretches BETWEEN them are subdivided, so "a new line at bar 17" keeps bar
+    17 at the head of a line however the rest falls out.
+    """
+    out = set(starts)
+    ordered = [n for n in numbers if n in out] or [numbers[0]]
+    for index, start in enumerate(ordered):
+        end = ordered[index + 1] if index + 1 < len(ordered) else None
+        run = [n for n in numbers
+               if n >= start and (end is None or n < end)]
+        for offset in range(per_line, len(run), per_line):
+            out.add(run[offset])
+    return out
+
+
+def paginate(score, measures_per_line: int | None = None,
+             break_at: list[int] | None = None,
+             remove_at: list[int] | None = None,
+             clear: bool = False) -> dict:
+    """Lay the music out in lines, or hand it back to the engraver.
+
+    `clear` takes every encoded break off, which is how a reader asks for the
+    automatic layout back -- Verovio then breaks where it judges best, which is
+    what an untouched score has always done.
+
+    `measures_per_line` paginates the whole score at that length.
+    `break_at` forces those bars to start a line; `remove_at` takes a break
+    off. Both keep the score's existing length for everything else, read off
+    the pagination already in the notation, and refuse by name when there is
+    none to read and none given -- see `_PAGINATION_NEEDS_A_LENGTH`.
+
+    The first bar always starts a system and carries no break of its own: a
+    `<print new-system="yes"/>` on the first measure is what tells Verovio to
+    leave an empty system above the music.
+    """
+    if not score.parts:
+        raise ValueError("this score has no parts to paginate")
+    numbers = _measure_numbers(score.parts[0])
+    if not numbers:
+        raise ValueError("this score has no measures to paginate")
+    first = numbers[0]
+
+    existing = system_break_bars(score)
+    if clear:
+        _, removed = _write_system_breaks(score, set())
+        return {"clear": True, "breaks_removed": removed,
+                "layout": "automatic -- Verovio breaks where it judges best"}
+
+    known = [n for n in numbers if n != first]
+    for bar in (break_at or []) + (remove_at or []):
+        if bar not in known:
+            raise ValueError(
+                f"bar {bar} cannot start a line: this score has bars "
+                f"{numbers[0]}-{numbers[-1]}" +
+                (f", and bar {first} already starts the first one"
+                 if bar == first else ""))
+
+    per_line = measures_per_line
+    if per_line is None:
+        per_line = _inferred_per_line(existing, numbers)
+    if per_line is None:
+        raise ValueError(_PAGINATION_NEEDS_A_LENGTH)
+    if per_line < 1:
+        raise ValueError("a line holds at least one bar")
+
+    if measures_per_line is not None:
+        starts = {first}
+    else:
+        starts = {first} | set(existing)
+    starts |= set(break_at or [])
+    starts -= set(remove_at or [])
+    starts.add(first)
+    starts = _fill_runs(starts, numbers, per_line)
+
+    written, _ = _write_system_breaks(score, starts - {first})
+    heads = sorted(starts)
+    lengths = [((heads[i + 1] if i + 1 < len(heads) else numbers[-1] + 1) - head)
+               for i, head in enumerate(heads)]
+    return {
+        "measures_per_line": per_line,
+        "systems": len(heads),
+        "line_starts": heads,
+        "bars_per_line": lengths,
+        "breaks_written": written,
+        "forced": sorted(set(break_at or [])),
+        "removed": sorted(set(remove_at or [])),
+        # Every renderer has to ASK for encoded breaks or none of this is drawn;
+        # said in the report so a caller that sees no change knows where to look.
+        "note": "drawn only where the renderer asks Verovio for encoded breaks",
+    }
+
+
+def _inferred_per_line(existing: list[int], numbers: list[int]) -> int | None:
+    """The score's own line length, read off the pagination it already has."""
+    if len(existing) < 1:
+        return None
+    heads = sorted({numbers[0]} | set(existing))
+    gaps = [heads[i + 1] - heads[i] for i in range(len(heads) - 1)]
+    if not gaps:
+        return None
+    return max(set(gaps), key=gaps.count)
+
+
+def _write_system_breaks(score, starts: set[int]) -> tuple[int, int]:
+    """Put a break at the head of each named bar on EVERY staff, and nowhere else.
+
+    On every staff because a system break is a property of the SYSTEM: written
+    to the top staff alone, music21's grand-staff merge drops it -- the same
+    trap `set_structure` records for voltas.
+    """
+    written = removed = 0
+    for part in score.parts:
+        for m in part.getElementsByClass(stream.Measure):
+            for old in list(m.getElementsByClass(m21layout.SystemLayout)):
+                if old.isNew:
+                    m.remove(old)
+                    removed += 1
+            if m.number in starts:
+                m.insert(0.0, m21layout.SystemLayout(isNew=True))
+                written += 1
+    return written, removed

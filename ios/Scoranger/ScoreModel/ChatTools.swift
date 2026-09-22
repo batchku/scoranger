@@ -32,6 +32,12 @@ enum ChatTools {
     private static func bool(_ d: String) -> [String: Any] { ["type": "boolean", "description": d] }
     /// A fractional number — a point size or a nudge, which integers cannot say.
     private static func num(_ d: String) -> [String: Any] { ["type": "number", "description": d] }
+    /// A list of bar numbers. Pagination takes several at once because a
+    /// reader says "start a new line at 17 and 33", and one call that lays the
+    /// whole score out beats two that each re-flow it.
+    private static func intArr(_ d: String) -> [String: Any] {
+        ["type": "array", "items": ["type": "integer"], "description": d]
+    }
     private static func strArr(_ d: String) -> [String: Any] {
         ["type": "array", "items": ["type": "string"], "description": d]
     }
@@ -192,6 +198,14 @@ enum ChatTools {
                                  "measures": str("optional 'A-B' inclusive range")],
                                 required: ["from_ref", "part"]),
              op: "pull-part", rename: ["from_ref": "from", "as_name": "as"]),
+        Spec(name: "paginate",
+             description: "Decide where the LINES break on the page. measures_per_line lays the whole score out at that many bars a line (\"four bars to a line\"). break_at is a list of bar numbers that must START a line (\"start a new line at bar 17\"). remove_at takes a line break off again. clear=true removes every break and hands the layout back to the engraver, which is what \"repaginate this automatically\" or \"put it back how it was\" means. It always writes a COMPLETE layout: asking for a single break alone would crush every bar after it onto one line, so the stretches between forced breaks are filled at the score's own line length. If the score has no line length yet and none is given, it says so -- send measures_per_line, and 4 suits most tunes. This changes only where the music is DRAWN; it moves no note and changes no bar number.",
+             parameters: params(["measures_per_line": int("how many bars to a line"),
+                                 "break_at": intArr("bar numbers that must start a line"),
+                                 "remove_at": intArr("bar numbers whose line break to remove"),
+                                 "clear": bool("remove every break and lay it out automatically")],
+                                required: []),
+             op: "paginate", rename: [:]),
         Spec(name: "set_structure",
              description: "Add, remove or move a repeat sign, a volta (1st/2nd ending) or a navigation mark. Kinds: repeat-start, repeat-end, repeat-both, volta, segno, coda, fine, da-capo, da-capo-al-fine, da-capo-al-coda, dal-segno, dal-segno-al-fine, dal-segno-al-coda. A volta needs measure, to_measure and number; repeat-end can take times. remove=true takes one off; move_to shifts it.",
              parameters: params(["kind": str("which mark"),

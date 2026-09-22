@@ -64,6 +64,16 @@ def page_options() -> dict:
     """
     return {"adjustPageHeight": False,
             "justifyVertically": True,
+            # `encoded`, so the line breaks `ops.paginate` writes into the
+            # notation are the lines the reader gets. Measured, not assumed:
+            # `auto` IGNORES them outright, and `smart` honours some and
+            # re-flows the rest. Safe to ask for unconditionally -- on a score
+            # carrying no breaks Verovio warns and lays it out itself, which is
+            # what every untouched score has always done.
+            # Mirrored in EngravingOptions.breaks(continuous:); the two must
+            # agree or an exported PDF is not the page the reader was looking
+            # at. engine/scripts/check_pagination.py holds them together.
+            "breaks": "encoded",
             "pageWidth": PAGE_WIDTH_TENTHS_MM,
             "pageHeight": PAGE_HEIGHT_TENTHS_MM}
 

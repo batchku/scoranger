@@ -41,12 +41,16 @@ final class EngravingOptionsTests: XCTestCase {
         }
     }
 
-    /// Paged breaks pages; continuous refuses to.
+    /// Paged breaks pages where the NOTATION says; continuous refuses to break.
+    ///
+    /// Paged was `auto` until 0.12.2. `auto` ignores encoded breaks outright,
+    /// so every line `ops.paginate` writes would have been invisible on the
+    /// iPad -- the op would have reported success over an unchanged page.
     func testBreaksDifferByLayout() {
-        XCTAssertEqual(EngravingOptions.breaks(continuous: false), "auto")
+        XCTAssertEqual(EngravingOptions.breaks(continuous: false), "encoded")
         XCTAssertEqual(EngravingOptions.breaks(continuous: true), "none")
         XCTAssertEqual(value("breaks", in: EngravingOptions.json(lyricSize: 4.5,
-                                                                continuous: false)), "auto")
+                                                                continuous: false)), "encoded")
         XCTAssertEqual(value("breaks", in: EngravingOptions.json(lyricSize: 4.5,
                                                                 continuous: true)), "none")
     }

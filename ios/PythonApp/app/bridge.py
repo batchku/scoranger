@@ -351,6 +351,19 @@ def _dispatch(op, a):
                                         name=a.get("name"))
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "paginate":
+        score = _load(a["score"], None)
+        details = ops.paginate(score,
+                               measures_per_line=a.get("measures_per_line"),
+                               break_at=a.get("break_at"),
+                               remove_at=a.get("remove_at"),
+                               clear=bool(a.get("clear")))
+        entry = workspace.add_version(a["score"], score, "paginate",
+                                      {"measures_per_line": a.get("measures_per_line"),
+                                       "break_at": a.get("break_at"),
+                                       "remove_at": a.get("remove_at"),
+                                       "clear": bool(a.get("clear"))})
+        return {"version": entry["id"], "details": details}
     if op == "set-structure":
         score = _load(a["score"], None)
         details = ops.set_structure(score, a["kind"], measure=a.get("measure"),

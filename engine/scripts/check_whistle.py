@@ -319,6 +319,26 @@ note("and the bar after it is still 1",
 note("no report carries a zero for a bar",
      not any(u.get("bar") in (0, "0") for u in pickup_report["unplayable"]))
 
+# ...and the other half, which the first version of this got WRONG and shipped.
+# music21's ABC reader numbers EVERY tune from 0, so a bar 0 is usually just
+# the first bar. Only `paddingLeft` says an anacrusis: a full bar 0 is a bar,
+# and calling it "the pickup" mislabels every jig in the library.
+whole_first = stream.Score()
+whole_part = stream.Part()
+bar_zero = stream.Measure(number=0)          # numbered 0, but a WHOLE bar
+bar_zero.append(meter.TimeSignature("4/4"))
+bar_zero.append(m21note.Note("A3", quarterLength=4))
+whole_part.append(bar_zero)
+bar_one = stream.Measure(number=1)
+bar_one.append(m21note.Note("E5", quarterLength=4))
+whole_part.append(bar_one)
+whole_first.append(whole_part)
+whole_first_report = ops.whistle_fingerings(whole_first, whole_part, "D")
+whole_bars = [u["bar"] for u in whole_first_report["unplayable"]]
+
+note(f"a FULL bar numbered 0 is not a pickup and is not called one: {whole_bars}",
+     whole_bars == ["0"])
+
 if FAILURES:
     print(f"FAIL: {len(FAILURES)} fingering(s) wrong")
     for line in FAILURES:

@@ -61,10 +61,20 @@ enum EngravingOptions {
     /// How Verovio breaks systems, per layout.
     ///
     /// `none` puts every system on one line and is what makes the continuous
-    /// surface a strip. `auto` is Verovio's own line and page breaking, and is
-    /// what `render.py` exports with -- so a page on the iPad and a page in an
-    /// exported PDF are broken the same way.
-    static func breaks(continuous: Bool) -> String { continuous ? "none" : "auto" }
+    /// surface a strip. `encoded` breaks where the NOTATION says, which is what
+    /// `ops.paginate` writes when a reader asks for four bars to a line or for
+    /// a new line at bar 17 -- and it is what `render.py` exports with, so a
+    /// page on the iPad and a page in an exported PDF are broken the same way.
+    ///
+    /// Paged was `auto` until 0.12.2, and `auto` IGNORES encoded breaks
+    /// outright, so every pagination the engine wrote would have been invisible
+    /// here. Measured, all three modes, in check_pagination.py.
+    ///
+    /// Safe to ask for unconditionally: on a score carrying no breaks Verovio
+    /// warns and lays the music out itself, which is exactly what `auto` did.
+    /// The strip stays `none` -- it is one system by definition, and a score
+    /// telling it where to break lines would end the strip.
+    static func breaks(continuous: Bool) -> String { continuous ? "none" : "encoded" }
 
     /// A page's top and bottom margins are paper: they keep a printed page
     /// readable. The continuous strip is not paper -- it is trimmed to its one

@@ -498,6 +498,26 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
                   {"from": from_ref, "part": part, "replace": replace, "measures": measures}, fn)
 
 
+def paginate(ctx: RunContext[str], measures_per_line: int | None = None,
+             break_at: list[int] | None = None,
+             remove_at: list[int] | None = None, clear: bool = False) -> dict:
+    """Decide where the lines break. measures_per_line lays the whole score out
+    at that many bars a line ("four bars to a line"). break_at is a list of bar
+    numbers that must START a line ("start a new line at bar 17"). remove_at
+    takes a line break off. clear=True removes every break and hands the layout
+    back to the engraver, which is what "repaginate this automatically" means.
+    Always writes a COMPLETE layout: asking for one break alone would crush
+    every bar after it onto a single line, so the rest is filled at the score's
+    own line length. If the score has none yet and none is given, it says so --
+    pass measures_per_line (4 suits most tunes)."""
+    def fn(s):
+        return ops.paginate(s, measures_per_line=measures_per_line,
+                            break_at=break_at, remove_at=remove_at, clear=clear)
+    return _apply(ctx.deps, "paginate",
+                  {"measures_per_line": measures_per_line, "break_at": break_at,
+                   "remove_at": remove_at, "clear": clear}, fn)
+
+
 def set_structure(ctx: RunContext[str], kind: str, measure: int | None = None,
                   to_measure: int | None = None, number: int | None = None,
                   times: int | None = None, remove: bool = False,
@@ -768,7 +788,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
          guitar_tablature,
-         set_structure,
+         set_structure, paginate,
          add_element, adjust_element, move_element, duplicate_element,
          remove_element,
          assign_to_piece]

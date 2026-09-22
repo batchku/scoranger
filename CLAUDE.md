@@ -414,6 +414,31 @@ scor chord-diagrams <score> --part X [--tuning EADGBE] [--clear]
   # Transposing the music CLEARS the diagrams (six frets are one chord, and a C
   # grid over a D is worse than nothing); run the op again after.
   # Size and position are adjust-element's business, with --kind diagram.
+scor paginate <score> [--measures-per-line N] [--break-at "17,33"]
+              [--remove-at "17"] [--clear]
+  # WHERE THE LINES BREAK, written into the notation as MusicXML
+  # <print new-system="yes"/> so it travels with the score. Changes only where
+  # the music is DRAWN -- no note moves and no bar is renumbered.
+  #   --measures-per-line 4   lay the whole score out four bars to a line
+  #   --break-at 17           bar 17 must START a line
+  #   --remove-at 17          take that break off again
+  #   --clear                 remove every break; the engraver lays it out
+  # IT ALWAYS WRITES A COMPLETE LAYOUT, and that is forced by Verovio rather
+  # than chosen. `breaks=encoded` breaks ONLY where the notation says and
+  # NOWHERE else, so a single break on a sixty-bar piece means one short line
+  # and then fifty-odd bars crushed onto one system -- which Verovio reports as
+  # "Justification is highly compressed" and a reader sees as a garbled page.
+  # So the stretches between forced breaks are filled at the score's own line
+  # length, read off the pagination already in the notation. A score with none
+  # and no --measures-per-line is REFUSED by name rather than guessed at: a jig
+  # wants four bars a line and a piano reduction does not.
+  # BOTH RENDERERS MUST ASK FOR IT. `render.page_options()` and
+  # `EngravingOptions.breaks(continuous:)` each carry their own copy and both
+  # say `encoded`; they were `auto` until 0.12.2, and auto IGNORES encoded
+  # breaks, so every line this op wrote would have been invisible while the op
+  # reported success. The continuous strip stays `none` -- it is one system by
+  # definition. engine/scripts/check_pagination.py measures all three modes and
+  # holds the two renderers together.
 scor set-structure <score> --kind KIND --measure N [--to-measure M] [--number N]
                    [--times N] [--remove] [--move-to N]
   # repeats, voltas and navigation marks. KIND is repeat-start / repeat-end /

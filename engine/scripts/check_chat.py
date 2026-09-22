@@ -161,6 +161,7 @@ JIG_STEPS: list[tuple[str, dict]] = [
     ("remove_element", {"part": "#0", "kind": "articulation", "measure": 5,
                         "ordinal": 0}),
     ("set_structure", {"kind": "repeat-end", "measure": 4}),
+    ("paginate", {"measures_per_line": 4}),
     ("set_rehearsal", {"measure": 3, "mark": "A"}),
     ("transpose", {"interval": "M2"}),
     ("transpose_diatonic", {"degrees": "1"}),

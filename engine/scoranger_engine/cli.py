@@ -496,6 +496,19 @@ def cmd_rename_book(a):
     _emit(workspace.rename_book(a.book, a.name))
 
 
+def cmd_paginate(a):
+    score = _load(a.score, None)
+    bars = lambda text: [int(x) for x in text.split(",") if x.strip()] if text else None
+    details = ops.paginate(score,
+                           measures_per_line=a.measures_per_line,
+                           break_at=bars(a.break_at),
+                           remove_at=bars(a.remove_at),
+                           clear=a.clear)
+    _mutate(a.score, score, "paginate",
+            {"measures_per_line": a.measures_per_line, "break_at": a.break_at,
+             "remove_at": a.remove_at, "clear": a.clear}, details)
+
+
 def cmd_set_structure(a):
     score = _load(a.score, None)
     details = ops.set_structure(score, a.kind, measure=a.measure,
@@ -961,6 +974,20 @@ def main() -> None:
     s.add_argument("--into", help="which of them survives (default: the first)")
     s.add_argument("--name", help="rename the survivor while combining")
     s.set_defaults(fn=cmd_piece_combine)
+
+    s = sub.add_parser("paginate",
+                       help="Where the lines break: bars per line, a forced "
+                            "break, or back to automatic")
+    s.add_argument("score")
+    s.add_argument("--measures-per-line", type=int, dest="measures_per_line",
+                   help="lay the whole score out at this many bars a line")
+    s.add_argument("--break-at", dest="break_at",
+                   help="bar numbers that must START a line, comma separated")
+    s.add_argument("--remove-at", dest="remove_at",
+                   help="bar numbers whose line break to take off")
+    s.add_argument("--clear", action="store_true",
+                   help="remove every break and let the engraver lay it out")
+    s.set_defaults(fn=cmd_paginate)
 
     s = sub.add_parser("set-structure",
                        help="Repeats, voltas and navigation marks (add/remove/move)")
