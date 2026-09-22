@@ -230,10 +230,57 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.12.1 WHAT THE APP SAYS ABOUT WHAT IT DID (2026-09-22). Scope
+        #          written before the gate. THE FIRST BUILD OF THE 0.12 LINE:
+        #          0.12.0 below was scoped and written and never archived, so
+        #          its work ships here and everything that says "fixed in
+        #          0.12.0" is in this binary. Three fixes, no new feature, so
+        #          the patch bumps -- CLAUDE.md's rule.
+        #
+        #          INTENDED FOR INTERNAL TESTFLIGHT, and promotable to
+        #          external if it holds up. Internal testing reaches no App
+        #          Review, so nothing here turns on the submission blockers,
+        #          which are unchanged and are not code: the privacy policy is
+        #          still not hosted, the support page still needs a real
+        #          address, the log retention number is still unset, the App
+        #          Privacy questionnaire is still empty, the OMR service is
+        #          still undeployed, and counsel has still not answered
+        #          design/CHILDRENS_PRIVACY_BRIEF.md. An EXTERNAL promotion
+        #          crosses beta App Review and a PUBLIC submission needs all
+        #          of them.
+        #
+        #          All three came off one 33-second screen recording of Star
+        #          of the County Down on Ali's iPad. Every op in it did what
+        #          it was asked; the sentences around them did not:
+        #            1. A REPORT NAMED A BAR THE PAGE DOES NOT HAVE. "3 notes
+        #               (B3 in bars 0, 3, and 11)" -- music21 numbers a pickup
+        #               0 and seven reports passed that straight through.
+        #               ops.bar_label names the pickup, and reports carry
+        #               `bar` as a string rather than `measure` as an int, so
+        #               there is no 0 left in the JSON for a model to print.
+        #               Op ARGUMENTS keep their integers; an element address
+        #               may still say m0;
+        #            2. THE STEP SAID "HARMONISING" OVER A TRANSPOSITION, for
+        #               every diatonic call, because the case that prompted
+        #               the wording was a harmony a sixth below. The op writes
+        #               no staff, so the chip contradicted the sentence under
+        #               it. Now "Transposing ..., in key";
+        #            3. AND CLAUDE.MD PUT THE WHISTLE'S FINGERINGS UNDER THE
+        #               STAFF, where verses otherwise go, while
+        #               render.mei_with_fingerings_above lifts them above it.
+        #          Two things the same recording seemed to show and does not,
+        #          in BACKLOG so they are not chased again: the
+        #          octave-transposed notes DO carry ledger lines, and the
+        #          fingering columns do not crowd the staff above them.
+        #
+        #          NOTHING ELSE CHANGED. No notation, engraving, playback,
+        #          sync, sharing or set-list behaviour differs from 0.12.0 as
+        #          it stood.
         #   0.12.0 THE APP STORE SUBMISSION BUILD: AN ACCOUNT A PERSON CAN
         #          DELETE, AND FOUR THINGS THAT LEAK FIXED (2026-09-21). Scope
         #          written before the work. Cut from the shipped 0.11.0
-        #          (build 200).
+        #          (build 200). NEVER ARCHIVED -- superseded by 0.12.1 above
+        #          before its gate ran; its work ships in that build.
         #
         #          THIS IS THE BUILD INTENDED FOR PUBLIC APP STORE
         #          SUBMISSION, not another TestFlight round. Everything in it
@@ -806,7 +853,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 200
-        MARKETING_VERSION: 0.12.0
+        MARKETING_VERSION: 0.12.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
