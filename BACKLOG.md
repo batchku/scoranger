@@ -37,6 +37,37 @@ and on some older devices, so the gateway needs a policy for those (refuse, or
 a rate-limited unattested lane); and whether a reader's OWN OpenRouter key
 bypasses the gateway entirely, as it bypasses the baked one today.
 
+## Books: import-as, auto-split, contents -- what 0.14.0 does NOT do
+
+Measured on the Comhaltas San Diego tunebook (134 pages, 124 tunes, jsPDF):
+bookmarks 124/124; text-layer headings alone 124/124; read as a SCAN (Vision
+on the Mac, text layer and bookmarks ignored) 124/124 starts, 121/124 exact
+titles, 0 false starts, all 8 contents/index pages recognised. One book. A
+real fake book (handwritten Real Book titles, two tunes a page) has not been
+measured, and is the next thing to measure before trusting the scan rule.
+
+- **Two tunes on one page stay one entry.** The split is by page. Fiddle and
+  session books do this constantly. Overlapping entries ARE allowed, so a
+  reader can give one page to two tunes by hand; the detector never proposes it.
+- **Words in the top quarter of a scanned page read as a title.** The scan rule
+  judges by position (topmost real words in the band), so a turned page whose
+  first line is lyrics or a caption starts a false tune. `check_book_split.py`
+  records this as a known limit; the review list's "Join previous" is the fix
+  today. A better rule would compare a candidate to the first page of the
+  current tune (same left edge, same size as its title).
+- **The printed contents and index are recognised, not READ.** They could map
+  titles to printed page numbers (the tunebook's printed 1 is PDF page 6) and
+  cross-check the headings; nothing uses them yet.
+- **No Pencil markup on a book entry.** Ink is keyed to an arrangement's
+  version; a book entry is the book's own pages. Take the tune out to mark it.
+- **A book's contents cannot go into a set list.**
+- **The "New arrangement in an existing piece" choice is not UI-tested.** It
+  calls the existing `receiveFile(at:intoPiece:)`; BookShareIn covers the other
+  two choices and Cancel.
+- **`scor book-split` joins pieces by NAME**, the rule every import follows. A
+  tunebook's "Cooley's" lands in a library's "Cooley's" -- intended -- but also
+  in an unrelated piece that happens to share the name.
+
 ## Staff spacing and the whistle band -- what 0.13.0 does NOT do
 
 `staff-spacing` and the packed fingering band shipped in 0.13.0. Left open,

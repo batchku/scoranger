@@ -230,6 +230,61 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.14.0 A BOOK COMES IN AS A BOOK, AND COMES APART INTO ITS TUNES
+        #          (2026-09-22). Scope written before the work. One feature
+        #          and one fix it depends on, so the minor bumps once.
+        #
+        #          In this build:
+        #            1. IMPORT AS... Anything shared into the app (share sheet,
+        #               Open in, AirDrop) first asks what it is: a NEW PIECE
+        #               (today's behaviour -- a piece named after it, matched
+        #               by name before one is created), a NEW ARRANGEMENT IN AN
+        #               EXISTING PIECE (picked from the library), or a NEW BOOK
+        #               (PDFs only). Until now a shared PDF could only become a
+        #               scan arrangement, so a book could not be shared in at
+        #               all. A .scorbundle keeps its own offer screen;
+        #            2. AUTO-SPLIT. `book-detect` proposes where each tune
+        #               starts and what it is called, from the strongest
+        #               evidence the book has: its bookmarks, then the heading
+        #               on its text layer, then -- for a scan -- lines the app
+        #               reads with Apple Vision on the device. A page with no
+        #               heading continues the tune before it; a contents or
+        #               index page belongs to no tune. The book opens on the
+        #               proposal after import and NOTHING is written until the
+        #               reader confirms it, one of two ways:
+        #                 a. KEEP IT A BOOK. The list is saved as the book's
+        #                    CONTENTS (`book-contents`), and the book is read
+        #                    the way a set list is: its tunes listed, one
+        #                    opened, the next and previous a tap away -- each
+        #                    showing its own pages rather than a scroll
+        #                    through the whole PDF. No arrangement and no
+        #                    piece is made; the book stays one book. Entries
+        #                    are renamed, re-ranged, added and removed on the
+        #                    same list;
+        #                 b. TAKE THE TUNES OUT. `book-split` makes each an
+        #                    arrangement under a piece named after its title,
+        #                    joining a piece of that name that already exists;
+        #            3. and A TUNE TAKEN OUT OF A BOOK CARRIED THE WHOLE BOOK.
+        #               extract_from_book copied the page's resource
+        #               dictionary as it stood, and a jsPDF book hangs all 689
+        #               of its images off every page: one page of the Comhaltas
+        #               San Diego tunebook came out 28 MB -- and its "<<" and
+        #               ">>" links, copied with the page, dragged every other
+        #               page in behind them. Images the page never draws and
+        #               links to pages it no longer has are dropped: 176 KB,
+        #               same content stream, same image bytes.
+        #          NOT in this build, and said before it starts:
+        #            - TWO TUNES ON ONE PAGE stay one arrangement: the split is
+        #              by page. Fiddle books do this constantly; BACKLOG;
+        #            - the book's PRINTED contents and index are recognised
+        #              as not-music, not READ as a map of the book; BACKLOG;
+        #            - no OMR is run on the tunes the split makes. Each is a
+        #              scan, and "make this editable" is the existing path;
+        #            - NO PENCIL MARKUP on a tune read from a book's contents:
+        #              ink is keyed to an arrangement's version, and a book
+        #              entry is not one. Take the tune out to mark it up;
+        #            - a book's contents do not go into a set list;
+        #            - NO CHANGE TO NOTATION OPS, PLAYBACK, SYNC OR SHARING.
         #   0.13.0 THE PAGE, LAID OUT IN CHAT: WHERE THE LINES BREAK AND HOW MUCH
         #          ROOM THEY GET (2026-09-22). Scope written before the gate.
         #          Cut from 0.12.1 (build 201). Two features, so the minor
@@ -911,7 +966,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 201
-        MARKETING_VERSION: 0.13.0
+        MARKETING_VERSION: 0.14.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

@@ -66,9 +66,13 @@ So:
   every reference intact, a rename changes nothing but the slug, and two
   offline devices allocate versions that do not collide), `check_sync.py`
   (a signed-out device pays nothing for sync, and a delete outlives the row it
-  deleted), and `check_signed_out.py` (no login gates the app: the default
+  deleted), `check_signed_out.py` (no login gates the app: the default
   repository journals nothing, the library's own id costs nothing, and the
-  engine the app ships imports no network client -- design/FIREBASE.md §0.2).
+  engine the app ships imports no network client -- design/FIREBASE.md §0.2),
+  and `check_book_split.py` (a book's tunes are found from bookmarks, page
+  titles or Vision's lines by one rule, its contents and index belong to no
+  tune, and a page taken out of it carries only the images it draws -- one
+  tune out of a jsPDF tunebook was 28 MB).
 
 ## Releases and version numbers
 
@@ -568,6 +572,33 @@ in the build that introduces the new one; never drop the feature.
 Part names match case-insensitively, exact first then substring; `#N` targets a
 part by index (essential when OMR leaves several parts with the same name). On a
 bad name the error lists the available parts — read it and retry.
+
+## Books (a collection tunes are read or taken out of)
+
+A BOOK is one PDF holding many tunes -- a fake book, a session tunebook. It
+is not a piece and not an arrangement.
+
+```
+scor import-book <file.pdf> [--name NAME]
+scor book-detect <book> [--ocr lines.json]   # PROPOSE the tunes; writes nothing
+scor book-contents <book> --plan plan.json   # keep them: the book stays ONE book
+scor book-contents <book> --clear
+scor book-split <book> --plan plan.json      # take them out: an arrangement each,
+                                             # under a piece of its name (joined by name)
+scor book-extract <book> --from-page N --to-page M --name X [--piece P]  # one, by hand
+```
+
+`book-detect` prints `{entries: [{id, title, from, to, evidence}], matter,
+unassigned, needs_ocr}`, and `--plan` takes that output as it is, edited or
+not. Evidence, strongest first: the PDF's BOOKMARKS; the largest line at the
+top of the page on its TEXT LAYER, running headers and page numbers excluded;
+for a scan, Vision lines the app supplies for the pages in `needs_ocr`, judged
+by POSITION (topmost real words), because Vision's heights are ink boxes. A
+page with no title continues the tune before it; a contents or index page
+belongs to none. **Relay the proposal before committing it** -- how many tunes,
+from what evidence, which pages belong to none -- and say which of the two
+commits the reader asked for: contents keep the book whole, split makes pieces.
+`booksplit.py` has the rules; BACKLOG has what they get wrong.
 
 ## Sources (other found editions of a piece)
 
