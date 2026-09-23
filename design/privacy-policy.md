@@ -10,6 +10,12 @@ training off) were confirmed that day.*
 
 ---
 
+*[Publish with 0.15.0, not before. Amended 2026-09-23 for chat bringing its
+own key: every build through 0.14.0 still ships a built-in chat key, and the
+live page says so correctly. When 0.15.0 is on TestFlight, set the date below,
+delete this note, and run firebase/build_hosting.sh -- which refuses while it
+is here.]*
+
 **Last updated: 22 September 2026**
 
 Scoranger is made by IRL Labs LLC. This page says what Scoranger does with your
@@ -39,8 +45,12 @@ advertising, no tracking, and nothing is ever sold or shared with a data broker.
 
 ## The chat, and the part people are surprised by
 
-Scoranger's chat is a language model, and **it is not ours**. When you send a
-chat message, your iPad sends it straight to a company called OpenRouter, which
+Scoranger's chat is a language model, and **it is not ours**. It runs on **your
+own OpenRouter account**: you make a key at openrouter.ai/keys and paste it in
+Settings, and chat is billed to that account. Scoranger ships no key of its
+own. The key is kept in your iPad's Keychain and sent only to OpenRouter.
+
+When you send a chat message, your iPad sends it straight to OpenRouter, which
 passes it to whichever model you have chosen in Settings. The default is
 Google's Gemini. The other choices are models from Anthropic, Moonshot AI,
 Alibaba and DeepSeek. OpenRouter decides which of that company's servers
@@ -64,16 +74,18 @@ actually handles the request.
 image of a page, no audio, and none of your pencil marks. The model is told
 about your score; it is never given it.
 
-**Nothing identifies you.** No name, no email address, no account number, no
-device identifier is sent with a chat message. OpenRouter sees a request from
-your internet connection, on an account belonging to us, and that is all.
+**Scoranger adds nothing that identifies you.** No name, no email address and
+no device identifier is sent with a chat message. The request is made with your
+own key, so OpenRouter knows it came from your account, as it would for
+anything else you do there. **We never see your chat messages**: they go from
+your iPad to OpenRouter, and nowhere near a server of ours.
 
-On the OpenRouter account Scoranger uses, **prompt logging is turned off and
-so is the setting that allows model companies to train on what is sent**. So
-OpenRouter does not store the text of your messages, and does not route them
-to a company that trains on them. The model company that answers may still
-keep a request for a time under its own policy; we do not control that, and
-their privacy policies govern it, not this one.
+Because the account is yours, **so are its privacy settings**: whether OpenRouter
+keeps the text of your prompts, and whether it may send them to model companies
+that train on them, are set at openrouter.ai/settings/privacy. We suggest
+turning both off. The model company that answers may keep a request for a time
+under its own policy; we do not control that, and their privacy policies
+govern it, not this one.
 
 **Dictation.** The microphone button in the chat turns what you say into text
 on your iPad, using Apple's on-device speech recognition. **The audio never
@@ -166,7 +178,7 @@ share. Nothing is readable by anyone outside the set list it belongs to.
 | Scan log lines (an account identifier, never an email address) | 30 days, then deleted. |
 | Your account, set lists, shared files and marks | Until you delete your account or leave the set list. |
 | An invitation you sent | Seven days, then it expires. A used one is kept as a record of who joined. |
-| Chat messages | We keep none. What OpenRouter and the model company keep is theirs to say. |
+| Chat messages | We never receive them. What OpenRouter keeps is set by your own account's settings; what the model company keeps is theirs to say. |
 
 ## Deleting your account
 

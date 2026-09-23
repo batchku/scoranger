@@ -19,7 +19,18 @@ SERIAL phase, the starvation diagnosis (gate.sh, ENGINE_SERIAL) was wrong. Look
 first at the first `BookPageView` raster for the book, which happens while the
 review is building, then at these copies.
 
-## The baked keys -- next build, before any public submission
+## The baked keys -- the CHAT half is resolved (0.15.0); the OMR half is open
+
+**Chat brings its own key from 0.15.0** (Ali, 2026-09-23), so the OpenRouter
+exposure below is gone rather than guarded: no key ships, the deploy refuses an
+archive that carries one, and a device forgets the retired key at launch. The
+App Attest gateway is no longer needed for chat. Still open: **revoke the
+retired OpenRouter key** at openrouter.ai (Ali's), which kills the copies in
+builds 201-203 and in any Keychain the old self-heal wrote to; and the OMR
+key, still baked, capped at one server instance, whose gateway is the only
+remaining reason for the plan below.
+
+## (history) The baked keys -- as planned 2026-09-22
 
 **What is exposed.** The build step bakes the repo `.env`'s OpenRouter key into
 the app bundle as `openrouter-default-key.txt` (`project.yml`, "Bake OpenRouter

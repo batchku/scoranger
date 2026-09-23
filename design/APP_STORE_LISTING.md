@@ -64,8 +64,12 @@ The engine runs on your iPad. Importing, arranging, engraving, playback, pencil
 marks and export all work with no network at all. Two things need one: the chat,
 and converting a scan into notation.
 
-No account is required, ever. Your library is yours and stays on your iPad. Sign
-in only if you want to share a set list with the people you play with.
+The chat runs on your own OpenRouter account: make a key at openrouter.ai and
+paste it in Settings. You choose the model, and you pay OpenRouter directly for
+what you use.
+
+No Scoranger account is required, ever. Your library is yours and stays on your
+iPad. Sign in only if you want to share a set list with the people you play with.
 
 FOR WHOM
 
@@ -107,6 +111,20 @@ Only two sizes are gated; Apple derives the rest.
 
 Shoot from `design/shots-0.12.0/`: the library, a score being read, the chat
 mid-arrangement, the mixer, and a marked-up page.
+
+## App Review Information
+
+**Notes for the reviewer -- REQUIRED from 0.15.0.** Chat needs the reader's own
+OpenRouter key, and a reviewer who cannot use the chat cannot test the app's
+main feature. Give App Review a working key in the Notes field, with a spend
+limit set on it at openrouter.ai, and say where it goes:
+
+> Scoranger's chat uses the reader's own OpenRouter account. To test it, open
+> Settings › Engine and paste this key into "OpenRouter API key": [key]. It has
+> a spend limit. Everything else in the app works without it.
+
+Revoke that key once the review is done. Sign-in is only needed for sharing a
+set list; Sign in with Apple works without a demo account.
 
 ## What's New
 
