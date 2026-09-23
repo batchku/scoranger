@@ -24,10 +24,10 @@ review is building, then at these copies.
 **Chat brings its own key from 0.15.0** (Ali, 2026-09-23), so the OpenRouter
 exposure below is gone rather than guarded: no key ships, the deploy refuses an
 archive that carries one, and a device forgets the retired key at launch. The
-App Attest gateway is no longer needed for chat. Still open: **revoke the
-retired OpenRouter key** at openrouter.ai (Ali's), which kills the copies in
-builds 201-203 and in any Keychain the old self-heal wrote to; and the OMR
-key, still baked, capped at one server instance, whose gateway is the only
+App Attest gateway is no longer needed for chat. The retired OpenRouter key
+was revoked at openrouter.ai by Ali on 2026-09-23, which kills the copies in
+builds 201-203 and in any Keychain the old self-heal wrote to. Still open: the
+OMR key, still baked, capped at one server instance, whose gateway is the only
 remaining reason for the plan below.
 
 ## (history) The baked keys -- as planned 2026-09-22
