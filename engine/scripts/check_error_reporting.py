@@ -56,6 +56,13 @@ INTERNAL = {
     "renderedLayout": "the layout the pages on the canvas were engraved for; "
                       "read by `layout` to decide what may be DRAWN "
                       "(ScoreLayout.displayed), never shown",
+    "engravingInFlight": "the engraving an engrave is being made for, read by "
+                         "`layout` to tell a handover in progress from one that "
+                         "failed (ScoreLayout.displayed). Published although no "
+                         "view shows it: when an engrave FAILS nothing else "
+                         "changes, and without this publish the canvas would "
+                         "never re-read `layout` -- the reader stays stranded on "
+                         "the continuous strip, which is the bug it fixes",
     "selection": "the lasso's result, read back through selectionPaths and the "
                  "ops that consume it",
     "selectionKey": "the engraving a selection was drawn on, compared inside "

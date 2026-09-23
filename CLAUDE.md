@@ -54,6 +54,10 @@ So:
   a warning only becomes a rejection at beta App Review, which internal
   testing never reaches),
   `check_playback.py` (the MIDI and the bar map describe the same performance),
+  `check_pagination.py` (a line break the op writes is a line the page draws --
+  both renderers ask Verovio for `encoded` breaks, which `auto` ignores),
+  `check_staff_spacing.py` (the whistle band is smaller and every hole is
+  exactly where it was; nothing but the whistle verses changes in the MEI),
   `check_bar_frames.py` (the rectangle the geometry reports for measure N
   IS the Nth bar -- Verovio nests a slur inside the measure it starts in, and a
   group's frame is the union of what it contains, so an unclipped bar can be
@@ -439,6 +443,40 @@ scor paginate <score> [--measures-per-line N] [--break-at "17,33"]
   # reported success. The continuous strip stays `none` -- it is one system by
   # definition. engine/scripts/check_pagination.py measures all three modes and
   # holds the two renderers together.
+scor staff-spacing <score> [--staff N] [--system N] [--fingering-rows N] [--reset]
+  # HOW MUCH ROOM the page gives: --staff and --system are the minimum space
+  # between staves and between systems in MEI units (0-48; defaults 12 and 4,
+  # Verovio's own), and --fingering-rows is the band a whistle column takes
+  # above its staff (4-6, default 4). Where the LINES break is `paginate`.
+  # STAFF AND SYSTEM ARE MINIMUMS: they open space up and cannot take back
+  # space the music claims -- a staff with a whistle column above it is as tall
+  # as the column. Relay that when a reader asks for "tighter" and sees nothing.
+  # Stored as <miscellaneous-field name="scoranger-spacing"> so it versions and
+  # travels. NOT MusicXML's own <staff-layout>/<system-layout>: music21 writes
+  # those correctly and Verovio ignores them at every value, measured. The
+  # renderers carry the field to Verovio as options -- render.spacing_options
+  # and EngravingOptions.json, which name both keys in EVERY option set because
+  # setOptions MERGES on a shared toolkit and one score's wide staves would
+  # otherwise be the next score's. Only values that differ from a default are
+  # written; --reset leaves no field at all.
+  # THE FINGERING BAND is the fix for Ali's "too much space above penny whistle
+  # tablatures, so scores that have it end up fitting very few lines on a page".
+  # Verovio reserves one lyric line per verse -- six for a column's holes -- and
+  # the draw pass then stacks the holes at 47.5% of that pitch, so the top half
+  # of the band was empty. `render._pack_column` hands Verovio only
+  # --fingering-rows verses, the whole pattern riding in the first verse's
+  # label ("wf|XXOOOO+"), and `_unpack_fingering_columns` puts the rows back
+  # before the draw pass, which is otherwise UNTOUCHED -- every hole, fill and
+  # octave mark lands at exactly the height above its staff it always had.
+  # FingeringDiagrams.packColumn/unpackColumns are the Swift twins.
+  # `lyricSize` would also shrink the band and is the wrong lever: it is
+  # document-wide, so it shrinks every chord name and compresses a guitar tab
+  # on the OTHER staff. FOUR is the floor, by measurement: at three the top
+  # hole reaches into the margin toward the system above, which check_render.py
+  # refuses. Proof: engine/scripts/check_staff_spacing.py (fewer pages, same
+  # holes, MEI byte-identical outside the whistle verses, both renderers' constants)
+  # and FingeringDiagramTests, which draws check_staff_spacing's golden page
+  # (Fixtures/fingering-packed-*) and must get render.py's 420 circles.
 scor set-structure <score> --kind KIND --measure N [--to-measure M] [--number N]
                    [--times N] [--remove] [--move-to N]
   # repeats, voltas and navigation marks. KIND is repeat-start / repeat-end /

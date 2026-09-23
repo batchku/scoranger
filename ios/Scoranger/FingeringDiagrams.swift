@@ -121,7 +121,14 @@ enum FingeringDiagrams {
     /// `place` on `<verse>` — so the move happens on an MEI round trip rather
     /// than in the notation. The same column rule as the SVG pass decides what
     /// counts, which is what carries fingerings written before the tag existed.
-    static func meiWithFingeringsAbove(_ mei: String) -> String? {
+    ///
+    /// `rows` is the score's own setting (`StaffSpacing`): how many lyric lines
+    /// Verovio reserves for a column's holes. Each column is packed down to
+    /// that many verses with the whole pattern in the first one's label -- see
+    /// `packColumn` -- and `unpackColumns` puts the rows back before anything
+    /// is drawn. Six is the layout every build before 0.13.0 drew.
+    static func meiWithFingeringsAbove(_ mei: String,
+                                       rows: Int = StaffSpacing.defaultRows) -> String? {
         guard mei.contains("<verse") else { return nil }
         // chord first: a fingered note inside a chord hangs its verses off the
         // chord, and matching the inner <note> separately would miss them
@@ -147,10 +154,24 @@ enum FingeringDiagrams {
                 .map { blockNS.substring(with: $0.range) }
             if verses.count >= columnThreshold, isFingeringColumn(verses) {
                 changed = true
-                out += verseRE.stringByReplacingMatches(
-                    in: block, range: NSRange(location: 0, length: blockNS.length),
-                    withTemplate: "$0").replacingOccurrences(
-                        of: "<verse ", with: "<verse place=\"above\" ")
+                // Only a verse without a placement gains one -- the same guard
+                // render.py applies -- so a placed verse is not given two.
+                let above = verses.map { verse -> String in
+                    let open = verse.components(separatedBy: ">").first ?? verse
+                    return open.contains("place=") ? verse
+                        : verse.replacingOccurrences(of: "<verse", with: "<verse place=\"above\"",
+                                                     options: [], range: verse.range(of: "<verse"))
+                }
+                let packed = packColumn(above, rows: rows) ?? above
+                // every verse of the note out, the column back in where the first was
+                var stripped = block
+                let first = (block as NSString).range(of: verses[0]).location
+                for verse in verses {
+                    if let r = stripped.range(of: verse) { stripped.removeSubrange(r) }
+                }
+                let head = (stripped as NSString).substring(to: first)
+                let tail = (stripped as NSString).substring(from: first)
+                out += head + packed.joined() + tail
             } else {
                 out += block
             }
@@ -158,6 +179,144 @@ enum FingeringDiagrams {
         }
         out += ns.substring(from: cursor)
         return changed ? out : nil
+    }
+
+    /// The label a PACKED column carries on its first verse: the tag, a bar,
+    /// and every row in order ("wf|XXOOOO+"). Its other verses carry the tag
+    /// and the bar alone. Mirrors render.PACKED_PREFIX.
+    static let packedPrefix = tag + "|"
+
+    /// The same column, reserving `rows` lyric lines for its holes.
+    ///
+    /// Verovio gives every verse a full lyric line, and that is the space a
+    /// whistle tune loses: six lines reserved for holes the draw pass packs
+    /// into half the height. Keeping only `rows` verses shrinks what Verovio
+    /// reserves; the pattern rides in the first verse's label so nothing is
+    /// lost. The octave "+" keeps a line of its own below the holes on the
+    /// notes that carry one, exactly as six-or-seven always has, which keeps
+    /// every column's LAST HOLE on one baseline across a system.
+    ///
+    /// nil when there is nothing to save. Mirrors render._pack_column.
+    static func packColumn(_ verses: [String], rows: Int) -> [String]? {
+        let texts = verses.map { verse -> String in
+            (value(of: "(?<=<syl[^<>]{0,200}>)[^<]*(?=</syl>)", in: verse)
+                ?? value(of: "(?<=<syl>)[^<]*(?=</syl>)", in: verse) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let holes = texts.filter { [covered, open, half].contains($0) }
+        let hasOctave = texts.last == octave
+        guard holes.count == texts.count - (hasOctave ? 1 : 0),
+              holes.count > rows else { return nil }
+        let keep = rows + (hasOctave ? 1 : 0)
+        let pattern = texts.joined()
+        return verses.prefix(keep).enumerated().map { index, verse in
+            var v = replacingFirst("\\bn=\"\\d+\"", in: verse, with: "n=\"\(index + 1)\"")
+            let label = "label=\"\(packedPrefix)\(index == 0 ? pattern : "")\""
+            if v.range(of: "\\blabel=\"[^\"]*\"", options: .regularExpression) != nil {
+                v = replacingFirst("\\blabel=\"[^\"]*\"", in: v, with: label)
+            } else if let r = v.range(of: "<verse") {
+                v.replaceSubrange(r, with: "<verse \(label)")
+            }
+            let text = (hasOctave && index == keep - 1) ? octave : holes[index]
+            return replacingFirst("(<syl\\b[^>]*>)[^<]*(</syl>)", in: v, with: "$1\(text)$2")
+        }
+    }
+
+    /// Put a packed column's rows back, so the draw pass sees today's column.
+    ///
+    /// Each packed column becomes one verse block per row again: the hole
+    /// letter, the plain tag, and the y that row would have had at Verovio's
+    /// own pitch, counted up from the LAST HOLE -- the line the draw pass
+    /// anchors on. Everything the placement below was tuned against in Ali's
+    /// photographs is then untouched; it re-places every row from the anchor
+    /// at its own tighter pitch, which is how the column fits the smaller band.
+    /// Mirrors render._unpack_fingering_columns.
+    static func unpackColumns(in svg: String) -> String {
+        guard svg.contains(packedPrefix),
+              let verseRE = try? NSRegularExpression(
+                pattern: "<g[^>]*class=\"verse\">.*?</g>\\s*</g>",
+                options: [.dotMatchesLineSeparators]),
+              let titleRE = try? NSRegularExpression(
+                pattern: "<title class=\"labelAttr\">" +
+                    NSRegularExpression.escapedPattern(for: packedPrefix) + "([^<]*)</title>")
+        else { return svg }
+        let ns = svg as NSString
+        let blocks = verseRE.matches(in: svg, range: NSRange(location: 0, length: ns.length))
+        func title(_ block: String) -> (whole: String, pattern: String)? {
+            let b = block as NSString
+            guard let m = titleRE.firstMatch(in: block, range: NSRange(location: 0, length: b.length))
+            else { return nil }
+            return (b.substring(with: m.range), b.substring(with: m.range(at: 1)))
+        }
+        var edits: [(range: NSRange, text: String)] = []
+        var i = 0
+        while i < blocks.count {
+            let headBlock = ns.substring(with: blocks[i].range)
+            guard let head = title(headBlock), !head.pattern.isEmpty else { i += 1; continue }
+            var column = [blocks[i]]
+            var j = i + 1
+            while j < blocks.count, let pad = title(ns.substring(with: blocks[j].range)),
+                  pad.pattern.isEmpty {
+                column.append(blocks[j]); j += 1
+            }
+            i = j
+            let ys = column.compactMap { number(of: "<text\\b[^>]*\\by=\"(-?[\\d.]+)\"",
+                                                in: ns.substring(with: $0.range)) }
+            guard ys.count == column.count, ys.count >= 2 else { continue }
+            let gaps = zip(ys, ys.dropFirst()).map { $1 - $0 }.filter { $0 > 0 }.sorted()
+            guard !gaps.isEmpty else { continue }
+            let pitch = gaps[gaps.count / 2]
+            let pattern = Array(head.pattern).map(String.init)
+            let hasOctave = pattern.last == octave
+            let holeCount = pattern.count - (hasOctave ? 1 : 0)
+            let anchor = ys[column.count - (hasOctave ? 2 : 1)]
+            var rows = ""
+            for (index, glyph) in pattern.enumerated() {
+                let y = glyph == octave ? anchor + pitch
+                    : anchor - CGFloat(holeCount - 1 - index) * pitch
+                var row = headBlock.replacingOccurrences(
+                    of: head.whole, with: "<title class=\"labelAttr\">\(tag)</title>")
+                row = replacingFirst("(<tspan font-size=\"[\\d.]+px\">)[^<]*(</tspan>)",
+                                     in: row, with: "$1\(glyph)$2")
+                row = replacingFirst("(<text\\b[^>]*\\by=\")-?[\\d.]+(\")",
+                                     in: row, with: "$1\(svgNumber(y))$2")
+                // ids stay unique: the rows are copies of one block
+                row = (try? NSRegularExpression(pattern: "\\bid=\"([^\"]+)\""))
+                    .map { $0.stringByReplacingMatches(
+                        in: row, range: NSRange(row.startIndex..., in: row),
+                        withTemplate: "id=\"$1-r\(index)\"") } ?? row
+                rows += row
+            }
+            edits.append((column[0].range, rows))
+            for block in column.dropFirst() { edits.append((block.range, "")) }
+        }
+        var out = svg as NSString
+        for edit in edits.sorted(by: { $0.range.location > $1.range.location }) {
+            out = out.replacingCharacters(in: edit.range, with: edit.text) as NSString
+        }
+        return out as String
+    }
+
+    /// A coordinate as SVG text, losslessly: whole numbers bare, the rest to
+    /// four places. Mirrors render._svg_number.
+    static func svgNumber(_ value: CGFloat) -> String {
+        if value == value.rounded() { return String(Int(value)) }
+        var text = String(format: "%.4f", Double(value))
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
+    /// The first match of `pattern` replaced by `template` ($1-style groups).
+    private static func replacingFirst(_ pattern: String, in text: String,
+                                       with template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern),
+              let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(m.range, in: text) else { return text }
+        let replacement = re.replacementString(for: m, in: text, offset: 0, template: template)
+        var out = text
+        out.replaceSubrange(range, with: replacement)
+        return out
     }
 
     /// Five or six single holes on one note, with the octave "+" allowed.
@@ -174,7 +333,10 @@ enum FingeringDiagrams {
     }
 
     /// Rewrite every fingering verse in a Verovio SVG page.
-    static func draw(in svg: String) -> String {
+    static func draw(in input: String) -> String {
+        // a packed column (see packColumn) back into one block per row FIRST,
+        // so everything below sees the column it was written for
+        let svg = unpackColumns(in: input)
         guard svg.contains("class=\"verse\"") else { return svg }
         guard let verseRE = try? NSRegularExpression(
                 pattern: "<g[^>]*class=\"verse\">.*?</g>\\s*</g>",

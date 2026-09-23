@@ -496,6 +496,15 @@ def cmd_rename_book(a):
     _emit(workspace.rename_book(a.book, a.name))
 
 
+def cmd_staff_spacing(a):
+    score = _load(a.score, None)
+    details = ops.staff_spacing(score, staff=a.staff, system=a.system,
+                                fingering_rows=a.fingering_rows, reset=a.reset)
+    _mutate(a.score, score, "staff-spacing",
+            {"staff": a.staff, "system": a.system,
+             "fingering_rows": a.fingering_rows, "reset": a.reset}, details)
+
+
 def cmd_paginate(a):
     score = _load(a.score, None)
     bars = lambda text: [int(x) for x in text.split(",") if x.strip()] if text else None
@@ -974,6 +983,19 @@ def main() -> None:
     s.add_argument("--into", help="which of them survives (default: the first)")
     s.add_argument("--name", help="rename the survivor while combining")
     s.set_defaults(fn=cmd_piece_combine)
+
+    s = sub.add_parser("staff-spacing",
+                       help="Space between staves, between systems, and the "
+                            "whistle fingering band")
+    s.add_argument("score")
+    s.add_argument("--staff", type=int,
+                   help="minimum space between staves, MEI units (0-48, default 12)")
+    s.add_argument("--system", type=int,
+                   help="minimum space between systems, MEI units (0-48, default 4)")
+    s.add_argument("--fingering-rows", type=int, dest="fingering_rows",
+                   help="rows reserved for a whistle column's holes (4-6, default 4)")
+    s.add_argument("--reset", action="store_true", help="back to the defaults")
+    s.set_defaults(fn=cmd_staff_spacing)
 
     s = sub.add_parser("paginate",
                        help="Where the lines break: bars per line, a forced "

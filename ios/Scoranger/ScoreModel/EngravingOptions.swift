@@ -116,10 +116,18 @@ enum EngravingOptions {
     static func justifyVertically(continuous: Bool) -> Bool { !continuous }
 
     /// The whole option set, with every layout-dependent option named.
-    static func json(lyricSize: Double, continuous: Bool) -> String {
+    ///
+    /// `spacing` is the score's own (`StaffSpacing.values(inMusicXML:)`), and
+    /// its two Verovio keys are named EVERY time, defaults included, for the
+    /// reason `breaks` is: the toolkit is shared and `setOptions` merges, so a
+    /// score that asked for wide staves would otherwise leave them wide for the
+    /// next score, which asked for nothing.
+    static func json(lyricSize: Double, continuous: Bool,
+                     spacing: StaffSpacing.Values = StaffSpacing.defaults) -> String {
         """
         {"scale": \(scale), "footer": "none",
          "breaks": "\(breaks(continuous: continuous))",
+         "spacingStaff": \(spacing.staff), "spacingSystem": \(spacing.system),
          "adjustPageHeight": \(adjustPageHeight(continuous: continuous)),
          "justifyVertically": \(justifyVertically(continuous: continuous)),
          "pageWidth": \(pageWidthTenthsMM), "pageHeight": \(pageHeightTenthsMM),
@@ -137,4 +145,9 @@ enum EngravingOptions {
     static let layoutDependentKeys = ["breaks", "adjustPageHeight",
                                       "justifyVertically",
                                       "pageMarginTop", "pageMarginBottom"]
+
+    /// The keys that depend on the SCORE rather than the layout, and must be
+    /// named in every option set for the same reason: a merge would otherwise
+    /// carry one score's spacing to the next.
+    static let scoreDependentKeys = ["spacingStaff", "spacingSystem"]
 }

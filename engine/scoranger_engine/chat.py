@@ -498,6 +498,26 @@ def pull_part(ctx: RunContext[str], from_ref: str, part: str, as_name: str | Non
                   {"from": from_ref, "part": part, "replace": replace, "measures": measures}, fn)
 
 
+def staff_spacing(ctx: RunContext[str], staff: int | None = None,
+                  system: int | None = None, fingering_rows: int | None = None,
+                  reset: bool = False) -> dict:
+    """Change how much room the page gives. staff is the minimum space between
+    the staves of one system and system the minimum space between systems, both
+    in MEI units (staff 0-48, default 12; system 0-48, default 4). They are
+    MINIMUMS: they open space up, and cannot close space the music needs, so
+    asking for "tighter" below what the notes require changes nothing -- say so
+    rather than trying again. fingering_rows is the band a penny-whistle
+    fingering column takes above its staff, in rows (4-6, default 4): raise it
+    for more air around the diagrams, lower it to fit more lines on a page.
+    reset=True puts all three back."""
+    def fn(s):
+        return ops.staff_spacing(s, staff=staff, system=system,
+                                 fingering_rows=fingering_rows, reset=reset)
+    return _apply(ctx.deps, "staff-spacing",
+                  {"staff": staff, "system": system,
+                   "fingering_rows": fingering_rows, "reset": reset}, fn)
+
+
 def paginate(ctx: RunContext[str], measures_per_line: int | None = None,
              break_at: list[int] | None = None,
              remove_at: list[int] | None = None, clear: bool = False) -> dict:
@@ -788,7 +808,7 @@ TOOLS = [get_score_info, list_versions, keep_parts, remove_parts, transpose,
          analyze_harmony, set_chords, chart_style,
          pull_part, set_metadata, penny_whistle_fingerings, guitar_chord_diagrams,
          guitar_tablature,
-         set_structure, paginate,
+         set_structure, paginate, staff_spacing,
          add_element, adjust_element, move_element, duplicate_element,
          remove_element,
          assign_to_piece]

@@ -22,6 +22,10 @@ enum ChatSteps {
             if let v = args[key] as? NSNumber { return v.stringValue }
             return nil
         }
+        /// A flag the model may have written as JSON `true` or as "true".
+        func flag(_ key: String) -> Bool {
+            (args[key] as? Bool) == true || (args[key] as? String) == "true"
+        }
         /// The four marks `add_element` writes, named the way a reader would
         /// say them rather than the way the tool spells them.
         func mark(_ kind: String?) -> String {
@@ -43,9 +47,16 @@ enum ChatSteps {
         case "respell": return "Respelling with \(s("prefer") ?? "flats")"
         case "change_instrument": return "\(s("part") ?? "part") → \(s("to_instrument") ?? "new instrument")"
         case "rename_part": return "Renaming \(s("part") ?? "part") to \(s("name") ?? "")"
+        // Both read numbers through `n` and flags through `flag`: a provider
+        // sends `4` and `true`, not "4" and "true", and reading them as strings
+        // left every one of these lines on its fallback.
+        case "staff_spacing":
+            if flag("reset") { return "Putting the spacing back" }
+            if let rows = n("fingering_rows") { return "Giving the fingerings \(rows) rows" }
+            return "Respacing the staves"
         case "paginate":
-            if s("clear") == "true" { return "Letting the engraver lay it out" }
-            if let per = s("measures_per_line") { return "Laying it out \(per) bars to a line" }
+            if flag("clear") { return "Letting the engraver lay it out" }
+            if let per = n("measures_per_line") { return "Laying it out \(per) bars to a line" }
             if args["remove_at"] != nil { return "Taking a line break off" }
             if args["break_at"] != nil { return "Starting a new line" }
             return "Laying out the lines"

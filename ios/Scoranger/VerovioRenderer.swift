@@ -80,8 +80,9 @@ actor VerovioRenderer {
     /// merges, so an option one layout names and the other omits is a value
     /// left behind for the other to find -- which is how one visit to
     /// continuous mode took pagination away from every paged engrave after it.
-    static func options(lyricSize: Double, continuous: Bool = false) -> String {
-        EngravingOptions.json(lyricSize: lyricSize, continuous: continuous)
+    static func options(lyricSize: Double, continuous: Bool = false,
+                        spacing: StaffSpacing.Values = StaffSpacing.defaults) -> String {
+        EngravingOptions.json(lyricSize: lyricSize, continuous: continuous, spacing: spacing)
     }
 
     /// One engrave: the pages to draw, and the model to hit-test against.
@@ -112,12 +113,17 @@ actor VerovioRenderer {
     func engrave(musicXMLPath: String, layout: ScoreLayout = .page) throws -> Engraving {
         let continuous = layout.isContinuous
         let t = try tk()
+        // The notation, read BEFORE the options: the score's own spacing rides
+        // in it, and has to reach Verovio before the load for the same reason
+        // the layout does.
+        let source = (try? String(contentsOfFile: musicXMLPath, encoding: .utf8)) ?? ""
+        let spacing = StaffSpacing.values(inMusicXML: source)
         // BEFORE the load: Verovio lays the document out as it reads it, so
         // options set afterwards do not take until something reloads it -- and
         // on a score with no fingerings and no adjustments nothing does. Set
         // here, the very first continuous engrave is already continuous.
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
-                                      continuous: continuous))
+                                      continuous: continuous, spacing: spacing))
         let loaded = PerfMetrics.shared.measure(PerfMetrics.Name.engraveLoad) {
             t.loadFile(musicXMLPath)
         }
@@ -133,16 +139,15 @@ actor VerovioRenderer {
         // chord symbols, so shrinking it for the diagrams halved every chord
         // name on a fingered score. The diagrams are scaled in our own pass.
         _ = t.setOptions(Self.options(lyricSize: FingeringDiagrams.defaultLyricSize,
-                                      continuous: continuous))
+                                      continuous: continuous, spacing: spacing))
 
         // The user's adjustments live in the MusicXML, and Verovio's importer
         // drops them, so they are carried across here -- for every kind
         // `adjust-element` can reach, not for chord symbols alone.
-        let source = (try? String(contentsOfFile: musicXMLPath, encoding: .utf8)) ?? ""
         let byKind = ChordAdjustments.allAdjustments(inMusicXML: source)
 
         var reload = false
-        if let above = FingeringDiagrams.meiWithFingeringsAbove(mei) {
+        if let above = FingeringDiagrams.meiWithFingeringsAbove(mei, rows: spacing.rows) {
             mei = above
             reload = true
         }

@@ -1,5 +1,28 @@
 # Backlog
 
+## Staff spacing and the whistle band -- what 0.13.0 does NOT do
+
+`staff-spacing` and the packed fingering band shipped in 0.13.0. Left open,
+each on purpose:
+
+- **"Tighter" below what the music claims is impossible, not unbuilt.**
+  `spacingStaff` and `spacingSystem` are Verovio MINIMUMS. The op says so in
+  its report and the chat tool is told to say so, rather than let a reader ask
+  twice for something no option can give.
+- **The band floor is four rows.** Three would save one more lyric line, and
+  puts the top hole 150 units into the margin toward the system above --
+  check_render.py refuses it. Getting to three would mean drawing the column
+  tighter than HOLE_PITCH_RATIO, which Ali tuned by eye; that is his call.
+- **A note carrying both sung words and fingerings is not packed.** It was not
+  moved above the staff before 0.13.0 either (`mei_with_fingerings_above`
+  requires every verse on the note to be a hole). Pre-existing, rare, and
+  untouched.
+- **The canvas's stranded-strip bug is survivable, not explained.** 0.13.0
+  lets the choice win when no engrave is in flight (`ScoreLayout.displayed`,
+  `awaiting`), and records the layout a page was engraved with rather than the
+  choice after the await. What made the handover fail on Whiskey In A Jar in
+  the first place was not found.
+
 ## Bar numbering: ABC counts from 0, MusicXML from 1
 
 Found while building `ops.bar_label` and nearly shipped as a bug. music21's ABC

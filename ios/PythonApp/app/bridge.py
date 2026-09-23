@@ -351,6 +351,18 @@ def _dispatch(op, a):
                                         name=a.get("name"))
     if op == "rename-score":
         return workspace.rename_score(a["score"], a["name"])
+    if op == "staff-spacing":
+        score = _load(a["score"], None)
+        details = ops.staff_spacing(score, staff=a.get("staff"),
+                                    system=a.get("system"),
+                                    fingering_rows=a.get("fingering_rows"),
+                                    reset=bool(a.get("reset")))
+        entry = workspace.add_version(a["score"], score, "staff-spacing",
+                                      {"staff": a.get("staff"),
+                                       "system": a.get("system"),
+                                       "fingering_rows": a.get("fingering_rows"),
+                                       "reset": bool(a.get("reset"))})
+        return {"version": entry["id"], "details": details}
     if op == "paginate":
         score = _load(a["score"], None)
         details = ops.paginate(score,

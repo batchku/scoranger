@@ -85,7 +85,7 @@ final class FingeringDiagramTests: XCTestCase {
 
     func testFingeringVersesAreMovedAboveTheStaff() throws {
         let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"]) + "</music>"
-        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei),
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6),
                                "a fingering column should be moved")
         XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
     }
@@ -94,7 +94,7 @@ final class FingeringDiagramTests: XCTestCase {
     /// score keeps them below the staff for ever.
     func testAnUntaggedColumnIsAlsoMovedAbove() throws {
         let mei = "<music>" + meiNote(["X", "X", "X", "X", "X", "O"], label: "1") + "</music>"
-        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6))
         XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
     }
 
@@ -103,20 +103,96 @@ final class FingeringDiagramTests: XCTestCase {
     func testVersesOnAChordAreMovedToo() throws {
         let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"], element: "chord")
             + "</music>"
-        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6))
         XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 6)
     }
 
     func testTheOctaveMarkTravelsWithItsColumn() throws {
         let mei = "<music>" + meiNote(["X", "X", "X", "X", "X", "X", "+"]) + "</music>"
-        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6))
         XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 7,
                        "the + belongs to the column and moves with it")
     }
 
+    // MARK: the band, packed (0.13.0)
+    //
+    // Ali: "too much space above penny whistle tablatures, so scores that have
+    // it end up fitting very few lines on a page." Verovio reserves a lyric
+    // line per verse and the column is drawn in half that height, so the
+    // default now hands Verovio four lines for the six holes -- the tightest
+    // the drawn column fits inside without reaching toward the system above.
+    // The placement tests above pin rows: 6, the layout they were written for.
+
+    func testTheDefaultPacksSixHolesIntoFourRows() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"]) + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertEqual(out.components(separatedBy: "<verse").count - 1, 4,
+                       "four lines reserved, not six")
+        XCTAssertEqual(out.components(separatedBy: "place=\"above\"").count - 1, 4)
+        XCTAssertTrue(out.contains("label=\"wf|XXXOOO\""),
+                      "the whole column rides in the first verse's label")
+    }
+
+    /// The octave keeps its own line below the holes, as six-or-seven always
+    /// did, so every column's last hole stays on one baseline.
+    func testTheOctaveMarkKeepsItsOwnRowWhenPacked() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "X", "X", "X", "+"]) + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertEqual(out.components(separatedBy: "<verse").count - 1, 5)
+        XCTAssertTrue(out.contains("label=\"wf|XXXXXX+\""))
+    }
+
+    /// Six rows is the old layout exactly: nothing packed, nothing relabelled.
+    func testSixRowsIsTheLayoutEveryEarlierBuildDrew() throws {
+        let mei = "<music>" + meiNote(["X", "X", "X", "O", "O", "O"]) + "</music>"
+        let out = try XCTUnwrap(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6))
+        XCTAssertEqual(out.components(separatedBy: "<verse").count - 1, 6)
+        XCTAssertFalse(out.contains(FingeringDiagrams.packedPrefix))
+    }
+
+    /// A sung word is never packed, whatever the rows.
+    func testWordsAreNeverPacked() {
+        let mei = "<music>" + meiNote(["la", "la", "la", "la", "la", "la"]) + "</music>"
+        XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove(mei))
+    }
+
+    /// The two renderers must draw the same circles from the same page. The
+    /// page is a real Verovio engraving with packed columns and the circles are
+    /// what render.py drew from it -- both cut by check_staff_spacing.py
+    /// --write. A change made in one renderer and not the other fails here.
+    func testDrawsThePackedColumnsExactlyAsThePDFDoes() throws {
+        let bundle = Bundle(for: Self.self)
+        let input = try XCTUnwrap(bundle.url(forResource: "fingering-packed-input",
+                                             withExtension: "svg", subdirectory: "Fixtures"))
+        let golden = try XCTUnwrap(bundle.url(forResource: "fingering-packed-golden",
+                                              withExtension: "txt", subdirectory: "Fixtures"))
+        let page = try String(contentsOf: input, encoding: .utf8)
+        XCTAssertTrue(page.contains(FingeringDiagrams.packedPrefix),
+                      "the golden page must carry packed columns")
+        let expected = try String(contentsOf: golden, encoding: .utf8)
+            .split(separator: "\n").map { $0.split(separator: "|").map(String.init) }
+        let drawn = FingeringDiagrams.draw(in: page)
+        let re = try NSRegularExpression(
+            pattern: "<path d=\"M (-?[\\d.]+) (-?[\\d.]+) A ([\\d.]+) [\\d.]+ 0 1 0 [^\"]*\"[^>]*fill=\"(currentColor|none)\"")
+        let ns = drawn as NSString
+        let got = re.matches(in: drawn, range: NSRange(location: 0, length: ns.length)).map { m in
+            (1...4).map { ns.substring(with: m.range(at: $0)) }
+        }
+        XCTAssertEqual(got.count, expected.count, "a different number of holes")
+        for (index, (have, want)) in zip(got, expected).enumerated() {
+            for axis in 0..<3 {
+                XCTAssertEqual(Double(have[axis])!, Double(want[axis])!, accuracy: 0.01,
+                               "hole \(index), \(["x", "y", "radius"][axis])")
+            }
+            XCTAssertEqual(have[3], want[3], "hole \(index) fill")
+        }
+        XCTAssertFalse(drawn.range(of: ">[XO/]</tspan>", options: .regularExpression) != nil,
+                       "a hole was left on the page as a letter")
+    }
+
     func testASungLyricIsNotMoved() {
         let mei = "<music>" + meiNote(["Glo"], label: "1") + "</music>"
-        XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove(mei))
+        XCTAssertNil(FingeringDiagrams.meiWithFingeringsAbove(mei, rows: 6))
     }
 
     func testAScoreWithNoVersesIsLeftAlone() {

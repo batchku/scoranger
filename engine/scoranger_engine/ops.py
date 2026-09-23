@@ -5576,3 +5576,77 @@ def _write_system_breaks(score, starts: set[int]) -> tuple[int, int]:
                 m.insert(0.0, m21layout.SystemLayout(isNew=True))
                 written += 1
     return written, removed
+
+
+# -- staff spacing -----------------------------------------------------------
+#
+# How much room the page gives between staves, between systems, and to a
+# whistle's fingering column -- stored in the notation as
+# <miscellaneous-field name="scoranger-spacing"> and read by both renderers
+# (render.spacing_from_musicxml and ios/.../StaffSpacing.swift). The field is
+# the only way this can travel with the score: music21 writes MusicXML's own
+# <staff-layout>/<system-layout> correctly and Verovio ignores both, at every
+# value.
+
+def staff_spacing(score, staff: int | None = None, system: int | None = None,
+                  fingering_rows: int | None = None, reset: bool = False) -> dict:
+    """Open or close the space on the page. Only the values given change.
+
+    `staff` and `system` are the minimum space between staves and between
+    systems, in MEI units (Verovio's own `spacingStaff` and `spacingSystem`).
+    They are MINIMUMS: they open space up and cannot take back space the music
+    itself claims -- a staff with a whistle column above it is as tall as its
+    column. `fingering_rows` is that column's band: how many lyric rows are
+    reserved for its six holes. Four is the tightest the drawn column fits
+    inside (render.DEFAULT_FINGERING_ROWS says why); six is the layout every
+    build before 0.13.0 drew.
+
+    `reset` takes the score back to the defaults. A setting equal to its
+    default is not written at all, so a score nobody has spaced carries no
+    field.
+    """
+    from music21 import metadata as m21metadata
+
+    from . import render
+
+    ranges = {"staff": render.SPACING_RANGE, "system": render.SPACING_RANGE,
+              "rows": render.FINGERING_ROWS_RANGE}
+    asked = {"staff": staff, "system": system, "rows": fingering_rows}
+    names = {"staff": "staff", "system": "system", "rows": "fingering_rows"}
+    for key, value in asked.items():
+        if value is None:
+            continue
+        lo, hi = ranges[key]
+        if not lo <= value <= hi:
+            raise ValueError(
+                f"{names[key]} must be between {lo} and {hi}; {value} is not"
+                + (" -- four rows is the tightest a whistle column fits "
+                   "without reaching into the space above its staff"
+                   if key == "rows" and value < lo else ""))
+
+    defaults = render.parse_spacing_value("")
+    if score.metadata is None:
+        score.metadata = m21metadata.Metadata()
+    current = score.metadata.getCustom(render.SPACING_FIELD)
+    before = render.parse_spacing_value(str(current[0]) if current else "")
+    after = dict(defaults) if reset else dict(before)
+    for key, value in asked.items():
+        if value is not None:
+            after[key] = value
+
+    stored = ";".join(f"{k}={after[k]}" for k in ("staff", "system", "rows")
+                      if after[k] != defaults[k])
+    score.metadata.setCustom(render.SPACING_FIELD, stored if stored else [])
+    return {
+        "staff": after["staff"],
+        "system": after["system"],
+        "fingering_rows": after["rows"],
+        "changed": sorted(names[k] for k in after if after[k] != before[k]),
+        "reset": reset,
+        "defaults": {"staff": defaults["staff"], "system": defaults["system"],
+                     "fingering_rows": defaults["rows"]},
+        # said so a caller that asks for tighter staves and sees no change
+        # knows why rather than asking again
+        "note": ("staff and system are minimums: they open space up but "
+                 "cannot close space the music itself needs"),
+    }

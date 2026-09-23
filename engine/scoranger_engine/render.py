@@ -53,6 +53,96 @@ PDF_WIDTH_PX = 816
 PDF_HEIGHT_PX = 1056
 
 
+# --- staff spacing, per score -----------------------------------------------
+#
+# How much room the page gives between staves, between systems, and to a
+# whistle's fingering column. Set by `ops.staff_spacing`, stored in the
+# notation as <miscellaneous-field name="scoranger-spacing"> so it versions and
+# travels like everything else, and read here and in
+# ios/Scoranger/ScoreModel/StaffSpacing.swift, which must stay in step.
+#
+# Why a field rather than MusicXML's own <staff-layout>/<system-layout>:
+# music21 writes those correctly and Verovio IGNORES them, at every value --
+# measured, not assumed. Spacing is a Verovio OPTION, so it has to be carried
+# to the renderer by us.
+#
+# STAFF and SYSTEM are Verovio's `spacingStaff`/`spacingSystem`, in MEI units,
+# and both are MINIMUMS: they open space up, and cannot take back space the
+# music itself claims. That is why the whistle band needs its own control.
+SPACING_FIELD = "scoranger-spacing"
+DEFAULT_SPACING_STAFF = 12        # Verovio's own defaults, named so a score
+DEFAULT_SPACING_SYSTEM = 4        # that sets neither is laid out as before
+SPACING_RANGE = (0, 48)           # Verovio's accepted range for both
+
+# FINGERING ROWS: how many lyric rows Verovio reserves for a whistle column's
+# six holes (the octave "+" gets one more, only on the notes that carry it).
+# Verovio reserves one full lyric line per verse, and the column is then drawn
+# at 47.5% of that pitch (HOLE_PITCH_RATIO) -- so six rows reserved for a
+# column that fills three left the top half of the band empty, and a whistle
+# tune fitted a fraction of the lines a plain one does. Ali: "too much space
+# above penny whistle tablatures". Six is the old layout exactly.
+#
+# FOUR is the floor, and it is a measurement, not a taste. Six holes drawn at
+# HOLE_PITCH_RATIO span five tight pitches -- 950 units at the default -- above
+# the last hole, and a reserved row is a full lyric pitch, 400. Three rows put
+# the top hole 150 units above the top reserved row, into Verovio's margin
+# toward the system above; check_render.py exists to refuse exactly that
+# ("the column ... grew upward toward the system above"), and caught it. Four
+# rows holds the whole column inside the band it reserved, and on a whistle
+# tune with a guitar tab under it still takes two pages to one.
+DEFAULT_FINGERING_ROWS = 4
+FINGERING_ROWS_RANGE = (4, 6)
+_SPACING_RE = re.compile(
+    r'<miscellaneous-field[^>]*name="' + SPACING_FIELD + r'"[^>]*>([^<]*)</miscellaneous-field>')
+
+
+def spacing_from_musicxml(text: str) -> dict:
+    """The score's spacing, or the defaults for anything it does not set.
+
+    Lenient on the way in -- a hand-edited field or one from a later build must
+    not stop a page from drawing -- so an unreadable or out-of-range value falls
+    back to its default rather than raising. `ops.staff_spacing` is the strict
+    side and refuses a bad value by name before it is ever written.
+    """
+    match = _SPACING_RE.search(text or "")
+    return parse_spacing_value(match.group(1) if match else "")
+
+
+def parse_spacing_value(value: str) -> dict:
+    """The field's own text -- "staff=12;system=4;rows=3" -- as a spacing dict.
+
+    Shared by the renderer, which reads it out of a MusicXML file, and by
+    `ops.staff_spacing`, which reads it off a parsed score: one parser, so the
+    op cannot write something the page reads differently.
+    """
+    out = {"staff": DEFAULT_SPACING_STAFF, "system": DEFAULT_SPACING_SYSTEM,
+           "rows": DEFAULT_FINGERING_ROWS}
+    for part in (value or "").split(";"):
+        key, _, raw = part.partition("=")
+        key = key.strip()
+        if key not in out:
+            continue
+        try:
+            number = int(raw.strip())
+        except ValueError:
+            continue
+        lo, hi = FINGERING_ROWS_RANGE if key == "rows" else SPACING_RANGE
+        if lo <= number <= hi:
+            out[key] = number
+    return out
+
+
+def spacing_options(spacing: dict) -> dict:
+    """The Verovio options a spacing dict turns into. EVERY key, every time.
+
+    `setOptions` merges rather than replaces, and the toolkit is shared: a
+    score that asked for wide staves would otherwise leave them wide for the
+    next score, which asked for nothing. The same trap took pagination away
+    from every paged engrave after one visit to the continuous strip.
+    """
+    return {"spacingStaff": spacing["staff"], "spacingSystem": spacing["system"]}
+
+
 def page_options() -> dict:
     """The page geometry both renderers use. Mirrored in EngravingOptions.swift.
 
@@ -74,6 +164,12 @@ def page_options() -> dict:
             # agree or an exported PDF is not the page the reader was looking
             # at. engine/scripts/check_pagination.py holds them together.
             "breaks": "encoded",
+            # Named here at their defaults so a score that sets no spacing is
+            # laid out at the defaults -- not at whatever the last score asked
+            # for, which is what a merged option set left unnamed would give.
+            **spacing_options({"staff": DEFAULT_SPACING_STAFF,
+                               "system": DEFAULT_SPACING_SYSTEM,
+                               "rows": DEFAULT_FINGERING_ROWS}),
             "pageWidth": PAGE_WIDTH_TENTHS_MM,
             "pageHeight": PAGE_HEIGHT_TENTHS_MM}
 
@@ -269,8 +365,65 @@ def _is_fingering_verse_set(verses: list[str]) -> bool:
     return holes >= WHISTLE_COLUMN
 
 
-def mei_with_fingerings_above(mei: str) -> str | None:
-    """Mark fingering verses `place="above"`. None when there are none."""
+#: The label a PACKED column carries on its first verse: the tag, a bar, and
+#: every row of the column in order ("wf|XXOOOO+"). Its other verses carry the
+#: tag and the bar alone. `_unpack_fingering_columns` reads it back.
+PACKED_PREFIX = WHISTLE_TAG + "|"
+_MEI_N_RE = re.compile(r'\bn="\d+"')
+_MEI_LABEL_RE = re.compile(r'\blabel="[^"]*"')
+_MEI_SYL_TEXT_RE = re.compile(r"(<syl\b[^>]*>)([^<]*)(</syl>)")
+
+
+def _pack_column(verses: list[str], rows: int) -> list[str] | None:
+    """The same column, reserving `rows` lyric lines for its holes.
+
+    Verovio gives every verse a full lyric line, and that is the space a
+    whistle tune loses: six lines reserved for holes the draw pass then packs
+    into half the height. Keeping only `rows` verses shrinks what Verovio
+    reserves; the full pattern rides in the first verse's label so nothing is
+    lost, and the SVG pass puts the rows back before the circles are drawn.
+
+    The octave "+" keeps a line of its own below the holes, on the notes that
+    have one -- exactly as today's six-or-seven works, which is what keeps
+    every column's LAST HOLE on the same baseline across a system (the
+    Morrison's Jig alignment fix).
+
+    None when there is nothing to save: a column already this short, or one
+    whose rows are not holes and an octave mark.
+    """
+    texts = []
+    for verse in verses:
+        syl = _MEI_SYL_RE.search(verse)
+        texts.append((syl.group(1) if syl else "").strip())
+    holes = [t for t in texts if t in ("X", "O", "/")]
+    octave = texts[-1] == "+" if texts else False
+    if len(holes) != len(texts) - (1 if octave else 0):
+        return None
+    if len(holes) <= rows:
+        return None
+    keep = rows + (1 if octave else 0)
+    pattern = "".join(texts)
+    packed = []
+    for index, verse in enumerate(verses[:keep]):
+        v = _MEI_N_RE.sub(f'n="{index + 1}"', verse, count=1)
+        label = f'label="{PACKED_PREFIX}{pattern if index == 0 else ""}"'
+        v = (_MEI_LABEL_RE.sub(label, v, count=1) if _MEI_LABEL_RE.search(v)
+             else v.replace("<verse", f"<verse {label}", 1))
+        # the last kept line is the octave's when there is one; its text only
+        # has to reserve the line, since every row is redrawn
+        text = "+" if (octave and index == keep - 1) else holes[index]
+        v = _MEI_SYL_TEXT_RE.sub(lambda m, t=text: m.group(1) + t + m.group(3), v, count=1)
+        packed.append(v)
+    return packed
+
+
+def mei_with_fingerings_above(mei: str, rows: int = DEFAULT_FINGERING_ROWS) -> str | None:
+    """Mark fingering verses `place="above"`, and pack each column to `rows`
+    lines. None when there are none.
+
+    `rows` is the score's own setting, read by `spacing_from_musicxml`. Six is
+    the layout every build before 0.13.0 drew.
+    """
     if "<verse" not in mei:
         return None
     changed = False
@@ -285,10 +438,18 @@ def mei_with_fingerings_above(mei: str) -> str | None:
         if not (tagged or _is_fingering_verse_set(verses)):
             return block
         changed = True
-        return _MEI_VERSE_RE.sub(
-            lambda v: v.group(0) if 'place=' in v.group(0).split(">")[0]
-            else v.group(0).replace("<verse", '<verse place="above"', 1),
-            block)
+        above = [v if 'place=' in v.split(">")[0]
+                 else v.replace("<verse", '<verse place="above"', 1)
+                 for v in verses]
+        packed = _pack_column(above, rows)
+        if packed is None:
+            packed = above
+        # every verse of the note out, the column back in where the first was
+        first = block.find(verses[0])
+        stripped = block
+        for v in verses:
+            stripped = stripped.replace(v, "", 1)
+        return stripped[:first] + "".join(packed) + stripped[first:]
 
     out = _MEI_NOTE_RE.sub(one_note, mei)
     return out if changed else None
@@ -679,6 +840,93 @@ def apply_lyric_sizes(svg: str) -> str:
     return "".join(pieces)
 
 
+_PACKED_TITLE_RE = re.compile(
+    r'<title class="labelAttr">' + re.escape(PACKED_PREFIX) + r'([^<]*)</title>')
+_GLYPH_TEXT_RE = re.compile(r'(<tspan font-size="[\d.]+px">)([^<]*)(</tspan>)')
+_TEXT_Y_RE = re.compile(r'(<text\b[^>]*\by=")(-?[\d.]+)(")')
+_ID_RE = re.compile(r'\bid="([^"]+)"')
+
+
+def _svg_number(value: float) -> str:
+    """A coordinate as SVG text, losslessly: whole numbers bare, the rest to
+    four places. Mirrored as FingeringDiagrams.svgNumber."""
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _unpack_fingering_columns(svg: str) -> str:
+    """Put a packed column's rows back, so the draw pass sees today's column.
+
+    `_pack_column` handed Verovio fewer verses so it would reserve less room;
+    the pattern rode in the first verse's label. Here each packed column
+    becomes one verse block per row again -- the hole letter, the tag, and the
+    y a row would have had at Verovio's own pitch, counted up from the LAST
+    HOLE, which is the line the draw pass anchors on. `_fingering_diagrams`
+    then runs exactly as it always has: everything it was tuned against in
+    Ali's photographs -- the bottom anchor, the median pitch, one axis per
+    column, the octave mark's line -- is untouched.
+
+    A row above the last hole is placed where it WOULD have been; the draw pass
+    only reads those positions for their spacing, and re-places every row from
+    the anchor at its own tighter pitch, which is how the column fits the
+    smaller band.
+    """
+    if PACKED_PREFIX not in svg:
+        return svg
+    blocks = list(_VERSE_RE.finditer(svg))
+    edits: list[tuple[int, int, str]] = []
+    i = 0
+    while i < len(blocks):
+        head = _PACKED_TITLE_RE.search(blocks[i].group(0))
+        if not head or not head.group(1):
+            i += 1
+            continue
+        pattern = head.group(1)
+        column = [blocks[i]]
+        j = i + 1
+        while j < len(blocks):
+            pad = _PACKED_TITLE_RE.search(blocks[j].group(0))
+            if pad is None or pad.group(1):
+                break
+            column.append(blocks[j])
+            j += 1
+        i = j
+        ys = []
+        for block in column:
+            found = _TEXT_Y_RE.search(block.group(0))
+            ys.append(float(found.group(2)) if found else None)
+        if None in ys or len(ys) < 2:
+            continue
+        gaps = sorted(b - a for a, b in zip(ys, ys[1:]) if b > a)
+        if not gaps:
+            continue
+        pitch = gaps[len(gaps) // 2]
+        octave = pattern.endswith("+")
+        holes = len(pattern) - (1 if octave else 0)
+        anchor = ys[len(column) - (2 if octave else 1)]
+        template = column[0].group(0)
+        rows = []
+        for index, glyph in enumerate(pattern):
+            y = (anchor + pitch if glyph == "+"
+                 else anchor - (holes - 1 - index) * pitch)
+            row = template.replace(head.group(0),
+                                   f'<title class="labelAttr">{WHISTLE_TAG}</title>', 1)
+            row = _GLYPH_TEXT_RE.sub(lambda m, g=glyph: m.group(1) + g + m.group(3),
+                                     row, count=1)
+            row = _TEXT_Y_RE.sub(lambda m, v=y: f"{m.group(1)}{_svg_number(v)}{m.group(3)}",
+                                 row, count=1)
+            # ids stay unique: the rows are copies of one block
+            row = _ID_RE.sub(lambda m, n=index: f'id="{m.group(1)}-r{n}"', row)
+            rows.append(row)
+        edits.append((column[0].start(), column[0].end(), "".join(rows)))
+        for block in column[1:]:
+            edits.append((block.start(), block.end(), ""))
+    for start, end, text in sorted(edits, reverse=True):
+        svg = svg[:start] + text + svg[end:]
+    return svg
+
+
 def _fingering_diagrams(svg: str) -> str:
     """Replace whistle-fingering glyphs with drawn circles.
 
@@ -692,6 +940,9 @@ def _fingering_diagrams(svg: str) -> str:
     written before the tag existed, which are already sitting in scores.
     Mirrors ios/Scoranger/FingeringDiagrams.swift; keep the two in step.
     """
+    # a packed column (see _pack_column) back into one block per row FIRST, so
+    # everything below sees the column it was written for
+    svg = _unpack_fingering_columns(svg)
     if 'class="verse"' not in svg:
         return svg
 
@@ -1487,20 +1738,27 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         s.write("musicxml", fp=src)
 
     writer = PdfWriter()
+    # The score's own spacing, read before anything is laid out: Verovio lays
+    # the document out as it LOADS it, so options set after the load do not
+    # take until something reloads -- and on a score with no fingerings and no
+    # adjustments nothing does.
+    with open(src, encoding="utf-8") as fh:
+        spacing = spacing_from_musicxml(fh.read())
     with _tk_lock:
         tk = _toolkit()
+        # The page geometry rides along with every setOptions call: a partial
+        # one risks the rest reverting to Verovio's defaults, which would
+        # quietly bring back the trimmed, uneven pages -- and the spacing is
+        # named in full so one score's wide staves are not the next score's.
+        tk.setOptions({**page_options(), **spacing_options(spacing),
+                       "lyricSize": lyric_size_for(fingerings=False)})
         if not tk.loadFile(src):
             raise RuntimeError(f"Verovio could not load {src}")
         mei = tk.getMEI()
         # Fingerings go above their staff and render small. Verovio ignores
         # MusicXML's lyric placement, so the move is made on the MEI and the
         # document reloaded — the same round trip the chart styling below uses.
-        above = mei_with_fingerings_above(mei)
-        # The page geometry rides along with every setOptions call: a partial
-        # one risks the rest reverting to Verovio's defaults, which would
-        # quietly bring back the trimmed, uneven pages.
-        tk.setOptions({**page_options(),
-                       "lyricSize": lyric_size_for(fingerings=above is not None)})
+        above = mei_with_fingerings_above(mei, rows=spacing["rows"])
         if above is not None:
             mei = above
             if not tk.loadData(mei):
