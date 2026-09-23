@@ -230,6 +230,63 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.13.0 THE PAGE, LAID OUT IN CHAT: WHERE THE LINES BREAK AND HOW MUCH
+        #          ROOM THEY GET (2026-09-22). Scope written before the gate.
+        #          Cut from 0.12.1 (build 201). Two features, so the minor
+        #          bumps ONCE and the fixes ride with it -- CLAUDE.md's rule.
+        #
+        #          INTENDED FOR INTERNAL TESTFLIGHT. Not the App Store
+        #          submission: see NOT in this build, below.
+        #
+        #          In this build:
+        #            1. PAGINATION IN CHAT. "Four bars to a line", "start a new
+        #               line at bar 17", "repaginate this automatically" --
+        #               `paginate`, written into the notation as MusicXML
+        #               <print new-system="yes"/>. BOTH RENDERERS NOW ASK
+        #               VEROVIO FOR `encoded` BREAKS; they asked for `auto`,
+        #               which ignores them, so every line the op wrote would
+        #               have been invisible. The op always writes a COMPLETE
+        #               layout, because a lone encoded break crushes every bar
+        #               after it onto one system;
+        #            2. STAFF SPACING IN CHAT, and THE WHISTLE BAND HALF THE
+        #               HEIGHT IT WAS. `staff_spacing` sets the minimum space
+        #               between staves and systems and the fingering band's
+        #               rows. The band now reserves four lyric lines instead of
+        #               six: on a whistle tune with a guitar tab under it, two
+        #               pages become one, with every hole exactly where it was
+        #               relative to its staff;
+        #            3. THE GARBLED PAGE. Whiskey In A Jar drew as one system of
+        #               thirteen crushed bars in 1-page mode: the continuous
+        #               strip in a page frame, kept there because nothing was
+        #               in flight to replace it and 1-page/2-page share an
+        #               engraving. The choice now wins when no engrave is
+        #               coming. His file also carries four encoded breaks of
+        #               its own and draws on ONE page as 5+4+4 with (1);
+        #            4. A SHARED ENTRY IS NAMED OR NOT SHARED. Echo received
+        #               Morrison's Jig as "Untitled": a null title became that
+        #               string on upload. The title walks title -> name ->
+        #               piece -> slug and a nameless share refuses;
+        #            5. and BAR 0 IS NOT A PICKUP. 0.12.1 called the first bar
+        #               of every pickup-less ABC tune "the pickup"; paddingLeft
+        #               now decides it.
+        #          NOT in this build, and said before it starts:
+        #            - IT IS NOT THE APP STORE BUILD. The OpenRouter and OMR
+        #              keys are still baked into the bundle and extractable
+        #              from the .ipa; the fix is a server proxy with Firebase
+        #              App Check, planned as its own build before any public
+        #              submission. The privacy policy is still not hosted, the
+        #              App Privacy questionnaire is still not filled, and the
+        #              OMR service is still undeployed;
+        #            - THE VENDORED PYTHON PACKAGES STILL SHIP WITHOUT THEIR
+        #              LICENCE TEXT (vendor_engine.sh deletes dist-info).
+        #              Known, next;
+        #            - WHY THE CANVAS STRANDED is not found -- (3) makes it
+        #              survivable, and BACKLOG says so;
+        #            - the fingering band's floor is four rows, not three:
+        #              three reaches into the margin toward the system above,
+        #              which check_render.py refuses;
+        #            - NO CHANGE TO PLAYBACK, SYNC, SHARING BEYOND (4), SET
+        #              LISTS OR THE NOTATION OPS.
         #   0.12.1 WHAT THE APP SAYS ABOUT WHAT IT DID (2026-09-22). Scope
         #          written before the gate. THE FIRST BUILD OF THE 0.12 LINE:
         #          0.12.0 below was scoped and written and never archived, so
@@ -853,7 +910,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 201
-        MARKETING_VERSION: 0.12.1
+        MARKETING_VERSION: 0.13.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
