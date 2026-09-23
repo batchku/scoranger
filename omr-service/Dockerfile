@@ -13,8 +13,13 @@ RUN ./gradlew --no-daemon distTar \
         -C /opt/audiveris --strip-components=1
 
 FROM eclipse-temurin:25-jre
+# python3-pip, because requirements.txt (PyJWT, for verifying Firebase ID
+# tokens) is installed below and this image has no pip without it. Its absence
+# failed the first build that carried the dependency, 2026-09-22 -- which is how
+# the scan log's email fix, the per-user attribution and the tessdata OCR fix
+# all sat undeployed behind a revision from 8 September.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 curl \
+        python3 python3-pip curl \
         tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra \
         libtesseract-dev libleptonica-dev \
         fontconfig fonts-dejavu-core \
