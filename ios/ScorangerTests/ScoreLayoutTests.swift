@@ -88,6 +88,33 @@ final class ScoreLayoutTests: XCTestCase {
         XCTAssertEqual(ScoreLayout.displayed(chosen: .spread, engraved: .continuous), .continuous)
     }
 
+    /// ...but only while the new engraving is COMING.
+    ///
+    /// Whiskey In A Jar came back from Ali's iPad as one system with every bar
+    /// of the tune crushed onto it, the rest of the page blank, in 1-page
+    /// mode. That is the continuous strip -- `breaks: none`, reproduced
+    /// exactly against his own MusicXML -- drawn inside a page frame. The
+    /// transient above is meant to last one frame; with no engrave in flight
+    /// it lasted until the app was relaunched, because ONE PAGE AND A SPREAD
+    /// SHARE AN ENGRAVING and his two obvious recoveries asked for nothing.
+    func testAFailedHandoverDoesNotStrandTheReaderOnTheWrongEngraving() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .page, engraved: .continuous,
+                                             awaiting: false), .page)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .spread, engraved: .continuous,
+                                             awaiting: false), .spread)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: .page,
+                                             awaiting: false), .continuous)
+    }
+
+    /// And the transient is still a transient: with an engrave in flight the
+    /// canvas keeps what it has, so the flash Ali reported earlier stays fixed.
+    func testTheFlashFixSurvivesTheStrandingFix() {
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .page, engraved: .continuous,
+                                             awaiting: true), .continuous)
+        XCTAssertEqual(ScoreLayout.displayed(chosen: .continuous, engraved: .page,
+                                             awaiting: true), .page)
+    }
+
     /// Once the document the choice asked for has arrived, the choice is what
     /// is drawn -- or the canvas would be stuck in the old layout for ever.
     func testWhenTheEngravingArrivesTheChoiceIsDrawn() {

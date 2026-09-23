@@ -887,9 +887,21 @@ final class AppState: ObservableObject {
     /// spread share an engraving, so switching between those two still takes
     /// effect on the next frame and waits for nothing.
     var layout: ScoreLayout {
-        get { ScoreLayout.displayed(chosen: layoutChoice, engraved: renderedLayout) }
+        // `awaiting`: an engrave for the CHOSEN engraving is actually in
+        // flight. Without it the canvas holds the old engraving for as long as
+        // the mismatch lasts, which is forever once a handover fails -- see
+        // ScoreLayout.displayed.
+        get {
+            ScoreLayout.displayed(chosen: layoutChoice, engraved: renderedLayout,
+                                  awaiting: engravingInFlight == layoutChoice.engraving)
+        }
         set { layoutChoice = newValue }
     }
+
+    /// The engraving an engrave is currently being made for, or nil when none
+    /// is running. The canvas reads it to tell a handover in progress from one
+    /// that never finished.
+    @Published private(set) var engravingInFlight: ScoreLayout.Engraving?
 
     /// The layout the pages currently on the canvas were engraved for, or nil
     /// when the canvas is holding nothing. Set beside `pdfDocument`, in the
@@ -1881,6 +1893,10 @@ final class AppState: ObservableObject {
         // toggling between them pays no engrave at all. Continuous is a
         // different document and has its own.
         let key = "\(score.slug)/\(vid)/\(layoutChoice.engraving.rawValue)"
+        // Read ONCE, here, and used for both the engrave and the record of
+        // what was engraved. Reading `layoutChoice` again after the await is
+        // how a continuous engraving got recorded as a paged one.
+        let engravedWith = layoutChoice
         guard force || key != renderedKey else { return }
         // A forced render is asked for when the FILE behind the key changed
         // under it, which is the one thing the cache cannot see.
@@ -1910,6 +1926,13 @@ final class AppState: ObservableObject {
             clearSelection()
         }
         renderedKey = key
+        // Claimed for the WHOLE of this call, and released whatever happens to
+        // it. While this is set the canvas knows a handover is in progress and
+        // may keep drawing the engraving it has; cleared, a mismatch means the
+        // handover failed and the choice wins instead.
+        let engravingWanted = layoutChoice.engraving
+        engravingInFlight = engravingWanted
+        defer { if engravingInFlight == engravingWanted { engravingInFlight = nil } }
         loadingPDF = true
         defer { loadingPDF = false }
         // A render that does not finish must not claim the key. `renderedKey`
@@ -1986,7 +2009,11 @@ final class AppState: ObservableObject {
                 // In the SAME publish as the document, or the canvas draws
                 // one of them a frame before the other -- which is the flash
                 // this pair exists to close.
-                renderedLayout = layoutChoice
+                // The layout these pages were ENGRAVED with, captured with
+                // `key` before the await -- not `layoutChoice`, which the
+                // reader may have moved during a 3-second engrave, and which
+                // would then record a continuous engraving as a paged one.
+                renderedLayout = engravedWith
                 // The reader's page is kept across an op, and an op can make
                 // the score shorter -- an index past the end renders as no
                 // pages at all, which is the blank canvas this was avoiding.

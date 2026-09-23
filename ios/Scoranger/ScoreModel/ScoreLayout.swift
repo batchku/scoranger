@@ -101,8 +101,24 @@ enum ScoreLayout: String, CaseIterable, Codable {
     ///
     /// `engraved` is nil when no pages are held at all, and then there is
     /// nothing to mismatch.
-    static func displayed(chosen: ScoreLayout, engraved: ScoreLayout?) -> ScoreLayout {
+    ///
+    /// **`awaiting` is what stops a frame becoming forever.** Holding the old
+    /// engraving is right only while the new one is COMING. With nothing in
+    /// flight, the two disagreeing is not a handover in progress, it is a
+    /// handover that never finished -- and the reader is left looking at the
+    /// continuous strip squeezed into a page frame: one system, every bar of
+    /// the tune crushed onto it, the rest of the sheet blank. Ali photographed
+    /// exactly that on Whiskey In A Jar, in 1-page mode, and it stayed. It
+    /// stayed because ONE PAGE AND A SPREAD SHARE AN ENGRAVING, so his two
+    /// obvious recoveries -- toggling 1-page, 2-page -- changed no key and
+    /// asked for no new engrave.
+    ///
+    /// So when nothing is in flight the CHOICE wins. One honest bad frame,
+    /// and the caller re-engraves; the alternative is a page that is wrong
+    /// until the app is relaunched.
+    static func displayed(chosen: ScoreLayout, engraved: ScoreLayout?,
+                          awaiting: Bool = true) -> ScoreLayout {
         guard let engraved, engraved.engraving != chosen.engraving else { return chosen }
-        return engraved
+        return awaiting ? engraved : chosen
     }
 }
