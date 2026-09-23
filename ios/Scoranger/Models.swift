@@ -11,8 +11,53 @@ struct BookDoc: Codable, Identifiable, Hashable {
     var slug: String
     var name: String
     var pages: Int?
+    /// The book read tune by tune (booksplit.set_contents). Empty until the
+    /// reader has confirmed a proposal; optional because a manifest written
+    /// before 0.14.0 carries no such key.
+    var contents: [BookEntry]?
 
     var id: String { slug }
+}
+
+/// One tune in a book: a title and the pages it is printed on, 1-based and
+/// inclusive as a PDF viewer numbers them. It is NOT an arrangement -- no
+/// pages are copied -- and it keeps its id across renames and re-ranges.
+struct BookEntry: Codable, Identifiable, Hashable {
+    var id: String
+    var title: String
+    var from: Int
+    var to: Int
+    /// Where a PROPOSED entry came from: "bookmark", "heading" or "ocr".
+    /// A saved entry has none; the reader has vouched for it.
+    var evidence: String?
+}
+
+/// What `book-detect` proposes. Read-only: nothing is written until the
+/// reader keeps it as the book's contents or takes the tunes out.
+struct BookProposal: Codable, Equatable {
+    var entries: [BookEntry]
+    /// Pages that belong to no tune -- covers, a blank at the back.
+    var unassigned: [Int]
+    /// Contents and index pages.
+    var matter: [Int]
+    /// Pages with no text layer the app has not yet read with Vision.
+    var needsOcr: [Int]
+    var bookmarks: Int
+    var pages: Int
+}
+
+/// What `book-split` made.
+struct BookSplitReport: Codable, Equatable {
+    struct Made: Codable, Equatable {
+        var score: String
+        var title: String
+        var pages: String
+        var piece: String
+        var joinedExistingPiece: Bool
+    }
+    var arrangements: [Made]
+    var piecesJoined: Int
+    var piecesCreated: Int
 }
 
 struct Manifest: Codable, Equatable {

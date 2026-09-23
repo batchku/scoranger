@@ -31,6 +31,29 @@ enum ImportTarget: String, Equatable, Codable {
 enum BookImportStage {
     static let copying = "copying the file…"
     static let reading = "reading its pages…"
+    /// book-detect over the bookmarks and the text layer: well under a second
+    /// on a 134-page book, but a stage all the same.
+    static let finding = "finding its tunes…"
+
+    /// Vision over the pages that have no text layer -- the long wait on a
+    /// scanned book, so it counts.
+    static func scanning(_ done: Int, of total: Int) -> String {
+        "reading scanned page \(done) of \(total)…"
+    }
+
+    /// When the tunes could not be found. The book is still imported and
+    /// still usable -- the manual page ranges work -- so this says so.
+    static func detectionFailure(name: String, reason: String) -> String {
+        say("\(name) was imported, but its tunes could not be found", reason)
+    }
+
+    static func splitFailure(name: String, reason: String) -> String {
+        say("The tunes could not be taken out of \(name)", reason)
+    }
+
+    static func contentsFailure(name: String, reason: String) -> String {
+        say("The contents of \(name) could not be saved", reason)
+    }
 
     /// What to say when it fails. The engine's own message is kept -- a
     /// missing module and an unreadable PDF are not the same problem, and the

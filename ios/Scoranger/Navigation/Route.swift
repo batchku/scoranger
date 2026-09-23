@@ -43,6 +43,14 @@ enum Route: Hashable {
     case settingsSection(String)
     /// A book, and the pages you might take out of it.
     case book(String)
+    /// One tune of a book's contents, read in place: (book slug, entry id).
+    /// A page like a set list's arrangement, but no arrangement exists -- it
+    /// is the book's own pages from `from` to `to` (0.14.0).
+    case bookEntry(String, String)
+    /// What a file shared into the app should become (0.14.0 §1). Carries
+    /// nothing: the files wait on AppState.importOffer, as a folder's plan
+    /// waits on AppState for `folderImport`.
+    case importAs
     /// The plan for importing a whole exported folder, read before it is run.
     /// Carries nothing: the plan itself lives on AppState, because a route is
     /// a place and this one can only be reached by having just made one.
@@ -67,7 +75,8 @@ enum Route: Hashable {
     /// Whether this route is a page on the table or a state of the panel.
     var presentation: Presentation {
         switch self {
-        case .piece, .setlist, .sharedSetlist, .book, .settings, .settingsSection:
+        case .piece, .setlist, .sharedSetlist, .book, .bookEntry, .importAs,
+             .settings, .settingsSection:
             return .page
         case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
              .addArrangements, .versions,
@@ -97,6 +106,8 @@ enum Route: Hashable {
         case .details:          return "Details"
         case .settings, .settingsSection: return "Settings"
         case .book:             return "Book"
+        case .bookEntry:        return "Tune"
+        case .importAs:         return "Import as"
         case .folderImport:     return "Import folder"
         case .sort:             return "Sort"
         case .filter:           return "Filter"
@@ -113,8 +124,10 @@ enum Route: Hashable {
     /// count taps out of.
     var backLabel: String {
         switch self {
-        case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings:
+        case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings, .importAs:
             return "Library"
+        case .bookEntry:
+            return "Book"
         case .arrangement, .moveToPiece, .combinePieces, .setlistsFor,
              .addArrangements,
              .versions, .parts, .details, .settingsSection, .folderImport, .book,
@@ -172,8 +185,8 @@ extension Route {
         case .pieceArrangements(let s):  return .pieceArrangements(s)
         case .thisPiece(let s):          return .thisPiece(s)
         case .piece, .setlist, .sharedSetlist, .joinSetlist, .settings,
-             .settingsSection, .folderImport, .book, .sort, .filter, .importMenu,
-             .thisSetlist, .setlistInvite:
+             .settingsSection, .folderImport, .book, .bookEntry, .importAs,
+             .sort, .filter, .importMenu, .thisSetlist, .setlistInvite:
             return self
         }
     }

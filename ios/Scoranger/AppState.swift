@@ -2305,13 +2305,159 @@ final class AppState: ObservableObject {
                 try? FileManager.default.removeItem(at: tmp)
                 try FileManager.default.copyItem(at: url, to: tmp)
                 updatePending(pending.id, stage: BookImportStage.reading, fraction: nil)
-                _ = try await local.importBook(fileURL: tmp, name: name)
+                let slug = try await local.importBook(fileURL: tmp, name: name)
                 try? FileManager.default.removeItem(at: tmp)
                 await refresh()
+                // 0.14.0: the book opens on its proposed contents. Nothing is
+                // written by finding them -- the reader keeps them, takes the
+                // tunes out, or discards the list.
+                _ = await findTunes(in: slug, pending: pending.id)
+                openBookAfterImport = slug
             } catch {
                 let reason = OperationReport.reason(error)
                 notice = BookImportStage.failure(name: name, reason: reason)
             }
+        }
+    }
+
+    /// What `book-detect` proposed for a book, until the reader keeps it, takes
+    /// the tunes out, or discards it. Held here rather than on the screen so
+    /// the proposal made during an import is waiting when the book opens.
+    @Published var bookProposals: [String: BookProposal] = [:]
+
+    /// A book that was just imported, for the root to open on its proposal.
+    @Published var openBookAfterImport: String?
+
+    /// Where a book's tune-finding is, by slug, while it runs.
+    @Published var findingTunes: [String: String] = [:]
+
+    /// Propose a book's contents: bookmarks and text layer first, then Vision
+    /// over the pages the engine says have neither, then the engine again
+    /// with those lines. The judging is the engine's; this only reads pages.
+    @discardableResult
+    func findTunes(in slug: String, pending: UUID? = nil) async -> BookProposal? {
+        let name = (manifest?.books ?? []).first { $0.slug == slug }?.name ?? "The book"
+        func say(_ stage: String) {
+            findingTunes[slug] = stage
+            if let pending { updatePending(pending, stage: stage, fraction: nil) }
+        }
+        defer { findingTunes[slug] = nil }
+        do {
+            say(BookImportStage.finding)
+            var proposal = try await local.bookDetect(slug)
+            if !proposal.needsOcr.isEmpty, let document = await bookDocument(slug) {
+                let ocr = await BookOCR.read(pages: proposal.needsOcr, of: document) { done, total in
+                    Task { @MainActor in say(BookImportStage.scanning(done, of: total)) }
+                }
+                say(BookImportStage.finding)
+                proposal = try await local.bookDetect(slug, ocr: ocr)
+            }
+            bookProposals[slug] = proposal
+            return proposal
+        } catch {
+            notice = BookImportStage.detectionFailure(name: name,
+                                                      reason: OperationReport.reason(error))
+            return nil
+        }
+    }
+
+    /// Keep the tunes as the book's contents: the book stays one book, read a
+    /// tune at a time. nil clears them.
+    func keepContents(of slug: String, _ entries: [BookEntry]?) async -> Bool {
+        let name = (manifest?.books ?? []).first { $0.slug == slug }?.name ?? "the book"
+        do {
+            try await local.setBookContents(slug, entries: entries)
+            bookProposals[slug] = nil
+            await refresh()
+            return true
+        } catch {
+            notice = BookImportStage.contentsFailure(name: name,
+                                                     reason: OperationReport.reason(error))
+            return false
+        }
+    }
+
+    /// Take the tunes out as arrangements, each under a piece of its name.
+    func takeOutTunes(of slug: String, _ entries: [BookEntry]) async -> BookSplitReport? {
+        let name = (manifest?.books ?? []).first { $0.slug == slug }?.name ?? "the book"
+        do {
+            let report = try await local.splitBook(slug, entries: entries)
+            bookProposals[slug] = nil
+            await refresh()
+            return report
+        } catch {
+            notice = BookImportStage.splitFailure(name: name,
+                                                  reason: OperationReport.reason(error))
+            return nil
+        }
+    }
+
+    // MARK: Import as... (0.14.0 §1)
+
+    /// Files shared into the app, waiting for the reader to say what they are.
+    struct ImportOffer: Equatable {
+        var urls: [URL]
+        var canBeBook: Bool { ImportChoice.bookAvailable(for: urls) }
+        var summary: String {
+            urls.count == 1 ? urls[0].deletingPathExtension().lastPathComponent
+                            : "\(urls.count) files"
+        }
+    }
+    @Published var importOffer: ImportOffer?
+
+    /// A file handed to the app from outside -- the share sheet, Open in,
+    /// AirDrop. It is ASKED about rather than imported: until 0.14.0 a shared
+    /// PDF could only become a scan arrangement, so a book could not be shared
+    /// in at all. A bundle keeps its own offer (it is a library, not a file),
+    /// and files arriving together are asked about together.
+    func offerImport(_ url: URL) {
+        if url.pathExtension.lowercased() == "scorbundle" {
+            receiveFile(at: url)
+            return
+        }
+        // Hold the file past the call: a security-scoped URL from another
+        // app's share sheet is only good while it is being accessed.
+        let held = holdIncoming(url) ?? url
+        if var offer = importOffer {
+            offer.urls.append(held)
+            importOffer = offer
+        } else {
+            importOffer = ImportOffer(urls: [held])
+        }
+    }
+
+    func acceptImport(_ choice: ImportChoice) {
+        guard let offer = importOffer else { return }
+        importOffer = nil
+        switch choice {
+        case .newPiece:
+            for url in offer.urls { receiveFile(at: url) }
+        case .existingPiece(let piece):
+            for url in offer.urls { receiveFile(at: url, intoPiece: piece) }
+        case .newBook:
+            guard offer.canBeBook else { return }
+            importBook(at: offer.urls[0])
+        }
+    }
+
+    func declineImport() {
+        importOffer = nil
+    }
+
+    /// A copy of an incoming file in our own temporary directory, so the offer
+    /// can wait on the reader without depending on the sender's grant.
+    private func holdIncoming(_ url: URL) -> URL? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let dir = FileManager.default.temporaryDirectory.appending(path: "incoming")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let copy = dir.appending(path: url.lastPathComponent)
+        try? FileManager.default.removeItem(at: copy)
+        do {
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        } catch {
+            return nil
         }
     }
 

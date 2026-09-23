@@ -103,6 +103,23 @@ struct RootView: View {
                 state.openAfterImport = nil
                 open(slug)
             }
+            // A file shared in is asked about before it is imported (0.14.0
+            // §1). The reader came from another app to put it somewhere, so
+            // the question is put in front of them, over a score if one is
+            // open: the score keeps its place and is one tap back.
+            .onChange(of: state.importOffer) { old, offer in
+                guard offer != nil, old == nil else { return }
+                if scoreOpen { close() }
+                if libraryPath.last != .importAs { libraryPath.append(.importAs) }
+            }
+            // A book just imported opens on its proposed contents.
+            .onChange(of: state.openBookAfterImport) { _, slug in
+                guard let slug else { return }
+                state.openBookAfterImport = nil
+                segment = .books
+                if libraryPath.last == .importAs { _ = libraryPath.popLast() }
+                libraryPath.append(.book(slug))
+            }
             // SHARING'S PROGRESS AND FAILURES, through the app's own notice
             // bar rather than a second surface invented for this one feature.
             //
@@ -409,10 +426,35 @@ struct RootView: View {
                 .accessibilityIdentifier("screen-arrangement-\(slug)")
             }
         case .book(let slug):
-            BookScreen(slug: slug, onBack: pop, onOpen: { open($0) })
+            BookScreen(slug: slug, onBack: pop, onOpen: { open($0) },
+                       onRead: { libraryPath.append(.bookEntry(slug, $0)) })
                 .navigationBarHidden(true)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("screen-book-\(slug)")
+        case .bookEntry(let slug, let entry):
+            // Next and previous REPLACE the page rather than stacking it: back
+            // goes to the book, as a set list's reader goes back to its list.
+            BookEntryReader(slug: slug, entryID: entry, onBack: pop,
+                            onStep: { next in
+                                if case .bookEntry = libraryPath.last { _ = libraryPath.popLast() }
+                                libraryPath.append(.bookEntry(slug, next))
+                            })
+                .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-book-entry")
+        case .importAs:
+            ImportAsScreen(onBack: {
+                               state.declineImport()
+                               pop()
+                           },
+                           onChosen: { choice in
+                               pop()
+                               state.acceptImport(choice)
+                               if case .newBook = choice { segment = .books } else { segment = .pieces }
+                           })
+                .navigationBarHidden(true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("screen-import-as")
         case .folderImport:
             FolderImportScreen(onBack: pop)
                 .navigationBarHidden(true)

@@ -48,7 +48,10 @@ struct ScorangerApp: App {
                     if let invite = SharedInviteLink.inviteId(in: url) {
                         state.pendingInvite = invite
                     } else {
-                        state.receiveFile(at: url)
+                        // 0.14.0: asked what it is -- a new piece, an
+                        // arrangement of an existing one, or a book -- before
+                        // anything is imported (AppState.offerImport).
+                        state.offerImport(url)
                     }
                 }
                 .task {
@@ -87,6 +90,29 @@ struct ScorangerApp: App {
                     // needs a manifest in hand, so it follows the first refresh
                     await state.migrateSeededSetlistName()
                     #if DEBUG
+                    // `-shareIn <path>`: a file arriving as a share would, through
+                    // the same door onOpenURL uses -- the simulator has no share
+                    // sheet to drive, and `simctl openurl` hands a PDF to Files.
+                    let args = ProcessInfo.processInfo.arguments
+                    if let at = args.firstIndex(of: "-shareIn"), at + 1 < args.count {
+                        state.offerImport(URL(fileURLWithPath: args[at + 1]))
+                    }
+                    // `-shareInSampleBook`: twelve titled pages, shared in, for
+                    // the UI test that walks Import as -> New book -> Keep.
+                    if args.contains("-shareInSampleBook") {
+                        let url = FileManager.default.temporaryDirectory
+                            .appending(path: "Sample Tunebook.pdf")
+                        if BigBookFixture.write(to: url, pages: 12) {
+                            state.offerImport(url)
+                        }
+                    }
+                    if args.contains("-shareInScannedBook") {
+                        let url = FileManager.default.temporaryDirectory
+                            .appending(path: "Scanned Tunebook.pdf")
+                        if BigBookFixture.writeScanned(to: url, pages: 6) {
+                            state.offerImport(url)
+                        }
+                    }
                     await state.seedMultiStepTurnIfRequested()
                     // after the library seed, and after the refresh that gives
                     // it a manifest to check itself against

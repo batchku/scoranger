@@ -22,6 +22,8 @@ struct BookScreen: View {
     let slug: String
     var onBack: () -> Void
     var onOpen: (String) -> Void
+    /// Read one tune of the book's contents, by entry id (0.14.0).
+    var onRead: (String) -> Void = { _ in }
 
     @State private var fromPage = ""
     @State private var toPage = ""
@@ -29,6 +31,8 @@ struct BookScreen: View {
     @State private var piece = ""
     @State private var busy = false
     @State private var made: String?
+    /// What the last keep, take-out or discard did, said under the tunes.
+    @State private var tunesNote: String?
 
     /// The book, opened. nil until it has loaded, and still nil when it cannot
     /// be reached — which the screen says, rather than showing an empty frame.
@@ -60,12 +64,136 @@ struct BookScreen: View {
                onBack: onBack) {
             VStack(alignment: .leading, spacing: 0) {
                 browser
+                tunes
+                // The manual path stays beside the automatic one: a reader who
+                // knows the pages should not have to go through a proposal,
+                // and a book the detector cannot read is still usable.
                 PanelLabel(text: "Take out pages")
                 form
             }
             .padding(.bottom, Theme.Metric.s32)
         }
         .task(id: slug) { await open() }
+    }
+
+    // MARK: its tunes (0.14.0)
+
+    private var proposal: BookProposal? { state.bookProposals[slug] }
+    private var contents: [BookEntry] { book?.contents ?? [] }
+
+    @ViewBuilder
+    private var tunes: some View {
+        PanelLabel(text: proposal != nil ? "Tunes found" : "Tunes")
+        if let stage = state.findingTunes[slug] {
+            PanelNote(text: "Finding the tunes: \(stage)")
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .accessibilityIdentifier("book-finding")
+        } else if let proposal {
+            BookReview(slug: slug, bookName: book?.name ?? "The book",
+                       contents: BookContents(entries: proposal.entries,
+                                              pages: pages ?? proposal.pages),
+                       evidence: Self.found(proposal),
+                       onShow: { showing = $0 },
+                       onDone: { tunesNote = $0 })
+                // a new proposal is a new list, not an edit of the old one
+                .id(proposal.entries.map(\.id))
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(contents.enumerated()), id: \.element.id) { index, entry in
+                    contentsRow(entry, at: index)
+                    Theme.Rule()
+                }
+                HStack(spacing: Theme.Metric.s8) {
+                    if contents.isEmpty {
+                        PanelButton(title: "Find the tunes", kind: .primary,
+                                    identifier: "book-find-tunes") { find() }
+                    } else {
+                        PanelButton(title: "Edit the list", identifier: "book-edit-contents") {
+                            state.bookProposals[slug] = BookProposal(
+                                entries: contents, unassigned: [], matter: [], needsOcr: [],
+                                bookmarks: 0, pages: pages ?? 0)
+                        }
+                        PanelButton(title: "Find the tunes again",
+                                    identifier: "book-find-tunes") { find() }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Theme.Metric.panelPadding)
+            }
+        }
+        if let tunesNote {
+            PanelNote(text: tunesNote)
+                .padding(.horizontal, Theme.Metric.panelPadding)
+                .padding(.bottom, Theme.Metric.s12)
+                .accessibilityIdentifier("book-tunes-note")
+        }
+    }
+
+    /// One tune of the contents, read like a set list's arrangement.
+    private func contentsRow(_ entry: BookEntry, at index: Int) -> some View {
+        HStack(spacing: Theme.Metric.s12) {
+            Text("\(index + 1)").typeRole(.data).foregroundStyle(Theme.Ink.ink3)
+                .frame(width: 32, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.title).typeRole(.titleS).foregroundStyle(Theme.Ink.ink)
+                    .lineLimit(1)
+                Text(BookReading.pages(entry)).typeRole(.meta)
+                    .foregroundStyle(Theme.Ink.ink3)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Metric.panelPadding)
+        .padding(.vertical, Theme.Metric.s8)
+        .frame(minHeight: 56)
+        .rowTappable(label: entry.title, identifier: "book-tune-\(index + 1)") {
+            onRead(entry.id)
+        }
+    }
+
+    private func find() {
+        tunesNote = nil
+        Task { await state.findTunes(in: slug) }
+    }
+
+    /// "124 tunes, from the book's bookmarks. Pages 2–5, 130–133 are contents
+    /// or an index. Pages 1, 134 belong to no tune." -- what the list rests
+    /// on, said before the reader is asked to trust it.
+    static func found(_ proposal: BookProposal) -> String {
+        let n = proposal.entries.count
+        guard n > 0 else {
+            return "No tunes were found. Take pages out by hand below."
+        }
+        let sources = Set(proposal.entries.compactMap(\.evidence))
+        let names: [(String, String)] = [("bookmark", "the book's bookmarks"),
+                                         ("heading", "the titles printed on its pages"),
+                                         ("ocr", "titles read from its scanned pages")]
+        let from = names.filter { sources.contains($0.0) }.map(\.1)
+        var text = "\(n) tune\(n == 1 ? "" : "s")"
+        if !from.isEmpty { text += ", from " + from.joined(separator: " and ") }
+        text += "."
+        if !proposal.matter.isEmpty {
+            let verb = proposal.matter.count == 1 ? "is" : "are"
+            text += " \(pageList(proposal.matter)) \(verb) contents or an index."
+        }
+        if !proposal.unassigned.isEmpty {
+            let verb = proposal.unassigned.count == 1 ? "belongs" : "belong"
+            text += " \(pageList(proposal.unassigned)) \(verb) to no tune."
+        }
+        return text + " Check them against the pages above."
+    }
+
+    /// [2, 3, 4, 5, 130] -> "Pages 2–5, 130"
+    static func pageList(_ pages: [Int]) -> String {
+        let sorted = pages.sorted()
+        var runs: [String] = []
+        var i = 0
+        while i < sorted.count {
+            var j = i
+            while j + 1 < sorted.count, sorted[j + 1] == sorted[j] + 1 { j += 1 }
+            runs.append(i == j ? "\(sorted[i])" : "\(sorted[i])–\(sorted[j])")
+            i = j + 1
+        }
+        return (pages.count == 1 ? "Page " : "Pages ") + runs.joined(separator: ", ")
     }
 
     // MARK: looking through it

@@ -111,6 +111,36 @@ struct LocalEngine {
         return (try await result(op: "book-extract", args: args)["score"] as? String) ?? ""
     }
 
+    /// Where each tune in a book starts and what it is called. Read-only.
+    /// `ocr` carries Vision's lines for pages the last answer named in
+    /// `needsOcr`.
+    func bookDetect(_ book: String,
+                    ocr: [String: [[String: Any]]] = [:]) async throws -> BookProposal {
+        var args: [String: Any] = ["book": book]
+        if !ocr.isEmpty { args["ocr"] = ocr }
+        return try decode(try await result(op: "book-detect", args: args),
+                          as: BookProposal.self)
+    }
+
+    /// Keep the tunes as the book's contents (nil clears them). The book stays
+    /// one book; nothing is copied.
+    func setBookContents(_ book: String, entries: [BookEntry]?) async throws {
+        _ = try await result(op: "book-contents",
+                             args: ["book": book,
+                                    "entries": entries.map(Self.plan) ?? NSNull()])
+    }
+
+    /// Take each tune out as an arrangement under a piece of its name.
+    func splitBook(_ book: String, entries: [BookEntry]) async throws -> BookSplitReport {
+        try decode(try await result(op: "book-split",
+                                    args: ["book": book, "entries": Self.plan(entries)]),
+                   as: BookSplitReport.self)
+    }
+
+    private static func plan(_ entries: [BookEntry]) -> [[String: Any]] {
+        entries.map { ["id": $0.id, "title": $0.title, "from": $0.from, "to": $0.to] }
+    }
+
     /// Where a book's own PDF is, so the reader can look through it.
     func bookFilePath(_ book: String) async throws -> String {
         let r = try await result(op: "book-file", args: ["book": book])

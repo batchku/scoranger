@@ -33,6 +33,28 @@ enum BigBookFixture {
         return (try? data.write(to: url)) != nil
     }
 
+    /// The same book as a SCAN: every page a picture, so there is no text
+    /// layer and the tunes can only be found by reading the pages with Vision
+    /// (0.14.0, BookOCR). Reached under `-shareInScannedBook`.
+    @discardableResult
+    static func writeScanned(to url: URL, pages: Int) -> Bool {
+        let bounds = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let pictures = (0..<pages).map { page in
+            UIGraphicsImageRenderer(size: bounds.size).image { _ in
+                UIColor.white.setFill()
+                UIRectFill(bounds)
+                draw(page: page)
+            }
+        }
+        let data = UIGraphicsPDFRenderer(bounds: bounds).pdfData { context in
+            for picture in pictures {
+                context.beginPage()
+                picture.draw(in: bounds)
+            }
+        }
+        return (try? data.write(to: url)) != nil
+    }
+
     /// A page with a title big enough to read off a thumbnail and enough
     /// staves that a raster is real drawing.
     private static func draw(page: Int) {
