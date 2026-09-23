@@ -8,11 +8,27 @@
 # dies with it -- so the protection is to not deploy at that moment, which is
 # what the check below is for.
 #
-# THE ENV VARS ARE NOT PASSED. `--set-env-vars` REPLACES the whole set, so
-# passing OMR_API_KEY would be required to avoid wiping it -- and that would
-# put the key on a command line, in shell history and in this repo's logs.
-# Omitted entirely, Cloud Run keeps the container's existing environment, so
-# the key stays where it is and is never printed. Every other flag is passed
+# THE API KEY LIVES IN SECRET MANAGER (secret `omr-api-key`, project
+# scoranger-omr), mounted as OMR_API_KEY -- since 2026-09-22, when the key that
+# had been a plain env var was printed into a session transcript and rotated.
+# Neither env vars nor secrets are passed here: omitted, Cloud Run keeps the
+# revision's existing configuration, so the key is never on a command line.
+#
+# TO ROTATE IT, never with the value in argv:
+#   1. a new version, on stdin:   <generate> | gcloud secrets versions add \
+#        omr-api-key --project scoranger-omr --data-file=-
+#   2. a new revision to read it: gcloud run services update scoranger-omr \
+#        --region us-central1 --update-secrets OMR_API_KEY=omr-api-key:latest
+#   3. the same value into the repo's gitignored .omr-api-key, which the iOS
+#      build bakes into the app -- so EVERY BUILD ALREADY INSTALLED stops
+#      scanning until it is replaced. The key is checked on status polls and
+#      result fetches too, so being signed in does not help.
+#   4. prove it: an empty POST /jobs answers 401 to the old key and 413 to the
+#      new one, before any job starts.
+#
+# The key still ships inside the app, as readably as before: rotating it
+# retires a leaked value, it does not stop the next one leaking. BACKLOG's
+# App Attest gateway is what does. Every other flag is passed
 # explicitly and matches what the service already runs (4Gi / 2 cpu / 600s /
 # concurrency 8 / max-instances 1 / no CPU throttling), so a deploy cannot
 # quietly change the shape of the service:
