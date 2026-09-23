@@ -436,13 +436,18 @@ scor paginate <score> [--measures-per-line N] [--break-at "17,33"]
   # length, read off the pagination already in the notation. A score with none
   # and no --measures-per-line is REFUSED by name rather than guessed at: a jig
   # wants four bars a line and a piano reduction does not.
-  # BOTH RENDERERS MUST ASK FOR IT. `render.page_options()` and
-  # `EngravingOptions.breaks(continuous:)` each carry their own copy and both
-  # say `encoded`; they were `auto` until 0.12.2, and auto IGNORES encoded
-  # breaks, so every line this op wrote would have been invisible while the op
-  # reported success. The continuous strip stays `none` -- it is one system by
-  # definition. engine/scripts/check_pagination.py measures all three modes and
-  # holds the two renderers together.
+  # ONLY THE READER'S BREAKS ARE HONOURED. `auto` ignores encoded breaks, so a
+  # paginated score needs `encoded` -- but a file from MuseScore, Finale,
+  # Sibelius or Audiveris carries its SOURCE EDITION's breaks, made for another
+  # page, and asking for `encoded` unconditionally took the quartet fixture
+  # from 8 pages to its publisher's 4 (the 0.13.0 gate caught it). So this op
+  # MARKS the score (<miscellaneous-field name="scoranger-pagination">reader),
+  # and `render.breaks_for` / `EngravingOptions.breaks(continuous:readerPaginated:)`
+  # ask for `encoded` only on a marked score; every other one lays out as it
+  # always has. Paginating replaces the source's page breaks as well as its
+  # lines, and never inherits the source's line length. --clear removes the
+  # mark. The strip stays `none`. Proof: check_pagination.py, on the real
+  # quartet fixture.
 scor staff-spacing <score> [--staff N] [--system N] [--fingering-rows N] [--reset]
   # HOW MUCH ROOM the page gives: --staff and --system are the minimum space
   # between staves and between systems in MEI units (0-48; defaults 12 and 4,

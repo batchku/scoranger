@@ -9,10 +9,14 @@ different things -- measured here rather than believed:
     breaks=encoded   breaks ONLY where the notation says, and nowhere else
     breaks=smart     honours some and re-flows the rest
 
-The paged renderers were `auto` until 0.12.2, so every line the op wrote would
-have been invisible on the page while the op reported success. That is the
-first thing asserted here, on BOTH renderers, because render.py and
-EngravingOptions.swift each carry their own copy of the answer.
+So a READER'S pagination needs `encoded` -- and only a reader's. The first
+version asked for it unconditionally, and the 0.13.0 release gate caught what
+that did: every imported file was laid out by its SOURCE edition's breaks, the
+string-quartet fixture going from 8 pages to its publisher's 4. So the op marks
+the score, both renderers ask for `encoded` on a marked score and `auto` on
+every other, and that is asserted first -- on BOTH renderers, because render.py
+and EngravingOptions.swift each carry their own copy of the answer -- and then
+on the real quartet fixture.
 
 The second is the trap in `encoded`: because it breaks only where told, ONE
 break on a long piece means one short line and then everything else crushed
@@ -57,14 +61,18 @@ def a_score(bars: int = 16, parts: int = 1):
     return score
 
 
-def drawn_systems(score, tag: str, breaks: str = "encoded") -> list[int]:
-    """Measures per system, off the page Verovio actually draws."""
+def drawn_systems(score, tag: str, breaks: str | None = None) -> list[int]:
+    """Measures per system, off the page Verovio actually draws.
+
+    With no `breaks`, the renderer's own decision is used -- `breaks_for`, read
+    off the written notation -- which is the path the export and the iPad take.
+    """
     SCRATCH.mkdir(parents=True, exist_ok=True)
     path = SCRATCH / f"{tag}.musicxml"
     score.write("musicxml", fp=str(path))
     tk = verovio.toolkit()                 # fresh: Verovio's options are sticky
     options = dict(render.page_options())
-    options["breaks"] = breaks
+    options["breaks"] = breaks or render.breaks_for(path.read_text(encoding="utf-8"))
     tk.setOptions(options)
     tk.loadFile(str(path))
     out = []
@@ -75,22 +83,89 @@ def drawn_systems(score, tag: str, breaks: str = "encoded") -> list[int]:
     return out
 
 
-# --- the renderers ask for encoded breaks, or none of this is drawn ---------
-print("both renderers ask Verovio for the breaks the notation carries")
+# --- the renderers honour a READER'S breaks, and only a reader's -------------
+print("both renderers honour the reader's breaks, and only the reader's")
 
-check("render.py exports with breaks=encoded",
-      render.page_options().get("breaks") == "encoded",
+MARK = '<miscellaneous-field name="scoranger-pagination">reader</miscellaneous-field>'
+check("render.py lays an unmarked score out itself",
+      render.page_options().get("breaks") == "auto" and render.breaks_for("") == "auto",
       str(render.page_options().get("breaks")))
+check("...and a score the reader paginated where its notation says",
+      render.breaks_for(MARK) == "encoded")
+check("a source edition's breaks alone do not switch it",
+      render.breaks_for('<print new-system="yes"/><print new-page="yes"/>') == "auto")
 
 swift = (Path(__file__).resolve().parents[2]
          / "ios/Scoranger/ScoreModel/EngravingOptions.swift").read_text()
-match = re.search(r'static func breaks\(continuous: Bool\) -> String \{([^}]*)\}', swift)
-check("EngravingOptions.swift agrees, and the strip still refuses to break",
-      bool(match) and '"encoded"' in match.group(1) and '"none"' in match.group(1),
-      match.group(1).strip() if match else "breaks(continuous:) not found")
+match = re.search(r'static func breaks\(continuous: Bool, readerPaginated: Bool = false\) -> String \{([^}]*)\}',
+                  swift)
+body = match.group(1) if match else ""
+check("EngravingOptions.swift makes the same three-way choice",
+      '"none"' in body and '"encoded"' in body and '"auto"' in body and "readerPaginated" in body,
+      body.strip() or "breaks(continuous:readerPaginated:) not found")
+check("...keyed on the same field name",
+      f'static let paginationField = "{render.PAGINATION_FIELD}"' in swift
+      and render.PAGINATION_FIELD == ops.PAGINATION_FIELD)
+
+# --- a score's SOURCE layout is not the reader's -----------------------------
+# The release gate for 0.13.0 caught the first version of this, which asked for
+# `encoded` unconditionally: the string-quartet fixture carries its publisher's
+# 48 system breaks and 12 page breaks, and went from Verovio's 8 pages to the
+# edition's 4, at eight and a half bars a line.
+print("\na score's own source layout is left alone until the reader paginates")
+
+import zipfile  # noqa: E402
+
+QUARTET = Path(__file__).resolve().parents[2] / "testdata" / "app-samples" / "sous-le-ciel-quartet.mxl"
+with zipfile.ZipFile(QUARTET) as z:
+    member = next(n for n in z.namelist()
+                  if n.endswith((".xml", ".musicxml")) and not n.startswith("META"))
+    quartet_xml = z.read(member).decode("utf-8")
+check("the fixture really does carry a source layout",
+      quartet_xml.count('new-system="yes"') > 0 and quartet_xml.count('new-page="yes"') > 0)
+
+
+def pages(xml: str, breaks: str) -> int:
+    tk = verovio.toolkit()
+    tk.setOptions({**render.page_options(), "breaks": breaks})
+    tk.loadData(xml)
+    return tk.getPageCount()
+
+
+as_before, as_published = pages(quartet_xml, "auto"), pages(quartet_xml, "encoded")
+check(f"unmarked, it lays out as every build has: {pages(quartet_xml, render.breaks_for(quartet_xml))} pages "
+      f"(auto {as_before}, the publisher's {as_published})",
+      render.breaks_for(quartet_xml) == "auto" and as_before != as_published)
+
+sourced = a_score(16)
+from music21 import layout as m21layout  # noqa: E402
+for part in sourced.parts:
+    for m in part.getElementsByClass(stream.Measure):
+        if m.number in (3, 11):
+            m.insert(0.0, m21layout.SystemLayout(isNew=True))
+        if m.number == 9:
+            m.insert(0.0, m21layout.PageLayout(isNew=True))
+check("a score with only source breaks draws exactly like one with none",
+      drawn_systems(sourced, "sourced") == drawn_systems(a_score(16), "bare"),
+      f"{drawn_systems(sourced, 'sourced')} vs {drawn_systems(a_score(16), 'bare')}")
+try:
+    ops.paginate(sourced, break_at=[7])
+    check("a source layout's line length is not taken as the reader's", False)
+except ValueError as exc:
+    check("a source layout's line length is not taken as the reader's",
+          "measures_per_line" in str(exc), str(exc))
+report = ops.paginate(sourced, measures_per_line=4)
+check("paginating marks the score as the reader's", ops.reader_paginated(sourced))
+page_breaks = sum(1 for p in sourced.parts for m in p.getElementsByClass(stream.Measure)
+                  for pl in m.getElementsByClass(m21layout.PageLayout) if pl.isNew)
+check("...replaces the source's page breaks as well as its lines", page_breaks == 0,
+      f"{page_breaks} page breaks left")
+check("...and the page follows the reader's lines",
+      drawn_systems(sourced, "resourced") == [4, 4, 4, 4],
+      str(drawn_systems(sourced, "resourced")))
 
 # --- and the three modes are not interchangeable ---------------------------
-print("\nthe three modes do different things, which is why it has to be encoded")
+print("\nthe three modes do different things, which is why a reader's needs encoded")
 
 paged = a_score(16)
 ops.paginate(paged, measures_per_line=4)
@@ -135,6 +210,8 @@ back.write("musicxml", fp=str(again))
 check("and survives a second write, which every op performs",
       again.read_text().count('new-system="yes"') == 3,
       str(again.read_text().count('new-system="yes"')))
+check("the reader's mark survives it too, or the next op would unpaginate",
+      render.breaks_for(again.read_text()) == "encoded")
 
 # --- clearing hands it back ------------------------------------------------
 print("\nclearing gives the layout back to the engraver")
@@ -144,6 +221,7 @@ ops.paginate(cleared, measures_per_line=4)
 gone = ops.paginate(cleared, clear=True)
 check("every break is removed and counted",
       gone["breaks_removed"] == 3, str(gone))
+check("...and the reader's mark with them", not ops.reader_paginated(cleared))
 check("and a score with none falls back to the engraver's own layout",
       drawn_systems(cleared, "cleared") == drawn_systems(a_score(16), "plain", "auto"),
       f"{drawn_systems(cleared, 'cleared')} vs auto {drawn_systems(a_score(16), 'plain', 'auto')}")

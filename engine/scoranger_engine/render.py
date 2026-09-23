@@ -132,6 +132,25 @@ def parse_spacing_value(value: str) -> dict:
     return out
 
 
+#: Mirrors ops.PAGINATION_FIELD -- the mark a reader's own pagination carries.
+PAGINATION_FIELD = "scoranger-pagination"
+_PAGINATION_RE = re.compile(
+    r'<miscellaneous-field[^>]*name="' + PAGINATION_FIELD + r'"[^>]*>\s*reader\s*</miscellaneous-field>')
+
+
+def breaks_for(text: str) -> str:
+    """Verovio's `breaks` for this score: `encoded` if the READER paginated it.
+
+    Measured: `auto` ignores encoded breaks outright and `encoded` breaks only
+    where the notation says. A score's breaks are honoured only when they are
+    the reader's -- a file from MuseScore, Finale, Sibelius or Audiveris carries
+    its SOURCE EDITION's layout, made for another page, and honouring that took
+    the string-quartet fixture from 8 pages to its publisher's 4 at eight and a
+    half bars a line. Unmarked, a score lays out as it always has.
+    """
+    return "encoded" if _PAGINATION_RE.search(text or "") else "auto"
+
+
 def spacing_options(spacing: dict) -> dict:
     """The Verovio options a spacing dict turns into. EVERY key, every time.
 
@@ -154,16 +173,12 @@ def page_options() -> dict:
     """
     return {"adjustPageHeight": False,
             "justifyVertically": True,
-            # `encoded`, so the line breaks `ops.paginate` writes into the
-            # notation are the lines the reader gets. Measured, not assumed:
-            # `auto` IGNORES them outright, and `smart` honours some and
-            # re-flows the rest. Safe to ask for unconditionally -- on a score
-            # carrying no breaks Verovio warns and lays it out itself, which is
-            # what every untouched score has always done.
-            # Mirrored in EngravingOptions.breaks(continuous:); the two must
-            # agree or an exported PDF is not the page the reader was looking
-            # at. engine/scripts/check_pagination.py holds them together.
-            "breaks": "encoded",
+            # `auto` for every score the reader has NOT paginated -- which is
+            # the layout every build has drawn -- and `encoded` only for one
+            # they have: `breaks_for` decides it, from the notation, per file.
+            # Mirrored in EngravingOptions.breaks(continuous:readerPaginated:);
+            # check_pagination.py holds the two together.
+            "breaks": "auto",
             # Named here at their defaults so a score that sets no spacing is
             # laid out at the defaults -- not at whatever the last score asked
             # for, which is what a merged option set left unnamed would give.
@@ -1743,7 +1758,8 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
     # take until something reloads -- and on a score with no fingerings and no
     # adjustments nothing does.
     with open(src, encoding="utf-8") as fh:
-        spacing = spacing_from_musicxml(fh.read())
+        notation = fh.read()
+    spacing = spacing_from_musicxml(notation)
     with _tk_lock:
         tk = _toolkit()
         # The page geometry rides along with every setOptions call: a partial
@@ -1751,6 +1767,7 @@ def render_pdf(musicxml_path, out_path, parts: list[str] | None = None,
         # quietly bring back the trimmed, uneven pages -- and the spacing is
         # named in full so one score's wide staves are not the next score's.
         tk.setOptions({**page_options(), **spacing_options(spacing),
+                       "breaks": breaks_for(notation),
                        "lyricSize": lyric_size_for(fingerings=False)})
         if not tk.loadFile(src):
             raise RuntimeError(f"Verovio could not load {src}")

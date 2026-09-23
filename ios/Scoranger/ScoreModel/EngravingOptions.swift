@@ -61,20 +61,35 @@ enum EngravingOptions {
     /// How Verovio breaks systems, per layout.
     ///
     /// `none` puts every system on one line and is what makes the continuous
-    /// surface a strip. `encoded` breaks where the NOTATION says, which is what
-    /// `ops.paginate` writes when a reader asks for four bars to a line or for
-    /// a new line at bar 17 -- and it is what `render.py` exports with, so a
-    /// page on the iPad and a page in an exported PDF are broken the same way.
+    /// surface a strip. `auto` is Verovio's own line and page breaking.
+    /// `encoded` breaks where the NOTATION says, which is what `ops.paginate`
+    /// writes when a reader asks for four bars to a line or for a new line at
+    /// bar 17. `render.breaks_for` makes the same choice for the PDF, so a page
+    /// on the iPad and a page in an export are broken the same way.
     ///
-    /// Paged was `auto` until 0.12.2, and `auto` IGNORES encoded breaks
-    /// outright, so every pagination the engine wrote would have been invisible
-    /// here. Measured, all three modes, in check_pagination.py.
+    /// `auto` ignores encoded breaks outright, so a READER'S pagination needs
+    /// `encoded` to be seen -- and ONLY a reader's. Asked for unconditionally
+    /// first, it laid out every imported file by its SOURCE EDITION's breaks:
+    /// the string-quartet fixture went from 8 pages to its publisher's 4, at
+    /// eight and a half bars a line, and the release gate caught it. A file
+    /// from MuseScore, Finale, Sibelius or Audiveris carries those breaks for
+    /// another engraver's page. So `ops.paginate` marks the score, and only a
+    /// marked score is drawn `encoded`; every other one exactly as before.
+    /// render.breaks_for is the export side; check_pagination.py holds both.
     ///
-    /// Safe to ask for unconditionally: on a score carrying no breaks Verovio
-    /// warns and lays the music out itself, which is exactly what `auto` did.
-    /// The strip stays `none` -- it is one system by definition, and a score
-    /// telling it where to break lines would end the strip.
-    static func breaks(continuous: Bool) -> String { continuous ? "none" : "encoded" }
+    /// The strip stays `none` -- it is one system by definition.
+    static func breaks(continuous: Bool, readerPaginated: Bool = false) -> String {
+        continuous ? "none" : (readerPaginated ? "encoded" : "auto")
+    }
+
+    /// The mark a reader's own pagination carries. Mirrors ops.PAGINATION_FIELD.
+    static let paginationField = "scoranger-pagination"
+
+    /// Has the READER laid this score out, as opposed to its source edition?
+    static func readerPaginated(inMusicXML xml: String) -> Bool {
+        xml.range(of: "<miscellaneous-field[^>]*name=\"\(paginationField)\"[^>]*>\\s*reader\\s*</miscellaneous-field>",
+                  options: .regularExpression) != nil
+    }
 
     /// A page's top and bottom margins are paper: they keep a printed page
     /// readable. The continuous strip is not paper -- it is trimmed to its one
@@ -123,10 +138,11 @@ enum EngravingOptions {
     /// score that asked for wide staves would otherwise leave them wide for the
     /// next score, which asked for nothing.
     static func json(lyricSize: Double, continuous: Bool,
-                     spacing: StaffSpacing.Values = StaffSpacing.defaults) -> String {
+                     spacing: StaffSpacing.Values = StaffSpacing.defaults,
+                     readerPaginated: Bool = false) -> String {
         """
         {"scale": \(scale), "footer": "none",
-         "breaks": "\(breaks(continuous: continuous))",
+         "breaks": "\(breaks(continuous: continuous, readerPaginated: readerPaginated))",
          "spacingStaff": \(spacing.staff), "spacingSystem": \(spacing.system),
          "adjustPageHeight": \(adjustPageHeight(continuous: continuous)),
          "justifyVertically": \(justifyVertically(continuous: continuous)),

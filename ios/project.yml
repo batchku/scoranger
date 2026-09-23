@@ -242,12 +242,14 @@ targets:
         #            1. PAGINATION IN CHAT. "Four bars to a line", "start a new
         #               line at bar 17", "repaginate this automatically" --
         #               `paginate`, written into the notation as MusicXML
-        #               <print new-system="yes"/>. BOTH RENDERERS NOW ASK
-        #               VEROVIO FOR `encoded` BREAKS; they asked for `auto`,
-        #               which ignores them, so every line the op wrote would
-        #               have been invisible. The op always writes a COMPLETE
-        #               layout, because a lone encoded break crushes every bar
-        #               after it onto one system;
+        #               <print new-system="yes"/> and MARKED as the reader's.
+        #               Both renderers ask Verovio for `encoded` breaks on a
+        #               marked score and `auto` on every other one -- asked for
+        #               unconditionally, the first gate caught every imported
+        #               file being laid out by its SOURCE edition's breaks (the
+        #               quartet fixture, 8 pages to its publisher's 4). The op
+        #               always writes a COMPLETE layout, because a lone encoded
+        #               break crushes every bar after it onto one system;
         #            2. STAFF SPACING IN CHAT, and THE WHISTLE BAND HALF THE
         #               HEIGHT IT WAS. `staff_spacing` sets the minimum space
         #               between staves and systems and the fingering band's
@@ -260,8 +262,7 @@ targets:
         #               strip in a page frame, kept there because nothing was
         #               in flight to replace it and 1-page/2-page share an
         #               engraving. The choice now wins when no engrave is
-        #               coming. His file also carries four encoded breaks of
-        #               its own and draws on ONE page as 5+4+4 with (1);
+        #               coming;
         #            4. A SHARED ENTRY IS NAMED OR NOT SHARED. Echo received
         #               Morrison's Jig as "Untitled": a null title became that
         #               string on upload. The title walks title -> name ->

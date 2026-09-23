@@ -41,18 +41,33 @@ final class EngravingOptionsTests: XCTestCase {
         }
     }
 
-    /// Paged breaks pages where the NOTATION says; continuous refuses to break.
+    /// Paged lays out as Verovio judges -- unless the READER paginated the
+    /// score, and then where the notation says. Continuous refuses to break.
     ///
-    /// Paged was `auto` until 0.12.2. `auto` ignores encoded breaks outright,
-    /// so every line `ops.paginate` writes would have been invisible on the
-    /// iPad -- the op would have reported success over an unchanged page.
+    /// Encoded unconditionally laid every imported file out by its SOURCE
+    /// edition's breaks (the quartet fixture: 8 pages to its publisher's 4);
+    /// never encoded, the reader's own pagination would be invisible.
     func testBreaksDifferByLayout() {
-        XCTAssertEqual(EngravingOptions.breaks(continuous: false), "encoded")
+        XCTAssertEqual(EngravingOptions.breaks(continuous: false), "auto")
+        XCTAssertEqual(EngravingOptions.breaks(continuous: false, readerPaginated: true), "encoded")
         XCTAssertEqual(EngravingOptions.breaks(continuous: true), "none")
+        XCTAssertEqual(EngravingOptions.breaks(continuous: true, readerPaginated: true), "none",
+                       "the strip is one system whoever laid the score out")
         XCTAssertEqual(value("breaks", in: EngravingOptions.json(lyricSize: 4.5,
-                                                                continuous: false)), "encoded")
+                                                                continuous: false)), "auto")
+        XCTAssertEqual(value("breaks", in: EngravingOptions.json(lyricSize: 4.5, continuous: false,
+                                                                readerPaginated: true)), "encoded")
         XCTAssertEqual(value("breaks", in: EngravingOptions.json(lyricSize: 4.5,
                                                                 continuous: true)), "none")
+    }
+
+    /// Only the reader's mark switches it: a source edition's breaks alone do not.
+    func testOnlyTheReadersMarkHonoursTheBreaks() {
+        let marked = "<miscellaneous-field name=\"scoranger-pagination\">reader</miscellaneous-field>"
+        XCTAssertTrue(EngravingOptions.readerPaginated(inMusicXML: "<x>" + marked + "</x>"))
+        XCTAssertFalse(EngravingOptions.readerPaginated(
+            inMusicXML: "<measure><print new-system=\"yes\"/></measure>"))
+        XCTAssertFalse(EngravingOptions.readerPaginated(inMusicXML: "<score-partwise/>"))
     }
 
     /// A page keeps its paper height; the strip is trimmed to its one system.

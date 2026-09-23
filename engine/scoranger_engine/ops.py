@@ -5412,9 +5412,17 @@ def playback_timeline(score) -> tuple:
 #     breaks=encoded   breaks ONLY where the notation says, and nowhere else
 #     breaks=smart     honours some and re-flows the rest
 #
-# `encoded` is what a reader who asked for four bars a line means, and it is
-# safe to ask for unconditionally: on a score carrying no breaks at all Verovio
-# warns and falls back to laying it out itself.
+# `encoded` is what a reader who asked for four bars a line means -- and ONLY
+# for a score the reader paginated. It was asked for unconditionally first, and
+# the release gate caught what that did: a MusicXML file from MuseScore,
+# Finale, Sibelius or Audiveris carries its SOURCE EDITION's breaks, and the
+# string-quartet fixture went from Verovio's 8 pages to its publisher's 4, at
+# eight and a half bars a line. Those breaks were made for another engraver's
+# page and staff size; after `keep-parts` a four-staff layout's page breaks
+# would strand one staff on mostly empty pages. So the reader's pagination is
+# MARKED (PAGINATION_FIELD) and the renderers ask for `encoded` only on a
+# marked score -- render.breaks_for and EngravingOptions.breaks. Every other
+# score lays out exactly as it always has.
 #
 # The trap is the other half. Because `encoded` breaks ONLY where told, ONE
 # break on a sixty-bar piece does not mean "and lay the rest out sensibly" --
@@ -5431,6 +5439,25 @@ _PAGINATION_NEEDS_A_LENGTH = (
     "how many bars to a line is not written anywhere on this score yet, so it "
     "has to be said: give measures_per_line (4 suits most tunes). After that "
     "the score remembers, and a break can be added or removed on its own.")
+
+
+#: The mark a reader's own pagination carries, as
+#: <miscellaneous-field name="scoranger-pagination">reader</miscellaneous-field>.
+#: Its presence -- and nothing else -- tells both renderers to honour the breaks.
+PAGINATION_FIELD = "scoranger-pagination"
+
+
+def reader_paginated(score) -> bool:
+    """Has the READER laid this score out, as opposed to its source edition?"""
+    md = score.metadata
+    return bool(md is not None and md.getCustom(PAGINATION_FIELD))
+
+
+def _mark_reader_pagination(score, on: bool) -> None:
+    from music21 import metadata as m21metadata
+    if score.metadata is None:
+        score.metadata = m21metadata.Metadata()
+    score.metadata.setCustom(PAGINATION_FIELD, "reader" if on else [])
 
 
 def _measure_numbers(part) -> list[int]:
@@ -5497,9 +5524,13 @@ def paginate(score, measures_per_line: int | None = None,
         raise ValueError("this score has no measures to paginate")
     first = numbers[0]
 
-    existing = system_break_bars(score)
+    # Only the READER's breaks are the score's own line length. A score that
+    # arrived with its publisher's layout has breaks too, made for another
+    # page, and paginating replaces them rather than inheriting their length.
+    existing = system_break_bars(score) if reader_paginated(score) else []
     if clear:
         _, removed = _write_system_breaks(score, set())
+        _mark_reader_pagination(score, False)
         return {"clear": True, "breaks_removed": removed,
                 "layout": "automatic -- Verovio breaks where it judges best"}
 
@@ -5530,6 +5561,7 @@ def paginate(score, measures_per_line: int | None = None,
     starts = _fill_runs(starts, numbers, per_line)
 
     written, _ = _write_system_breaks(score, starts - {first})
+    _mark_reader_pagination(score, True)
     heads = sorted(starts)
     lengths = [((heads[i + 1] if i + 1 < len(heads) else numbers[-1] + 1) - head)
                for i, head in enumerate(heads)]
@@ -5541,9 +5573,10 @@ def paginate(score, measures_per_line: int | None = None,
         "breaks_written": written,
         "forced": sorted(set(break_at or [])),
         "removed": sorted(set(remove_at or [])),
-        # Every renderer has to ASK for encoded breaks or none of this is drawn;
-        # said in the report so a caller that sees no change knows where to look.
-        "note": "drawn only where the renderer asks Verovio for encoded breaks",
+        # said so a caller knows the page now follows these lines, and how to
+        # hand it back
+        "note": ("marked as the reader's own layout, so the page follows these "
+                 "lines; clear hands it back to the engraver"),
     }
 
 
@@ -5564,11 +5597,19 @@ def _write_system_breaks(score, starts: set[int]) -> tuple[int, int]:
     On every staff because a system break is a property of the SYSTEM: written
     to the top staff alone, music21's grand-staff merge drops it -- the same
     trap `set_structure` records for voltas.
+
+    A source edition's PAGE breaks go too. Under `encoded` Verovio honours them,
+    so a reader's four-bars-a-line would otherwise still turn the page wherever
+    the publisher did. The reader's layout replaces the source's whole.
     """
     written = removed = 0
     for part in score.parts:
         for m in part.getElementsByClass(stream.Measure):
             for old in list(m.getElementsByClass(m21layout.SystemLayout)):
+                if old.isNew:
+                    m.remove(old)
+                    removed += 1
+            for old in list(m.getElementsByClass(m21layout.PageLayout)):
                 if old.isNew:
                     m.remove(old)
                     removed += 1
