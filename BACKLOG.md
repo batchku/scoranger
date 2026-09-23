@@ -1,5 +1,24 @@
 # Backlog
 
+## Book import: two file copies on the main thread (found in the 0.14.0 gate)
+
+`AppState.holdIncoming` and `AppState.importBook` run `FileManager.copyItem`
+on the main actor (AppState is @MainActor, and both run in Tasks that inherit
+it). Found by the Book import session while diagnosing the 0.14.0 gate's one
+failure, and not the cause of it. Fix: run each copy in `Task.detached` and
+await it -- two functions, nothing else.
+
+Shipped in 0.14.0 on purpose, not missed: inside one APFS volume, as the
+share-in path is, `copyItem` is a copy-on-write clone and near-instant at any
+size, and even a real 28 MB copy from another volume is ~30-150 ms on an
+iPad's storage -- a hitch, not a freeze. Folding it in meant discarding a gate
+already half run.
+
+If `BookShareIn/testASharedBookIsAskedAboutFoundKeptAndRead` ever fails in the
+SERIAL phase, the starvation diagnosis (gate.sh, ENGINE_SERIAL) was wrong. Look
+first at the first `BookPageView` raster for the book, which happens while the
+review is building, then at these copies.
+
 ## The baked keys -- next build, before any public submission
 
 **What is exposed.** The build step bakes the repo `.env`'s OpenRouter key into
