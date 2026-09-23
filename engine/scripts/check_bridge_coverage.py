@@ -231,6 +231,9 @@ book = do("import-book", path=PDF, name="Teh Rael Bok")["book"]
 do("book-file", book=book)
 do("rename-book", book=book, name="The Real Book")
 do("book-extract", book=book, from_page=1, to_page=2, name="Misty", piece="Misty")
+do("book-detect", book=book, ocr={"1": [{"text": "Misty", "top": 0.06, "height": 0.03}]})
+do("book-contents", book=book, entries=[{"title": "Misty", "from": 1, "to": 2}])
+do("book-split", book=book, entries=[{"title": "Nardis", "from": 2, "to": 2}])
 do("delete-book", book=book)
 do("bulk-import", folder=BULK, files=["Nature Boy/trio.musicxml"])
 

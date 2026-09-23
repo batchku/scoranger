@@ -46,8 +46,20 @@ def intra(module: str) -> set[str]:
                 found.add(node.module.split(".")[0])
     return found
 
-# what the bridge names, then everything those reach, transitively
-seeds = {"__init__", "workspace", "ops", "db", "bulk", "bundle"}
+# what the bridge names, then everything those reach, transitively. The seeds
+# are READ from bridge.py too: they were a hand-kept set, and 0.14.0's
+# `from scoranger_engine import booksplit` inside a bridge branch was missing
+# from it -- the host passed and the device would have raised ModuleNotFoundError.
+bridge = Path("PythonApp/app/bridge.py")
+seeds = {"__init__"}
+for node in ast.walk(ast.parse(bridge.read_text())):
+    if isinstance(node, ast.ImportFrom) and node.module == "scoranger_engine":
+        seeds |= {alias.name for alias in node.names}
+    elif isinstance(node, ast.ImportFrom) and (node.module or "").startswith("scoranger_engine."):
+        seeds.add(node.module.split(".")[1])
+    elif isinstance(node, ast.Import):
+        seeds |= {a.name.split(".")[1] for a in node.names
+                  if a.name.startswith("scoranger_engine.")}
 closure, queue = set(), list(seeds)
 while queue:
     module = queue.pop()

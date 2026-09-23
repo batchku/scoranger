@@ -423,6 +423,41 @@ def cmd_book_extract(a):
     _emit({"score": slug, "version": entry["id"], "piece": a.piece})
 
 
+def _book_plan(a) -> list | None:
+    if getattr(a, "clear", False):
+        return None
+    if not a.plan:
+        raise ValueError("Pass --plan FILE (the JSON book-detect prints under "
+                         "'entries', edited or not)")
+    plan = json.loads(Path(a.plan).expanduser().read_text())
+    return plan["entries"] if isinstance(plan, dict) else plan
+
+
+def cmd_book_detect(a):
+    from . import booksplit
+
+    ocr = None
+    if a.ocr:
+        ocr = {int(k): v for k, v in
+               json.loads(Path(a.ocr).expanduser().read_text()).items()}
+    workspace.resolve_book(a.book)
+    _emit({"book": a.book,
+           **booksplit.propose(workspace.book_path(a.book), ocr)})
+
+
+def cmd_book_contents(a):
+    from . import booksplit
+
+    doc = booksplit.set_contents(a.book, _book_plan(a))
+    _emit({"book": a.book, "contents": doc.get("contents") or []})
+
+
+def cmd_book_split(a):
+    from . import booksplit
+
+    _emit(booksplit.split(a.book, _book_plan(a)))
+
+
 def cmd_books(a):
     _emit({"books": workspace.list_books()})
 
@@ -951,6 +986,33 @@ def main() -> None:
     s.add_argument("--name", required=True)
     s.add_argument("--piece", help="file it under this piece (created if missing)")
     s.set_defaults(fn=cmd_book_extract)
+
+    s = sub.add_parser("book-detect",
+                       help="PROPOSE where each tune in a book starts and what "
+                            "it is called (bookmarks, then page headings, then "
+                            "--ocr lines for scanned pages). Writes nothing.")
+    s.add_argument("book")
+    s.add_argument("--ocr", help='JSON: {"12": [{"text": "Misty", "top": 0.06, '
+                                 '"height": 0.03}]}, fractions of the page, for '
+                                 'pages the report lists under needs_ocr')
+    s.set_defaults(fn=cmd_book_detect)
+
+    s = sub.add_parser("book-contents",
+                       help="Save a book's contents (its tunes as page ranges) "
+                            "so it is read tune by tune and stays ONE book")
+    s.add_argument("book")
+    s.add_argument("--plan", help='JSON: [{"title": "Misty", "from": 12, "to": 13}]')
+    s.add_argument("--clear", action="store_true", help="remove the contents")
+    s.set_defaults(fn=cmd_book_contents)
+
+    s = sub.add_parser("book-split",
+                       help="Take every entry of a plan out of the book as an "
+                            "arrangement, under a piece named after its title "
+                            "(an existing piece of that name is joined)")
+    s.add_argument("book")
+    s.add_argument("--plan", required=True,
+                   help='JSON: [{"title": "Misty", "from": 12, "to": 13}]')
+    s.set_defaults(fn=cmd_book_split)
 
     s = sub.add_parser("books", help="List the books in the workspace")
     s.set_defaults(fn=cmd_books)

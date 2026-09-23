@@ -141,6 +141,25 @@ def _dispatch(op, a):
             a["name"], a.get("piece"))
         piece = a.get("piece") or workspace.ensure_own_piece(slug)["piece"]
         return {"score": slug, "version": entry["id"], "piece": piece}
+    if op == "book-detect":
+        # A PROPOSAL, read-only: where each tune starts and what it is called.
+        # `needs_ocr` names the pages with no text layer; the app reads those
+        # with Vision and asks again with `ocr` (fractions of the page).
+        from scoranger_engine import booksplit
+        workspace.resolve_book(a["book"])
+        ocr = {int(k): v for k, v in (a.get("ocr") or {}).items()}
+        return {"book": a["book"],
+                **booksplit.propose(workspace.book_path(a["book"]), ocr)}
+    if op == "book-contents":
+        # Keep it a book: the tunes as page ranges, read like a set list.
+        # `entries: null` clears them.
+        from scoranger_engine import booksplit
+        doc = booksplit.set_contents(a["book"], a.get("entries"))
+        return {"book": a["book"], "contents": doc.get("contents") or []}
+    if op == "book-split":
+        # Take the tunes out: an arrangement each, under a piece named after it.
+        from scoranger_engine import booksplit
+        return booksplit.split(a["book"], a["entries"])
     if op == "book-file":
         # Where the book's own PDF is, so the reader can LOOK through it before
         # naming a page range. Asking someone for pages 137-139 of a fake book

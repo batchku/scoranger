@@ -653,6 +653,16 @@ def rename_book(slug: str, new_name: str) -> dict:
     return doc
 
 
+def save_book(slug: str, doc: dict) -> None:
+    """Write a book document the caller has changed, and re-project."""
+    _repo().set_book(slug, doc)
+    rebuild_manifest()
+
+
+def list_pieces() -> list:
+    return _repo().list_pieces()
+
+
 def delete_book(slug: str) -> None:
     _repo().delete_book(slug)
     book_path(slug).unlink(missing_ok=True)
@@ -682,7 +692,7 @@ def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
     reader = PdfReader(str(book_path(slug)))
     writer = PdfWriter()
     for index in range(from_page - 1, to_page):
-        writer.add_page(reader.pages[index])
+        writer.add_page(_standalone_page(reader.pages[index]))
     staging = Path(tempfile.mkdtemp()) / f"{slugify(name)}.pdf"
     with open(staging, "wb") as f:
         writer.write(f)
@@ -694,6 +704,66 @@ def extract_from_book(slug: str, from_page: int, to_page: int, name: str,
         assign_score_to_piece(score_slug, piece, create_if_missing=True)
     rebuild_manifest()
     return score_slug, entry
+
+
+def _standalone_page(page):
+    """The page as it will stand alone: holding only the images its content
+    stream draws, and no links to pages of the book it no longer has.
+
+    A PDF may hang one resource dictionary off every page -- jsPDF does, and
+    the Comhaltas San Diego tunebook's pages each list all 689 of its images
+    while drawing four -- and copying a page copies everything its resources
+    name. Taking one tune out of that book wrote 28 MB.
+
+    The page's resources are REPLACED on this page object, never edited: they
+    are shared, and pruning them in place would take the next page's images
+    away. A name the content stream draws that this cannot find (an escaped
+    name, say) leaves the page exactly as it was, because a missing image is
+    worse than a large file.
+    """
+    import re
+
+    from pypdf.generic import ArrayObject, DictionaryObject, NameObject
+
+    # A link to ANOTHER PAGE of the book goes too. It has nowhere to land in
+    # the extract, and copying it copies the page it names -- and that page's
+    # links, and so on through the book: the tunebook's "<<" and ">>" marks
+    # brought all 134 pages along with every tune. A web link (the tunebook's
+    # "play the tune") names no page and stays.
+    annots = page.get("/Annots")
+    if annots is not None:
+        def internal(annot) -> bool:
+            annot = annot.get_object()
+            action = annot.get("/A")
+            action = action.get_object() if action is not None else {}
+            return "/Dest" in annot or action.get("/S") in ("/GoTo", "/GoToR")
+        kept_annots = [a for a in annots.get_object() if not internal(a)]
+        if kept_annots:
+            page[NameObject("/Annots")] = ArrayObject(kept_annots)
+        else:
+            del page["/Annots"]
+
+    resources = page.get("/Resources")
+    if resources is None:
+        return page
+    resources = resources.get_object()
+    xobjects = resources.get("/XObject")
+    if xobjects is None:
+        return page
+    xobjects = xobjects.get_object()
+    contents = page.get_contents()
+    data = contents.get_data() if contents is not None else b""
+    drawn = {m.decode("latin-1")
+             for m in re.findall(rb"/([^\s/\[\]()<>{}%]+)\s*Do\b", data)}
+    names = {str(k)[1:] for k in xobjects.keys()}
+    if not drawn <= names:
+        return page
+    kept = DictionaryObject({NameObject(k): v for k, v in xobjects.items()
+                             if str(k)[1:] in drawn})
+    replaced = DictionaryObject(resources)
+    replaced[NameObject("/XObject")] = kept
+    page[NameObject("/Resources")] = replaced
+    return page
 
 
 def _ops_humanised(name: str) -> str:
@@ -1720,8 +1790,10 @@ def rebuild_manifest() -> dict:
                          "ownerUid": doc.get("ownerUid"),
                          "arrangements": [s for s in doc.get("scores") or []
                                           if s in known]})
+    # `contents` is the book read tune by tune (booksplit.set_contents): the
+    # app lists it the way it lists a set list, so it has to be projected.
     books = [{"slug": b["slug"], "uid": b.get("uid"), "name": b["name"],
-              "pages": b.get("pages")}
+              "pages": b.get("pages"), "contents": b.get("contents") or []}
              for b in sorted(repo.list_books(), key=lambda x: x["name"].lower())]
     # The library's own identity, so the app can address this device without
     # reading the database (design/FIREBASE.md §9.2). Named fields, not the
