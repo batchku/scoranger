@@ -17,12 +17,19 @@ struct LocalChat {
     ]
     static let defaultModel = "gemini-flash"
 
-    /// Build-time default key (postBuild "Bake OpenRouter key" bakes it from
-    /// the repo's gitignored .env); empty when the build had no .env.
-    static let bakedKey: String =
-        (Bundle.main.url(forResource: "openrouter-default-key", withExtension: "txt")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Chat uses the READER's own OpenRouter key, and the app ships none
+    /// (0.15.0; Ali, 2026-09-23). Through 0.14.0 a developer key was baked in
+    /// and used whenever the reader had not saved one -- readable by anyone who
+    /// unzipped the .ipa. `ChatKey.choose` is the whole rule, in ScoreModel so
+    /// it can be tested.
+    ///
+    /// Forget the developer key a device may still hold: the old 401
+    /// "self-heal" wrote it into the reader's Keychain. Called once at launch.
+    static func forgetRetiredKey() {
+        if RetiredKeys.isRetiredOpenRouterKey(KeychainStore.openRouterKey) {
+            KeychainStore.openRouterKey = ""
+        }
+    }
 
     static let instructions = """
     You are Scoranger's arrangement agent. You manipulate a musical score ONLY \
@@ -75,6 +82,9 @@ struct LocalChat {
 
     enum ChatError: Error, LocalizedError {
         case missingKey
+        /// OpenRouter answered 401 to the reader's own key. Said, not healed:
+        /// the old recovery swapped in the developer's key without a word.
+        case rejectedKey
         /// The provider refused, in its own words -- read out of whatever
         /// envelope it arrived in, and never handed over as JSON. This replaced
         /// `http(Int, String)` and `badResponse(String)`, both of which printed
@@ -85,7 +95,8 @@ struct LocalChat {
         case network(URLError)
         var errorDescription: String? {
             switch self {
-            case .missingKey: return "No OpenRouter API key — none baked into this build; add one in Settings."
+            case .missingKey: return ChatKey.missingSentence
+            case .rejectedKey: return ChatKey.rejectedSentence
             case .provider(let fault): return fault.readable
             case .network(let error):
                 return "Couldn't reach OpenRouter: \(error.localizedDescription) "
@@ -253,11 +264,10 @@ struct LocalChat {
     /// Returns whatever came back; judging it is `complete`'s business.
     private func send(model: String, messages: [[String: Any]],
                       allowTools: Bool) async throws -> (Data, Int) {
-        // stored key if present, baked-in default otherwise; a 401 self-heals
-        // below by falling back to the baked key
-        let storedKey = KeychainStore.openRouterKey
-        var key = storedKey.isEmpty ? Self.bakedKey : storedKey
-        guard !key.isEmpty else { throw ChatError.missingKey }
+        // the reader's own key, or nothing: there is no other key to fall back to
+        guard case .use(let key) = ChatKey.choose(saved: KeychainStore.openRouterKey) else {
+            throw ChatError.missingKey
+        }
 
         var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/chat/completions")!)
         request.httpMethod = "POST"
@@ -293,12 +303,8 @@ struct LocalChat {
             } catch let error as URLError {
                 throw ChatError.network(error)
             }
-            if code == 401, !Self.bakedKey.isEmpty, key != Self.bakedKey {
-                // stored key is wrong — self-heal with the baked one, retry once
-                key = Self.bakedKey
-                KeychainStore.openRouterKey = Self.bakedKey
-                continue
-            }
+            // a refused key is the reader's to replace, and the reply says so
+            if code == 401 { throw ChatError.rejectedKey }
             break
         }
         return (data, code)

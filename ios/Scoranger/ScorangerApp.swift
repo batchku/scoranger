@@ -63,6 +63,10 @@ struct ScorangerApp: App {
                     // reader who never opens Settings would be missed.
                     OMRIdentity.install(into: state)
                     state.migrateStaleOMRURL()
+                    // A device that ever took the old 401 "self-heal" holds the
+                    // developer's retired OpenRouter key as if its reader had
+                    // saved it; forget it, so chat asks for the reader's own.
+                    LocalChat.forgetRetiredKey()
                     state.prepareDocumentsFolders()
                     // The mixer window opens where it was left, and in the
                     // state it was left in (MIXER_WINDOW.md §5, §1.3).

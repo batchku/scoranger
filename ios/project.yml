@@ -128,15 +128,19 @@ targets:
             cp "$PROJECT_DIR/../.omr-api-key" "$CODESIGNING_FOLDER_PATH/omr-default-key.txt"
           fi
         basedOnDependencyAnalysis: false
-      - name: Bake OpenRouter key
+      - name: No OpenRouter key in the bundle
         script: |
-          # repo is public: the key lives in the gitignored .env, injected into
-          # the app bundle at build time (zero-config chat)
-          if [ -f "$PROJECT_DIR/../.env" ]; then
-            key=$(grep '^OPENROUTER_API_KEY=' "$PROJECT_DIR/../.env" | head -n1 | cut -d= -f2-)
-            key=$(printf '%s' "$key" | tr -d '"' | tr -d "'" | tr -d '[:space:]')
-            printf '%s' "$key" > "$CODESIGNING_FOLDER_PATH/openrouter-default-key.txt"
-          fi
+          # CHAT BRINGS ITS OWN KEY (0.15.0). Until then this phase baked the
+          # developer's OpenRouter key from .env into the bundle ("zero-config
+          # chat", 2026-08-16), where anyone who unzipped the .ipa could read it
+          # and spend it from anywhere. Ali's decision, 2026-09-23: the reader
+          # pastes their own key in Settings, and the app ships none.
+          #
+          # The phase stays, as a deletion, because an INCREMENTAL build keeps
+          # whatever an earlier build left in the app folder -- dropping the
+          # bake alone would leave the old key in every development build.
+          # deploy_testflight.sh refuses an archive that carries one.
+          rm -f "$CODESIGNING_FOLDER_PATH/openrouter-default-key.txt"
         basedOnDependencyAnalysis: false
       - name: Stamp git sha
         script: |

@@ -158,18 +158,32 @@ and the full header set.
 https://github.com/batchku/scoranger`, `X-Title: Scoranger`, and the bearer
 key. These identify the app, not the person.
 
-**The API key is the developer's, shared by every install.**
-`LocalChat.swift:258-260` prefers a Keychain key the user typed in Settings and
-otherwise falls back to `openrouter-default-key.txt`, baked into the bundle at
-build time from the gitignored `.env` (`ios/project.yml:131-140`). So by
-default every user's chat traffic bills to, and is attributed to, one
-OpenRouter account.
+**From 0.15.0 the API key is the READER'S OWN** (Ali, 2026-09-23). `ChatKey`
+(`ios/Scoranger/ScoreModel/ChatKey.swift`) is the whole rule: the key the
+reader saved in Settings, kept in the Keychain and sent only to OpenRouter, or
+none -- in which case chat says where to get one and does not run. The app
+ships no key: `project.yml` deletes `openrouter-default-key.txt` on every
+build, and `deploy_testflight.sh` refuses an archive in which any file contains
+an OpenRouter key.
+
+*Through 0.14.0 it was the developer's, shared by every install:* baked into
+the bundle from the gitignored `.env`, used whenever the reader had saved none,
+and written into the reader's Keychain by a 401 "self-heal" that replaced a
+refused key without a word. `RetiredKeys` makes a device forget that one key at
+launch, by its SHA-256; revoking it at OpenRouter is what kills every copy.
+
+**What this does to the App Privacy answers** (for Ali, section 8): chat
+traffic now goes from the device to OpenRouter under the READER'S account, and
+never reaches the developer. The answers in section 5 were written for the
+developer's account and are still the conservative reading. Whether content
+sent to a service the reader holds their own account with is "collected" by
+this app is a judgement call for section 8, not a fact this inventory can settle.
 
 **No retention control is requested.** No zero-data-retention header, no
-`provider` routing block, no `transforms`. OpenRouter's account-level defaults
-apply. **UNKNOWN:** whether logging and training are disabled on that account.
-That is a dashboard setting outside this repository, and the privacy policy's
-honesty depends on it. *Ali must check this before the policy goes live.*
+`provider` routing block, no `transforms`, so the ACCOUNT'S settings apply --
+now the reader's own, which the policy says, and suggests turning logging and
+training off. (Through 0.14.0 that account was the developer's, and both were
+confirmed off, 2026-09-22.)
 
 **FIXED IN 0.12.0: the `list_versions` asymmetry.** Through 0.11.0 the Python
 agent projected version documents down to `{id, op, args}` while the iOS
@@ -917,7 +931,7 @@ the release gate.
 | 4 | ~~The GCP project ID for the Cloud Run deployment~~ | **RESOLVED 2026-09-22: `scoranger-omr`**, service `scoranger-omr`, region `us-central1`. | -- |
 | 5 | ~~Whether `FIREBASE_PROJECT_ID` is set on the live Cloud Run revision~~ | **RESOLVED 2026-09-22: it was NOT set** -- the only env var was `OMR_API_KEY`. So the live service could not verify tokens and every job logged unattributed. Set at the 0.13.0 OMR deploy (`--update-env-vars`, which merges), with the code that never logs an email. | -- |
 | 6 | Runtime network behaviour of each linked SDK | No traffic capture was performed; linkage and SDK manifests only | A proxy capture, if ever needed |
-| 7 | ~~Whether the shipped release archive contains a baked OpenRouter key~~ | **RESOLVED 2026-09-22: YES.** `openrouter-default-key.txt`, 73 bytes, `sk-or-v1-...`, in the build 201 app bundle -- readable by anyone who unzips the .ipa, and usable from anywhere. The OMR key is baked the same way. **Fix planned as its own build before public submission: a server proxy holding both keys, with Firebase App Check**, so the keys never ship and "no account required" survives. Rotate both keys now. | Not an App Review rejection; a cost and abuse exposure that grows with every download. |
+| 7 | ~~Whether the shipped release archive contains a baked OpenRouter key~~ | **RESOLVED 2026-09-22: YES**, through build 203 (0.14.0) -- 73 bytes, readable by anyone who unzips the .ipa. **FIXED in 0.15.0 by removing it: chat brings its own key** (Ali, 2026-09-23), and the deploy refuses an archive that carries one. The retired key must still be REVOKED at OpenRouter, which is Ali's. The OMR key is still baked, capped at one server instance. | -- |
 | 8 | Minimum-age terms of OpenRouter and the upstream model providers | Not checked | Counsel, with §9 |
 | 9 | Scoranger's App Store age rating and whether it will be in the Kids Category | Nothing in this repository records it | Ali, with §9 |
 

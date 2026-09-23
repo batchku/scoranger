@@ -160,10 +160,11 @@ struct SettingsView: View {
                         .typeRole(.meta).foregroundStyle(Theme.Ink.ink3)
                 }
                 .accessibilityIdentifier("settings-engine-state")
+                // the reader's own key or none: chat ships no key (0.15.0)
                 keyField(label: "OpenRouter API key",
                          draft: $apiKeyDraft, saved: $savedChatKey,
                          identifier: "openrouter-key",
-                         baked: !LocalChat.bakedKey.isEmpty) { value in
+                         status: ChatKey.status(saved: savedChatKey)) { value in
                     KeychainStore.openRouterKey = value
                 }
                 PanelNote(text: "On: scores live on this iPad; no laptop needed. Off: connect to scor serve on your Mac.")
@@ -207,7 +208,8 @@ struct SettingsView: View {
                 keyField(label: "OMR service API key",
                          draft: $omrKeyDraft, saved: $savedOMRKey,
                          identifier: "omr-key",
-                         baked: !AppState.bakedOMRKey.isEmpty) { value in
+                         status: keyStatus(saved: savedOMRKey,
+                                           baked: !AppState.bakedOMRKey.isEmpty)) { value in
                     KeychainStore.omrKey = value
                 }
                 HStack {
@@ -299,7 +301,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func keyField(label: String, draft: Binding<String>, saved: Binding<String>,
-                          identifier: String, baked: Bool,
+                          identifier: String, status: String,
                           store: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             LabeledField(label: label, text: draft, isMono: true,
@@ -320,10 +322,13 @@ struct SettingsView: View {
                     .accessibilityIdentifier("clear-\(identifier)")
                 }
             }
-            PanelNote(text: keyStatus(saved: saved.wrappedValue, baked: baked))
+            PanelNote(text: status)
         }
     }
 
+    /// The OMR key's status. The scanning service's key is still built into
+    /// each build (its exposure is capped at one server instance), so this
+    /// keeps the built-in wording; the chat key's is `ChatKey.status`.
     private func keyStatus(saved: String, baked: Bool) -> String {
         if !saved.isEmpty {
             return "Using your saved key (\(String(saved.suffix(4))) …last four). "

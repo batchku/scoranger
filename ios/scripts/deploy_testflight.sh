@@ -337,6 +337,23 @@ APP_MANIFEST="$ARCHIVED_APP/PrivacyInfo.xcprivacy"
      ITMS-91053 with extra steps. See engine/scripts/check_privacy_manifests.py."
 say "the app's own privacy manifest is in the archive and declares its APIs"
 
+# NO CHAT KEY SHIPS (0.15.0). Through 0.14.0 the developer's OpenRouter key was
+# baked into the bundle as openrouter-default-key.txt, readable by anyone who
+# unzipped the .ipa and usable from anywhere; chat now uses the reader's own
+# key (Ali, 2026-09-23). project.yml deletes the file on every build, and this
+# refuses an archive that somehow still carries one -- or any file whose
+# contents look like an OpenRouter key -- because what matters is what Apple
+# receives, not what the build step meant to do.
+[[ ! -e "$ARCHIVED_APP/openrouter-default-key.txt" ]] || die "the archived app carries
+     openrouter-default-key.txt -- a developer chat key would ship to every
+     reader. Chat brings its own key; find what put it back."
+if grep -rlE 'sk-or-v1-[0-9a-f]{20,}' "$ARCHIVED_APP" > /dev/null 2>&1; then
+  die "a file in the archived app contains an OpenRouter key:
+     $(grep -rlE 'sk-or-v1-[0-9a-f]{20,}' "$ARCHIVED_APP" | head -3 | sed "s|$ARCHIVED_APP/||")
+     Chat brings its own key; nothing in the bundle may carry one."
+fi
+say "no OpenRouter key anywhere in the archive"
+
 # ------------------------------------------------------- export and upload
 say "exporting and uploading to TestFlight"
 rm -rf "$EXPORT_DIR"
