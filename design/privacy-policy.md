@@ -204,11 +204,6 @@ Two things we keep, and we would rather tell you than not:
 Scoranger is not designed for children and is not in the App Store's Kids
 category. It does not ask for anyone's age.
 
-*[This section is a placeholder. Do not publish it as written. The under-13
-question is set out with its facts in `design/APP_STORE_PRIVACY.md` section 9
-and is for a lawyer to answer. What this section says depends on that answer
-and on the age rating chosen for the listing.]*
-
 ## Where things are stored
 
 Accounts, set lists, shared files and marks are held by Google Firebase.

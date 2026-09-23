@@ -73,3 +73,5 @@ firebase/functions/package-lock.json
 
 # device builds from scripts/install-device.sh
 .build/
+# rendered from design/privacy-policy.md by firebase/build_hosting.sh
+firebase/hosting/privacy/

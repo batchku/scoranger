@@ -96,7 +96,7 @@ no upload.
 ## URLs
 
 - Support: **https://batchku.github.io/scoranger-support/** (live)
-- Privacy policy: not yet published — blocked on the children's section
+- Privacy policy: **https://scoranger.web.app/privacy/** (live 2026-09-22; built by `firebase/build_hosting.sh` from `design/privacy-policy.md`)
 - Marketing: none
 
 ## Screenshots
