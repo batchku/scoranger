@@ -274,7 +274,8 @@ struct CreditsBlock: View {
                 .accessibilityIdentifier("credits-\(group.id)")
             }
 
-            Text("The full licence texts travel with the code in Scoranger's "
+            Text("Where a licence text travels inside the app, Read the licence "
+                 + "shows it. The rest travel with the code in Scoranger's "
                  + "repository, beside each project they belong to.")
                 .typeRole(.meta)
                 .foregroundStyle(Theme.Ink.ink3)
@@ -291,8 +292,29 @@ struct CreditsBlock: View {
 /// collide the moment the type grows.
 private struct CreditRow: View {
     let credit: Pipeline.Credit
+    @State private var reading = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Metric.s4) {
+            summary
+            if credit.text != nil {
+                Button("Read the licence") { reading = true }
+                    .typeRole(.meta)
+                    .foregroundStyle(Theme.Accent.clayStrong)
+                    .accessibilityIdentifier("licence-\(credit.name)")
+            }
+        }
+        .padding(.vertical, Theme.Metric.s4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Theme.Rule() }
+        .sheet(isPresented: $reading) {
+            if let path = credit.text {
+                LicenceSheet(name: credit.name, path: path)
+            }
+        }
+    }
+
+    private var summary: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(credit.name)
                 .typeRole(.row)
@@ -307,10 +329,73 @@ private struct CreditRow: View {
                 .foregroundStyle(Theme.Ink.ink3)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, Theme.Metric.s4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .top) { Theme.Rule() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(credit.name), \(credit.licence). \(credit.role)")
+    }
+}
+
+/// A licence text as it ships, word for word, in the monospaced face: these
+/// are laid out with hard line breaks and indented clauses, and reflowing them
+/// in a proportional face turns a numbered condition into a paragraph.
+private struct LicenceSheet: View {
+    let name: String
+    /// Read once, when the sheet is made, not on every redraw.
+    private let loaded: Result<[LicenceText.File], any Error>
+    @Environment(\.dismiss) private var dismiss
+
+    init(name: String, path: String) {
+        self.name = name
+        loaded = Result { try LicenceText.read(path, under: Bundle.main.bundleURL) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                // LAZY, and a paragraph per row: Firebase's NOTICES is 3,000
+                // lines, and one Text that size lays out all of it before the
+                // sheet can appear.
+                LazyVStack(alignment: .leading, spacing: Theme.Metric.s8) {
+                    switch loaded {
+                    case .success(let files):
+                        ForEach(files, id: \.name) { file in
+                            if files.count > 1 {
+                                Text(file.name)
+                                    .typeRole(.label)
+                                    .foregroundStyle(Theme.Ink.ink3)
+                                    .padding(.top, Theme.Metric.s12)
+                            }
+                            ForEach(Array(LicenceText.paragraphs(file.text).enumerated()),
+                                    id: \.offset) { _, paragraph in
+                                Text(paragraph)
+                                    .typeRole(.dataS)
+                                    .foregroundStyle(Theme.Ink.ink)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    case .failure:
+                        // deploy_testflight.sh refuses an archive where this
+                        // happens, so a reader should never see it. Said
+                        // plainly if they do, rather than an empty sheet.
+                        Text("This build is missing the licence text for \(name). "
+                             + "It is published with the project itself.")
+                            .typeRole(.body)
+                            .foregroundStyle(Theme.Ink.ink2)
+                    }
+                }
+                .padding(Theme.Metric.panelPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Theme.Surface.paper)
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .accessibilityIdentifier("licence-sheet")
     }
 }

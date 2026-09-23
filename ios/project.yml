@@ -45,6 +45,13 @@ targets:
       - path: PythonApp/app_packages
         type: folder
         buildPhase: resources
+      # Every licence text the credits screen offers (Pipeline.Credit.text).
+      # Tracked, except Licences/python/, which vendor_engine.sh generates
+      # from each Python package's .dist-info. Licences/README.md says where
+      # each of the others came from.
+      - path: Licences
+        type: folder
+        buildPhase: resources
       # The General MIDI sound bank the app PLAYS with (scripts/fetch_soundfont.sh).
       # It has to be IN the bundle: iOS ships no GM bank an app may load, and
       # the absolute macOS path this used to read resolved in the simulator
@@ -234,22 +241,41 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
-        #   0.14.1 AN INCOMING FILE IS COPIED OFF THE MAIN THREAD (2026-09-22).
-        #          Scope written before the work. One fix, so the patch bumps.
+        #   0.15.0 CHAT BRINGS ITS OWN KEY, AND EVERY LICENCE TRAVELS WITH THE
+        #          APP (2026-09-23). Scope written before the gate. One feature
+        #          and two fixes, so the minor bumps once. 0.14.1 was scoped
+        #          and never shipped; its one fix rides here.
         #
         #          In this build:
-        #            1. Every import path that takes a private copy of an
-        #               incoming file -- share-in (holdIncoming), a book, a
-        #               PDF, a score, a bundle -- ran FileManager.copyItem on
-        #               the main actor. Found diagnosing the 0.14.0 gate's one
-        #               failure and not its cause (BACKLOG). Within one volume
-        #               it is a clone and costs nothing; from another volume a
-        #               28 MB tunebook is a visible hitch. All five now copy
-        #               through one helper that runs detached and is awaited.
+        #            1. The app ships NO OpenRouter key. Chat uses the key the
+        #               reader pastes in Settings › Engine and is billed to
+        #               their own account (Ali's decision). Through 0.14.0 the
+        #               developer's key was baked into every build and a 401
+        #               "self-heal" wrote it into readers' Keychains; a device
+        #               forgets that key at launch (RetiredKeys, by hash), and
+        #               the deploy refuses an archive carrying any key.
+        #            2. Every licence text the credits name ships in the app
+        #               and opens from Settings › How Scoranger works › Read
+        #               the licence: the Python packages (vendor_engine.sh
+        #               deleted them with the .dist-info), CPython and the C
+        #               libraries in its build, Verovio and what is compiled
+        #               into it, the music fonts, SwiftDraw, Firebase and
+        #               Google. The deploy refuses an archive missing one.
+        #               Credits corrected from the build products: SwiftProtobuf
+        #               out (links into nothing), AppCheckCore and
+        #               RecaptchaInterop in (they link).
+        #            3. Verovio's data/Liberation.css no longer ships. It is
+        #               Liberation Serif 1.04, GPLv2 rather than OFL, and the
+        #               app never loads it (Ali's decision).
+        #            4. The 0.14.1 fix: every incoming file (share-in, book,
+        #               PDF, score, bundle) is copied off the main thread.
         #          NOT in this build, and said before it starts:
-        #            - the DEBUG inbox seed and export's copy are untouched:
-        #              the first is test-only and the second writes a file the
-        #              reader asked to save, after the work that made it;
+        #            - no key gateway: the OMR key is still built in, capped
+        #              at one Cloud Run instance (BACKLOG, the baked keys);
+        #            - no reviewer key: App Review needs one in the review
+        #              notes, and that is Ali's to supply at submission;
+        #            - the privacy policy's 0.15.0 wording is published only
+        #              once this build is on TestFlight;
         #            - NO OTHER CHANGE.
         #   0.14.0 A BOOK COMES IN AS A BOOK, AND COMES APART INTO ITS TUNES
         #          (2026-09-22). Scope written before the work. One feature
@@ -998,7 +1024,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 203
-        MARKETING_VERSION: 0.14.1
+        MARKETING_VERSION: 0.15.0
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds

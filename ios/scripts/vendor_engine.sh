@@ -2,6 +2,7 @@
 # Vendors the pure-Python engine into the iOS app tree.
 #   PythonApp/app/           bridge.py + scoranger_engine (copied from ../engine)
 #   PythonApp/app_packages/  music21 + pure-Python deps
+#   Licences/python/         each of those deps' licence text, by distribution
 # Re-run after changing engine code. Requires python3.14 on PATH (bytecode
 # magic must match the embedded 3.14 runtime).
 set -euo pipefail
@@ -10,6 +11,7 @@ cd "$(dirname "$0")/.."
 PY=../engine/.venv/bin/python
 APP=PythonApp/app
 PKGS=PythonApp/app_packages
+LICENCES=Licences/python
 
 rm -rf "$PKGS" "$APP/scoranger_engine"
 mkdir -p "$APP" "$PKGS"
@@ -88,6 +90,26 @@ CLOSURE
 # `test`, so keep all .py code and delete only the bundled score data.
 find "$PKGS/music21/corpus" -type f ! -name "*.py" -delete
 find "$PKGS/music21/corpus" -type d -empty -delete
+
+# Keep each package's licence text before its .dist-info goes. BSD-3, MIT,
+# Apache-2.0 and MPL-2.0 all require the notice to travel with a binary, and
+# deleting the whole .dist-info (it is mostly RECORD and WHEEL) took the
+# LICENSE with it until 0.15.0. Each lands in Licences/python/<distribution>/,
+# which the credits screen reads by the same name (Pipeline.Credit.text). A
+# package whose metadata carries no licence file stops the vendoring here,
+# rather than shipping without one.
+rm -rf "$LICENCES" && mkdir -p "$LICENCES"
+for info in "$PKGS"/*.dist-info; do
+  dist=$(basename "$info"); dist=${dist%%-*}
+  mkdir -p "$LICENCES/$dist"
+  find "$info" -type f \( -iname 'LICEN[CS]E*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+    -exec cp {} "$LICENCES/$dist/" \;
+  if [ -z "$(ls -A "$LICENCES/$dist")" ]; then
+    echo "vendor_engine: $dist ships no licence file in its metadata" >&2
+    exit 1
+  fi
+done
+echo "  licences: $(ls "$LICENCES" | tr '\n' ' ')"
 rm -rf "$PKGS"/*.dist-info "$PKGS/bin"
 
 # drop compiled speedups (mypyc darwin .so in chardet/charset_normalizer wheels)

@@ -67,10 +67,10 @@ for p in "${INPUTS[@]}"; do
   printf '  %-24s linked\n' "$p"
 done
 
-# These two are GENERATED rather than linked: vendor_engine.sh writes a
+# These three are GENERATED rather than linked: vendor_engine.sh writes a
 # snapshot of this worktree's own engine, and linking them would make every
 # worktree ship whichever engine the main checkout happens to be on.
-for p in ios/PythonApp/app_packages ios/PythonApp/app/scoranger_engine; do
+for p in ios/PythonApp/app_packages ios/Licences/python ios/PythonApp/app/scoranger_engine; do
   [[ -e "$p" ]] || { echo "  $p missing -- run ios/scripts/vendor_engine.sh"; missing=1; }
 done
 

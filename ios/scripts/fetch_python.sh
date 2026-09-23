@@ -31,3 +31,12 @@ open(p, 'w').write(src.replace(''',
         )''', ''))
 "
 fi
+# Liberation.css embeds Liberation Serif 1.04 (2007), which is GPLv2 with a
+# font exception -- the OFL came with Liberation 2.0 in 2012 -- and GPLv2 does
+# not sit inside an App Store app. Verovio reads it only when the
+# fontTextLiberation option is on, which nothing in the app sets: text is laid
+# out with the Times metrics in data/text. So it does not ship (Ali,
+# 2026-09-23), and deploy_testflight.sh refuses an archive that carries it.
+# This script stops early when Python is already fetched, so a checkout from
+# before 0.15.0 loses it by hand: rm ios/Vendor/verovio/data/Liberation.css
+rm -f Vendor/verovio/data/Liberation.css

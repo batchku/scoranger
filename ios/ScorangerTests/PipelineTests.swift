@@ -142,7 +142,11 @@ final class PipelineTests: XCTestCase {
     /// is not true.
     func testNothingIsCreditedThatTheAppDoesNotShip() {
         let names = Pipeline.credits.map(\.name).joined(separator: " | ")
-        for absent in ["OpenSheetMusicDisplay", "OSMD", "cairosvg", "MuseScore"] {
+        // SwiftProtobuf is in Package.resolved and links into nothing (checked
+        // against the build products for 0.15.0); Liberation's copy is not
+        // shipped, because it is GPLv2 (fetch_python.sh).
+        for absent in ["OpenSheetMusicDisplay", "OSMD", "cairosvg", "MuseScore",
+                       "SwiftProtobuf", "Liberation"] {
             XCTAssertFalse(names.contains(absent),
                            "\(absent) is not in the iPad app and must not be credited in it")
         }
@@ -181,6 +185,37 @@ final class PipelineTests: XCTestCase {
         for (name, licence) in expected {
             XCTAssertEqual(Pipeline.credits.first { $0.name == name }?.licence, licence,
                            "\(name) ships in app_packages and is credited wrongly or not at all")
+        }
+    }
+
+    /// Everything the app ships carries its licence text, from 0.15.0.
+    /// Only what is NOT in the app goes without: Audiveris runs on a server,
+    /// and OpenRouter is a service. deploy_testflight.sh checks that each of
+    /// these paths is in the archive.
+    func testEverythingShippedPointsAtALicenceTextAndNothingElseDoes() {
+        let notShipped: Set<String> = ["Audiveris", "OpenRouter"]
+        for credit in Pipeline.credits {
+            if notShipped.contains(credit.name) {
+                XCTAssertNil(credit.text, "\(credit.name) is not in the app; no text ships for it")
+            } else {
+                XCTAssertNotNil(credit.text, "\(credit.name) ships and its licence text does not")
+            }
+        }
+    }
+
+    /// Each Python package's text is where vendor_engine.sh puts it:
+    /// `Licences/python/<distribution>`, the distribution name as its .dist-info
+    /// spells it (charset_normalizer, not charset-normalizer).
+    func testEveryPythonPackagePointsAtTheLicenceTextThatShipsWithIt() {
+        let expected = ["music21": "music21", "pypdf": "pypdf", "requests": "requests",
+                        "urllib3": "urllib3", "certifi": "certifi", "idna": "idna",
+                        "chardet": "chardet", "charset-normalizer": "charset_normalizer",
+                        "joblib": "joblib", "jsonpickle": "jsonpickle",
+                        "more-itertools": "more_itertools", "webcolors": "webcolors"]
+        for (name, dist) in expected {
+            XCTAssertEqual(Pipeline.credits.first { $0.name == name }?.text,
+                           "Licences/python/\(dist)",
+                           "\(name) ships its licence text and the credit does not point at it")
         }
     }
 

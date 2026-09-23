@@ -479,7 +479,30 @@ earlier ones.
    implies on the sharing path. Mostly Ali's decisions and a document. It
    belongs here because it gets harder the more external testers hold the app.
 
-### Found while building 0.9.0: two licence texts that do not ship
+### Found while building 0.9.0: two licence texts that do not ship -- RESOLVED in 0.15.0
+
+Both gaps below are closed, and the audit found them to be the smaller part
+of it: apart from CPython and the sound bank, NO licence text shipped at all.
+From 0.15.0 every credited project the app ships carries its text in the
+bundle (`ios/Licences/`, provenance in its README.md), readable from the
+credits screen, and deploy_testflight.sh refuses an archive missing one. Two
+things the audit changed besides: Liberation.css (GPLv2, never loaded) no
+longer ships, and the credits now follow the build products (SwiftProtobuf
+out, AppCheckCore and RecaptchaInterop in). What is left:
+
+- **`vendor_engine.sh` installs the Python packages UNPINNED** -- `pip install
+  --target` takes whatever PyPI has today. The 0.15.0 vendoring matched build
+  203 byte for byte (pypdf 6.19.0, urllib3 2.8.0, while the engine venv runs
+  6.15.0 and 2.7.0), so the app and the desktop engine already run different
+  versions, and the next vendoring can move the app's without anyone choosing
+  to. Pin them in a requirements file both read. Not changed in 0.15.0: a pin
+  is a decision, and it needs a gate of its own.
+- **midifile's text is upstream master**, because Verovio's copy carries no
+  notice and does not record which version it took.
+- **The tracked texts are copied at a version** and do not follow a
+  dependency that moves. Licences/README.md says so; nothing checks it.
+
+The original entry, as written:
 
 Building Settings -> "How Scoranger works" meant auditing what the app
 actually carries, against `ios/project.yml`, `Package.resolved`, the vendored

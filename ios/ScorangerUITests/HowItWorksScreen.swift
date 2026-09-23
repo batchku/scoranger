@@ -130,4 +130,39 @@ final class HowItWorksScreen: XCTestCase {
             app.terminate()
         }
     }
+
+    /// A licence text the screen offers is IN the bundle and reads back on
+    /// screen (0.15.0). The unit tests hold the paths to the data and
+    /// deploy_testflight.sh holds them to the archive; this is the one check
+    /// that the sheet actually finds a folder at runtime, for one credit from
+    /// each source: vendor_engine.sh's Python texts, the tracked Licences/
+    /// tree, and a single file at the bundle root.
+    func testALicenceTextOpensFromTheCreditsAndReads() {
+        guard let app = openTheSection("UICTContentSizeCategoryL", size: "large") else { return }
+        let cases = [("music21", "Redistribution and use"),
+                     ("Verovio", "GNU GENERAL PUBLIC LICENSE"),
+                     ("Inter", "SIL OPEN FONT LICENSE")]
+        for (name, phrase) in cases {
+            let open = app.buttons["licence-\(name)"]
+            var swipes = 0
+            while !(open.exists && open.isHittable) && swipes < 20 {
+                app.swipeUp()
+                swipes += 1
+            }
+            XCTAssertTrue(open.isHittable, "no Read the licence for \(name)")
+            open.tap()
+            let sheet = app.descendants(matching: .any)["licence-sheet"]
+            XCTAssertTrue(sheet.waitForExistence(timeout: 10), "\(name)'s licence did not open")
+            let text = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", phrase))
+            XCTAssertTrue(text.firstMatch.waitForExistence(timeout: 10),
+                          "\(name)'s sheet does not show its licence")
+            XCTAssertFalse(app.staticTexts.containing(
+                NSPredicate(format: "label BEGINSWITH %@", "This build is missing")).firstMatch.exists,
+                           "\(name)'s licence text is missing from the bundle")
+            snap("licence-\(name)")
+            app.buttons["Done"].tap()
+            XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+        }
+        app.terminate()
+    }
 }

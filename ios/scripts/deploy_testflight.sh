@@ -38,6 +38,7 @@ PY=$(python_with_cryptography)
 # gitignored build inputs that a fresh clone will not have
 [[ -d "Vendor/Python.xcframework" ]] || die "Vendor/Python.xcframework missing -- run scripts/fetch_python.sh"
 [[ -d "PythonApp/app_packages" ]]    || die "PythonApp/app_packages missing -- run scripts/vendor_engine.sh"
+[[ -d "Licences/python" ]]           || die "Licences/python missing -- run scripts/vendor_engine.sh"
 
 # The General MIDI bank. Gitignored and fetched, like the two above -- and a
 # missing one is the SILENT failure of the set: the app builds, archives,
@@ -353,6 +354,38 @@ if grep -rlE 'sk-or-v1-[0-9a-f]{20,}' "$ARCHIVED_APP" > /dev/null 2>&1; then
      Chat brings its own key; nothing in the bundle may carry one."
 fi
 say "no OpenRouter key anywhere in the archive"
+
+# EVERY LICENCE TEXT THE CREDITS SCREEN OFFERS IS IN THE ARCHIVE (0.15.0), and
+# every Python package that ships has one. vendor_engine.sh deleted each
+# package's .dist-info, LICENSE and all, until 0.15.0; BSD-3, MIT, Apache-2.0
+# and MPL-2.0 require the notice to travel with the binary. The paths are read
+# out of Pipeline.swift, the one list the screen itself draws from.
+PIPELINE=Scoranger/ScoreModel/Pipeline.swift
+texts=$(grep -oE 'text: "[^"]+"' "$PIPELINE" | sed -E 's/text: "(.*)"/\1/')
+[[ -n "$texts" ]] || die "no credit in $PIPELINE points at a licence text -- the
+     check below would pass on nothing"
+while read -r text; do
+  [[ -e "$ARCHIVED_APP/$text" ]] || die "the credits screen offers $text and the
+     archived app does not carry it. Run scripts/vendor_engine.sh, or fix the
+     credit's path in $PIPELINE."
+done <<< "$texts"
+for pkg in "$ARCHIVED_APP"/app_packages/*/; do
+  name=$(basename "$pkg")
+  [[ "$name" == __pycache__ ]] && continue
+  [[ -n "$(ls -A "$ARCHIVED_APP/Licences/python/$name" 2>/dev/null)" ]] || die "app_packages/$name
+     ships without its licence text in Licences/python/$name. Run scripts/vendor_engine.sh."
+done
+say "every licence text the credits offer is in the archive, one per Python package"
+
+# Verovio's data/Liberation.css embeds Liberation Serif 1.04, which is GPLv2
+# with a font exception, and the app never loads it. fetch_python.sh removes
+# it; an older checkout, or a Verovio re-fetched by hand, would bring it back.
+if find "$ARCHIVED_APP" -name Liberation.css | grep -q .; then
+  die "the archived app carries Verovio's Liberation.css (Liberation Serif 1.04,
+     GPLv2). Remove it: rm Vendor/verovio/data/Liberation.css, then archive again.
+     See Licences/README.md."
+fi
+say "no GPLv2 font in the archive"
 
 # ------------------------------------------------------- export and upload
 say "exporting and uploading to TestFlight"
