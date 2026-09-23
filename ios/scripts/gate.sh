@@ -219,6 +219,16 @@ ENGINE_SERIAL=(
   # AND meaningful. That one FAILS when it runs alone, so serialising it would
   # only have turned every gate red.
   "ScorangerUITests/ScorangerUITests/testTheChordSymbolsScreenCarriesTheDefaultAndTheLadder()"
+  # Same class, found on the 0.14.0 gate: it imports a twelve-page book and
+  # waits for the tunes `book-detect` finds, both through the embedded Python
+  # engine. Under four workers XCTest could not snapshot the app for 30s
+  # ("main thread busy"); alone it passes in 19.7s, and again in 20.9s with
+  # every core loaded. The engine calls and the OCR are off the main thread
+  # in the code, and a sampled stack caught nothing, so this is the starvation
+  # this list is for -- ON THAT EVIDENCE, not proven. If it ever fails here,
+  # one at a time, the diagnosis was wrong and the app is blocking its main
+  # thread; say so and look at BookScreen before anything else.
+  "ScorangerUITests/BookShareIn/testASharedBookIsAskedAboutFoundKeptAndRead()"
   # The tray's knobs come from the playback timeline, which is another engine
   # call. Solo it passes in ~27s, twice out of twice; under four workers it
   # found ZERO strips and said so rather than passing vacuously -- the
