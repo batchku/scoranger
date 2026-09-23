@@ -13,6 +13,18 @@ SERIAL phase, the starvation diagnosis (gate.sh, ENGINE_SERIAL) was wrong. Look
 first at the first `BookPageView` raster for the book, which happens while the
 review is building, then at these copies.
 
+**The copies were not it.** The first 0.15.0 gate, with the copies already off
+the main thread, failed a sibling test the same way in the pool (main thread
+"busy" 30s from New book to the review). Its two siblings are serial now, on
+the evidence in gate.sh: 1.1s alone, 1.1s alone with every core saturated,
+and a sampled main thread that was idle except for a 42 ms wait on dyld's
+loader lock inside `os_log` while Python loaded an extension framework.
+**Worth knowing beyond the gate:** that is a real way for the UI to stall --
+any `os_log` on the main thread waits while the engine's first imports
+dlopen their frameworks. 42 ms is nothing; on an old iPad at first launch it
+has not been measured. Preloading the engine's imports before the library
+appears would remove it either way.
+
 ## The baked keys -- the CHAT half is resolved (0.15.0); the OMR half is open
 
 **Chat brings its own key from 0.15.0** (Ali, 2026-09-23), so the OpenRouter

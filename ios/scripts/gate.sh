@@ -229,6 +229,20 @@ ENGINE_SERIAL=(
   # one at a time, the diagnosis was wrong and the app is blocking its main
   # thread; say so and look at BookScreen before anything else.
   "ScorangerUITests/BookShareIn/testASharedBookIsAskedAboutFoundKeptAndRead()"
+  # Its two siblings, from the first 0.15.0 gate: testTakingTheTunesOut...
+  # failed in the POOL the same way ("main thread busy for 30.0s" from the
+  # tap on New book until the review), while the test above passed HERE,
+  # serial, for the second gate running. Measured 2026-09-23 on the gate's
+  # own build: alone, tap to review 1.1s; alone with all 18 cores saturated,
+  # 1.1s again. A 1 ms sample of the app's main thread across the whole run
+  # found it idle but for a 42 ms wait on dyld's loader lock, taken inside
+  # os_log while another thread loads a library -- Python loading its
+  # extension frameworks. That wait stretching under four simulators each
+  # loading ~70 frameworks is the live explanation, and it is a HOST effect,
+  # not an app that blocks its main thread. Same evidence, same rule: if
+  # these fail HERE, the diagnosis is wrong.
+  "ScorangerUITests/BookShareIn/testTakingTheTunesOutMakesAPieceForEach()"
+  "ScorangerUITests/BookShareIn/testAScannedBooksTunesAreReadFromItsPages()"
   # The tray's knobs come from the playback timeline, which is another engine
   # call. Solo it passes in ~27s, twice out of twice; under four workers it
   # found ZERO strips and said so rather than passing vacuously -- the
