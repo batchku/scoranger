@@ -1,5 +1,42 @@
 # Backlog
 
+## The baked keys -- next build, before any public submission
+
+**What is exposed.** The build step bakes the repo `.env`'s OpenRouter key into
+the app bundle as `openrouter-default-key.txt` (`project.yml`, "Bake OpenRouter
+key"), and `LocalChat.swift` falls back to it whenever a reader has not entered
+their own -- which is nearly everyone. The OMR service's shared key is baked the
+same way (`AppState.bakedOMRKey`). An .ipa is a zip: anyone who downloads
+Scoranger can read both in half a minute, and both work from `curl`, unrelated
+to the app. Confirmed in the build 201 archive, 2026-09-22. Not an App Review
+rejection; a cost and abuse exposure that grows with every download.
+
+**Do now, whatever is built:** rotate both keys (the OMR one was printed into a
+session transcript on 2026-09-22), and set a hard monthly spend cap on the
+OpenRouter account.
+
+**The fix is a proxy the keys live behind, and it must NOT be Firebase App
+Check.** App Check was recommended first and chosen on that recommendation;
+it breaks a written rule. design/FIREBASE.md: "Signed out, the app makes no
+Firebase contact of any kind. Not anonymous auth, not App Check, not a
+configuration call." -- and check_signed_out.py enforces it.
+
+The version that keeps the rule: a small Cloud Run gateway holding BOTH keys in
+Secret Manager, fronting OpenRouter and the OMR service, and admitting only the
+real app by **Apple App Attest, verified directly** (DeviceCheck's
+`DCAppAttestService` on the device; attestation checked against Apple's root on
+the server, then a signed assertion per request). No Firebase, no Google SDK in
+the app. A signed-out reader's chat and scans already leave the device, for
+OpenRouter and for our Cloud Run; they would go to our gateway instead, so no
+new category of contact. The privacy policy then needs one sentence -- chat
+passes through our server on its way to OpenRouter -- and the gateway must log
+no request bodies.
+
+Decisions for Ali before it starts: App Attest is unavailable in the Simulator
+and on some older devices, so the gateway needs a policy for those (refuse, or
+a rate-limited unattested lane); and whether a reader's OWN OpenRouter key
+bypasses the gateway entirely, as it bypasses the baked one today.
+
 ## Staff spacing and the whistle band -- what 0.13.0 does NOT do
 
 `staff-spacing` and the packed fingering band shipped in 0.13.0. Left open,

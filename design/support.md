@@ -23,7 +23,7 @@ guess at it. Every change makes a new version, and you can always go back.
 
 ## Get help
 
-**[EMAIL ADDRESS]**
+**batchku@gmail.com**
 
 Tell us what you were doing, what you expected and what happened, and the
 version of Scoranger you are on. The version is in **Settings**, in the About

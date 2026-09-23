@@ -28,5 +28,19 @@
       "codebase": "default",
       "runtime": "nodejs22"
     }
-  ]
+  ],
+  "hosting": {
+    "public": "hosting",
+    "headers": [
+      {
+        "source": "/.well-known/**",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,13 +1,16 @@
 # Scoranger privacy policy
 
-*Draft for the App Store Privacy Policy URL. Not published by this document.
-Before it goes live, fill in the three bracketed placeholders and resolve the
-two unknowns flagged at the bottom of `design/APP_STORE_PRIVACY.md`. Every
-factual claim below is traceable to that inventory.*
+*Source for the page at https://scoranger.web.app/privacy/ -- rendered by
+`firebase/build_hosting.sh`, which refuses while any bracketed placeholder
+remains. Every factual claim below is traceable to `design/APP_STORE_PRIVACY.md`.
+Amended 2026-09-22 to the code in 0.13.0: the chat no longer sends earlier
+prompts, dictation is on-device only, and the scan log carries no email
+address. Log retention (30 days) and the OpenRouter settings (logging and
+training off) were confirmed that day.*
 
 ---
 
-**Last updated: [DATE]**
+**Last updated: 22 September 2026**
 
 Scoranger is made by IRL Labs LLC. This page says what Scoranger does with your
 music and your information. It is short because Scoranger does very little with
@@ -53,8 +56,9 @@ actually handles the request.
 - the key and time signatures;
 - if you have selected something on the page, what you selected;
 - the rest of that conversation, so the model can follow it;
-- and, when the model looks up your arrangement's history, the names of the
-  files behind it and the first 200 characters of things you asked earlier.
+- and, when the model looks up your arrangement's history, what made each
+  earlier version -- the operation and its settings, such as "transpose up a
+  tone" -- and nothing you typed.
 
 **What does not go:** the notation itself. No MusicXML, no MEI, no PDF, no
 image of a page, no audio, and none of your pencil marks. The model is told
@@ -64,16 +68,18 @@ about your score; it is never given it.
 device identifier is sent with a chat message. OpenRouter sees a request from
 your internet connection, on an account belonging to us, and that is all.
 
-We do not control what OpenRouter or the model company behind it keeps. Their
-privacy policies govern that, not this one.
-*[Before publishing: confirm the retention and training settings on the
-OpenRouter account and state them here plainly. If logging is on, say so.]*
+On the OpenRouter account Scoranger uses, **prompt logging is turned off and
+so is the setting that allows model companies to train on what is sent**. So
+OpenRouter does not store the text of your messages, and does not route them
+to a company that trains on them. The model company that answers may still
+keep a request for a time under its own policy; we do not control that, and
+their privacy policies govern it, not this one.
 
-**Dictation.** The microphone button in the chat uses Apple's speech
-recognition. Apple's speech recognition can send what you say to Apple's
-servers to turn it into text. That is Apple's system and Apple's policy, and
-nothing about your Scoranger account goes with it. Once it is text, it goes
-wherever your typed messages go.
+**Dictation.** The microphone button in the chat turns what you say into text
+on your iPad, using Apple's on-device speech recognition. **The audio never
+leaves the device.** If your iPad cannot do that for the language it is set
+to, the chat field says so and dictation does nothing, rather than sending your
+voice anywhere. Once it is text, it goes wherever your typed messages go.
 
 ## Scanning a page
 
@@ -89,22 +95,19 @@ no title, no device identifier. The server reads it and sends back the
 notation. The uploaded page is held in temporary storage for up to an hour and
 then deleted, and it is never written to any permanent store.
 
-**If you are signed in, we log who asked.** Every conversion writes one line to
-our server log recording your account's identifier, **your email address**, how
-many pages, how long it took and whether it worked. We do this to know what
-scanning costs us per person, because it is the only part of Scoranger we pay
-for by the page. If you are signed out, that line says "unattributed" and
-carries no address.
+**If you are signed in, we log which account asked.** Every conversion writes
+one line to our server log recording your account's identifier -- a random
+string, not your name and **never your email address** -- how many pages, how
+long it took and whether it worked. We do this to know what scanning costs us
+per person, because it is the only part of Scoranger we pay for by the page.
+If you are signed out, that line says "anonymous" and carries no identifier.
 
 Be aware of two things about that log. First, when a page cannot be read, the
 last part of the reader's own output is written to the log too, and that output
-can contain words the reader recognised on your page. Second, **deleting your
-account does not erase these log lines.** They live in a different system from
-your account data. We are working on that; until it is fixed, this page says so
-rather than implying otherwise.
-
-*[Before publishing: state how long these logs are kept. It is a Google Cloud
-setting and it needs a number here.]*
+can contain words the reader recognised on your page. Second, **these lines
+are kept for 30 days and then deleted.** Deleting your account does not remove
+them sooner -- they live in a different system from your account -- but they
+name an account only by that random string.
 
 ## An account, and sharing with your band
 
@@ -160,15 +163,15 @@ share. Nothing is readable by anyone outside the set list it belongs to.
 |---|---|
 | Your library on the iPad | Until you delete it. It is yours and it is local. |
 | A page uploaded for scanning | Up to one hour in temporary storage, then deleted. |
-| Scan cost log lines (identifier, email address) | *[state the Google Cloud Logging retention here]* |
+| Scan log lines (an account identifier, never an email address) | 30 days, then deleted. |
 | Your account, set lists, shared files and marks | Until you delete your account or leave the set list. |
 | An invitation you sent | Seven days, then it expires. A used one is kept as a record of who joined. |
 | Chat messages | We keep none. What OpenRouter and the model company keep is theirs to say. |
 
 ## Deleting your account
 
-**Settings → Account → Delete my account.** It is in the app, it takes two
-taps, and there is nobody to email.
+**Settings → Account, under Careful → Delete my account.** It is in the app,
+it takes two taps, and there is nobody to email.
 
 What happens:
 
@@ -192,8 +195,9 @@ Two things we keep, and we would rather tell you than not:
   not deleted, so the person who owns that set list keeps the record of who was
   invited and who used it. Those records still carry your old account
   identifier.
-- **The scan cost log lines described above**, which include your email
-  address. Account deletion does not currently reach them.
+- **The scan log lines described above**, for up to 30 days. They carry your
+  old account identifier and no email address, and they are deleted when the
+  30 days are up.
 
 ## Children
 
@@ -221,6 +225,6 @@ will say so. The date at the top is the last time it changed.
 
 Questions about anything on this page, or a request about your data:
 
-**[EMAIL ADDRESS]**
+**batchku@gmail.com**
 
 IRL Labs LLC

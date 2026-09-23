@@ -1,0 +1,12 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["V9DBGV72NL.com.irllabs.scoranger"],
+        "components": [
+          { "/": "/invite/*", "comment": "a shared set list invitation" }
+        ]
+      }
+    ]
+  }
+}

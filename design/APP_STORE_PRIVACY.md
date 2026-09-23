@@ -911,13 +911,13 @@ the release gate.
 
 | # | Unknown | Why | Who resolves it |
 |---|---|---|---|
-| 1 | Google Cloud Logging retention for the OMR usage records that contain uid and email | No log router, bucket or retention policy anywhere in the repo; it is whatever the GCP project's `_Default` bucket says | Ali, in the GCP console. The privacy policy needs this number. |
-| 2 | Whether logging and training are disabled on the OpenRouter account behind the baked key | Dashboard setting, not in the repo | Ali, in the OpenRouter dashboard. The privacy policy makes a claim about this. |
+| 1 | ~~Google Cloud Logging retention for the OMR usage records~~ | **RESOLVED 2026-09-22: 30 days.** Project `scoranger-omr`, bucket `_Default`, no custom sinks or routers (`_Required` is Google's fixed 400 days and holds admin activity, not app logs). Read with `gcloud logging buckets list`. | The policy now says 30 days. |
+| 2 | ~~Whether logging and training are disabled on the OpenRouter account~~ | **RESOLVED 2026-09-22: both off**, confirmed by Ali in the OpenRouter dashboard. | The policy now states it. |
 | 3 | Which upstream provider serves a given chat request | OpenRouter routes at call time; no provider block is sent | Not resolvable in code. State it as "may vary" in the policy. |
-| 4 | The GCP project **ID** for the Cloud Run deployment | `deploy.sh` uses ambient `gcloud` config; only the project *number* appears | Ali |
-| 5 | Whether `FIREBASE_PROJECT_ID` is set on the live Cloud Run revision | Set out of band, never committed. If unset, jobs log as `unattributed` with `email: null`, which is *less* data, not more | Ali |
+| 4 | ~~The GCP project ID for the Cloud Run deployment~~ | **RESOLVED 2026-09-22: `scoranger-omr`**, service `scoranger-omr`, region `us-central1`. | -- |
+| 5 | ~~Whether `FIREBASE_PROJECT_ID` is set on the live Cloud Run revision~~ | **RESOLVED 2026-09-22: it was NOT set** -- the only env var was `OMR_API_KEY`. So the live service could not verify tokens and every job logged unattributed. Set at the 0.13.0 OMR deploy (`--update-env-vars`, which merges), with the code that never logs an email. | -- |
 | 6 | Runtime network behaviour of each linked SDK | No traffic capture was performed; linkage and SDK manifests only | A proxy capture, if ever needed |
-| 7 | Whether the shipped release archive actually contains a baked OpenRouter key | The bake step is conditional on `.env` existing; local artifacts contain it, which says nothing about the release | Ali, by inspecting the uploaded archive |
+| 7 | ~~Whether the shipped release archive contains a baked OpenRouter key~~ | **RESOLVED 2026-09-22: YES.** `openrouter-default-key.txt`, 73 bytes, `sk-or-v1-...`, in the build 201 app bundle -- readable by anyone who unzips the .ipa, and usable from anywhere. The OMR key is baked the same way. **Fix planned as its own build before public submission: a server proxy holding both keys, with Firebase App Check**, so the keys never ship and "no account required" survives. Rotate both keys now. | Not an App Review rejection; a cost and abuse exposure that grows with every download. |
 | 8 | Minimum-age terms of OpenRouter and the upstream model providers | Not checked | Counsel, with §9 |
 | 9 | Scoranger's App Store age rating and whether it will be in the Kids Category | Nothing in this repository records it | Ali, with §9 |
 
