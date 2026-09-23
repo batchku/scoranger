@@ -1,18 +1,12 @@
 # Backlog
 
-## Book import: two file copies on the main thread (found in the 0.14.0 gate)
+## Book import: file copies on the main thread -- FIXED in 0.14.1
 
-`AppState.holdIncoming` and `AppState.importBook` run `FileManager.copyItem`
-on the main actor (AppState is @MainActor, and both run in Tasks that inherit
-it). Found by the Book import session while diagnosing the 0.14.0 gate's one
-failure, and not the cause of it. Fix: run each copy in `Task.detached` and
-await it -- two functions, nothing else.
-
-Shipped in 0.14.0 on purpose, not missed: inside one APFS volume, as the
-share-in path is, `copyItem` is a copy-on-write clone and near-instant at any
-size, and even a real 28 MB copy from another volume is ~30-150 ms on an
-iPad's storage -- a hitch, not a freeze. Folding it in meant discarding a gate
-already half run.
+Found diagnosing the 0.14.0 gate's one failure, and not its cause. Shipped in
+0.14.0 on purpose: within one APFS volume `copyItem` is a clone, and a 28 MB
+copy from another volume is ~30-150 ms -- a hitch, not a freeze. 0.14.1 routes
+all FIVE incoming copies (share-in, book, PDF, score, bundle -- not the two
+first named) through `IncomingCopy.make`, detached and awaited.
 
 If `BookShareIn/testASharedBookIsAskedAboutFoundKeptAndRead` ever fails in the
 SERIAL phase, the starvation diagnosis (gate.sh, ENGINE_SERIAL) was wrong. Look

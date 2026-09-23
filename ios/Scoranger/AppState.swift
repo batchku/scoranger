@@ -2302,8 +2302,7 @@ final class AppState: ObservableObject {
             do {
                 let tmp = FileManager.default.temporaryDirectory
                     .appending(path: url.lastPathComponent)
-                try? FileManager.default.removeItem(at: tmp)
-                try FileManager.default.copyItem(at: url, to: tmp)
+                try await IncomingCopy.make(url, at: tmp)
                 updatePending(pending.id, stage: BookImportStage.reading, fraction: nil)
                 let slug = try await local.importBook(fileURL: tmp, name: name)
                 try? FileManager.default.removeItem(at: tmp)
@@ -2417,12 +2416,16 @@ final class AppState: ObservableObject {
         }
         // Hold the file past the call: a security-scoped URL from another
         // app's share sheet is only good while it is being accessed.
-        let held = holdIncoming(url) ?? url
-        if var offer = importOffer {
-            offer.urls.append(held)
-            importOffer = offer
-        } else {
-            importOffer = ImportOffer(urls: [held])
+        // The offer appears once the copy is made -- off the main thread, so
+        // a big file arriving does not stall the screen (0.14.1).
+        Task {
+            let held = await holdIncoming(url) ?? url
+            if var offer = importOffer {
+                offer.urls.append(held)
+                importOffer = offer
+            } else {
+                importOffer = ImportOffer(urls: [held])
+            }
         }
     }
 
@@ -2446,15 +2449,14 @@ final class AppState: ObservableObject {
 
     /// A copy of an incoming file in our own temporary directory, so the offer
     /// can wait on the reader without depending on the sender's grant.
-    private func holdIncoming(_ url: URL) -> URL? {
+    private func holdIncoming(_ url: URL) async -> URL? {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let dir = FileManager.default.temporaryDirectory.appending(path: "incoming")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let copy = dir.appending(path: url.lastPathComponent)
-        try? FileManager.default.removeItem(at: copy)
         do {
-            try FileManager.default.copyItem(at: url, to: copy)
+            try await IncomingCopy.make(url, at: copy)
             return copy
         } catch {
             return nil
@@ -2521,9 +2523,8 @@ final class AppState: ObservableObject {
             .appending(path: "bundles", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
         let local = inbox.appending(path: url.lastPathComponent)
-        try? FileManager.default.removeItem(at: local)
         do {
-            try FileManager.default.copyItem(at: url, to: local)
+            try await IncomingCopy.make(url, at: local)
         } catch {
             notice = "Couldn't read that bundle: \(error.localizedDescription)"
             return
@@ -2667,8 +2668,7 @@ final class AppState: ObservableObject {
             do {
                 let tmp = FileManager.default.temporaryDirectory
                     .appending(path: url.lastPathComponent)
-                try? FileManager.default.removeItem(at: tmp)
-                try FileManager.default.copyItem(at: url, to: tmp)
+                try await IncomingCopy.make(url, at: tmp)
                 let name = url.deletingPathExtension().lastPathComponent
                 let slug = try await local.importPDF(fileURL: tmp, name: name, piece: piece)
                 try? FileManager.default.removeItem(at: tmp)
@@ -3036,8 +3036,7 @@ final class AppState: ObservableObject {
             do {
                 let tmp = FileManager.default.temporaryDirectory
                     .appending(path: url.lastPathComponent)
-                try? FileManager.default.removeItem(at: tmp)
-                try FileManager.default.copyItem(at: url, to: tmp)
+                try await IncomingCopy.make(url, at: tmp)
                 let name = url.deletingPathExtension().lastPathComponent
                 let slug = try await local.importScore(fileURL: tmp, name: name, piece: piece)
                 try? FileManager.default.removeItem(at: tmp)

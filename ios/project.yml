@@ -234,6 +234,23 @@ targets:
         #          asked for as one build: "build all of these necessary
         #          features for sharing playlists into the first 7.0 build."
         #          §11.9 records the difference, including what was left out.
+        #   0.14.1 AN INCOMING FILE IS COPIED OFF THE MAIN THREAD (2026-09-22).
+        #          Scope written before the work. One fix, so the patch bumps.
+        #
+        #          In this build:
+        #            1. Every import path that takes a private copy of an
+        #               incoming file -- share-in (holdIncoming), a book, a
+        #               PDF, a score, a bundle -- ran FileManager.copyItem on
+        #               the main actor. Found diagnosing the 0.14.0 gate's one
+        #               failure and not its cause (BACKLOG). Within one volume
+        #               it is a clone and costs nothing; from another volume a
+        #               28 MB tunebook is a visible hitch. All five now copy
+        #               through one helper that runs detached and is awaited.
+        #          NOT in this build, and said before it starts:
+        #            - the DEBUG inbox seed and export's copy are untouched:
+        #              the first is test-only and the second writes a file the
+        #              reader asked to save, after the work that made it;
+        #            - NO OTHER CHANGE.
         #   0.14.0 A BOOK COMES IN AS A BOOK, AND COMES APART INTO ITS TUNES
         #          (2026-09-22). Scope written before the work. One feature
         #          and one fix it depends on, so the minor bumps once.
@@ -981,7 +998,7 @@ targets:
         # has no Firebase configuration". deploy_testflight.sh now refuses such
         # an archive outright.
         CURRENT_PROJECT_VERSION: 203
-        MARKETING_VERSION: 0.14.0
+        MARKETING_VERSION: 0.14.1
         SWIFT_VERSION: 5.10
         SWIFT_OBJC_BRIDGING_HEADER: Scoranger/PythonBridge/PythonBridge.h
         # BeeWare's install_python copies lib-$ARCHS, which requires single-arch builds
