@@ -273,6 +273,17 @@ targets:
         #               page in behind them. Images the page never draws and
         #               links to pages it no longer has are dropped: 176 KB,
         #               same content stream, same image bytes.
+        #          And from the release merge (rel/0.13.0 into this, written
+        #          when the merge was made, not before the work):
+        #            4. THE ROTATED OMR KEY. The service's key moved into
+        #               Secret Manager and the old one was retired on
+        #               2026-09-22, so builds 201 and 202 CANNOT SCAN AT ALL
+        #               -- the key is checked on every poll and fetch, signed
+        #               in or not. This is the first build that bakes the new
+        #               one, from the repo's .omr-api-key. Installing it is
+        #               what brings scanning back. Its value is as readable in
+        #               this .ipa as the old one was; BACKLOG's App Attest
+        #               gateway is what stops that.
         #          NOT in this build, and said before it starts:
         #            - TWO TUNES ON ONE PAGE stay one arrangement: the split is
         #              by page. Fiddle books do this constantly; BACKLOG;
